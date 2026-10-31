@@ -1731,7 +1731,22 @@ export interface RequesterClientOptions extends SessionTimeoutOptions {
    */
   allowUnencryptedEnvelopes?: boolean;
 }
+/** Resolved action reviewed before any session envelope is transmitted. */
+export interface BeforeProposeContext {
+  manifest: TaskManifest;
+  input: Json;
+  relay: string;
+  signal: AbortSignal;
+}
+function freezeApprovalAction<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeApprovalAction(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 export interface DelegateOptions extends SessionTimeoutOptions {
+  beforePropose?: (action: BeforeProposeContext) => Promise<void>;
   to: string;
   discover?: { skillId?: string; taskType?: string };
   relay?: RelayTransport | string;
@@ -1803,6 +1818,7 @@ export interface DelegateMultiResult {
   cancelled: string[];
 }
 export interface DelegateMultiOptions extends SessionTimeoutOptions {
+  beforePropose?: DelegateOptions['beforePropose'];
   workers: DelegateWorkerTarget[];
   mode: 'race' | 'quorum';
   quorumSize?: number;
@@ -1935,6 +1951,13 @@ export class RequesterClient {
       onDelivered?: () => void;
     },
   ): Promise<SessionResult> {
+    // Retain the reviewed values even if the caller changes its objects while awaiting consent.
+    if (options.beforePropose) options = { ...options,
+      input: structuredClone(options.input), manifest: options.manifest && structuredClone(options.manifest),
+      budget: options.budget && structuredClone(options.budget),
+      outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+      capabilities: options.capabilities && structuredClone(options.capabilities),
+    };
     const timeoutOptions = resolveSessionTimeouts(this.options, options);
     validateSessionTimeouts(timeoutOptions);
     if (timeoutOptions.executionTimeoutMs !== undefined && timeoutOptions.executionTimeoutMs < 1000)
@@ -2016,6 +2039,29 @@ export class RequesterClient {
         manifest.verification = { ...manifest.verification, requireExecutionAttestation: true };
     }
     if (!validateOutput(manifest.io.inputSchema, options.input)) throw new Error('INPUT_SCHEMA');
+    if (options.beforePropose) {
+      const approvalSignal = AbortSignal.any([
+        AbortSignal.timeout(Math.max(0, Date.parse(manifest.deadline) - Date.now())),
+        ...(options.signal ? [options.signal] : []),
+      ]);
+      try {
+        await abortable(options.beforePropose({
+          manifest: freezeApprovalAction(manifest), input: freezeApprovalAction(options.input),
+          relay: typeof relayOption === 'string' ? relayOption
+            : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport',
+          signal: approvalSignal,
+        }), approvalSignal);
+        approvalSignal.throwIfAborted();
+      } catch (error) {
+        if (approvalSignal.aborted)
+          throw new Error(options.signal?.aborted ? 'APPROVAL_ABORTED' : 'APPROVAL_TIMEOUT');
+        throw error;
+      }
+      if (invite) parseAndVerifyInviteToken(options.to, Date.now(), {
+        allowPrivateRelay: this.options.allowPrivateRelay,
+      });
+      if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('APPROVAL_TIMEOUT');
+    }
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
     const bridge = new AbortController();
@@ -2141,6 +2187,7 @@ export class RequesterClient {
           gate: 'final_verification',
           target: data,
           details: { manifest, deliverableDigest: data.artifact.payload.digest },
+          deadline: manifest.deadline,
           signal,
         });
       const { result, verification, settlement } = await abortable(gateway.verifyAndSettle(
@@ -2269,6 +2316,8 @@ export class RequesterClient {
     const receipts: DelegateReceipt[] = [];
     const incompleteReceipts: IncompleteDelegateReceipt[] = [];
     let failures = 0;
+    const approvalFailures: Error[] = [];
+    const allApprovalFailed = () => approvalFailures.length === count ? approvalFailures[0] : undefined;
     let winnerDigest: string | undefined;
     const abortUnfinished = (reason: string) => {
       controllers.forEach((controller, index) => {
@@ -2306,6 +2355,7 @@ export class RequesterClient {
           minimumIsolationLevel: options.minimumIsolationLevel,
           signal,
           onProgress: options.onProgress,
+          beforePropose: options.beforePropose,
           auditPath: options.auditPath
             ? options.auditPath.replace(/(\.jsonl)?$/, '.' + index + '.jsonl')
             : undefined,
@@ -2338,6 +2388,8 @@ export class RequesterClient {
       } catch (error) {
         if (error instanceof IncompleteSettlementError)
           incompleteReceipts.push(error.incompleteReceipt);
+        if (options.beforePropose && error instanceof Error && error.message.startsWith('APPROVAL_'))
+          approvalFailures.push(error);
         finished[index] = true;
         failures += 1;
         if (options.mode === 'quorum' && !winnerDigest && failures > count - quorumSize)
@@ -2352,7 +2404,7 @@ export class RequesterClient {
       try {
         winner = await Promise.any(jobs);
       } catch {
-        throw Object.assign(new Error('RACE_FAILED'), { receipts, incompleteReceipts });
+        throw Object.assign(allApprovalFailed() ?? new Error('RACE_FAILED'), { receipts, incompleteReceipts });
       }
       abortUnfinished('RACE_LOST');
       await Promise.allSettled(jobs);
@@ -2378,7 +2430,7 @@ export class RequesterClient {
       };
     }
     await Promise.allSettled(jobs);
-    if (!winnerDigest) throw Object.assign(new Error('QUORUM_NOT_REACHED'), { receipts, incompleteReceipts });
+    if (!winnerDigest) throw Object.assign(allApprovalFailed() ?? new Error('QUORUM_NOT_REACHED'), { receipts, incompleteReceipts });
     const seenWinners = new Set<string>();
     const winners = receipts.filter((receipt) => {
       if (receipt.outputDigest !== winnerDigest || seenWinners.has(receipt.workerDid)) return false;

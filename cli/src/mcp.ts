@@ -56,6 +56,7 @@ export interface ParsedMcpServerArgs {
   allowedWorkerDids?: string[];
   allowedRelayUrls?: string[];
   allowPrivateRelay: boolean;
+  /** --require-approval selects advertised MCP form elicitation, never terminal input. */
   requireInteractiveApproval: boolean;
   approvalWebhookUrl?: string;
 }
