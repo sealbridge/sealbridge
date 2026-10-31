@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { realpathSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,7 @@ import { networkCommand } from '../cli/src/network.js';
 import { RequesterClient, PolicyAutoApprovalProvider, buildTaskManifest } from '../packages/runtime/src/index.js';
 
 it.each([[false, false], [true, false], [false, true]])('CLI advertises limits and enforces scope (allowlisted=%s, rejected=%s)', async (allowlisted, rejected) => {
-  const dir = await mkdtemp(join(tmpdir(), 'acp-open-cli-'));
+  const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-open-cli-'));
   const server = await startLocalRelay({ port: 0, host: '127.0.0.1' });
   const lines: string[] = [];
   const log = vi.spyOn(console, 'log').mockImplementation((value) => lines.push(String(value)));
@@ -67,7 +68,7 @@ it.each([[false, false], [true, false], [false, true]])('CLI advertises limits a
 
 it.each(['open-max-input-tokens', 'open-max-output-tokens', 'open-max-tool-calls', 'open-max-wall-seconds'])
   ('CLI rejects invalid %s and requires open mode', async (flag) => {
-    const dir = await mkdtemp(join(tmpdir(), 'acp-policy-cli-'));
+    const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-policy-cli-'));
     try {
       const key = join(dir, 'worker.private.json');
       await writeFile(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });

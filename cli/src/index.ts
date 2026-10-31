@@ -10,7 +10,7 @@ import { networkCommand } from './network.js';
 import { mcpServerCommand } from './mcp.js';
 import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
-import { doctorCommand } from './doctor.js';
+import { doctorCommand, parseDoctorArgs } from './doctor.js';
 import { boardCommand } from './board.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
@@ -93,7 +93,9 @@ async function main(args: string[]) {
       console.log(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
       break;
     case 'doctor':
-      await doctorCommand();
+      if (rest.length === 1 && rest[0] === '--help')
+        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nInspects persisted identities without creating keys. --offline skips the relay health request.');
+      else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'board':
       await boardCommand(rest);

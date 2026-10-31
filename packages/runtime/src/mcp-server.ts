@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   createSignedAgentCard,
+  isInviteTarget,
   createInviteToken,
   createRevocationNotice,
   digest,
@@ -26,11 +27,18 @@ import {
 import type { ApprovalProvider } from './approval-providers.js';
 import type { DelegateMultiOptions, DelegateOptions } from './session.js';
 import { RequesterClient } from './session.js';
+import { resolveOrCreateIdentity } from './local-identity.js';
+import type { LocalIdentityOptions } from './local-identity.js';
+import { DEFAULT_PUBLIC_RELAY, selectApplicationRelay } from './relay-selection.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 
 export interface AcpMcpServerOptions {
-  owner: KeyPair;
+  owner?: KeyPair;
+  /** Application defaults are loaded only for identity-dependent operations. */
+  identityOptions?: LocalIdentityOptions;
+  /** Constructs transports after relay policy checks; useful for offline hosts/tests. */
+  transportFactory?: (url: string, owner?: KeyPair) => RelayTransport;
   relay?: RelayTransport | string;
   revocation?: RevocationRegistry;
   name?: string;
@@ -175,22 +183,22 @@ function relayAllowlist(
   return allow;
 }
 
-function selectApproval(options: AcpMcpServerOptions): ApprovalProvider {
+function selectApproval(options: AcpMcpServerOptions, owner: KeyPair): ApprovalProvider {
   if (options.approvalProvider) return options.approvalProvider;
   if (options.approvalWebhookUrl) {
-    return new WebhookApprovalProvider(options.owner, {
+    return new WebhookApprovalProvider(owner, {
       url: options.approvalWebhookUrl,
       fetch: options.approvalWebhookFetcher,
       response: 'owner-decision',
     });
   }
   if (options.requireInteractiveApproval) {
-    return new InteractiveCliApprovalProvider(options.owner, {
+    return new InteractiveCliApprovalProvider(owner, {
       input: options.approvalInput,
       output: options.approvalOutput,
     });
   }
-  return new PolicyAutoApprovalProvider(options.owner);
+  return new PolicyAutoApprovalProvider(owner);
 }
 
 /** Dependency-free MCP server for ACP delegation, discovery, audit verification, and revocation. */
@@ -198,14 +206,21 @@ export class AcpMcpServer {
   readonly revocation: RevocationRegistry;
   private readonly allowedWorkers?: ReadonlySet<string>;
   private readonly allowedRelays?: ReadonlySet<string>;
-  private readonly approval: ApprovalProvider;
+  private selectedApproval?: ApprovalProvider;
+  private selectedOwner?: KeyPair;
+  private owner(): KeyPair {
+    return this.options.owner ?? (this.selectedOwner ??=
+      resolveOrCreateIdentity('requester', this.options.identityOptions));
+  }
+  private get approval(): ApprovalProvider {
+    return this.selectedApproval ??= selectApproval(this.options, this.owner());
+  }
   private framed: boolean | undefined;
   constructor(readonly options: AcpMcpServerOptions) {
     this.revocation = options.revocation ?? new RevocationRegistry();
     this.allowedWorkers = workerAllowlist(options.allowedWorkerDids);
     this.allowedRelays = relayAllowlist(options.allowedRelayUrls, options.allowPrivateRelay);
     if (options.approvalWebhookUrl) assertApprovalWebhookUrl(options.approvalWebhookUrl);
-    this.approval = selectApproval(options);
   }
   async handle(message: unknown): Promise<Json | undefined> {
     if (!message || typeof message !== 'object' || Array.isArray(message))
@@ -322,18 +337,36 @@ export class AcpMcpServer {
     if (name === 'acp_inspect_revocations') return this.inspectRevocations(args);
     throw new RpcError(-32602, 'Unknown tool');
   }
-  private client(relay: RelayTransport | string | undefined): RequesterClient {
-    const selected = relay ?? this.options.relay;
-    if (!selected) throw new Error('RELAY_REQUIRED');
-    return new RequesterClient({
-      owner: this.options.owner,
-      relay: selected,
+  private selectedRelay(explicit?: string, inviteRelay?: string): RelayTransport | string {
+    return selectApplicationRelay({
+      configured: this.options.relay, explicit, inviteRelay,
+      allowPrivateRelay: this.options.allowPrivateRelay,
+      allowAnyRelay: this.options.allowAnyRelay,
+      allowedRelayUrls: this.options.allowedRelayUrls,
+      conflictError: 'MCP_RELAY_NOT_ALLOWED',
+    }).relay;
+  }
+  private transport(selected: RelayTransport | string, owner?: KeyPair): RelayTransport {
+    if (typeof selected !== 'string') return selected;
+    return this.options.transportFactory?.(selected, owner) ??
+      (owner ? new HttpRelayClient(selected, owner, { allowPrivateRelay: this.options.allowPrivateRelay })
+        : new HttpRelayClient(selected, { allowPrivateRelay: this.options.allowPrivateRelay }));
+  }
+  private client(relay: RelayTransport | string): RequesterClient {
+    const owner = this.owner();
+    const server = this;
+    return new class extends RequesterClient {
+      override delegate(options: DelegateOptions, hooks?: Parameters<RequesterClient['delegate']>[1]) {
+        const relay = typeof options.relay === 'string' && server.options.transportFactory
+          ? server.transport(options.relay, owner) : options.relay;
+        return super.delegate({ ...options, relay }, hooks);
+      }
+    }({
+      owner,
+      relay: typeof relay === 'string' && this.options.transportFactory ? this.transport(relay, owner) : relay,
       approvalProvider: this.approval,
       allowPrivateRelay: this.options.allowPrivateRelay,
     });
-  }
-  private isInvite(value: string): boolean {
-    return value.startsWith('acp-invite:') || value.startsWith('acp:');
   }
   private parseInvite(token: string): Invite {
     return parseAndVerifyInviteToken(token, Date.now(), {
@@ -398,11 +431,11 @@ export class AcpMcpServer {
     const to = typeof args.inviteToken === 'string' ? args.inviteToken : args.workerDid;
     if (typeof to !== 'string' || typeof args.title !== 'string')
       throw new RpcError(-32602, 'Invalid params');
-    const invite = this.isInvite(to) ? this.parseInvite(to) : undefined;
+    const invite = isInviteTarget(to) ? this.parseInvite(to) : undefined;
     const explicitRelay = typeof args.relayUrl === 'string' ? args.relayUrl : undefined;
     this.assertWorker(invite, invite ? undefined : to);
     this.assertRelays(explicitRelay ? [explicitRelay] : [], invite ? [invite.relayUrl] : []);
-    const relay = explicitRelay ?? this.options.relay;
+    const relay = this.selectedRelay(explicitRelay, invite?.relayUrl);
     await this.approveOutbound({
       title: args.title,
       description: typeof args.description === 'string' ? args.description : '',
@@ -419,7 +452,6 @@ export class AcpMcpServer {
     const request: DelegateOptions = {
       ...taskTimeouts(args),
       to,
-      relay,
       title: args.title,
       description: typeof args.description === 'string' ? args.description : '',
       input: (args.input ?? null) as Json,
@@ -465,10 +497,11 @@ export class AcpMcpServer {
         agentDid: invite?.agentDid ?? null,
         ownerDid: invite?.ownerDid ?? null,
       });
+      const selected = this.selectedRelay(typeof item.relayUrl === 'string' ? item.relayUrl : relay, invite?.relayUrl);
       return {
         workerDid: item.workerDid,
         inviteToken,
-        relayUrl: typeof item.relayUrl === 'string' ? item.relayUrl : relay,
+        relayUrl: typeof selected === 'string' ? selected : undefined,
       };
     });
     this.assertRelays(explicitRelays, inviteUrls);
@@ -478,7 +511,8 @@ export class AcpMcpServer {
       input: (args.input ?? null) as Json,
       mode: args.mode,
       workers: described,
-      relayUrls: this.relayList(explicitRelays, inviteUrls),
+      relayUrls: this.relayList([...explicitRelays, ...workers.flatMap(worker =>
+        worker.relayUrl ? [worker.relayUrl] : [])], inviteUrls),
     });
     const quorumSize =
       args.quorumSize === undefined
@@ -499,7 +533,7 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(relay ?? this.options.relay).delegateMulti(request);
+    const result = await this.client(this.selectedRelay(workers[0]?.relayUrl ?? relay)).delegateMulti(request);
     return {
       mode: result.mode,
       status: result.status,
@@ -521,6 +555,10 @@ export class AcpMcpServer {
   private relayList(explicit: string[], inviteUrls: string[]): string[] {
     const urls = [...explicit, ...inviteUrls];
     if (typeof this.options.relay === 'string') urls.push(this.options.relay);
+    if (urls.length === 0) {
+      const relay = this.selectedRelay();
+      if (typeof relay === 'string') urls.push(relay);
+    }
     return urls;
   }
   private verifyBundle(args: Record<string, unknown>): Json {
@@ -569,17 +607,20 @@ export class AcpMcpServer {
     return report as unknown as Json;
   }
   private createInvite(args: Record<string, unknown>): Json {
-    if (typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
-    const agentDid = typeof args.agentDid === 'string' ? args.agentDid : this.options.owner.did;
+    if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
+    const relayUrl = typeof args.relayUrl === 'string' ? args.relayUrl
+      : typeof this.options.relay === 'string' ? this.options.relay : DEFAULT_PUBLIC_RELAY;
+    const owner = this.owner();
+    const agentDid = typeof args.agentDid === 'string' ? args.agentDid : owner.did;
     const card = createSignedAgentCard(
       {
         name: typeof args.name === 'string' ? args.name : (this.options.name ?? 'Sealbridge Worker'),
         agentDid,
-        relayEndpoint: args.relayUrl,
+        relayEndpoint: relayUrl,
         skills: [{ id: 'json-task', name: 'JSON task' }],
       },
-      this.options.owner,
-      agentDid === this.options.owner.did ? undefined : this.options.agentKey,
+      owner,
+      agentDid === owner.did ? undefined : this.options.agentKey,
     );
     const inviteOptions: { agentCard: typeof card; expiresInSeconds?: number } = {
       agentCard: card,
@@ -589,7 +630,7 @@ export class AcpMcpServer {
       inviteOptions.expiresInSeconds = args.expiresInSeconds;
     }
     return {
-      inviteToken: createInviteToken(inviteOptions, this.options.owner),
+      inviteToken: createInviteToken(inviteOptions, owner),
     };
   }
   private revokeToken(args: Record<string, unknown>): Json {
@@ -601,7 +642,7 @@ export class AcpMcpServer {
       throw new RpcError(-32602, 'Invalid params');
     const notice = createRevocationNotice(
       { targetType: args.targetType, targetId: args.targetId, reason: args.reason },
-      this.options.owner,
+      this.owner(),
     );
     this.revocation.revoke(notice);
     return { notice: notice as unknown as Json };
@@ -611,14 +652,8 @@ export class AcpMcpServer {
       throw new RpcError(-32602, 'Invalid params');
     const explicitRelay = typeof args.relayUrl === 'string' ? args.relayUrl : undefined;
     this.assertRelays(explicitRelay ? [explicitRelay] : [], []);
-    const selected = explicitRelay ?? this.options.relay;
-    if (!selected) throw new Error('RELAY_REQUIRED');
-    if (typeof selected === 'string')
-      validateRelayEndpointUrl(selected, { allowPrivateRelay: this.options.allowPrivateRelay });
-    const transport: RelayTransport =
-      typeof selected === 'string'
-        ? new HttpRelayClient(selected, { allowPrivateRelay: this.options.allowPrivateRelay })
-        : selected;
+    const selected = this.selectedRelay(explicitRelay);
+    const transport = this.transport(selected);
     if (!transport.discover) throw new Error('DISCOVERY_UNAVAILABLE');
     const rawCards = await transport.discover();
     if (!Array.isArray(rawCards)) throw new Error('INVALID_AGENT_CARD');

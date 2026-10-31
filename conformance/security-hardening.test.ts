@@ -60,17 +60,16 @@ describe('root agent operating instructions', () => {
       ])
         expect(content).toContain(trigger);
       expect(content).toContain('mkdir -p ~/.acp && chmod 700 ~/.acp');
-      for (const role of ['worker', 'requester']) {
-        expect(content).toContain(`if [ ! -e ~/.acp/${role}.private.json ]; then`);
-        expect(content).toContain(`pnpm sealbridge keygen ~/.acp/${role}.private.json`);
-      }
+      expect(content).toContain('Omit `--key`');
+      expect(content).toContain('identities/requester.private.json');
+      expect(content).toContain('identities/worker.private.json');
       for (const command of [
         'pnpm sealbridge relay start --port 8787 --host 127.0.0.1',
-        'pnpm sealbridge worker start --key ~/.acp/worker.private.json --relay <URL>',
-        'pnpm sealbridge delegate --key ~/.acp/requester.private.json --to "<acp-invite:...>"',
+        'pnpm sealbridge worker start [--relay <URL>]',
+        'pnpm sealbridge delegate --to "<acp-invite:...>"',
         'pnpm sealbridge audit-verify ~/.acp/audit-<taskId>.jsonl',
-        'pnpm sealbridge invite create --key ~/.acp/worker.private.json --relay <URL>',
-        'pnpm sealbridge discover --relay <URL>',
+        'pnpm sealbridge invite create [--relay <URL>]',
+        'pnpm sealbridge discover [--relay <URL>]',
         'pnpm sealbridge validate <manifest.json>',
       ])
         expect(content).toContain(command);

@@ -18,7 +18,7 @@ The installers pin the current release, sealbridge 0.2.2, which is published on 
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
-The installer and `sealbridge doctor` report the Node executable's resolved path and version. On Windows, npm must be installed beside the resolved Node; on macOS/Linux, the npm launcher beside the resolved Node must point to npm's JavaScript entry point (symlinks are supported). The installer runs npm with that exact Node. Windows command and PowerShell shims pin the selected runtime; macOS/Linux shims use the selected Node first on PATH. Doctor reports its own running Node, so changing PATH later on macOS/Linux can change the reported runtime. Successful checks use short `(OK)` lines; only `(WARN)` lines include fix hints. A missing worker key is optional; before receiving tasks, create the `.acp` directory and run `sealbridge keygen "$HOME/.acp/worker.private.json"`, or select an existing key with `--key`.
+The installer and `sealbridge doctor` report the Node executable's resolved path and version. On Windows, npm must be installed beside the resolved Node; on macOS/Linux, the npm launcher beside the resolved Node must point to npm's JavaScript entry point (symlinks are supported). The installer runs npm with that exact Node. Windows command and PowerShell shims pin the selected runtime; macOS/Linux shims use the selected Node first on PATH. Doctor reports its own running Node, so changing PATH later on macOS/Linux can change the reported runtime. Successful checks use short `(OK)` lines; only `(WARN)` lines include fix hints. Identity files are created on first use; installers and doctor do not generate them. Use `sealbridge doctor --offline` to inspect local configuration without a relay request.
 
 To uninstall, download the same script and run `sh install.sh --uninstall` or `& ./install.ps1 -Uninstall` (PowerShell spelling of --uninstall). Keys are retained. Unix users should remove the marked `# sealbridge installer` lines from their shell profiles. npm-only installs use `npm uninstall -g sealbridge`. Installer locations: `~/.local/share/sealbridge` and `%LOCALAPPDATA%\Sealbridge`.
 
@@ -72,16 +72,22 @@ Or add **`sealbridge mcp-server`** directly to **Claude Desktop**, **Cursor**, *
       "command": "node",
       "args": [
         "/path/to/sealbridge/cli/dist/index.js",
-        "mcp-server",
-        "--key",
-        "/tmp/alice.private.json",
-        "--relay",
-        "https://relay.sealbridge.dev"
+        "mcp-server"
       ]
     }
   }
 }
 ```
+
+`sealbridge mcp-server`, `delegate`, `worker start`, `discover`, and `invite create` need no `--key` or `--relay`. The application uses `https://relay.sealbridge.dev` by default. MCP initialization and tool listing make no network request. Discovery reads the relay directory; delegation sends encrypted task payloads and routing metadata is visible to the relay. Invite creation only signs locally and does not start a worker.
+
+Identities persist at `<data-root>/identities/requester.private.json` and `worker.private.json`. MCP delegation and CLI delegation use requester; worker startup and CLI invite creation use worker. MCP signing tools use the server requester identity (or its explicit owner key). MCP loads them lazily, so scanning does not require a writable home. The data root is `SEALBRIDGE_DATA_DIR`, then `ACP_DATA_DIR` (absolute paths only), otherwise `%LOCALAPPDATA%\Sealbridge` on Windows (home/AppData/Local fallback), `~/Library/Application Support/Sealbridge` on macOS, or `$XDG_DATA_HOME/sealbridge` on Linux (`~/.local/share/sealbridge` fallback).
+
+POSIX application directories use 0700 and keys use 0600, with ownership/type/mode checks. Windows files inherit the per-user LOCALAPPDATA tree's DACL; Node mode bits do not establish a user-only DACL and this release does not verify ACLs. Overrides inherit their parent's access and require user management. Detectable links and non-files are rejected. First-use publication requires same-directory hard links; unsupported filesystems return `IDENTITY_CREATION_UNSUPPORTED`.
+
+Existing role-matched `~/.acp/{requester,worker}.private.json` keys and the old contacts-root `owner.private.json` (requester only) are reused in place when the canonical key is absent. Conflicting legacy requester identities return `IDENTITY_SELECTION_REQUIRED`; select one with `--key`. Existing canonical keys take precedence. Invalid or unreadable files return an error and are never replaced. `keygen <path>` still creates only an explicit, previously unused path.
+
+Explicit `--key` selects an existing identity. An explicit `--relay` pins routing; without a pin, a verified invite's relay takes precedence over the public fallback. Explicit worker/relay allowlists, including empty programmatic lists, remain authoritative. Injected transports remain authoritative for embedded callers. Loopback relays still require `--allow-private-relay`.
 
 An MCP host can pass untrusted tool arguments. Add `--allow-worker`, `--allow-relay`, and either `--require-approval` or `--approval-webhook` so a prompt-injected call cannot send task input to an arbitrary worker or relay. The MCP section below lists those flags.
 
@@ -151,7 +157,7 @@ pnpm build
 
 **Public relay (cross-machine default)**
 
-Cross-machine collaboration uses the hosted Cloudflare Blind Relay at `https://relay.sealbridge.dev`. Both owners connect immediately with `--relay https://relay.sealbridge.dev`. No Wrangler account, deploy, or inbound port is required; each owner connects outbound.
+Cross-machine collaboration uses the hosted Cloudflare Blind Relay at `https://relay.sealbridge.dev`. Both owners connect immediately using the default relay; `--relay` selects an explicit relay. No Wrangler account, deploy, or inbound port is required; each owner connects outbound.
 
 ```sh
 --relay https://relay.sealbridge.dev
@@ -365,7 +371,7 @@ DIDs, allowlists, and invitations.
 ## MCP, live progress, revocation, and quorum
 
 ```sh
-pnpm sealbridge mcp-server --key /tmp/alice.private.json --relay https://relay.sealbridge.dev
+pnpm sealbridge mcp-server
 ```
 
 `sealbridge mcp-server` is a dependency-free JSON-RPC 2.0 MCP server on stdio. It accepts newline-delimited JSON and `Content-Length` frames. Hosts such as Claude Code, Cursor, Codex, and Grok Bot can call:

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -64,7 +65,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
 });
 async function directory() {
-  const dir = await mkdtemp(join(tmpdir(), 'acp-network-test-'));
+  const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-network-test-'));
   cleanup.push(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -667,8 +668,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
   const dir = await directory(),
     alice = generateKeyPair(),
     bob = generateKeyPair();
-  await writeFile(join(dir, 'alice.private.json'), JSON.stringify(alice));
-  await writeFile(join(dir, 'bob.private.json'), JSON.stringify(bob));
+  await writeFile(join(dir, 'alice.private.json'), JSON.stringify(alice), { mode: 0o600 });
+  await writeFile(join(dir, 'bob.private.json'), JSON.stringify(bob), { mode: 0o600 });
   if (!n.wsUrl) {
     // Exercise command parsing/discovery using an in-process fetch bridge below.
     const { networkCommand } = await import('../cli/src/network.js');

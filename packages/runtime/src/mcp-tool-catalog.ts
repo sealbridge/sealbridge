@@ -293,17 +293,17 @@ const isolationSchema = described(
 );
 
 const delegateRelaySchema = described(
-  'Relay dialed when the call does not rely on an invite or the configured server relay. Normalized to origin plus pathname with no trailing slash and rejected with MCP_RELAY_NOT_ALLOWED when it is outside allowedRelayUrls.',
+  'Optional relay dial target, subject to the configured relay policy. Without a pin or invite, defaults to https://relay.sealbridge.dev. Normalized to origin plus pathname with no trailing slash and rejected with MCP_RELAY_NOT_ALLOWED when it is outside allowedRelayUrls.',
   { type: 'string' },
 );
 
 const inviteTokenSchema = described(
-  'acp-invite or acp://invite token. When set, it identifies the worker instead of workerDid: allowedWorkerDids matches the invite agentDid or ownerDid, and the embedded relay URL must pass the relay allowlist. The dial target is relayUrl if set, otherwise the server relay, otherwise the invite relay.',
+  'acp-invite token, acp://invite URI, or complete HTTPS invite link. When set, it identifies the worker instead of workerDid: allowedWorkerDids matches the invite agentDid or ownerDid, and the embedded relay URL must pass the relay allowlist. The dial target is relayUrl if set, otherwise an explicit server relay, otherwise the invite relay. Bare DID delegation defaults to https://relay.sealbridge.dev.',
   { type: 'string' },
 );
 
 const workerDidSchema = described(
-  'Worker did:key used only when inviteToken is omitted. It must appear exactly in allowedWorkerDids when that allowlist is set, and relayUrl or the server relay selects the relay.',
+  'Worker did:key used only when inviteToken is omitted. It must appear exactly in allowedWorkerDids when that allowlist is set, and relayUrl or the server relay selects the relay, otherwise https://relay.sealbridge.dev is used.',
   { type: 'string' },
 );
 
@@ -472,7 +472,7 @@ export const mcpTools: Json = [
     name: 'acp_delegate_task',
     title: 'Delegate one task',
     description:
-      'Delegate one JSON task to a single remote Sealbridge worker and return the verified deliverable, taskId, status, and audit summary. Use acp_delegate_multi for race or quorum, and acp_verify_audit_bundle to check a bundle you already hold. Pass inviteToken, or workerDid plus relayUrl: an invite matches allowedWorkerDids on agentDid or ownerDid and embeds its relay, while a bare DID must be listed exactly. The server signs with its Ed25519 owner key, enforces worker and relay allowlists, and obtains approval before task input is transmitted externally over the relay; each call opens a new session and is not idempotent. Bad arguments are JSON-RPC -32602, and operational failure returns isError true with { error: CODE } without sending input.',
+      'Delegate one JSON task to a single remote Sealbridge worker and return the verified deliverable, taskId, status, and audit summary. Use acp_delegate_multi for race or quorum, and acp_verify_audit_bundle to check a bundle you already hold. Pass inviteToken or workerDid, with optional relayUrl: an invite matches allowedWorkerDids on agentDid or ownerDid and embeds its relay, while a bare DID must be listed exactly when that allowlist is configured. The server signs with its Ed25519 owner key, enforces worker and relay allowlists, and obtains approval before task input is transmitted externally over the relay; each call opens a new session and is not idempotent. Bad arguments are JSON-RPC -32602, and operational failure returns isError true with { error: CODE } without sending input.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -645,7 +645,7 @@ export const mcpTools: Json = [
     name: 'acp_create_invite',
     title: 'Create an invite token',
     description:
-      'Sign an acp-invite token for this server owner and return it for a requester to pass to acp_delegate_task. Use this to mint a shareable invite, use acp_revoke_token to invalidate one, and use acp_discover_workers to list registered workers instead of guessing a DID. relayUrl is required and is embedded in the token, name defaults to the server name or Sealbridge Worker, expiresInSeconds defaults to 3600 and must be an integer from 1 to 2592000, and agentDid defaults to the owner DID. A different agentDid is signed only when this server holds that agent key; otherwise the call fails with AGENT_DELEGATION_REQUIRED. Signing is local Ed25519 with no relay traffic, each call mints a distinct token so it is not idempotent, and bad arguments are JSON-RPC -32602 while other failures return isError true with { error: CODE }.',
+      'Sign an acp-invite token for this server owner and return it for a requester to pass to acp_delegate_task. Use this to mint a shareable invite, use acp_revoke_token to invalidate one, and use acp_discover_workers to list registered workers instead of guessing a DID. relayUrl defaults to the server relay or https://relay.sealbridge.dev and is embedded in the token, name defaults to the server name or Sealbridge Worker, expiresInSeconds defaults to 3600 and must be an integer from 1 to 2592000, and agentDid defaults to the owner DID. A different agentDid is signed only when this server holds that agent key; otherwise the call fails with AGENT_DELEGATION_REQUIRED. Signing is local Ed25519 with no relay traffic, each call mints a distinct token so it is not idempotent, and bad arguments are JSON-RPC -32602 while other failures return isError true with { error: CODE }.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -654,7 +654,7 @@ export const mcpTools: Json = [
       'Arguments for minting one acp-invite token.',
       {
         relayUrl: described(
-          'Relay URL embedded in the invite and the signed agent card. Required. The token does not contact this URL.',
+          'Relay URL embedded in the invite and the signed agent card. Defaults to the configured relay or https://relay.sealbridge.dev. The token does not contact this URL.',
           { type: 'string' },
         ),
         name: described(
@@ -670,7 +670,7 @@ export const mcpTools: Json = [
           { type: 'string' },
         ),
       },
-      ['relayUrl'],
+      [],
     ),
     outputSchema: objectSchema(
       'Success payload in structuredContent. The token embeds the public card and relay URL, not a private key.',
@@ -719,7 +719,7 @@ export const mcpTools: Json = [
     name: 'acp_discover_workers',
     title: 'Discover registered workers',
     description:
-      'List signed agent cards on a Blind Relay and return each card\'s public name, DIDs, skills, endpoint, expiry, and signature. Use this to choose a worker before acp_delegate_task or acp_delegate_multi, and do not use it to register or edit cards. relayUrl is optional when the server has a relay; it is normalized and must satisfy allowedRelayUrls or the call fails with MCP_RELAY_NOT_ALLOWED before any request. The tool is a read-only directory fetch that verifies card signatures, sends no task input, and does not ask for delegation approval. It is idempotent, bad arguments are JSON-RPC -32602, and transport failures return isError true with { error: CODE }.',
+      'List signed agent cards on a Blind Relay and return each card\'s public name, DIDs, skills, endpoint, expiry, and signature. Use this to choose a worker before acp_delegate_task or acp_delegate_multi, and do not use it to register or edit cards. relayUrl defaults to the server relay or https://relay.sealbridge.dev; it is normalized and must satisfy allowedRelayUrls or the call fails with MCP_RELAY_NOT_ALLOWED before any request. The tool is a read-only directory fetch that verifies card signatures, sends no task input, and does not ask for delegation approval. It is idempotent, bad arguments are JSON-RPC -32602, and transport failures return isError true with { error: CODE }.',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,

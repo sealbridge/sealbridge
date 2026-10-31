@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -284,7 +285,7 @@ describe('worker acceptance policy', () => {
 
 describe('acp worker CLI acceptance guard', () => {
   async function keyFile(name: string, key = generateKeyPair()) {
-    const dir = await mkdtemp(join(tmpdir(), 'acp-p0-1-'));
+    const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-p0-1-'));
     cleanup.push(() => rm(dir, { recursive: true, force: true }));
     const path = join(dir, name);
     await writeFile(path, JSON.stringify(key), { mode: 0o600 });

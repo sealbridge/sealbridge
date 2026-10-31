@@ -47,26 +47,36 @@ Templates use `<...>` as replacement values and `[...]` as optional arguments;
 replace/remove these markers before running. Choose one adapter name.
 プレースホルダーを実値に置き換え、任意引数は必要な場合のみ追加します。
 
+Defaults persist under `SEALBRIDGE_DATA_DIR`, then `ACP_DATA_DIR` (absolute
+paths), otherwise LOCALAPPDATA/Sealbridge on Windows (home/AppData/Local
+fallback), ~/Library/Application Support/Sealbridge on macOS, or
+XDG_DATA_HOME/sealbridge (~/.local/share/sealbridge fallback) on Linux.
+Files are `identities/requester.private.json` and `identities/worker.private.json`.
+POSIX directories/keys use 0700/0600 with ownership/type/mode checks. Windows
+inherits the parent DACL; Node modes do not establish a user-only DACL and ACLs
+are not verified. Overrides require user-managed parent access. Detectable links
+and non-files are rejected; first-use publication requires same-directory hard links.
+Matching-role ~/.acp keys and old contacts-root owner.private.json (requester)
+are reused in place if no canonical key exists. Conflicting legacy identities
+require explicit `--key` selection. Invalid keys are never replaced.
+`sealbridge doctor --offline` inspects default/legacy paths without creating keys
+or contacting the relay. MCP initialization and tool listing make no network
+request. Discovery reads the directory; delegation transmits encrypted payloads
+and relay-visible routing metadata. Installers do not generate identities.
+For the optional audit paths below, create the audit directory first:
+`mkdir -p ~/.acp && chmod 700 ~/.acp`.
+
 ## Worker flow / 受託側
 
-1. Secure the key directory and generate an Ed25519 keypair only if absent.
-   Reuse existing keys; keygen never overwrites an existing key.
-   既存鍵を再利用し、未作成の場合のみ生成します。
-
-   ```sh
-   mkdir -p ~/.acp && chmod 700 ~/.acp
-   if [ ! -e ~/.acp/worker.private.json ]; then
-     pnpm sealbridge keygen ~/.acp/worker.private.json
-   fi
-   ```
+1. Omit `--key` to create/reuse the persistent worker identity on first use.
+   Omit `--relay` to use `https://relay.sealbridge.dev`. Use `--key <path>`
+   to select an existing identity; `keygen <path>` remains explicit and exclusive.
+   鍵・中継器の指定は省略できます。ワーカー鍵は初回作成後に再利用します。
 
 2. Choose the relay. When the owner supplies a URL, use that URL. For
    cross-machine collaboration with no owner-supplied URL, use the public
-   HTTPS Blind Relay and connect immediately:
-
-   ```sh
-   --relay https://relay.sealbridge.dev
-   ```
+   HTTPS Blind Relay and connect immediately. No relay flag is needed;
+   an owner-supplied URL is selected with `--relay <URL>`.
 
    For same-machine or fully offline work, start a local relay in a separate
    persistent session and use `http://127.0.0.1:8787`:
@@ -85,20 +95,20 @@ replace/remove these markers before running. Choose one adapter name.
    they can share it with the requester's owner, and keep the worker running.
 
    ```text
-   pnpm sealbridge worker start --key ~/.acp/worker.private.json --relay <URL> --adapter <sandbox|command|claude|codex|openai> [--cmd "..."] [--name "..."] [--once] [--auto-accept] [--allow-requester <did>] [--allow-any-requester] [--publish] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-tool-invocations <n>] [--max-wall-clock-seconds <n>] [--max-concurrent-tasks <n>] [--max-requests-per-minute <n>] [--audit ~/.acp/worker-audit.jsonl] [--allow-private-relay]
+   pnpm sealbridge worker start [--relay <URL>] --adapter <sandbox|command|claude|codex|openai> [--cmd "..."] [--name "..."] [--once] [--auto-accept] [--allow-requester <did>] [--allow-any-requester] [--publish] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-tool-invocations <n>] [--max-wall-clock-seconds <n>] [--max-concurrent-tasks <n>] [--max-requests-per-minute <n>] [--audit ~/.acp/worker-audit.jsonl] [--allow-private-relay]
    ```
 
    Runnable JSON echo example on the public relay:
 
    ```sh
-   pnpm sealbridge worker start --key ~/.acp/worker.private.json --relay https://relay.sealbridge.dev --adapter sandbox --name "Worker" --audit ~/.acp/worker-audit.jsonl
+   pnpm sealbridge worker start --adapter sandbox --name "Worker" --audit ~/.acp/worker-audit.jsonl
    ```
 
    After the local offline relay is running, the same command uses
    `--relay http://127.0.0.1:8787` instead:
 
    ```sh
-   pnpm sealbridge worker start --key ~/.acp/worker.private.json --relay http://127.0.0.1:8787 --adapter sandbox --name "Worker" --audit ~/.acp/worker-audit.jsonl --allow-private-relay
+   pnpm sealbridge worker start --relay http://127.0.0.1:8787 --adapter sandbox --name "Worker" --audit ~/.acp/worker-audit.jsonl --allow-private-relay
    ```
 
    `--allow-private-relay` is required for that loopback URL. Private and
@@ -141,20 +151,15 @@ replace/remove these markers before running. Choose one adapter name.
 
 ## Requester flow / 発注側
 
-1. Create a requester Ed25519 identity only if absent. The worker must belong
-   to a different owner DID. 受託側と異なる鍵・オーナー DID を使用します。
-
-   ```sh
-   mkdir -p ~/.acp && chmod 700 ~/.acp
-   if [ ! -e ~/.acp/requester.private.json ]; then
-     pnpm sealbridge keygen ~/.acp/requester.private.json
-   fi
-   ```
+1. Omit `--key` to create/reuse the persistent requester identity. It is
+   separate from the worker identity. A verified invite supplies its relay
+   unless an explicit relay pin is configured; otherwise the public default applies.
+   依頼者鍵はワーカー鍵と分けて保存し、招待の中継器を優先します。
 
 2. Delegate with the full invite and the owner's task:
 
    ```text
-   pnpm sealbridge delegate --key ~/.acp/requester.private.json --to "<acp-invite:...>" --title "..." --description "..." --input '<json>' [--output-schema '<json_or_file>'] [--auto-approve] --audit ~/.acp/audit-<taskId>.jsonl --out ./deliverable.json [--allow-private-relay]
+   pnpm sealbridge delegate --to "<acp-invite:...>" --title "..." --description "..." --input '<json>' [--output-schema '<json_or_file>'] [--auto-approve] --audit ~/.acp/audit-<taskId>.jsonl --out ./deliverable.json [--allow-private-relay]
    ```
 
    Alternatively use `--to "<DID>" --relay <URL>`; invites already carry the
@@ -189,8 +194,8 @@ replace/remove these markers before running. Choose one adapter name.
 ## Discovery and invite utilities / 検索・招待
 
 ```text
-pnpm sealbridge invite create --key ~/.acp/worker.private.json --relay <URL> [--name "Worker"] [--expires-in 3600]
-pnpm sealbridge discover --relay <URL>
+pnpm sealbridge invite create [--relay <URL>] [--name "Worker"] [--expires-in 3600]
+pnpm sealbridge discover [--relay <URL>]
 pnpm sealbridge validate <manifest.json>
 ```
 
@@ -198,7 +203,7 @@ pnpm sealbridge validate <manifest.json>
 running worker's key and relay. For the public relay:
 
 ```sh
-pnpm sealbridge discover --relay https://relay.sealbridge.dev
+pnpm sealbridge discover
 ```
 
 `--expires-in` is seconds, default 3600, allowed range 1–2592000. `discover`
@@ -216,12 +221,12 @@ relay directory and still obeys the relay allowlist. `acp_inspect_revocations`
 reads this process's revocation registry.
 
 ```sh
-pnpm sealbridge mcp-server --key ~/.acp/requester.private.json --relay https://relay.sealbridge.dev [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]
+pnpm sealbridge mcp-server [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]
 ```
 
 `acp_delegate_task` and `acp_delegate_multi` transmit task input externally over
 the relay. `--allow-worker` and `--allow-relay` are repeatable or
-comma-separated. A plain worker DID must be listed. An invite matches when
+comma-separated. When configured, the worker allowlist must include a plain worker DID. An invite matches when
 either `agentDid` or `ownerDid` is listed (`MCP_WORKER_NOT_ALLOWED`). Relay
 URLs from `--relay`, the tool call, and the invite are normalized to origin
 plus pathname with no trailing slash and must match `--allow-relay`

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { readFileSync } from 'node:fs';
 import type { KeyPair } from '@acp/core';
-import { generateKeyPair } from '@acp/core';
-import { AcpMcpServer } from '@acp/runtime';
+import { AcpMcpServer, resolveOrCreateIdentity } from '@acp/runtime';
 import type { AcpMcpServerOptions } from '@acp/runtime';
 
 const REPEATABLE = new Set(['--allow-worker', '--allow-relay']);
@@ -86,10 +84,11 @@ export function parseMcpServerArgs(args: string[]): ParsedMcpServerArgs {
 /** Map parsed flags onto server options. Does not read a key file or open stdio. */
 export function mcpServerOptionsFromArgs(
   parsed: ParsedMcpServerArgs,
-  owner: KeyPair,
+  owner?: KeyPair,
 ): AcpMcpServerOptions {
   return {
     owner,
+    identityOptions: { explicitKeyPath: parsed.keyFile },
     relay: parsed.relay,
     allowedWorkerDids: parsed.allowedWorkerDids,
     allowedRelayUrls: parsed.allowedRelayUrls,
@@ -102,16 +101,7 @@ export function mcpServerOptionsFromArgs(
 /** `acp mcp-server` speaks MCP over stdio with an outbound allowlist and approval policy. */
 export async function mcpServerCommand(args: string[]): Promise<void> {
   const parsed = parseMcpServerArgs(args);
-  const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, resolveOwner(parsed.keyFile)));
+  const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, parsed.keyFile
+    ? resolveOrCreateIdentity('requester', { explicitKeyPath: parsed.keyFile }) : undefined));
   await server.serve(process.stdin, process.stdout);
-}
-
-/**
- * Load `--key <file>` when it is present. Omitting `--key` mints an in-memory
- * Ed25519 identity so MCP scanners can call `initialize` and `tools/list`
- * without a persisted owner key. `--key` with no path is still a usage error.
- */
-function resolveOwner(keyFile: string | undefined): KeyPair {
-  if (!keyFile) return generateKeyPair();
-  return JSON.parse(readFileSync(keyFile, 'utf8')) as KeyPair;
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { realpathSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,7 +14,7 @@ import { createPost, verifyPost, candidateFit, boardCandidates, claimPost, consu
 import { publicSettingsFlags } from '../cli/src/public-settings.js';
 import { networkCommand } from '../cli/src/network.js';
 const dirs: string[] = [];
-function dir() { const d = mkdtempSync(join(tmpdir(), 'acp-ux2-')); dirs.push(d); return d; }
+function dir() { const d = mkdtempSync(join(realpathSync(tmpdir()), 'acp-ux2-')); dirs.push(d); return d; }
 afterEach(() => { vi.restoreAllMocks(); for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 const relayUrl = 'https://relay.example.com';
 function fixture() {

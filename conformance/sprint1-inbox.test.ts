@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +16,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 async function directory() {
-  const dir = await mkdtemp(join(tmpdir(), 'acp-inbox-'));
+  const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-inbox-'));
   dirs.push(dir);
   return dir;
 }
