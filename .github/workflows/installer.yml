@@ -33,8 +33,9 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          export SEALBRIDGE_INSTALL_TARBALL="$PWD/sealbridge-0.2.2.tgz"
+          export SEALBRIDGE_INSTALL_TARBALL="$PWD/$(node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")"
           export HOME="$(mktemp -d)"
+          export HOME="$(cd "$HOME" && pwd -P)"
           mkdir -p "$HOME/fake-node"
           printf '#!/bin/sh\nexit 1\n' > "$HOME/fake-node/node"
           chmod +x "$HOME/fake-node/node"
@@ -52,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'sealbridge-clean-user'
-          $env:SEALBRIDGE_INSTALL_TARBALL = Join-Path $PWD 'sealbridge-0.2.2.tgz'
+          $env:SEALBRIDGE_INSTALL_TARBALL = Join-Path $PWD (node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
           & ./sites/install.ps1 -NoProfile
           & ./sites/install.ps1 -NoProfile
@@ -62,3 +63,70 @@ jobs:
           sealbridge.cmd demo
           if ($LASTEXITCODE -ne 0) { throw 'demo failed' }
           & "$env:GITHUB_WORKSPACE/sites/install.ps1" -Uninstall -NoProfile
+      - name: Install with an npm-less Node (Linux and macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export SEALBRIDGE_INSTALL_TARBALL="$PWD/$(node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")"
+          runner_node="$(node -p process.execPath)"
+          pinned_version="$(awk -F= '/^NODE_VERSION=/ {print $2}' sites/install.sh)"
+          export HOME="$(mktemp -d)"
+          export HOME="$(cd "$HOME" && pwd -P)"
+          mkdir -p "$HOME/node-only"
+          cp "$runner_node" "$HOME/node-only/node"
+          export PATH="$HOME/node-only:$PATH"
+          test "$(node -p process.execPath)" = "$HOME/node-only/node"
+          test ! -e "$HOME/node-only/npm"
+          sh sites/install.sh | tee "$HOME/install.log"
+          . "$HOME/.profile"
+          expected_node="$HOME/.local/share/sealbridge/node/bin/node"
+          grep -F "Node.js: $pinned_version ($expected_node)" "$HOME/install.log"
+          sealbridge --version
+          sealbridge doctor > "$HOME/doctor.log" || true
+          cat "$HOME/doctor.log"
+          grep -F "Node.js: $pinned_version ($expected_node) (OK)" "$HOME/doctor.log"
+          test -x "$HOME/node-only/node"
+          sh sites/install.sh --uninstall
+      - name: Install with an npm-less Node (Windows PowerShell 5.1 and PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tarball = Join-Path $PWD (node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")
+          $runnerNode = node -p process.execPath
+          $originalPath = $env:Path
+          $originalModulePath = $env:PSModulePath
+          $installer = Join-Path $PWD 'sites/install.ps1'
+          $pinnedVersion = (Select-String -LiteralPath $installer -Pattern '^\$nodeVersion = ''([^'']+)''$').Matches.Groups[1].Value
+          foreach ($shell in @('powershell.exe', 'pwsh')) {
+            $shellPath = (Get-Command $shell).Source
+            $homeDir = Join-Path $env:RUNNER_TEMP ("sealbridge-node-only-" + $shell)
+            New-Item -ItemType Directory -Force -Path "$homeDir/node-only" | Out-Null
+            Copy-Item -LiteralPath $runnerNode -Destination "$homeDir/node-only/node.exe"
+            $env:LOCALAPPDATA = $homeDir
+            $env:SEALBRIDGE_INSTALL_TARBALL = $tarball
+            $env:Path = "$homeDir/node-only;$originalPath"
+            $env:SEALBRIDGE_TEST_INSTALLER = $installer
+            $env:SEALBRIDGE_TEST_PINNED_VERSION = $pinnedVersion
+            # Windows PowerShell must initialize its own module search paths.
+            if ($shell -eq 'powershell.exe') { $env:PSModulePath = $null }
+            try {
+              & $shellPath -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command {
+                $ErrorActionPreference = 'Stop'
+                $expectedNode = Join-Path $env:LOCALAPPDATA 'Sealbridge/node/node.exe'
+                $copiedNode = Join-Path $env:LOCALAPPDATA 'node-only/node.exe'
+                if ((node -p process.execPath) -ne $copiedNode) { throw 'copied Node is not first on PATH' }
+                if (Test-Path (Join-Path $env:LOCALAPPDATA 'node-only/npm.cmd')) { throw 'fixture includes npm' }
+                $installOutput = & $env:SEALBRIDGE_TEST_INSTALLER -NoProfile 6>&1 | Out-String
+                Write-Host $installOutput
+                if (!$installOutput.Contains("Node.js: $env:SEALBRIDGE_TEST_PINNED_VERSION ($expectedNode)")) { throw 'installer runtime mismatch' }
+                sealbridge.cmd --version
+                if ($LASTEXITCODE -ne 0) { throw 'version failed' }
+                $doctor = sealbridge.cmd doctor | Out-String
+                Write-Host $doctor
+                if (!$doctor.Contains("Node.js: $env:SEALBRIDGE_TEST_PINNED_VERSION ($expectedNode) (OK)")) { throw 'doctor runtime mismatch' }
+                if (!(Test-Path -LiteralPath $copiedNode)) { throw 'original Node was removed' }
+                & $env:SEALBRIDGE_TEST_INSTALLER -Uninstall -NoProfile
+              }
+            } finally { $env:PSModulePath = $originalModulePath }
+            if ($LASTEXITCODE -ne 0) { throw "$shell npm-less installation failed" }
+          }
