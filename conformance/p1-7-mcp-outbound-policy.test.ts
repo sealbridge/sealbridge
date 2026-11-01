@@ -480,6 +480,7 @@ describe('MCP outbound approval', () => {
       const rejected = await callTool(denied, 'acp_delegate_task', {
         inviteToken: bobNode.invite(),
         title: 'Denied',
+        description: 'Decline this task',
         input: { n: 2 },
       });
       expect(rejected.isError).toBe(true);
@@ -501,6 +502,7 @@ describe('MCP outbound approval', () => {
     const again = await callTool(unavailable, 'acp_delegate_multi', {
       mode: 'race',
       title: 'Down',
+      description: 'Unavailable webhook',
       workers: [{ workerDid: bob.did, inviteToken: bobNode.invite() }],
     });
     expect(again.body.error).toBe('APPROVAL_REJECTED');
@@ -558,6 +560,7 @@ describe('MCP outbound approval', () => {
       const result = await callTool(denied, 'acp_delegate_task', {
         inviteToken: bobNode.invite(),
         title: 'No',
+        description: 'Reject this task',
         input: { ok: false },
       });
       expect(result.body.error).toBe('APPROVAL_REJECTED');
@@ -568,40 +571,26 @@ describe('MCP outbound approval', () => {
     }
   });
 
-  it('asks on stdin before sending when requireInteractiveApproval is set', async () => {
-    const alice = generateKeyPair();
-    const bob = generateKeyPair();
+  it('returns an immediate channel error without consuming terminal streams', async () => {
+    const owner = generateKeyPair();
+    const worker = generateKeyPair();
     const relay = new InMemoryRelay();
     const input = new PassThrough();
+    Object.assign(input, { isTTY: true });
     const output = new PassThrough();
-    let shown = '';
-    output.on('data', (chunk) => {
-      shown += String(chunk);
-    });
-    const server = new AcpMcpServer({
-      owner: alice,
-      relay,
-      allowedWorkerDids: [bob.did],
-      allowedRelayUrls: [allowedRelay],
-      requireInteractiveApproval: true,
-      approvalInput: input,
-      approvalOutput: output,
-    });
-    input.end('n\n');
+    const shown: unknown[] = [];
+    output.on('data', (chunk) => shown.push(chunk));
+    const server = new AcpMcpServer({ owner, relay, requireInteractiveApproval: true });
     const send = vi.spyOn(relay, 'send');
-    try {
-      const result = await callTool(server, 'acp_delegate_task', {
-        inviteToken: inviteFor(bob, allowedRelay),
-        title: 'Interactive',
-        input: { ask: true },
-      });
-      expect(result.body.error).toBe('APPROVAL_REJECTED');
-      expect(shown).toContain('Approve');
-      expect(shown).toContain(bob.did);
-      expect(send).not.toHaveBeenCalled();
-    } finally {
-      send.mockRestore();
-    }
+    const result = await callTool(server, 'acp_delegate_task', {
+      inviteToken: inviteFor(worker, allowedRelay), title: 'Host approval', input: { ask: true },
+    });
+    expect(result.body.error).toMatch(/APPROVAL_CHANNEL_UNAVAILABLE.*host.*elicitation.*--approval-webhook/);
+    expect(shown).toEqual([]);
+    expect(input.listenerCount('data')).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+    input.destroy();
+    output.destroy();
   });
 });
 

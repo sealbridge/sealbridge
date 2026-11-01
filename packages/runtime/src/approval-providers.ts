@@ -124,6 +124,7 @@ export interface ApprovalRequest {
   target: unknown;
   details?: unknown;
   signal?: AbortSignal;
+  deadline?: string;
 }
 export interface ApprovalProvider {
   approve(request: ApprovalRequest): Promise<ApprovalReceipt>;
@@ -317,5 +318,76 @@ export class WebhookApprovalProvider implements ApprovalProvider {
       (parsed as { approved?: unknown }).approved === true;
     if (!approved) throw new Error('APPROVAL_REJECTED');
     return signApproval(r.taskId, r.gate, r.target, this.owner, 'APPROVED');
+  }
+}
+
+/** Host form decisions are serialized per MCP connection and never use terminal IO. */
+export class McpFormApprovalProvider implements ApprovalProvider {
+  private queue: Promise<void> = Promise.resolve();
+  constructor(
+    readonly owner: KeyPair,
+    readonly options: {
+      available: () => boolean;
+      request: (params: import('@acp/core').Json, signal: AbortSignal) => Promise<unknown>;
+      timeoutMs?: number;
+      now?: () => number;
+    },
+  ) {}
+  assertAvailable(): void {
+    if (!this.options.available()) throw new Error(
+      'APPROVAL_CHANNEL_UNAVAILABLE: The host does not support MCP form elicitation. Use a host that supports elicitation, or --approval-webhook.',
+    );
+  }
+  async approve(request: ApprovalRequest): Promise<ApprovalReceipt> {
+    this.assertAvailable();
+    const review = JSON.stringify({
+      taskId: request.taskId, gate: request.gate, target: request.target,
+      targetDigest: digest(request.target), details: request.details ?? null,
+    }, null, 2);
+    if (Buffer.byteLength(review) > 64 * 1024) throw new Error('APPROVAL_REVIEW_TOO_LARGE');
+    const remaining = request.deadline
+      ? Date.parse(request.deadline) - (this.options.now ?? Date.now)() : Infinity;
+    const timeoutMs = Math.min(this.options.timeoutMs ?? 60000, remaining);
+    if (!(timeoutMs > 0)) throw new Error('APPROVAL_TIMEOUT');
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error('APPROVAL_ABORTED'));
+    request.signal?.addEventListener('abort', abort, { once: true });
+    if (request.signal?.aborted) abort();
+    const timer = setTimeout(() => controller.abort(new Error('APPROVAL_TIMEOUT')), timeoutMs);
+    let release!: () => void;
+    const previous = this.queue;
+    this.queue = new Promise<void>((resolve) => { release = resolve; });
+    let onAbort!: () => void;
+    try {
+      const result = await Promise.race([
+        previous.then(() => {
+          if (controller.signal.aborted) throw controller.signal.reason;
+          return this.options.request({
+            mode: 'form', message: 'Review this Sealbridge action:\n' + review,
+            requestedSchema: {
+              type: 'object', properties: {
+                approved: { type: 'boolean', title: 'Approve this specific action', default: false },
+              }, required: ['approved'],
+            },
+          }, controller.signal);
+        }),
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(controller.signal.reason);
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+          if (controller.signal.aborted) onAbort();
+        }),
+      ]);
+      if (controller.signal.aborted) throw controller.signal.reason;
+      const response = result as { action?: unknown; content?: { approved?: unknown } } | null;
+      if (!response || response.action !== 'accept' || response.content?.approved !== true)
+        throw new Error('APPROVAL_REJECTED');
+      return signApproval(request.taskId, request.gate, request.target, this.owner, 'APPROVED');
+    } finally {
+      clearTimeout(timer);
+      request.signal?.removeEventListener('abort', abort);
+      controller.signal.removeEventListener('abort', onAbort);
+      // A cancelled queued entry must not let later entries overtake the active form.
+      void previous.then(release);
+    }
   }
 }

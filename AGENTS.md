@@ -231,10 +231,15 @@ plus pathname with no trailing slash and must match `--allow-relay`
 (`MCP_RELAY_NOT_ALLOWED`). Those checks run before dialing. `--allow-private-relay`
 opts into loopback and RFC1918 relays; those destinations stay blocked by
 default, and metadata addresses stay blocked even when the flag is set.
-`--require-approval` asks on stdin. `--approval-webhook` POSTs
+`--require-approval` requests advertised MCP form elicitation before task transmission
+and again for final verification. Without form support, it returns
+`APPROVAL_CHANNEL_UNAVAILABLE` before transmission: use a host that supports
+elicitation, or `--approval-webhook`. Approval never reads MCP stdin or writes
+terminal prompts to stdout, including on a TTY. The unflagged policy-auto default
+is unchanged; explicit programmatic `approvalProvider` configuration remains supported. `--approval-webhook` POSTs
 `{ taskId, summaryHash, reason, approverDid }` and sends only when the webhook
 returns `{ approved: true }`. `{ approved: false }` or a non-2xx response is
-`APPROVAL_REJECTED`.
+`APPROVAL_REJECTED`. Final-verification failures can occur after task transmission.
 
 Programmatic callers can pass `onProgress` to receive encrypted `PROGRESS`
 updates, and an `AbortSignal` to send `CANCEL` during an accepted or running
