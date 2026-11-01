@@ -249,6 +249,8 @@ describe('Sealbridge MCP server', () => {
       'acp_revoke_token',
       'acp_discover_workers',
       'acp_inspect_revocations',
+      'acp_list_invites',
+      'acp_remove_invite',
     ]);
     const created = await server.handle({
       jsonrpc: '2.0',
