@@ -469,6 +469,14 @@ MCP ホストは `sealbridge mcp-server` を使える。進捗は `onProgress`�
 `AbortSignal`、複数ワーカーは `race` と `quorum` です。失効した招待と能力は
 `TOKEN_REVOKED` で拒否されます。
 
+## Held-content library / 保留内容のライブラリ
+
+Held-content APIs retain encrypted envelopes and require a completed inspection receipt for display.
+Hosts authorize review and manage acknowledgements and cleanup; see the [library contract](docs/connections/held-content.md).
+
+保留内容の API は暗号化済みの封筒を保存し、内容表示に検査完了の受領書を要求します。
+ホストが審査の承認・受信確認・削除を管理します。[ライブラリ契約](docs/connections/held-content.ja.md)を参照してください。
+
 ## Strict security and safety rules / 安全上の鉄則
 
 - Never print, log, commit, or transmit the contents of `*.private.json`, API
