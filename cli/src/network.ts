@@ -30,6 +30,7 @@ import { contactsPath, loadContacts, contactsApproval, addContact } from './cont
 import { readTaskInputFile } from './task-input.js';
 import { approvalSummary } from './approval-summary.js';
 import { japaneseErrorReason } from './error-messages.js';
+import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 const REPEATABLE = new Set(['--allow-requester', '--open-allow-task-type']);
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
 function flags(args: string[]): Map<string, string | true> {
@@ -162,7 +163,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   --wake-timeout-ms <n>          Per-attempt timeout (default: 5000).
   --notification-key <file>      Persistent signing key (default: ephemeral local identity).
   --notification-ttl-ms <n>      Wake registration/dedup and expiry notice retention (default: 3600000).
-  --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 600000).` : TIMEOUT_HELP + REVIEW_HELP + `
+  --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 600000).` : TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
                                  The local relay CLI provides channel "default".`);
     return;
@@ -181,6 +182,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
     throw new Error('Expected ' + command + ' start');
   const f = flags(args);
+  const authRecovery = relayAuthOptions(f);
   const allowPrivateRelay = f.has('--allow-private-relay');
   if (command === 'relay') {
     const port = Number(text(f, 'port', '8787'));
@@ -317,9 +319,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     if (allowedTaskTypes)
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
-    const workerRelay = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, key, { allowPrivateRelay,
+    const workerRelay = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
       requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
     const worker = new WorkerNode({
+      ...authRecovery,
       ...(f.has('--max-tasks-per-day') ? { dailyLimit: {
         path: join(dirname(contactsPath()), 'daily-tasks.json'),
         maxTasks: optionalCount(f, 'max-tasks-per-day')!,
@@ -390,9 +393,10 @@ export async function networkCommand(command: string, args: string[], applicatio
       allowPrivateRelay,
     });
     const client = new RequesterClient({
+      ...authRecovery,
       ...sessionTimeouts(f),
       owner: key,
-      relay: new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay,
+      relay: new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
         requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }),
       approvalProvider: approval(key, automatic, undefined, f.has('--verbose')),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
