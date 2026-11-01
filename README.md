@@ -622,6 +622,12 @@ node examples/network-collab/run.mjs
 4. **BYOK and signed usage receipts.** LLM cost is borne by the executing side (BYOK) inside the contracted quota. The worker runtime meters usage and signs a `UsageReceipt`. Payment stays out of the core and can be plugged in later.
 5. **Untrusted input and a bilateral audit.** Data from another owner is `untrusted` and runs in a sandbox. Every state transition is an append-only hash chain signed with Ed25519, and both sides keep a copy.
 
+### Connection state persistence
+
+`@acp/runtime` provides owner-local connection lifecycle and persistence APIs.
+Connected state projects to limited without expiry; operational defaults remain unchanged.
+See [connection state persistence](docs/connections/connection-state.md) for API and store compatibility details.
+
 ## Documents
 
 | File                                                                                   | Contents                                                                                                      |
