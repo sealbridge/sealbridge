@@ -5,6 +5,7 @@ import { inviteShareCommand } from './invite-share.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema, OpenPolicy } from '@acp/core';
 import { createSignedAgentCard, createInviteToken, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
+import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
@@ -14,10 +15,12 @@ import {
   selectApplicationRelay,
   readApplicationConfig,
   RequesterClient,
+  RequesterPendingStore,
+  InviteStore,
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
 } from '@acp/runtime';
-import type { IdentityStoreOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
+import type { IdentityStoreOptions, DelegateOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
 import {
   CommandAgentAdapter,
   ClaudeCodeAdapter,
@@ -156,6 +159,9 @@ function assertLlmAutoAccept(
 }
 export async function networkCommand(command: string, args: string[], application: {
   identityOptions?: IdentityStoreOptions; fetch?: typeof fetch;
+  pendingRequest?: DelegateOptions; pendingRelayUrl?: string;
+  transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
+  onDelegated?: () => void;
 } = {}): Promise<void> {
   if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
     console.log(command === 'relay' ? `Relay notification options:
@@ -400,7 +406,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   if (command === 'delegate') {
     if (f.has('--input') && f.has('--input-file'))
       throw new Error('INVALID_INPUT_OPTIONS: use exactly one of --input and --input-file');
-    const input = f.has('--input-file')
+    const input = application.pendingRequest ? application.pendingRequest.input : f.has('--input-file')
       ? readTaskInputFile(text(f, 'input-file')) : JSON.parse(text(f, 'input'));
     if (f.has('--save-contact')) addContact(
       f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
@@ -413,14 +419,19 @@ export async function networkCommand(command: string, args: string[], applicatio
         value.trim().startsWith('{') ? value : readFileSync(value, 'utf8'),
       ) as Schema;
     }
-    const to = text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
+    const workerRef = application.pendingRequest?.workerRef;
+    const to = workerRef
+      ? new InviteStore(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } }).resolve(workerRef).inviteToken
+      : application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
-    const relay = selectedRelay(invite?.relayUrl);
+    const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
     const client = new RequesterClient({
       ...authRecovery,
       ...sessionTimeouts(f),
       owner: key,
-      relay: new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
+      pendingStore: new RequesterPendingStore(key, application.identityOptions),
+      pendingRelayUrl: relay,
+      relay: application.transportFactory?.(relay, key) ?? new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
         requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }),
       approvalProvider: approval(key, automatic, undefined, f.has('--verbose')),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
@@ -428,16 +439,19 @@ export async function networkCommand(command: string, args: string[], applicatio
     });
     const result = await client.delegate({
       ...sessionTimeouts(f),
-      to,
       ...(f.has('--discover') || f.has('--task-type') ? { discover: {
         ...(f.has('--discover') ? { skillId: text(f, 'discover') } : {}),
         ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),
       } } : {}),
-      title: text(f, 'title'),
-      description: text(f, 'description'),
+      title: application.pendingRequest?.title ?? text(f, 'title'),
+      description: application.pendingRequest?.description ?? text(f, 'description'),
       input,
       outputSchema,
+      ...application.pendingRequest,
+      to,
+      ...Object.fromEntries(Object.entries(sessionTimeouts(f)).filter(([, value]) => value !== undefined)),
     });
+    application.onDelegated?.();
     if (f.has('--out'))
       writeFileSync(text(f, 'out'), JSON.stringify(result.deliverable, null, 2) + '\n', {
         flag: 'wx',

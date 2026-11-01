@@ -236,6 +236,30 @@ separate owner approval before LLM execution; trusted grants still require an en
 automatic policy for automatic execution. `--allowed-peer DID` intersects all trust
 and allow flags for worker session receives/sends; excluded peers get no response.
 
+
+Requester CLI/MCP holds are retained locally for 24 hours with task/input in
+`<data-root>/requesters/<requester-did-hash>/pending.private.json` (POSIX 0600).
+`sealbridge pending list` shows local observations; after owner review, explicitly
+run `sealbridge pending resubmit ID` with fresh audit/output paths, or
+`sealbridge pending remove ID`. Use the same requester key/data root (`--key FILE`
+when explicit). MCP adds `acp_list_pending_requests {}` and
+`acp_resubmit_pending_request {pendingId}`. A fresh task ID is generated and current
+relay/worker checks and approval policy, including required MCP elicitation, apply.
+Another hold updates the same record; completion resolves it; other errors mark it
+failed. Retention is not renewed; expired entries are pruned on the next store update. Results include a local pending ID and original
+task ID for out-of-band review, without invitation material or stored task content.
+Saved workerRef targets retain only their reference, not a copied invitation token,
+and resolve it again on explicit resubmission.
+Listing never learns remote approval status or retries; remote probes/notifications
+are deferred. CLI exit 3 and `retryable:false` remain unchanged.
+依頼側の保留はタスク・入力とともに既存データルートへ24時間保存します。
+`pending list` は最後のローカル観測を表示し、所有者の審査後に `pending resubmit ID`
+で明示的に新しいタスクを送るか、`pending remove ID` で削除します。
+同じ依頼者鍵を使い、監査・出力には未使用パスを指定します。MCP は上記2ツールを追加し、
+現在の送信先確認・承認を適用します。再保留は更新、完了は resolved、その他のエラーは failed
+として記録し、保存期限は延長せず、期限切れは次の保存更新時に削除します。一覧・エラーに招待情報・保存済み本文は含めません。
+遠隔の承認状態の取得・通知は今後の検討事項で、自動再送はしません。
+
 ## Requester flow / 発注側
 
 1. Omit `--key` to create/reuse the persistent requester identity. It is
@@ -307,7 +331,8 @@ defaults to the task-manifest schema.
 For an MCP host, start a stdio server; its requester identity is created on first use. It exposes
 `acp_delegate_task`, `acp_delegate_multi`, `acp_verify_audit_bundle`,
 `acp_create_invite`, `acp_revoke_token`, `acp_discover_workers`,
-`acp_inspect_revocations`, `acp_list_invites`, and `acp_remove_invite`. `initialize` publishes workflow instructions.
+`acp_inspect_revocations`, `acp_list_invites`, `acp_remove_invite`,
+`acp_list_pending_requests`, and `acp_resubmit_pending_request`. `initialize` publishes workflow instructions.
 `acp_discover_workers` reads the relay directory and still obeys the relay
 allowlist. `acp_inspect_revocations` reads this process's revocation registry.
 

@@ -2,9 +2,11 @@
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { inspectLocalIdentity, resolveOrCreateIdentity, resolveDataRoot,
+import { resolveDataRoot,
   ensurePrivateDirectory, checkPrivatePath } from '@acp/runtime/local-identity';
-import type { LocalIdentityOptions, IdentityRole } from '@acp/runtime/local-identity';
+import type { IdentityRole } from '@acp/runtime/local-identity';
+import { inspectStoredIdentity, resolveStoredIdentity } from '@acp/runtime/key-store';
+import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 import { readApplicationConfig, validateApplicationConfig, createApplicationConfig } from '@acp/runtime/application-config';
 import { selectApplicationRelay } from '@acp/runtime/relay-selection';
 import { detectedHosts, hostDestination, runtimeEntry } from './setup-hosts.js';
@@ -13,7 +15,7 @@ import { snapshot, strictObject, hostChange, assertUnchanged, publish } from './
 
 export const SETUP_USAGE = 'Usage: sealbridge setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
 const ENTRY_CONFLICT_HELP = 'An existing Sealbridge entry differs from the proposed entry. Review with --update-existing --dry-run or --update-existing --print, then use --update-existing to replace only that entry with a backup. Use --no-require-approval to select the previous plain mcp-server mode.';
-export interface SetupOptions extends LocalIdentityOptions {
+export interface SetupOptions extends IdentityStoreOptions {
   hosts?: string[]; allDetected?: boolean; project?: string; worker?: boolean;
   relay?: string; dryRun?: boolean; print?: boolean; execPath?: string; entryPath?: string;
   requireApproval?: boolean; updateExisting?: boolean;
@@ -66,7 +68,7 @@ export function setupExitCode(code: string): number {
 }
 function errorCode(error: unknown): string {
   const code = error instanceof Error ? error.message : '';
-  if (/^(SETUP_|IDENTITY_|DATA_DIR_)[A-Z_]+$/.test(code)) return code;
+  if (/^(SETUP_|IDENTITY_|DATA_DIR_|KEY_STORE_)[A-Z_]+$/.test(code)) return code;
   if (code === 'APP_CONFIG_BUSY') return 'SETUP_CONFIG_CHANGED';
   if (/^APP_CONFIG_/.test(code)) return code === 'APP_CONFIG_UNWRITABLE' ? 'SETUP_WRITE_FAILED' : 'SETUP_CONFIG_INVALID';
   return 'SETUP_WRITE_FAILED';
@@ -83,11 +85,11 @@ export async function runSetup(options: SetupOptions = {}) {
     ? { approvalMode: 'automatic', approvalNote: 'The host can send without per-request confirmation and accept final results automatically.' }
     : { approvalMode: 'host-mediated', approvalNote: 'Host form elicitation is required before sending and for final verification. Hosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending.' };
   const roles: IdentityRole[] = options.worker ? ['requester', 'worker'] : ['requester'];
-  const identities = roles.map(role => {
-    const selected = inspectLocalIdentity(role, options);
-    return { role, path: selected.path, source: selected.source,
+  const identities = await Promise.all(roles.map(async role => {
+    const selected = await inspectStoredIdentity(role, options);
+    return { role, path: selected.location, source: selected.source,
       status: selected.key ? 'reused' : 'created on apply', did: selected.key?.did };
-  });
+  }));
   const configOriginal = snapshot(join(root, 'config.json'), io, platform);
   if (configOriginal.bytes) strictObject(configOriginal.bytes);
   let config;
@@ -126,9 +128,9 @@ export async function runSetup(options: SetupOptions = {}) {
     // One exclusive lock attempt is bounded. Revalidate every destination after acquiring it.
     assertUnchanged(configOriginal, io, platform);
     for (const { change } of changes) assertUnchanged(change, io, platform);
-    for (const role of roles) inspectLocalIdentity(role, options);
+    for (const role of roles) await inspectStoredIdentity(role, options);
     for (const identity of identities) {
-      identity.did = resolveOrCreateIdentity(identity.role, options).did;
+      identity.did = (await resolveStoredIdentity(identity.role, options)).did;
       identity.status = identity.status === 'reused' ? 'reused' : 'created';
     }
     if (!configOriginal.bytes) {

@@ -8,6 +8,7 @@ import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
 import { runDemo } from '@acp/two-owner-demo';
 import { networkCommand } from './network.js';
 import { mcpServerCommand } from './mcp.js';
+import { pendingCommand } from './pending.js';
 import { requestsCommand } from './requests.js';
 import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
@@ -17,7 +18,7 @@ import { boardCommand } from './board.js';
 import { acceptCommand } from './accept.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
-const USAGE = 'Usage: sealbridge <setup|doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
+const USAGE = 'Usage: sealbridge <setup|doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
@@ -105,6 +106,9 @@ async function main(args: string[]) {
       break;
     case 'board':
       await boardCommand(rest);
+      break;
+    case 'pending':
+      await pendingCommand(rest);
       break;
     case 'requests':
       await requestsCommand(rest);
