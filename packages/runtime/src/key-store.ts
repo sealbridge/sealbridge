@@ -9,6 +9,7 @@ import {
   ensurePrivateDirectory, checkPrivatePath, checkPrivateStat,
 } from './local-identity.js';
 import type { IdentityRole, LocalIdentityOptions, LocalIdentity } from './local-identity.js';
+import { readApplicationConfig } from './application-config.js';
 
 type Result<T> = T | Promise<T>;
 export interface KeyStoreDescription {
@@ -32,7 +33,7 @@ export interface KeyringModule {
   Entry: new (service: string, account: string, options?: { linux: { store: 'secret-service' } }) => KeyringEntry;
 }
 export interface IdentityStoreOptions extends LocalIdentityOptions {
-  /** Explicit backend selection takes precedence over SEALBRIDGE_KEY_STORE. */
+  /** Precedence: option, environment, application config, then file. */
   keyStore?: 'file' | 'keychain' | KeyStore;
   /** Optional native module loader, also usable by hosts and offline tests. */
   keyringLoader?: () => Promise<KeyringModule>;
@@ -146,10 +147,48 @@ async function optionalKeyring(options: IdentityStoreOptions, required: boolean)
   }
 }
 
+export interface KeyStoreSelection {
+  keyStore: 'file' | 'keychain' | KeyStore;
+  source: 'option' | 'env' | 'config' | 'default';
+}
+
+/** Resolve selection metadata without loading a backend or creating an identity. */
+export function keyStoreSelection(options: IdentityStoreOptions = {}): KeyStoreSelection {
+  if (options.explicitKeyPath !== undefined) return { keyStore: 'file', source: 'option' };
+  const env = options.env ?? process.env;
+  let keyStore = options.keyStore ?? env.SEALBRIDGE_KEY_STORE;
+  let source: KeyStoreSelection['source'] = options.keyStore !== undefined ? 'option' : 'env';
+  if (keyStore === undefined) {
+    // Relay opt-in is evaluated by relay consumers, independently of identity storage.
+    keyStore = readApplicationConfig({ ...options, allowPrivateRelay: true }).keyStore;
+    source = keyStore === undefined ? 'default' : 'config';
+  }
+  if (keyStore !== undefined && keyStore !== 'file' && keyStore !== 'keychain' &&
+      (typeof keyStore !== 'object' || keyStore === null)) throw failure('KEY_STORE_INVALID');
+  return { keyStore: keyStore ?? 'file', source };
+}
+
+/** Inspect the other backend without creating entries; optional keychain inspection may be unavailable. */
+export async function otherKeyStorePresence(selected: 'file' | 'keychain', options: IdentityStoreOptions = {}): Promise<string[]> {
+  const module = selected === 'file' ? await optionalKeyring(options, false) : undefined;
+  if (selected === 'file' && !module) return ['keychain: inspection unavailable'];
+  const other = selected === 'file' ? new KeychainKeyStore(module!, options) : new FileKeyStore(options);
+  const warnings: string[] = [];
+  for (const role of ['requester', 'worker'] as const) {
+    try {
+      if (await other.exists(role)) warnings.push(`${role}: identity also present in ${selected === 'file' ? 'keychain' : 'file'} backend; no identity was moved`);
+    } catch (error) {
+      warnings.push(`${role}: other backend inspection returned ${(error as Error).message}`);
+    }
+  }
+  return warnings;
+}
+
 /** Explicit file paths always bypass backend configuration and optional module loading. */
 export async function selectKeyStore(role: IdentityRole, options: IdentityStoreOptions = {}): Promise<KeyStore> {
   if (options.explicitKeyPath !== undefined) return new FileKeyStore(options);
-  const selected = options.keyStore ?? (options.env ?? process.env).SEALBRIDGE_KEY_STORE;
+  const selection = keyStoreSelection(options);
+  const selected = selection.source === 'default' ? undefined : selection.keyStore;
   if (selected !== undefined && typeof selected === 'object' && selected !== null) return selected;
   if (selected === 'file') return new FileKeyStore(options);
   if (selected !== undefined && selected !== 'keychain') throw failure('KEY_STORE_INVALID');

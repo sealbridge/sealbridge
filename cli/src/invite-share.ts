@@ -6,6 +6,9 @@ import { createInterface } from 'node:readline/promises';
 import QRCode from 'qrcode';
 import { createInviteToken, createSignedAgentCard, generateKeyPair, inviteTokenFromUri, parseAndVerifyInviteToken, signPayload, verifySigned } from '@acp/core';
 import type { Invite, KeyPair, Signed } from '@acp/core';
+import { inspectStoredIdentity } from '@acp/runtime/key-store';
+import type { IdentityStoreOptions } from '@acp/runtime/key-store';
+import { commandIdentity } from './command-identity.js';
 import { addContact, contactsPath } from './contacts.js';
 
 export function inviteToken(value: string): string {
@@ -68,6 +71,10 @@ export function setupInvite(value: string, keyPath: string, contactPath: string,
     mkdirSync(dirname(keyPath), { recursive: true, mode: 0o700 });
     writeFileSync(keyPath, JSON.stringify(key), { flag: 'wx', mode: 0o600 });
   }
+  return saveReciprocalInvite(value, invite, key, contactPath, out, name, keyPath);
+}
+function saveReciprocalInvite(value: string, invite: Invite, key: KeyPair, contactPath: string,
+  out: string, name?: string, keyPath?: string, backend?: string) {
   if (!verifySigned(signPayload({ type: 'IdentityCheck' }, key), key.did)) throw new Error('INVALID_IDENTITY_KEY');
   if (key.did === invite.ownerDid) throw new Error('SELF_INVITE');
   const card = createSignedAgentCard({ name: 'Sealbridge contact', agentDid: key.did, relayEndpoint: invite.relayUrl,
@@ -76,7 +83,8 @@ export function setupInvite(value: string, keyPath: string, contactPath: string,
   const reciprocal = createInviteToken({ agentCard: card, expiresInSeconds: 86400 }, key);
   writeFileSync(out, reciprocal, { flag: 'wx', mode: 0o600 });
   addContact(contactPath, key, inviteToken(value), name);
-  return { ownerDid: key.did, keyFile: keyPath, reciprocalInviteFile: out };
+  return { ownerDid: key.did, keyFile: keyPath, reciprocalInviteFile: out,
+    ...(backend !== undefined ? { keyStore: backend, role: 'requester' } : {}) };
 }
 interface ReissueRequest { type: 'InviteReissueRequest'; requesterDid: string; issuerDid: string; createdAt: string; }
 async function confirm(message: string): Promise<void> {
@@ -84,7 +92,7 @@ async function confirm(message: string): Promise<void> {
   try { if ((await rl.question(message + ' Type yes: ')).trim() !== 'yes') throw new Error('APPROVAL_REJECTED'); }
   finally { rl.close(); }
 }
-export async function inviteShareCommand(action: string, args: string[]): Promise<void> {
+export async function inviteShareCommand(action: string, args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
   const allowed = ['--file', '--host', '--png', '--svg', '--save-contact', '--key', '--agent-key', '--contacts', '--out', '--request'];
   const flags = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
@@ -97,13 +105,23 @@ export async function inviteShareCommand(action: string, args: string[]): Promis
   if (action === 'open') {
     const p = openInvite(value);
     const contactPath = flags.get('--contacts') ?? contactsPath();
-    const keyPath = flags.get('--key') ?? join(dirname(contactsPath()), 'owner.private.json');
-    const out = flags.get('--out') ?? join(dirname(keyPath), 'reciprocal-' + randomUUID() + '.txt');
-    const local = setupInvite(value, keyPath, contactPath, out, flags.get('--save-contact'));
+    const keyPath = flags.get('--key');
+    const out = flags.get('--out') ?? join(keyPath ? dirname(keyPath) : dirname(contactsPath()), 'reciprocal-' + randomUUID() + '.txt');
+    let local;
+    if (keyPath !== undefined) local = setupInvite(value, keyPath, contactPath, out, flags.get('--save-contact'));
+    else {
+      const key = (await commandIdentity('requester', undefined, identityOptions))!;
+      const stored = await inspectStoredIdentity('requester', identityOptions);
+      if (!flags.has('--out')) mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
+      local = saveReciprocalInvite(value, p, key, contactPath, out, flags.get('--save-contact'),
+        stored.backend === 'file' ? stored.location : undefined, stored.backend);
+    }
     const expiresAt = new Date(Math.min(Date.parse(p.expiresAt), Date.parse(p.agentCard.payload.expiresAt))).toISOString();
     console.log(JSON.stringify({ name: p.agentCard.payload.name, ownerDid: p.ownerDid, agentDid: p.agentDid,
       relay: p.relayUrl, expires: friendlyExpiry(expiresAt), expiresAt, local,
-      nextStep: 'Share reciprocalInviteFile with the inviter through your trusted channel. Start a sandbox worker with keyFile and this relay to receive JSON jobs.',
+      nextStep: local.keyFile
+        ? 'Share reciprocalInviteFile with the inviter through your trusted channel. Start a sandbox worker with keyFile and this relay to receive JSON jobs.'
+        : 'Share reciprocalInviteFile with the inviter through your trusted channel. The reciprocal identity uses the requester role in the selected key store.',
       approval: 'Opening an invite does not approve work or allow automatic acceptance.' }));
   } else if (action === 'share') {
     const link = shareLink(value, need('host'));
@@ -113,13 +131,13 @@ export async function inviteShareCommand(action: string, args: string[]): Promis
       writeFileSync(need(type), await renderInviteQr(link, type), { flag: 'wx', mode: 0o600 });
   } else if (action === 'request-reissue') {
     const old = verifiedExpiredInvite(value);
-    const key = JSON.parse(readFileSync(need('key'), 'utf8')) as KeyPair;
+    const key = (await commandIdentity('requester', flags.get('--key'), identityOptions))!;
     const request = signPayload<ReissueRequest>({ type: 'InviteReissueRequest', requesterDid: key.did,
       issuerDid: old.ownerDid, createdAt: new Date().toISOString() }, key);
     writeFileSync(need('out'), JSON.stringify(request), { flag: 'wx', mode: 0o600 });
     console.log('Re-issue request saved. Send it to the issuer for approval.');
   } else if (action === 'reissue') {
-    const key = JSON.parse(readFileSync(need('key'), 'utf8')) as KeyPair;
+    const key = (await commandIdentity('worker', flags.get('--key'), identityOptions))!;
     if (flags.has('--request')) {
       const r = JSON.parse(readFileSync(need('request'), 'utf8')) as Signed<ReissueRequest>;
       if (!verifySigned(r, r.payload.requesterDid) || r.payload.type !== 'InviteReissueRequest' ||

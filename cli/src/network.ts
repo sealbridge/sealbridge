@@ -189,7 +189,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       throw new Error('CONFLICTING_PUBLIC_SETTINGS');
     return networkCommand('worker', ['start', ...args, ...publicSettingsFlags(settings)], application);
   }
-  if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args);
+  if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args, application.identityOptions);
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
     throw new Error('Expected ' + command + ' start');
   const f = flags(args);

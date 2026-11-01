@@ -7,6 +7,8 @@ import { parseAndVerifyInviteToken, signPayload, verifySigned } from '@acp/core'
 import type { KeyPair, Signed } from '@acp/core';
 import type { ApprovalProvider, WorkerAcceptancePolicy } from '@acp/runtime';
 import { PolicyAutoApprovalProvider } from '@acp/runtime';
+import type { IdentityStoreOptions } from '@acp/runtime/key-store';
+import { commandIdentity, readCommandKey } from './command-identity.js';
 
 export interface Contact {
   displayName: string;
@@ -92,7 +94,7 @@ export function contactsApproval(path: string, key: KeyPair, automatic: boolean,
     return (automatic ? new PolicyAutoApprovalProvider(key, undefined, { acceptance }) : interactive).approve(request);
   } };
 }
-export function contactsCommand(args: string[]): void {
+export function contactsCommand(args: string[], identityOptions: IdentityStoreOptions = {}): void | Promise<void> {
   const [action, ...rest] = args;
   const options = new Map<string, string>();
   const positional: string[] = [];
@@ -105,25 +107,31 @@ export function contactsCommand(args: string[]): void {
     if (!value || value.startsWith('--')) throw new Error('MISSING_CONTACT_OPTION');
     options.set(flag, value);
   }
-  if (!['list', 'add', 'allow', 'revoke', 'remove'].includes(action) || positional.length !== (action === 'list' ? 0 : 1) || !options.has('--key'))
+  if (!['list', 'add', 'allow', 'revoke', 'remove'].includes(action) || positional.length !== (action === 'list' ? 0 : 1))
     throw new Error('Usage: sealbridge contacts list|add <invite>|allow <ownerDid>|revoke <ownerDid>|remove <ownerDid> --key <key> [--file <contacts.json>] [--name <name>]');
-  const key = JSON.parse(readFileSync(options.get('--key')!, 'utf8')) as KeyPair;
-  const path = options.get('--file') ?? contactsPath();
-  let contacts: Contact[];
-  if (action === 'list') contacts = loadContacts(path, key.did);
-  else if (action === 'add') contacts = addContact(path, key, positional[0], options.get('--name'), options.has('--allow-private-relay'));
-  else contacts = updateContacts(path, key, (items) => {
-    const index = items.findIndex(c => c.ownerDid === positional[0]);
-    if (index < 0) throw new Error('CONTACT_NOT_FOUND');
-    if (action === 'remove') {
-      items[index].saved = false;
-      items[index].displayName = '';
-      items[index].allow = false;
-      items[index].revoked = true;
-    } else {
-      if (action === 'allow' && !items[index].saved) throw new Error('CONTACT_NOT_SAVED');
-      items[index].allow = action === 'allow'; items[index].revoked = action === 'revoke';
-    }
-  });
-  console.log(JSON.stringify({ version: 1, contacts: contacts.filter(c => c.saved) }));
+  const run = (key: KeyPair | undefined) => {
+    if (!key) { console.log(JSON.stringify({ version: 1, contacts: [] })); return; }
+    const path = options.get('--file') ?? contactsPath();
+    let contacts: Contact[];
+    if (action === 'list') contacts = loadContacts(path, key.did);
+    else if (action === 'add') contacts = addContact(path, key, positional[0], options.get('--name'), options.has('--allow-private-relay'));
+    else contacts = updateContacts(path, key, (items) => {
+      const index = items.findIndex(c => c.ownerDid === positional[0]);
+      if (index < 0) throw new Error('CONTACT_NOT_FOUND');
+      if (action === 'remove') {
+        items[index].saved = false;
+        items[index].displayName = '';
+        items[index].allow = false;
+        items[index].revoked = true;
+      } else {
+        if (action === 'allow' && !items[index].saved) throw new Error('CONTACT_NOT_SAVED');
+        items[index].allow = action === 'allow'; items[index].revoked = action === 'revoke';
+      }
+    });
+    console.log(JSON.stringify({ version: 1, contacts: contacts.filter(c => c.saved) }));
+  };
+  // Explicit-file callers retain synchronous completion and errors.
+  const keyFile = options.get('--key');
+  if (keyFile !== undefined) return run(readCommandKey(keyFile));
+  return commandIdentity('requester', undefined, identityOptions, action !== 'list').then(run);
 }

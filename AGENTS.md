@@ -80,23 +80,43 @@ or contacting the relay. MCP initialization and tool listing make no network
 request. Discovery reads the directory; delegation transmits encrypted payloads
 and relay-visible routing metadata. Installers do not generate identities.
 
-Private-key storage defaults to files. Explicitly set `SEALBRIDGE_KEY_STORE=file|keychain`;
+Private-key storage defaults to files. Use `sealbridge config key-store` to read the effective
+backend/source, or `sealbridge config key-store file|keychain` to persist selection in
+version-1 `<data-root>/config.json`. Precedence: programmatic option >
+`SEALBRIDGE_KEY_STORE` > config > file. Setting checks availability, reports other-backend
+identities, preserves unrelated config fields, and does not move/create/delete keys.
+Matching selections preserve existing bytes. Environment overrides still apply.
+Without `--key`, board post/serve/dispatch, contacts, invite open/request-reissue use requester;
+board claim and invite reissue use worker. Listing does not create identities.
+Contacts and default reciprocal invite outputs retain their existing directory locations. Invite open reuses legacy requester files;
+first use follows the selected store. Keychain output uses `local.keyStore`/`local.role`
+instead of `local.keyFile`. `invite share` does not access identity storage.
+Explicitly set `SEALBRIDGE_KEY_STORE=file|keychain`;
 `--key <path>` always selects a file. Keychain dynamically loads optional `@napi-rs/keyring`
 (MIT, 2.x >=2.1.2); source install: `pnpm --filter @acp/runtime add --optional @napi-rs/keyring@^2.1.2`.
 Selected but unavailable stores return `KEY_STORE_UNAVAILABLE` without file fallback.
 When credential inspection is available, an existing keychain entry requires explicit selection
 (`KEY_STORE_CONFLICT` if a role file also exists, otherwise `KEY_STORE_SELECTION_REQUIRED`).
 Without credential inspection, unconfigured file operation is unchanged and cannot inspect keychain entries.
-There is no automatic migration. Doctor reports backend and presence without creating keys.
+There is no automatic migration. Doctor reports backend, selection source (option/env/config/default), and presence without creating keys.
 Runtime embedders can inject `KeyStore` into `resolveStoredIdentity` / `inspectStoredIdentity`
 or MCP `identityOptions.keyStore`. See README for entry naming, creation locks, and installation.
-鍵は従来のファイルが既定です。`SEALBRIDGE_KEY_STORE=file|keychain` で明示選択し、
+鍵は従来のファイルが既定です。`config key-store` は方式・選択元を表示し、
+`config key-store file|keychain` は config.json に保存します。優先順位は
+プログラム指定 > 環境変数 > config > file です。設定時は利用可否と他方式の鍵を確認し、
+鍵の移動・作成・削除は行いません。他項目を保持し、同じ値ならバイト列も維持します。
+`--key` 省略時の board post/serve/dispatch・contacts・invite open/request-reissue は requester、
+board claim・invite reissue は worker です。一覧では鍵を作成しません。
+contacts と返信招待の既定ディレクトリは維持し、invite open は旧 requester 鍵も再利用します。
+keychain の出力は local.keyFile の代わりに local.keyStore/local.role を含みます。
+`invite share` は鍵ストアを参照しません。
+`SEALBRIDGE_KEY_STORE=file|keychain` で明示選択し、
 `--key` は常にファイルを指定します。keychain には任意の `@napi-rs/keyring`（MIT、
 2.x の 2.1.2 以降）を同じ場所に導入します。利用できなければ `KEY_STORE_UNAVAILABLE` で
 停止します。ストアを検査できるときに keychain の鍵があれば明示選択が必要です。
 ファイルもあれば `KEY_STORE_CONFLICT`、なければ `KEY_STORE_SELECTION_REQUIRED` です。
 ストアを検査できない未設定環境ではファイル動作を維持し、keychain は検査できません。
-自動移行は行いません。doctor は鍵を作らず方式と存在を表示します。
+自動移行は行いません。doctor は鍵を作らず方式・選択元・存在を表示します。
 組み込みアプリは `KeyStore` を注入できます。導入方法・命名・作成ロックは README を参照します。
 
 For the optional audit paths below, create the audit directory first:

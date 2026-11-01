@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { inspectStoredIdentity } from '@acp/runtime/key-store';
+import { inspectStoredIdentity, keyStoreSelection } from '@acp/runtime/key-store';
 import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 export interface DoctorOptions {
@@ -19,25 +19,29 @@ export interface DoctorCheck {
   ok: boolean;
   message: string;
   remediation?: string;
+  selection?: { backend: string; source: 'option' | 'env' | 'config' | 'default' };
 }
 export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck[]> {
   const exists = options.exists ?? existsSync;
   const version = options.version ?? process.versions.node;
   const paths = (options.path ?? process.env.PATH ?? '').split(delimiter);
   let keys: DoctorCheck;
+  let selection: ReturnType<typeof keyStoreSelection> | undefined;
   try {
+    selection = keyStoreSelection({ ...options.identityOptions,
+      ...(options.home !== undefined ? { home: options.home } : {}), explicitKeyPath: options.keyFile });
     const identities = await Promise.all((options.keyFile ? ['requester'] as const : ['requester', 'worker'] as const).map(async role => {
       const selected = await inspectStoredIdentity(role, { ...options.identityOptions,
         ...(options.home !== undefined ? { home: options.home } : {}),
         explicitKeyPath: options.keyFile });
       return `${role}: ${selected.location} (${selected.present ? selected.source ?? 'present' : 'created on first use'}) [${selected.backend}]`;
     }));
-    keys = { name: 'Keys', ok: true, message: identities.join('; ') };
+    keys = { name: 'Keys', ok: true, message: identities.join('; ') + `; selection: ${typeof selection.keyStore === 'object' ? 'custom' : selection.keyStore} (${selection.source})` };
   } catch (error) {
-    const setting = options.keyFile ? 'file' : options.identityOptions?.keyStore ??
-      (options.identityOptions?.env ?? process.env).SEALBRIDGE_KEY_STORE;
+    const setting = selection?.keyStore;
     const backend = setting === 'keychain' ? 'keychain' : typeof setting === 'object' ? 'custom' : 'file';
     keys = { name: 'Keys', ok: false, message: (error as Error).message + (backend === 'file' ? '' : ` [${backend}]`),
+      ...(selection && { selection: { backend, source: selection.source } }),
       remediation: 'Check the configured backend and its availability. Install @napi-rs/keyring for keychain use; select SEALBRIDGE_KEY_STORE=file|keychain or --key for an existing file.' };
   }
   const nodeOk = Number(version.split('.')[0]) >= 22;
@@ -64,7 +68,7 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
 }
 export async function doctorCommand(options: DoctorOptions = {}) {
   const checks = await diagnose(options);
-  for (const check of checks) console.log(`${check.name}: ${check.message} (${check.ok ? 'OK' : 'WARN'})${!check.ok && check.remediation ? ` ${check.remediation}` : ''}`);
+  for (const check of checks) console.log(`${check.name}: ${check.message}${check.selection ? `; selection: ${check.selection.backend} (${check.selection.source})` : ''} (${check.ok ? 'OK' : 'WARN'})${!check.ok && check.remediation ? ` ${check.remediation}` : ''}`);
   if (checks.some(check => !check.ok)) process.exitCode = 1;
 }
 

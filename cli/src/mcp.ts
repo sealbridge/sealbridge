@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { KeyPair } from '@acp/core';
-import { AcpMcpServer, resolveOrCreateIdentity } from '@acp/runtime';
-import type { AcpMcpServerOptions } from '@acp/runtime';
+import { AcpMcpServer, resolveStoredIdentity } from '@acp/runtime';
+import type { AcpMcpServerOptions, IdentityStoreOptions } from '@acp/runtime';
 import type { RelayAuthRecoveryOptions } from '@acp/relay';
 import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 
@@ -91,10 +91,11 @@ export function parseMcpServerArgs(args: string[]): ParsedMcpServerArgs {
 export function mcpServerOptionsFromArgs(
   parsed: ParsedMcpServerArgs,
   owner?: KeyPair,
+  identityOptions: IdentityStoreOptions = {},
 ): AcpMcpServerOptions {
   return {
     owner,
-    identityOptions: { explicitKeyPath: parsed.keyFile },
+    identityOptions: { ...identityOptions, explicitKeyPath: parsed.keyFile },
     maxAuthRecoveryAttempts: parsed.maxAuthRecoveryAttempts,
     authRecoveryTimeoutMs: parsed.authRecoveryTimeoutMs,
     relay: parsed.relay,
@@ -107,10 +108,10 @@ export function mcpServerOptionsFromArgs(
 }
 
 /** `acp mcp-server` speaks MCP over stdio with an outbound allowlist and approval policy. */
-export async function mcpServerCommand(args: string[]): Promise<void> {
+export async function mcpServerCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
   if (args.includes('--help')) { console.log(USAGE + '\n' + RELAY_AUTH_HELP); return; }
   const parsed = parseMcpServerArgs(args);
   const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, parsed.keyFile
-    ? resolveOrCreateIdentity('requester', { explicitKeyPath: parsed.keyFile }) : undefined));
+    ? await resolveStoredIdentity('requester', { ...identityOptions, explicitKeyPath: parsed.keyFile }) : undefined, identityOptions));
   await server.serve(process.stdin, process.stdout);
 }

@@ -6,7 +6,8 @@ import { digest, signPayload, verifySigned, verifySignedAgentCard, validateRelay
   discoverAgentCards, OPEN_POLICY_FIELDS } from '@acp/core';
 import type { Json, KeyPair, OpenPolicy, Signed, SignedAgentCard, TaskManifest } from '@acp/core';
 import { WorkerNode, RequesterClient, InteractiveCliApprovalProvider, buildTaskManifest } from '@acp/runtime';
-import type { AgentAdapter, ApprovalProvider } from '@acp/runtime';
+import type { AgentAdapter, ApprovalProvider, IdentityStoreOptions } from '@acp/runtime';
+import { commandIdentity } from './command-identity.js';
 import { HttpRelayClient } from '@acp/relay';
 
 export interface BoardPost {
@@ -138,7 +139,7 @@ export function boardHost(post: Signed<BoardPost>, key: KeyPair, path: string, i
   return { adapter, approvalProvider };
 }
 
-export async function boardCommand(args: string[]): Promise<void> {
+export async function boardCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
   const [action, ...rest] = args;
   const f = new Map<string, string>();
   const allowed = ['--key','--post','--dir','--input-file','--what','--skill','--task-type','--deadline','--relay',
@@ -162,7 +163,7 @@ export async function boardCommand(args: string[]): Promise<void> {
     console.log(JSON.stringify(posts)); return;
   }
   if (action === 'post') {
-    const key = read<KeyPair>('key');
+    const key = (await commandIdentity('requester', f.get('--key'), identityOptions))!;
     const post = createPost(key, { relay: need('relay'), what: need('what'), skillId: need('skill'), taskType: need('task-type'),
       deadline: need('deadline'), budget: { maxInputTokens: Number(need('max-input-tokens')),
         maxOutputTokens: Number(need('max-output-tokens')), maxToolInvocations: Number(need('max-tool-calls')),
@@ -173,7 +174,7 @@ export async function boardCommand(args: string[]): Promise<void> {
   if (action === 'candidates') {
     console.log(JSON.stringify(boardCandidates(post, await new HttpRelayClient(p.relay).discover()))); return;
   }
-  const key = read<KeyPair>('key');
+  const key = (await commandIdentity(action === 'claim' ? 'worker' : 'requester', f.get('--key'), identityOptions))!;
   const approval = new InteractiveCliApprovalProvider(key);
   if (action === 'serve') {
     const host = boardHost(post, key, need('state'), approval);
