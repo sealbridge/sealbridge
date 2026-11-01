@@ -17,6 +17,7 @@ import { setupCommand } from './setup.js';
 import { configCommand } from './config.js';
 import { boardCommand } from './board.js';
 import { acceptCommand } from './accept.js';
+import { invitesMigrateCommand } from './invites-migrate.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
 const USAGE = 'Usage: sealbridge <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
@@ -122,7 +123,8 @@ async function main(args: string[]) {
       break;
     case 'accept':
     case 'invites':
-      await acceptCommand(command, rest);
+      if (command === 'invites' && rest[0] === 'migrate') await invitesMigrateCommand(rest.slice(1));
+      else await acceptCommand(command, rest);
       break;
     case 'receipt':
       receiptCommand(rest);

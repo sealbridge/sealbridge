@@ -32,7 +32,7 @@ import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from
 import { RequesterClient } from './session.js';
 import { RequesterPendingStore, PENDING_NEXT_STEP } from './requester-pending-store.js';
 import { inspectStoredIdentity, resolveStoredIdentity } from './key-store.js';
-import type { IdentityStoreOptions } from './key-store.js';
+import type { InviteStoreOptions } from './invite-store.js';
 import { InviteStore } from './invite-store.js';
 import { normalizeRelayUrl, selectApplicationRelay } from './relay-selection.js';
 import { readApplicationConfig } from './application-config.js';
@@ -42,7 +42,7 @@ import type { SessionTimeoutOptions } from './session-timeouts.js';
 export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions {
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
-  identityOptions?: IdentityStoreOptions;
+  identityOptions?: InviteStoreOptions;
   /** Constructs transports after relay policy checks; useful for offline hosts/tests. */
   transportFactory?: (url: string, owner?: KeyPair) => RelayTransport;
   relay?: RelayTransport | string;
@@ -350,7 +350,7 @@ export class AcpMcpServer {
   private async inviteStore(): Promise<InviteStore | undefined> {
     const owner = this.options.owner ?? await this.selectedOwner ??
       (await inspectStoredIdentity('requester', this.options.identityOptions)).key;
-    return owner ? new InviteStore(owner, { ...this.options.identityOptions,
+    return owner ? await InviteStore.open(owner, { ...this.options.identityOptions,
       relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay } }) : undefined;
   }
   private selectedRelay(explicit?: string, inviteRelay?: string): RelayTransport | string {

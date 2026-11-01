@@ -28,6 +28,7 @@ export interface KeyStore {
 export interface KeyringEntry {
   getPassword(): string | null;
   setPassword(value: string): void;
+  deletePassword?(): boolean | void;
 }
 export interface KeyringModule {
   Entry: new (service: string, account: string, options?: { linux: { store: 'secret-service' } }) => KeyringEntry;
@@ -134,7 +135,7 @@ export class KeychainKeyStore implements KeyStore {
   }
 }
 
-async function optionalKeyring(options: IdentityStoreOptions, required: boolean): Promise<KeyringModule | undefined> {
+export async function optionalKeyring(options: IdentityStoreOptions, required: boolean): Promise<KeyringModule | undefined> {
   // A variable specifier keeps the native package optional for TypeScript and packaging.
   const name = '@napi-rs/keyring';
   try {

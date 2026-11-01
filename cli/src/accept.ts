@@ -81,7 +81,7 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
     if (!(args.length === 1 && args[0] === 'list') &&
         !(args.length === 2 && args[0] === 'remove' && !args[1].startsWith('--'))) throw new Error(USAGE);
     const owner = (await inspectStoredIdentity('requester', options)).key;
-    const store = owner ? new InviteStore(owner, options) : undefined;
+    const store = owner ? await InviteStore.open(owner, options) : undefined;
     console.log(JSON.stringify(args[0] === 'list'
       ? { invites: store?.list() ?? [] } : { removed: store?.remove(args[1]) ?? false }));
     return;
@@ -99,5 +99,5 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
   const owner = await resolveStoredIdentity('requester', options);
-  console.log(JSON.stringify(new InviteStore(owner, options).import(link!, alias)));
+  console.log(JSON.stringify((await InviteStore.open(owner, options)).import(link!, alias)));
 }

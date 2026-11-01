@@ -2,11 +2,11 @@
 import type { KeyPair } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
 import { inspectStoredIdentity, RequesterPendingStore } from '@acp/runtime';
-import type { IdentityStoreOptions } from '@acp/runtime';
+import type { InviteStoreOptions } from '@acp/runtime';
 import { networkCommand } from './network.js';
 
 export async function pendingCommand(args: string[], application: {
-  identityOptions?: IdentityStoreOptions; fetch?: typeof fetch;
+  identityOptions?: InviteStoreOptions; fetch?: typeof fetch;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
 } = {}): Promise<void> {
   const usage = 'Usage: sealbridge pending list [--key FILE] | resubmit ID [delegate approval/relay/audit/output options] | remove ID [--key FILE]';

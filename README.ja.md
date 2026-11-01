@@ -164,6 +164,35 @@ TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、端末では `--paste` �
 排他ロックと同一ディレクトリの一時ファイルで置換します。`INVITE_STORE_BUSY` は既存ロックを削除しません。
 書き込みプロセスが動いていないことを確認後、ご自身で対応する `<store-file>.lock` を削除して再試行できます。
 
+保存する招待トークンにも共通の key-store 選択（プログラム指定 > 環境変数 > config > file）を適用します。
+file 方式では従来の署名付き JSON 形式とバイト列を維持します。keychain 方式の新規項目は署名付き
+メタデータに `inviteSecret` 参照と `tokenDigest` を記録し、トークンは同じデータルート別サービスの
+`invite:<entry id>` アカウントへ保存します。既存のインライン項目は自動移行せず読み込めます。
+file に戻しても既存参照は keychain から解決し、新規保存はインラインに戻ります。一覧や MCP の結果に
+トークンを含めません。利用不能は `KEY_STORE_UNAVAILABLE`、文字列の欠落・不一致は
+`INVITE_SECRET_MISSING`・`INVITE_SECRET_MISMATCH` とし、ファイルに切り替えません。
+削除では参照先の文字列も削除します。`INVITE_SECRET_DELETE_FAILED` はメタデータの削除後に
+keychain の削除が失敗したことを表し、該当アカウントに文字列が残る場合があります。
+
+既存の依頼者鍵を使い、明示的にインラインのトークンを移行できます。
+
+```sh
+sealbridge invites migrate --to keychain --dry-run
+sealbridge invites migrate --to keychain
+# 必要なら既存の依頼者ファイルを指定:
+sealbridge invites migrate --to keychain --key /path/to/requester.private.json
+```
+
+dry run は書き込まず対象件数を表示します。適用時は全件の書込・読戻しを確認してから、トークンを
+含まない署名付きメタデータへ一括置換します。失敗時は元のメタデータファイルを維持します。
+失敗前に書いた文字列が残る場合は再実行時に再利用します。方式の設定や依頼者鍵は変更しません。
+参照・別名・保存日時は維持します。組み込みアプリは同期の `SecretStore.get/set/delete` を
+`InviteStoreOptions.secretStore` または MCP の `identityOptions.secretStore` に注入できます。
+設定したネイティブ方式は `await InviteStore.open(owner, options)` で読み込みます。
+`new InviteStore(owner, options)` は同期のファイル・注入方式 API を維持します。
+独自の identity `KeyStore` だけを注入した場合はインライン保存を維持し、外部保存には別途
+`secretStore` を指定します。明示した鍵ファイルは署名者の選択にのみ使い、招待には共通の方式選択を適用します。
+
 中継器の既定候補は `<data-root>/config.json` に保存できます。
 
 ```json
