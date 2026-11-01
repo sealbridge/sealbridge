@@ -83,8 +83,8 @@ export async function receiveRelay(
   }
 }
 /** A lost ack is retried by the HTTP client when the completed envelope is redelivered. */
-export async function acknowledgeRelay(relay: RelayTransport, envelope: SignedEnvelope): Promise<void> {
-  try { await relay.acknowledgeDelivery?.(envelope.payload.recipientDid, envelope.payload.envelopeId); }
+export async function acknowledgeRelay(relay: RelayTransport, envelope: SignedEnvelope, signal?: AbortSignal): Promise<void> {
+  try { await relay.acknowledgeDelivery?.(envelope.payload.recipientDid, envelope.payload.envelopeId, signal); }
   catch (error) { if (!isTransientRelayError(error)) throw error; }
 }
 interface EnvelopeWaiter {
@@ -237,12 +237,12 @@ export class SessionWire {
             this.lastHeartbeat = sentAt;
             this.onActivity?.();
           }
-          await acknowledgeRelay(this.relay, this.sealed(envelope));
+          await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
           continue;
         }
         this.onActivity?.();
         if (type === 'RECOVERY_PART') {
-          await acknowledgeRelay(this.relay, this.sealed(envelope));
+          await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
           continue;
         }
         const index = this.waiters.findIndex((waiter) => waiter.allowed.includes(type));
@@ -384,7 +384,7 @@ export class SessionWire {
       void this.dispatch();
     });
     if (['AUDIT_ACK', 'CHECKPOINT', 'CHECKPOINT_ACK', 'ATTEST'].includes(envelope.payload.eventType))
-      await acknowledgeRelay(this.relay, this.sealed(envelope));
+      await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
     return envelope;
   }
   private append(entry: AuditEntry): void {
@@ -439,8 +439,8 @@ export class SessionWire {
       actorSignature: signed.signature,
       counterSignature: ack,
     });
-    await acknowledgeRelay(this.relay, this.sealed(audit));
-    if (event.payload.eventType !== 'PROPOSE') await acknowledgeRelay(this.relay, this.sealed(event));
+    await acknowledgeRelay(this.relay, this.sealed(audit), this.detached ? this.readController.signal : this.signal);
+    if (event.payload.eventType !== 'PROPOSE') await acknowledgeRelay(this.relay, this.sealed(event), this.detached ? this.readController.signal : this.signal);
     await this.rawSend('AUDIT_ACK', ack);
   }
   async sendEvent(eventType: string, payload: unknown): Promise<void> {
