@@ -28,18 +28,35 @@ Repeat --host to select multiple hosts, or use --all-detected. Claude Desktop
 is supported on macOS and Windows. Cursor uses user mcp.json on all three OSes.
 Claude Code requires --host claude-code --project followed by an absolute
 project directory; grant project trust in the host separately. Other host
-formats are not edited. --dry-run prints a redacted plan; --print prints only
-proposed MCP entries with destination labels. Neither mode writes anything.
+formats are not edited. --dry-run prints a redacted plan; --print prints
+proposed MCP entries with destination and approval-mode labels. Neither mode writes anything.
 --worker also prepares the separate worker identity without starting it.
 
 Setup creates or reuses the requester identity, records a default relay in the
 application config (version: 1, relays: an ordered URL list), and registers Node
-plus the installed CLI with plain mcp-server. The proposed server environment
-contains only SEALBRIDGE_DATA_DIR. Setup adds no approval flags. --relay URL
+plus the installed CLI with mcp-server --require-approval. Host form elicitation
+is required before sending and for final verification. Form support cannot be
+detected offline; hosts without it return APPROVAL_CHANNEL_UNAVAILABLE before
+sending. Explicit --no-require-approval registers the previous plain mcp-server:
+the host can send without per-request confirmation and accept final results
+automatically. Apply, --dry-run and --print label each entry's approval mode.
+The proposed server environment contains only SEALBRIDGE_DATA_DIR. --relay URL
 records a fallback default; a differing saved default requires deliberate local
 config editing. Verified invite routing takes precedence over that fallback;
 existing relay allowlists still apply. A differing Sealbridge entry is a
-conflict. Runtime relocation may require deliberate re-registration.
+conflict; a matching entry in the other approval mode returns
+SETUP_APPROVAL_MODE_CONFLICT without changes. Review with --update-existing
+--dry-run or --update-existing --print, then use --update-existing to replace
+only the Sealbridge entry with a backup. Use --no-require-approval to keep a
+previous plain entry. Matching options are idempotent; running nothing leaves
+configs untouched. Runtime relocation may require deliberate re-registration.
+
+既定は mcp-server --require-approval で、送信前と最終検収時にフォーム承認を要求します。
+対応状況はオフラインでは検出できず、非対応ホストは送信前に
+APPROVAL_CHANNEL_UNAVAILABLE を返します。--no-require-approval は依頼ごとの確認なしに
+送信・最終承認する従来のモードを明示的に選びます。モードが異なる既存登録は変更せず
+SETUP_APPROVAL_MODE_CONFLICT で停止します。--update-existing --dry-run または
+--update-existing --print で確認し、--update-existing でその登録だけをバックアップ付きで置換します。
 
 Close host settings before applying. Unrelated entries and formatting remain
 in place. Changed existing files get exact backups under the data root's
@@ -59,7 +76,7 @@ verified. Manage access to any overridden data root.
 2. Restart or reload the selected host and inspect its MCP tool list.
 Setup launches nothing and does not verify tool loading. Registration may let
 the host start MCP on reload. Host trust and task approval are separate from
-setup. Setup grants no task approval and configures no approval provider.
+setup. Registration itself grants no task approval.
 Obtain the owner's approval for the work and review the result with them.
 
 3. Choose one connection path with the owner:
