@@ -68,7 +68,7 @@ function legacyPaths(role: IdentityRole, options: DataRootOptions): string[] {
   return result;
 }
 /** Reject links, except macOS's root-owned /var and /tmp system aliases. */
-export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
   const paths = platform === 'win32' ? win32 : posix;
   const parent = paths.dirname(path);
   if (parent !== path) checkPath(parent, io, platform);
@@ -89,7 +89,7 @@ export function checkStat(stat: fs.Stats, directory = false): void {
       (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
     throw failure('IDENTITY_INVALID');
 }
-export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
   checkPath(path, io, platform);
   const before = io.lstatSync(path);
   checkStat(before, true);
@@ -102,7 +102,8 @@ export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.P
     if (stat.dev !== before.dev || stat.ino !== before.ino) throw failure('IDENTITY_INVALID');
   } finally { io.closeSync(fd); }
 }
-function readKey(path: string, io: typeof fs, platform: NodeJS.Platform): KeyPair | undefined {
+/** Bounded descriptor-based read using the application private-file policy. */
+export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, platform: NodeJS.Platform = process.platform): string | undefined {
   let fd: number | undefined;
   let observed = false;
   try {
@@ -116,28 +117,33 @@ function readKey(path: string, io: typeof fs, platform: NodeJS.Platform): KeyPai
     const stat = io.fstatSync(fd);
     checkStat(stat);
     if (stat.dev !== before.dev || stat.ino !== before.ino) throw failure('IDENTITY_INVALID');
-    const bytes = Buffer.alloc(MAX_KEY_BYTES + 1);
+    const bytes = Buffer.alloc(maxBytes + 1);
     let length = 0;
     while (length < bytes.length) {
       const count = io.readSync(fd, bytes, length, bytes.length - length, null);
       if (!count) break;
       length += count;
     }
-    if (length > MAX_KEY_BYTES) throw failure('IDENTITY_INVALID');
-    try {
-      const value = JSON.parse(bytes.subarray(0, length).toString('utf8')) as KeyPair;
-      if (!value || typeof value.did !== 'string' || typeof value.privateKey !== 'string' ||
-          Object.keys(value).sort().join(',') !== 'did,privateKey' ||
-          createPrivateKey(value.privateKey).asymmetricKeyType !== 'ed25519' ||
-          !verifySigned(signPayload({ type: 'LocalIdentityCheck' }, value,
-            '2026-01-01T00:00:00.000Z'), value.did)) throw failure('IDENTITY_INVALID');
-      return value;
-    } catch { throw failure('IDENTITY_INVALID'); }
+    if (length > maxBytes) throw failure('IDENTITY_INVALID');
+    return bytes.subarray(0, length).toString('utf8');
   } catch (error) {
     if (errno(error) === 'ENOENT' && !observed) return undefined;
     if (error instanceof Error && error.message === 'IDENTITY_INVALID') throw error;
     throw failure('IDENTITY_UNREADABLE');
   } finally { if (fd !== undefined) io.closeSync(fd); }
+}
+function readKey(path: string, io: typeof fs, platform: NodeJS.Platform): KeyPair | undefined {
+  const contents = readPrivateFile(path, io, MAX_KEY_BYTES, platform);
+  if (contents === undefined) return undefined;
+  try {
+    const value = JSON.parse(contents) as KeyPair;
+    if (!value || typeof value.did !== 'string' || typeof value.privateKey !== 'string' ||
+        Object.keys(value).sort().join(',') !== 'did,privateKey' ||
+        createPrivateKey(value.privateKey).asymmetricKeyType !== 'ed25519' ||
+        !verifySigned(signPayload({ type: 'LocalIdentityCheck' }, value,
+          '2026-01-01T00:00:00.000Z'), value.did)) throw failure('IDENTITY_INVALID');
+    return value;
+  } catch { throw failure('IDENTITY_INVALID'); }
 }
 /** Inspect without creating directories or identities. Canonical files take precedence. */
 export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): LocalIdentity {
@@ -172,10 +178,31 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
   }
   return legacy ?? { path, source: 'default' };
 }
-export function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
   checkPath(path, io, platform);
   io.mkdirSync(path, { recursive: true, mode: 0o700 });
   inspectDirectory(path, io, platform);
+}
+/** Exclusive creation of a flushed private temporary file. Caller owns cleanup. */
+export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+  checkPath(path, io, platform);
+  const fd = io.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+    (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+  try {
+    checkStat(io.fstatSync(fd));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = io.writeSync(fd, bytes, offset, bytes.length - offset);
+      if (!count) throw failure('IDENTITY_STORE_UNWRITABLE');
+      offset += count;
+    }
+    io.fsyncSync(fd);
+  } catch (error) {
+    io.closeSync(fd);
+    io.unlinkSync(path);
+    throw error;
+  }
+  io.closeSync(fd);
 }
 /** Publish a flushed temporary key without replacing a concurrently committed identity. */
 export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): KeyPair {
@@ -185,25 +212,12 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
   if (selected.key) return selected.key;
   const root = resolveDataRoot(options);
   const temporary = join(dirname(selected.path), '.' + role + '.' + randomUUID() + '.tmp');
-  let fd: number | undefined;
   let temporaryCreated = false;
   try {
     privateDirectory(root, io, platform);
     privateDirectory(dirname(selected.path), io, platform);
-    fd = io.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-      (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    writePrivateFile(temporary, Buffer.from(JSON.stringify(generateKeyPair()) + '\n'), io, platform);
     temporaryCreated = true;
-    checkStat(io.fstatSync(fd));
-    const bytes = Buffer.from(JSON.stringify(generateKeyPair()) + '\n');
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = io.writeSync(fd, bytes, offset, bytes.length - offset);
-      if (!count) throw failure('IDENTITY_STORE_UNWRITABLE');
-      offset += count;
-    }
-    io.fsyncSync(fd);
-    io.closeSync(fd);
-    fd = undefined;
     checkPath(selected.path, io, platform);
     try { io.linkSync(temporary, selected.path); }
     catch (error) {
@@ -216,7 +230,6 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
     if (error instanceof Error && error.message.startsWith('IDENTITY_')) throw error;
     throw failure('IDENTITY_STORE_UNWRITABLE');
   } finally {
-    if (fd !== undefined) io.closeSync(fd);
     if (temporaryCreated) io.unlinkSync(temporary);
   }
   const winner = readKey(selected.path, io, platform);

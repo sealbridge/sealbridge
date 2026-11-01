@@ -1842,6 +1842,8 @@ function freezeApprovalAction<T>(value: T): T {
   return value;
 }
 export interface DelegateOptions extends SessionTimeoutOptions {
+  /** Saved target retained without its token; applications must resolve it into `to` on each attempt. */
+  workerRef?: string;
   /** Existing requester-local record when explicitly resubmitting. */
   pendingId?: string;
   /** Selected endpoint when an application replaces a per-task transport. */
@@ -2069,6 +2071,7 @@ export class RequesterClient {
           allowPrivateRelay: this.options.allowPrivateRelay,
         })
       : undefined;
+    if (options.workerRef && !invite) throw new Error('INVITE_REQUIRED');
     const relayOption = options.relay ?? this.options.relay ?? invite?.relayUrl;
     if (!relayOption) throw new Error('RELAY_REQUIRED');
     if (typeof relayOption === 'string')
@@ -2327,7 +2330,8 @@ export class RequesterClient {
         let pendingId = options.pendingId, pendingStoreError: string | undefined;
         if (!pendingId) {
           try {
-            pendingId = this.options.pendingStore.save({ to: invite ? options.to : peer,
+            pendingId = this.options.pendingStore.save({ ...(options.workerRef
+              ? { workerRef: options.workerRef } : { to: invite ? options.to : peer }),
               relayUrl: typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl ??
                 ('url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : undefined),
               manifest, input: options.input, timeouts: timeoutOptions });

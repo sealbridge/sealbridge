@@ -23,7 +23,9 @@ export interface PendingSummary {
 }
 export interface PendingRequest extends PendingSummary {
   // Invitation material and task content remain local and are omitted from summaries.
-  request: { to: string; relayUrl?: string; manifest: TaskManifest; input: Json; timeouts: SessionTimeoutOptions };
+  request: ({ to: string; workerRef?: never } | { workerRef: string; to?: never }) & {
+    relayUrl?: string; manifest: TaskManifest; input: Json; timeouts: SessionTimeoutOptions;
+  };
 }
 interface State { version: 1; requesterDid: string; records: PendingRequest[] }
 export function requesterPendingPath(did: string, options: LocalIdentityOptions = {}): string {
@@ -85,7 +87,8 @@ export class RequesterPendingStore {
             ![r.createdAt, r.expiresAt, r.lastChecked, r.attempts].every(Number.isSafeInteger) || r.attempts < 1 ||
             typeof r.workerDid !== 'string' || typeof r.originalTaskId !== 'string' || typeof r.lastTaskId !== 'string' ||
             (r.lastError !== undefined && !/^[A-Z][A-Z0-9_]{0,79}$/.test(r.lastError)) ||
-            !r.request || typeof r.request.to !== 'string' ||
+            !r.request || !(typeof r.request.to === 'string' && r.request.workerRef === undefined ||
+              typeof r.request.workerRef === 'string' && !!r.request.workerRef && r.request.to === undefined) ||
             (r.request.relayUrl !== undefined && typeof r.request.relayUrl !== 'string') ||
             !Object.hasOwn(r.request, 'input') || !r.request.timeouts || typeof r.request.timeouts !== 'object' || Array.isArray(r.request.timeouts) ||
             Buffer.byteLength(JSON.stringify(r)) > MAX_RECORD_BYTES) throw new Error();
@@ -171,7 +174,8 @@ export class RequesterPendingStore {
         if (!r) throw new Error('PENDING_EXPIRED');
         r.attempts++; r.lastChecked = now; r.lastTaskId = manifest.taskId; });
       try {
-        const result = await run({ ...record.request.timeouts, to: record.request.to, manifest,
+        const result = await run({ ...record.request.timeouts, to: record.request.to ?? record.request.workerRef,
+          ...(record.request.workerRef ? { workerRef: record.request.workerRef } : {}), manifest,
           title: manifest.task.title, description: manifest.task.description, input: record.request.input, pendingId: id }, record.request.relayUrl);
         this.resolve(id);
         return result;

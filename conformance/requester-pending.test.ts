@@ -3,12 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { generateKeyPair, openEnvelope } from '../packages/core/src/index.js';
+import { generateKeyPair, openEnvelope, createRevocationNotice, digest, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { AcpMcpServer, RequesterClient, RequesterPendingStore, WorkerNode, WorkerTrustStore,
   PolicyAutoApprovalProvider, buildTaskManifest, resolveOrCreateIdentity, requesterPendingPath,
-  resolveDataRoot } from '../packages/runtime/src/index.js';
+  resolveDataRoot, InviteStore } from '../packages/runtime/src/index.js';
 import { networkCommand } from '../cli/src/network.js';
 import { pendingCommand } from '../cli/src/pending.js';
 import { body, form, harness, initialize, toolCall } from './mcp-approval-helpers.js';
@@ -30,7 +30,7 @@ function fixture() {
   const frames: SignedEnvelope[] = [], send = relay.send.bind(relay);
   relay.send = e => { frames.push(e); return send(e); };
   const execute = vi.fn(async context => context.input);
-  const worker = new WorkerNode({ owner, relay, accessMode: 'open', intakeStore: intake,
+  const worker = new WorkerNode({ owner, relay, relayUrl: url, accessMode: 'open', intakeStore: intake,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, timeoutMs: 2000 });
   const pending = new RequesterPendingStore(requester);
@@ -293,4 +293,71 @@ it('uses an explicitly selected requester key without changing the default ident
   await f.run(() => pendingCommand(['resubmit', id, '--key', keyFile, '--auto-approve'], { transportFactory: () => f.relay }));
   expect(selected.list()[0]).toMatchObject({ state: 'resolved' }); expect(f.pending.list()).toEqual([]);
   expect(resolveOrCreateIdentity('requester').did).toBe(f.requester.did);
+});
+
+// Simulate a worker that holds an invited proposal at its intake gate.
+async function heldAlias(useAlias = false) {
+  const f = fixture(), invites = new InviteStore(f.requester), token = f.worker.invite(60);
+  const saved = invites.import(token, 'reviewer');
+  const opts = { owner: f.requester, relay: url, transportFactory: vi.fn(() => f.relay) };
+  const server = new AcpMcpServer(opts);
+  const gate = vi.spyOn(f.intake, 'pendingTask').mockReturnValue(true);
+  const held = await f.run(() => call(server, 'acp_delegate_task', {
+    ...task, workerRef: useAlias ? 'reviewer' : saved.workerRef,
+  }));
+  gate.mockRestore();
+  expect(held).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
+  return { ...f, invites, token, saved, opts, server, held };
+}
+it.each([false, true])('retains a saved reference without copying its token and resolves it on MCP resubmission (alias: %s)', async useAlias => {
+  const f = await heldAlias(useAlias);
+  const stored = JSON.parse(fs.readFileSync(f.pending.path, 'utf8')).payload.records[0].request;
+  expect(stored.workerRef).toBe(useAlias ? 'reviewer' : f.saved.workerRef);
+  expect(stored).not.toHaveProperty('to');
+  expect(JSON.stringify(stored)).not.toContain(f.token);
+  const listed = await call(f.server, 'acp_list_pending_requests');
+  expect(JSON.stringify([f.held, listed])).not.toContain('acp-invite:');
+  const result = await f.run(() => call(new AcpMcpServer(f.opts), 'acp_resubmit_pending_request', { pendingId: f.held.pendingId }));
+  expect(result).toMatchObject({ status: 'SETTLED', deliverable: task.input });
+  expect(result.taskId).not.toBe(f.held.originalTaskId);
+  expect(JSON.stringify(result)).not.toContain(f.token);
+  expect(f.pending.list()).toMatchObject([{ state: 'resolved', attempts: 2 }]);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+it.each(['removed', 'expired', 'revoked', 'worker-policy', 'relay-policy', 'approval'])(
+  'rechecks a pending saved reference before transmission: %s', async mode => {
+    const f = await heldAlias();
+    const options = { ...f.opts };
+    const server = new AcpMcpServer({ ...options,
+      ...(mode === 'worker-policy' ? { allowedWorkerDids: [] } : {}),
+      ...(mode === 'relay-policy' ? { allowedRelayUrls: [] } : {}),
+      ...(mode === 'approval' ? { requireInteractiveApproval: true } : {}),
+    });
+    if (mode === 'removed') f.invites.remove(f.saved.workerRef);
+    if (mode === 'expired') vi.setSystemTime(Date.now() + 60_000);
+    if (mode === 'revoked') server.revocation.revoke(createRevocationNotice({
+      targetType: 'invite', targetId: digest(parseAndVerifyInviteToken(f.token)), reason: 'Replaced',
+    }, f.owner));
+    const expected = { removed: 'INVITE_NOT_FOUND', expired: 'INVITE_EXPIRED', revoked: 'TOKEN_REVOKED',
+      'worker-policy': 'MCP_WORKER_NOT_ALLOWED', 'relay-policy': 'MCP_RELAY_NOT_ALLOWED',
+      approval: 'APPROVAL_CHANNEL_UNAVAILABLE' }[mode];
+    f.opts.transportFactory.mockClear();
+    const count = f.frames.length;
+    const result = await call(server, 'acp_resubmit_pending_request', { pendingId: f.held.pendingId });
+    expect(result).toMatchObject({ error: expect.stringContaining(expected!), isError: true });
+    expect(JSON.stringify(result)).not.toContain('acp-invite:');
+    expect(f.opts.transportFactory).not.toHaveBeenCalled();
+    expect(f.frames).toHaveLength(count); expect(f.execute).not.toHaveBeenCalled();
+    expect(f.pending.list()).toMatchObject([{ state: 'failed', attempts: 2 }]);
+  });
+it('resolves an MCP-retained workerRef during CLI resubmission and fails locally when removed', async () => {
+  const f = await heldAlias(true);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  f.invites.remove('reviewer');
+  await expect(pendingCommand(['resubmit', f.held.pendingId, '--auto-approve'], f.opts)).rejects.toThrow('INVITE_NOT_FOUND');
+  expect(f.execute).not.toHaveBeenCalled();
+  f.invites.import(f.token, 'reviewer');
+  await f.run(() => pendingCommand(['resubmit', f.held.pendingId, '--auto-approve'], f.opts));
+  expect(f.pending.list()).toMatchObject([{ state: 'resolved', attempts: 3 }]);
+  expect(f.execute).toHaveBeenCalledOnce();
 });

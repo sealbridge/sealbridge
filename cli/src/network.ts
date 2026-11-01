@@ -16,6 +16,7 @@ import {
   readApplicationConfig,
   RequesterClient,
   RequesterPendingStore,
+  InviteStore,
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
 } from '@acp/runtime';
@@ -418,7 +419,10 @@ export async function networkCommand(command: string, args: string[], applicatio
         value.trim().startsWith('{') ? value : readFileSync(value, 'utf8'),
       ) as Schema;
     }
-    const to = application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
+    const workerRef = application.pendingRequest?.workerRef;
+    const to = workerRef
+      ? new InviteStore(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } }).resolve(workerRef).inviteToken
+      : application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
     const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
     const client = new RequesterClient({
@@ -435,7 +439,6 @@ export async function networkCommand(command: string, args: string[], applicatio
     });
     const result = await client.delegate({
       ...sessionTimeouts(f),
-      to,
       ...(f.has('--discover') || f.has('--task-type') ? { discover: {
         ...(f.has('--discover') ? { skillId: text(f, 'discover') } : {}),
         ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),
@@ -445,6 +448,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       input,
       outputSchema,
       ...application.pendingRequest,
+      to,
       ...Object.fromEntries(Object.entries(sessionTimeouts(f)).filter(([, value]) => value !== undefined)),
     });
     application.onDelegated?.();
