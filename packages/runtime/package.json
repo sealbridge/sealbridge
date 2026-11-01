@@ -8,6 +8,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./local-identity": {
+      "types": "./dist/local-identity.d.ts",
+      "import": "./dist/local-identity.js"
+    },
+    "./relay-selection": {
+      "types": "./dist/relay-selection.d.ts",
+      "import": "./dist/relay-selection.js"
     }
   },
   "scripts": {

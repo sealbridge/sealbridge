@@ -83,7 +83,7 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 
 鍵は `<data-root>/identities/requester.private.json` と `worker.private.json` に保存し再利用します。MCP と delegate は依頼者、worker start と CLI の招待作成はワーカーの鍵を使います。MCP の署名ツールはサーバーの依頼者鍵（または明示した鍵）を使います。MCP は必要になるまで鍵を読み込みません。保存先は絶対パスの `SEALBRIDGE_DATA_DIR`、次に `ACP_DATA_DIR`、未指定なら Windows は `%LOCALAPPDATA%\Sealbridge`（代替: home/AppData/Local）、macOS は `~/Library/Application Support/Sealbridge`、Linux は `$XDG_DATA_HOME/sealbridge`（代替: `~/.local/share/sealbridge`）です。
 
-POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モードを検査します。Windows は LOCALAPPDATA 配下の DACL を継承します。Node のモードはユーザー限定 DACL を設定せず、この版では ACL を検証しません。保存先を変更した場合は親のアクセス設定を継承するため、利用者が管理します。検出可能なリンク・通常ファイル以外は拒否します。同じディレクトリ内のハードリンクが使えない場合は `IDENTITY_CREATION_UNSUPPORTED` です。
+POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モードを検査します。Windows は LOCALAPPDATA 配下の DACL を継承します。Node のモードはユーザー限定 DACL を設定せず、この版では ACL を検証しません。保存先を変更した場合は親のアクセス設定を継承するため、利用者が管理します。検出可能なリンク・通常ファイル以外は拒否します。ただし macOS の root 所有の `/var`・`/tmp` から対応する `/private` ディレクトリへのリンクは認めます。同じディレクトリ内のハードリンクが使えない場合は `IDENTITY_CREATION_UNSUPPORTED` です。
 
 既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
 

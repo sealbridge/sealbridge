@@ -135,6 +135,31 @@ describe('persistent role identities', () => {
     fs.symlinkSync(target, dirname(path), process.platform === 'win32' ? 'junction' : 'dir');
     expect(() => resolveOrCreateIdentity('worker', options)).toThrow('IDENTITY_INVALID');
   });
+  it.each(['/var', '/tmp'])('accepts the Darwin system alias %s for an explicit key', alias => {
+    const options = fixture();
+    const actual = join(options.home!, 'owner identity.private.json');
+    put(actual);
+    const virtual = alias + '/folders/test/owner identity.private.json';
+    const directory = fs.lstatSync(options.home!);
+    const makeFs = (uid = 0, target = '/private' + alias) => ({ ...fs,
+      lstatSync: ((path: fs.PathLike) => String(path) === alias
+        ? { ...directory, uid, isSymbolicLink: () => true }
+        : String(path) === virtual ? fs.lstatSync(actual) : directory) as typeof fs.lstatSync,
+      readlinkSync: (() => target) as unknown as typeof fs.readlinkSync,
+      openSync: (() => fs.openSync(actual, 'r')) as typeof fs.openSync,
+    });
+    const selected = { ...options, platform: 'darwin' as const, explicitKeyPath: virtual };
+    const expectedDid = resolveOrCreateIdentity('requester', { ...options, explicitKeyPath: actual }).did;
+    for (const target of ['/private' + alias, 'private' + alias])
+      expect(resolveOrCreateIdentity('requester', { ...selected, fs: makeFs(0, target) }).did).toBe(expectedDid);
+    expect(inspectLocalIdentity('requester', { ...selected, fs: makeFs() }).path).toBe(virtual);
+    for (const io of [makeFs(123), makeFs(0, '/elsewhere')])
+      expect(() => resolveOrCreateIdentity('requester', { ...selected, fs: io })).toThrow('IDENTITY_INVALID');
+    expect(() => resolveOrCreateIdentity('requester', { ...selected, platform: 'linux', fs: makeFs() })).toThrow('IDENTITY_INVALID');
+    const linkedKey = { ...makeFs(), lstatSync: ((path: fs.PathLike) => String(path) === virtual
+      ? { ...directory, uid: 0, isSymbolicLink: () => true } : makeFs().lstatSync(path)) as typeof fs.lstatSync };
+    expect(() => resolveOrCreateIdentity('requester', { ...selected, fs: linkedKey })).toThrow('IDENTITY_INVALID');
+  });
   it('reports denied reads/writes without transient fallback', () => {
     const options = fixture();
     const deny = () => { throw Object.assign(new Error('private detail'), { code: 'EACCES' }); };
