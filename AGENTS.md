@@ -186,6 +186,8 @@ on the MCP server's machine and OS account with the same data root/requester ide
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # Or paste at a human TTY prompt:
 sealbridge accept --paste --alias reviewer
+# Or read a link from a file or an application-provided pipe:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 sealbridge invites remove reviewer
 ```
@@ -208,6 +210,21 @@ does not erase terminal history, and returns `INVITE_INPUT_UNAVAILABLE` without 
 human TTY. `INVITE_STORE_BUSY` leaves existing locks intact; explicit local lock
 recovery requires first checking that no writer is alive.
 招待はユーザーが MCP と同じ端末・OS アカウントで保存し、モデルは参照だけを使います。
+
+`--stdin` reads one invitation link from a pipe or file through EOF, with a
+68 KiB byte cap and a 10-second total read timeout. Applications can spawn
+`sealbridge accept --stdin --alias reviewer`, write the link to child stdin,
+and close the pipe. Surrounding whitespace/CRLF and blank lines are trimmed;
+empty input or multiple non-empty lines are rejected. TTY input returns
+`INVITE_STDIN_REQUIRES_PIPE`; use `--paste` at a terminal. `--stdin`, `--paste`,
+and a positional link are mutually exclusive. Neither stdin input nor read-error
+text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
+`agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
+標準入力は `--stdin` でパイプ・ファイルから EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
+アプリは子プロセスの stdin にリンクを書き、パイプを閉じてください。前後の空白・CRLF と空行を除き、
+空入力・複数の非空行は拒否します。TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、
+端末では `--paste` を使います。位置引数・`--paste`・`--stdin` は併用できません。
+入力リンクや読み取りエラーの内容は出力せず、既存のトークンを含まない JSON 形式で結果を返します。
 
 ## Worker peer review / ワーカーの依頼者審査
 
