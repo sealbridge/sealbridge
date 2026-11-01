@@ -63,21 +63,32 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm install --frozen-lockfile && pnpm build && pnpm sealbridge demo
 ```
 
-**Claude Desktop**、**Cursor**、**Codex**、**Grok Bot** から MCP サーバー（`sealbridge mcp-server`）として直接呼び出す場合の設定例：
+### ローカルホスト設定
 
-```json
-{
-  "mcpServers": {
-    "sealbridge": {
-      "command": "node",
-      "args": [
-        "/path/to/sealbridge/cli/dist/index.js",
-        "mcp-server"
-      ]
-    }
-  }
-}
-```
+このコマンドを含むリリースでは `sealbridge setup --help` を確認し、
+`sealbridge setup --host cursor` または `sealbridge setup --host claude-desktop`
+（macOS/Windows）を実行します。`setup` だけなら検出したユーザーホストが1つのときに選択し、
+複数なら端末で選びます。`--host` の繰り返し、`--all-detected` にも対応します。
+Claude Code は `--host claude-code --project` と絶対パスが必須です。
+`--dry-run` は計画、`--print` は登録案だけを表示し、どちらも書き込みません。
+ソース版は先にビルドし `node cli/dist/index.js setup` を使います。
+
+setup は依頼者鍵（`--worker` ならワーカー鍵も）を作成・再利用し、既存の
+`config.json` の relays 形式で既定値を記録します。絶対パスの Node/CLI で
+`mcp-server` を登録し、承認フラグを追加しません。通信もプロセス起動もしません。
+`--relay URL` は代替既定値の記録で、保存済みの先頭と異なれば停止します。
+既存の Sealbridge 登録も完全一致が必要です。設定画面を閉じて適用してください。
+変更する既存ファイルの原文を `<data-root>/setup/backups` に保存します。
+バックアップはホストの資格情報を含む場合があります。複数ファイルは一括確定できません。
+部分失敗なら結果を確認し、原因を解消して再実行します。ホストを再読込しツールを確認してください。
+承認の設定と動作確認は別途必要で、登録だけでは仕事を承認しません。
+
+[エージェント向け手順](sites/connect-agent.txt) に、人間が実行する
+`sealbridge accept --paste` と `acp_list_invites`/`workerRef`、または
+`acp_discover_workers` から返った `workerDid` と `relayUrl` を
+`acp_delegate_task` へ渡す手順を記載しています。招待取込・オープン検索には
+それぞれ対応するリリースが必要です。help とツール一覧を確認してください。
+ホスト設定は厳密な JSON のみ対応し、TOML/JSONC は今後の対応です。
 
 `mcp-server`、`delegate`、`worker start`、`discover`、`invite create` は `--key` と `--relay` を省略できます。既定の中継器は `https://relay.sealbridge.dev` です。MCP の初期化・ツール一覧は通信せず、検索は公開ディレクトリを取得し、依頼は暗号化したタスクを送ります。中継器には経路メタデータが見えます。招待作成はローカル署名のみで、ワーカーを起動しません。
 

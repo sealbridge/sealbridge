@@ -23,6 +23,15 @@ If already cloned, use that checkout and run the install/build steps there.
 Run all subsequent commands from the repository root.
 既存のチェックアウトは再利用し、以降のコマンドはリポジトリ直下で実行します。
 
+For local MCP host registration after building, use
+`node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
+macOS/Windows). Use `--dry-run` or `--print` to review without writes.
+Setup prepares requester identity/defaults locally and adds plain `mcp-server`
+with no approval flags. Reload the host and configure task approvals separately.
+See [agent-readable connection instructions](sites/connect-agent.txt); invitation
+import/open discovery require releases exposing those commands and tools.
+ローカル設定後はホストを再読込し、仕事の承認は別途行います。
+
 ## Role determination / 役割の判断
 
 | Owner request / オーナーの指示 | Action / 選ぶ役割 |

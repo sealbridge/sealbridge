@@ -11,10 +11,11 @@ import { mcpServerCommand } from './mcp.js';
 import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
 import { doctorCommand, parseDoctorArgs } from './doctor.js';
+import { setupCommand } from './setup.js';
 import { boardCommand } from './board.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
-const USAGE = 'Usage: sealbridge <doctor|keygen|validate|approve|audit-verify|receipt|contacts|board|demo|relay|worker|delegate|discover|invite|mcp-server>';
+const USAGE = 'Usage: sealbridge <setup|doctor|keygen|validate|approve|audit-verify|receipt|contacts|board|demo|relay|worker|delegate|discover|invite|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
@@ -96,6 +97,9 @@ async function main(args: string[]) {
       if (rest.length === 1 && rest[0] === '--help')
         console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nInspects persisted identities without creating keys. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
+      break;
+    case 'setup':
+      await setupCommand(rest);
       break;
     case 'board':
       await boardCommand(rest);

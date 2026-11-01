@@ -36,7 +36,8 @@
     "@modelcontextprotocol/sdk": "^1.20.0",
     "canonicalize": "^5.1.0",
     "ws": "^8.18.3",
-    "@a2a-js/sdk": "^0.3.10"
+    "@a2a-js/sdk": "^0.3.10",
+    "jsonc-parser": "3.3.1"
   },
   "description": "Sealbridge: encrypted cross-owner agent collaboration",
   "keywords": [
