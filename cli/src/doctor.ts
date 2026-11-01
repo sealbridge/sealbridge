@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { inspectLocalIdentity } from '@acp/runtime/local-identity';
+import { inspectStoredIdentity } from '@acp/runtime/key-store';
 import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
-import type { LocalIdentityOptions } from '@acp/runtime/local-identity';
+import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 export interface DoctorOptions {
   version?: string;
   execPath?: string;
@@ -12,7 +12,7 @@ export interface DoctorOptions {
   fetch?: typeof fetch;
   offline?: boolean;
   keyFile?: string;
-  identityOptions?: LocalIdentityOptions;
+  identityOptions?: IdentityStoreOptions;
 }
 export interface DoctorCheck {
   name: string;
@@ -26,16 +26,19 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
   const paths = (options.path ?? process.env.PATH ?? '').split(delimiter);
   let keys: DoctorCheck;
   try {
-    const identities = (options.keyFile ? ['requester'] as const : ['requester', 'worker'] as const).map(role => {
-      const selected = inspectLocalIdentity(role, { ...options.identityOptions,
+    const identities = await Promise.all((options.keyFile ? ['requester'] as const : ['requester', 'worker'] as const).map(async role => {
+      const selected = await inspectStoredIdentity(role, { ...options.identityOptions,
         ...(options.home !== undefined ? { home: options.home } : {}),
         explicitKeyPath: options.keyFile });
-      return `${role}: ${selected.path} (${selected.key ? selected.source : 'created on first use'})`;
-    });
+      return `${role}: ${selected.location} (${selected.present ? selected.source ?? 'present' : 'created on first use'}) [${selected.backend}]`;
+    }));
     keys = { name: 'Keys', ok: true, message: identities.join('; ') };
   } catch (error) {
-    keys = { name: 'Keys', ok: false, message: (error as Error).message,
-      remediation: 'Check the identity path and permissions; use --key to select an existing identity.' };
+    const setting = options.keyFile ? 'file' : options.identityOptions?.keyStore ??
+      (options.identityOptions?.env ?? process.env).SEALBRIDGE_KEY_STORE;
+    const backend = setting === 'keychain' ? 'keychain' : typeof setting === 'object' ? 'custom' : 'file';
+    keys = { name: 'Keys', ok: false, message: (error as Error).message + (backend === 'file' ? '' : ` [${backend}]`),
+      remediation: 'Check the configured backend and its availability. Install @napi-rs/keyring for keychain use; select SEALBRIDGE_KEY_STORE=file|keychain or --key for an existing file.' };
   }
   const nodeOk = Number(version.split('.')[0]) >= 22;
   const pathOk = paths.some(p => exists(join(p, process.platform === 'win32' ? 'sealbridge.cmd' : 'sealbridge')));

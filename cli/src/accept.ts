@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
-import { InviteStore, inspectLocalIdentity, resolveOrCreateIdentity } from '@acp/runtime';
-import type { InviteStoreOptions } from '@acp/runtime';
+import { InviteStore, inspectStoredIdentity, resolveStoredIdentity } from '@acp/runtime';
+import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 
-interface AcceptOptions extends InviteStoreOptions {
+interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
   input?: Readable & { isTTY?: boolean; unref?: () => unknown };
   output?: Writable;
   readPaste?: () => Promise<string>;
@@ -80,7 +80,7 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
   if (command === 'invites') {
     if (!(args.length === 1 && args[0] === 'list') &&
         !(args.length === 2 && args[0] === 'remove' && !args[1].startsWith('--'))) throw new Error(USAGE);
-    const owner = inspectLocalIdentity('requester', options).key;
+    const owner = (await inspectStoredIdentity('requester', options)).key;
     const store = owner ? new InviteStore(owner, options) : undefined;
     console.log(JSON.stringify(args[0] === 'list'
       ? { invites: store?.list() ?? [] } : { removed: store?.remove(args[1]) ?? false }));
@@ -98,6 +98,6 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
   if (Number(usePaste) + Number(useStdin) + Number(link !== undefined) !== 1) throw new Error(USAGE);
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
-  const owner = resolveOrCreateIdentity('requester', options);
+  const owner = await resolveStoredIdentity('requester', options);
   console.log(JSON.stringify(new InviteStore(owner, options).import(link!, alias)));
 }

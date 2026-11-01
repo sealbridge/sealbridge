@@ -246,7 +246,10 @@ globalThis.Date = class extends OriginalDate {
       else child.stdin!.end(value);
     }
     expect(await closed).toBe(mode === 'valid' ? 0 : 1);
-    for (const error of stdinErrors) expect(['EPIPE', 'ECONNRESET']).toContain(error.code);
+    // Closed pipes surface OS-level errors (including Windows EOF) or stream errors.
+    for (const error of stdinErrors) expect([
+      'EPIPE', 'ECONNRESET', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END',
+    ]).toContain(error.code);
     const stdout = readFileSync(stdoutPath, 'utf8'), stderr = readFileSync(stderrPath, 'utf8');
     expect(stdout + stderr).not.toContain(token);
     if (mode === 'valid') {
