@@ -29,11 +29,18 @@
 
 ## 3. Schema validation command
 
+### Manifest protocol versions
+
+The versioned 0.1.0/0.2.0 schemas share the `task-manifest` dispatcher; include both references below.
+The 0.1.0 rules and original example remain valid. See [protocol versions](../docs/connections/protocol-versions.md)
+for registry details, signed card examples and compatibility policy.
+
 ```bash
 npx --yes -p ajv-cli@5 -p ajv-formats@3 ajv validate \
   --spec=draft2020 \
   -c ajv-formats \
   -s spec/task-manifest.schema.json \
+  -r 'spec/task-manifest.*.schema.json' \
   -d spec/examples/sample-task-manifest.json
 ```
 
@@ -42,7 +49,6 @@ npx --yes -p ajv-cli@5 -p ajv-formats@3 ajv validate \
 The new `capability-token`, `usage-receipt`, `approval-receipt`, `ack-receipt`,
 `envelope` and `audit-entry` schemas are implemented. Run `pnpm validate:schemas`
 to compile all schemas and validate every example using Ajv Draft 2020-12.
-The original TaskManifest schema and example remain unchanged.
 
 Signed protocol objects use `{ "payload": <object>, "signature": <block> }`.
 Let `D = "sha256:" + hex(SHA256(UTF8(JCS(payload))))`. The block contains

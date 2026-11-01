@@ -29,17 +29,24 @@
 
 ## 3. スキーマ検証コマンド
 
+### マニフェストのプロトコル版
+
+版別の0.1.0/0.2.0スキーマは `task-manifest` ディスパッチャーで選択し、下のコマンドで両者を参照します。
+0.1.0の規則と元のサンプルは引き続き有効です。レジストリ・署名付きカードの例・互換方針は
+[プロトコル版](../docs/connections/protocol-versions.ja.md)を参照してください。
+
 ```bash
 npx --yes -p ajv-cli@5 -p ajv-formats@3 ajv validate \
   --spec=draft2020 \
   -c ajv-formats \
   -s spec/task-manifest.schema.json \
+  -r 'spec/task-manifest.*.schema.json' \
   -d spec/examples/sample-task-manifest.json
 ```
 
 ## M0–M1 実行可能なワイヤプロファイル
 
-新しい `capability-token`、`usage-receipt`、`approval-receipt`、`ack-receipt`、`envelope`、`audit-entry` のスキーマは実装済みです。`pnpm validate:schemas` を実行すると、Ajv Draft 2020-12 で全スキーマをコンパイルし、すべてのサンプルを検証します。元の TaskManifest スキーマとサンプルは変更していません。
+新しい `capability-token`、`usage-receipt`、`approval-receipt`、`ack-receipt`、`envelope`、`audit-entry` のスキーマは実装済みです。`pnpm validate:schemas` を実行すると、Ajv Draft 2020-12 で全スキーマをコンパイルし、すべてのサンプルを検証します。
 
 署名付きプロトコルオブジェクトは `{ "payload": <object>, "signature": <block> }` です。`D = "sha256:" + hex(SHA256(UTF8(JCS(payload))))` とします。ブロックには `signerDid`、`canonicalization: "RFC8785-JCS"`、`payloadDigest: D`、`signedAt`、パディング無しの `signature: "ed25519:" + base64url(64-byte-signature)` が入ります。Ed25519 署名の正確なプレイメージは次のとおりです。
 

@@ -3,14 +3,19 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import formats from 'ajv-formats';
 import type { TaskManifest, Schema } from './types.js';
+import { isManifestProtocolVersion } from './protocol.js';
 export function createAjv() {
   const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: true });
   (formats as unknown as (a: Ajv2020) => void)(ajv);
   return ajv;
 }
 export const specDirectory = new URL('../../../spec/', import.meta.url);
+export const SCHEMA_NAMES = [
+  'task-manifest', 'task-manifest.0.1.0', 'task-manifest.0.2.0', 'agent-card',
+  'envelope', 'usage-receipt', 'ack-receipt', 'capability-token', 'approval-receipt', 'audit-entry',
+] as const;
 export function loadSchema(name: string): Schema {
-  if (!/^[a-z-]+$/.test(name)) throw new Error('INVALID_SCHEMA_NAME');
+  if (!SCHEMA_NAMES.some(known => known === name)) throw new Error('INVALID_SCHEMA_NAME');
   return JSON.parse(readFileSync(new URL(name + '.schema.json', specDirectory), 'utf8')) as Schema;
 }
 let cachedRegistry: ReturnType<typeof createAjv> | undefined;
@@ -24,12 +29,17 @@ export function schemaRegistry() {
   return ajv;
 }
 export function validateSchema(name: string, value: unknown): void {
+  if (!SCHEMA_NAMES.some(known => known === name)) throw new Error('INVALID_SCHEMA_NAME');
   const ajv = schemaRegistry();
   const validate = ajv.getSchema(name)!;
   if (!validate(value)) throw new Error('SCHEMA_VIOLATION: ' + ajv.errorsText(validate.errors));
 }
 export function validateManifest(value: unknown): asserts value is TaskManifest {
-  validateSchema('task-manifest', value);
+  const version = value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as { protocolVersion?: unknown }).protocolVersion : undefined;
+  if (version !== undefined && !isManifestProtocolVersion(version))
+    throw new Error('PROTOCOL_VERSION_UNSUPPORTED');
+  validateSchema(isManifestProtocolVersion(version) ? 'task-manifest.' + version : 'task-manifest', value);
 }
 export function assertSynchronousSchema(schema: unknown): void {
   if (!schema || typeof schema !== 'object') return;
