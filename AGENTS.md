@@ -384,6 +384,11 @@ are deferred. CLI exit 3 and `retryable:false` remain unchanged.
    On errors or rejected approval, report the failure and preserve the log;
    do not claim settlement or silently retry paid work.
 
+The preparatory connection exchange library uses injected persistence, inspection, owner review and transport.
+Existing CLI/MCP workflows remain unchanged until PR5; see [connection exchange](docs/connections/connection-exchange.md).
+つながり交換ライブラリは永続化・検査・所有者確認・通信を注入します。
+既存の CLI/MCP は PR5 の切替まで変わりません。[つながり交換の説明](docs/connections/connection-exchange.ja.md)を参照してください。
+
 ## Discovery and invite utilities / 検索・招待ユーティリティ
 
 ```text

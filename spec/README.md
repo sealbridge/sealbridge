@@ -107,6 +107,11 @@ Sealbridge contract/receipt objects are overlay payloads rather than changes to 
 MCP `tools/call` requests and results use the official SDK and are physically
 proxied outside the sandbox. Unknown tools and metadata-free bypasses are denied.
 
+## Connection control profile (preparatory)
+
+See [connection exchange](../docs/connections/connection-exchange.md) for signed
+request, acceptance and ACK payloads, control envelopes and persistence requirements.
+
 ## M2/M3 additive discovery and session profile
 
 The M0/M1 JSON schemas and examples remain unchanged. Signed AgentCards and

@@ -5,5 +5,6 @@ export * from './capability.js';
 export * from './receipts.js';
 export * from './contract.js';
 export * from './discovery.js';
+export * from './connection.js';
 export * from './relay-auth.js';
 export * from './revocation.js';

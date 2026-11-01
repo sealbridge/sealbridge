@@ -563,6 +563,12 @@ node examples/network-collab/run.mjs
 | [`AGENTS.md`](AGENTS.md)                                                               | 自律 Worker / Requester の運用手順                                                                  |
 | [`SKILL.md`](SKILL.md)                                                                 | 持ち運び用エージェントスキル                                                                        |
 
+### つながり交換ライブラリ（準備段階）
+
+署名付きの申し込み・承認・ACK と、永続化・検査・所有者確認・通信を注入する
+`ConnectionService` を公開します。既存の CLI/MCP の動作は PR5 の切替まで変わりません。
+詳細は[つながり交換](docs/connections/connection-exchange.ja.md)を参照してください。
+
 ## ローカルの M0–M1 実装
 
 Node.js 22 LTS と pnpm 10 が必要です。WP-1 から WP-6 は `@acp/core`、`@acp/ledger`、`@acp/sandbox`、`@acp/runtime`、`@acp/relay`、`@acp/cli`、`@acp/two-owner-demo` として実装されています。

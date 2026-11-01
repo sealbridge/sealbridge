@@ -636,6 +636,12 @@ node examples/network-collab/run.mjs
 | [`AGENTS.md`](AGENTS.md)                                                               | Autonomous Worker/Requester playbook                                                                          |
 | [`SKILL.md`](SKILL.md)                                                                 | Portable agent skill                                                                                          |
 
+### Connection exchange library (preparatory)
+
+The library exports signed request, acceptance and ACK helpers plus an injected `ConnectionService`.
+Existing CLI/MCP behavior remains unchanged until the cutover PR (PR5).
+See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
+
 ## Local M0–M1 implementation
 
 Node.js 22 LTS and pnpm 10 are required. WP-1 through WP-6 are implemented as `@acp/core`, `@acp/ledger`, `@acp/sandbox`, `@acp/runtime`, `@acp/relay`, `@acp/cli` and `@acp/two-owner-demo`.
