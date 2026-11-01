@@ -10,7 +10,7 @@ const task = { title: 'Policy test', description: 'Echo within limits', input: {
 function setup(openPolicy?: OpenPolicy, accessMode: 'open' | 'invite-only' = 'open', maxInputTokens?: number) {
   const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
   const budgets: unknown[] = [];
-  const worker = new WorkerNode({ owner, relay, accessMode, openPolicy, maxInputTokens, timeoutMs: 3000,
+  const worker = new WorkerNode({ owner, relay, accessMode, allowedRequesterDids: [requester.did], openPolicy, maxInputTokens, timeoutMs: 3000,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }],
       executeTask: async (ctx) => { budgets.push(ctx.manifest.budget); return ctx.input; } } });

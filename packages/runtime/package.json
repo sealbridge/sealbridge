@@ -16,6 +16,10 @@
     "./relay-selection": {
       "types": "./dist/relay-selection.d.ts",
       "import": "./dist/relay-selection.js"
+    },
+    "./worker-trust-store": {
+      "types": "./dist/worker-trust-store.d.ts",
+      "import": "./dist/worker-trust-store.js"
     }
   },
   "scripts": {

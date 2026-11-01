@@ -8,13 +8,14 @@ import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
 import { runDemo } from '@acp/two-owner-demo';
 import { networkCommand } from './network.js';
 import { mcpServerCommand } from './mcp.js';
+import { requestsCommand } from './requests.js';
 import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
 import { doctorCommand, parseDoctorArgs } from './doctor.js';
 import { boardCommand } from './board.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
-const USAGE = 'Usage: sealbridge <doctor|keygen|validate|approve|audit-verify|receipt|contacts|board|demo|relay|worker|delegate|discover|invite|mcp-server>';
+const USAGE = 'Usage: sealbridge <doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|board|demo|relay|worker|delegate|discover|invite|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
@@ -99,6 +100,9 @@ async function main(args: string[]) {
       break;
     case 'board':
       await boardCommand(rest);
+      break;
+    case 'requests':
+      await requestsCommand(rest);
       break;
     case 'contacts':
       contactsCommand(rest);
@@ -208,5 +212,5 @@ async function main(args: string[]) {
 }
 main(process.argv.slice(2)).catch((error) => {
   console.error(formatCliError(error));
-  process.exitCode = 1;
+  process.exitCode = (error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL' ? 3 : 1;
 });

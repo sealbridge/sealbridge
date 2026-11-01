@@ -323,6 +323,8 @@ export class AcpMcpServer {
       const value = await this.callTool(name, args);
       return toolResult(value, false);
     } catch (error) {
+      if ((error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL')
+        return toolResult({ error: 'PENDING_OWNER_APPROVAL', retryable: false }, true);
       if (error instanceof RpcError) throw error;
       return toolResult({ error: error instanceof Error ? error.message : String(error) }, true);
     }

@@ -21,6 +21,7 @@ import type { ErrorDetail, SessionResult } from './session.js';
 /** The peer's signed ERROR, retaining optional diagnostics for programmatic callers. */
 export class PeerRejectedError extends Error {
   readonly code?: string;
+  readonly retryable?: false;
   readonly detail?: ErrorDetail;
   readonly recovery?: { proposalDigest: string; result?: SessionResult;
     part?: { index: number; count: number; data: string; resultDigest: string } };
@@ -29,6 +30,7 @@ export class PeerRejectedError extends Error {
       ? { code: body.code, recovery: true } : body));
     if (body && typeof body === 'object' && !Array.isArray(body)) {
       if (typeof body.code === 'string') this.code = body.code;
+      if (body.code === 'PENDING_OWNER_APPROVAL') this.retryable = false;
       const recovery = body.recovery;
       if (recovery && typeof recovery === 'object' && !Array.isArray(recovery) &&
           typeof recovery.proposalDigest === 'string')

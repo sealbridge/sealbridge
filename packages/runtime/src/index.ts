@@ -19,3 +19,4 @@ export * from './session.js';
 export { PeerRejectedError } from './session-audit.js';
 export * from './local-identity.js';
 export * from './relay-selection.js';
+export * from './worker-trust-store.js';

@@ -1519,7 +1519,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const relay = new InMemoryRelay();
     let executions = 0;
     const worker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1596,7 +1596,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1713,7 +1713,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const other = generateKeyPair();
     const relay = new InMemoryRelay();
     const alias = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1729,7 +1729,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
       },
     });
     const second = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: other,
       relay,
       timeoutMs: 5000,

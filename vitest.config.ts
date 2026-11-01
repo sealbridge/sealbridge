@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 // from source when their compiled entries are absent; built-suite mocks retain
 // their existing workspace module paths.
 const unbuiltHelpers = [
+  ['@acp/runtime/worker-trust-store', 'packages/runtime', 'worker-trust-store'],
   ['@acp/runtime/local-identity', 'packages/runtime', 'local-identity'],
   ['@acp/runtime/relay-selection', 'packages/runtime', 'relay-selection'],
   ['@acp/core', 'packages/core', 'index'],

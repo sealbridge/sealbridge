@@ -80,6 +80,8 @@ import { asJson, receiveRelay, acknowledgeRelay, PeerRejectedError, SessionWire 
 import { SessionTimeouts, validateSessionTimeouts, resolveSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 export type { SessionTimeoutOptions } from './session-timeouts.js';
+import { WorkerTrustStore, PENDING_MESSAGE } from './worker-trust-store.js';
+import type { WorkerIntakeStore } from './worker-trust-store.js';
 import { TaskJournal } from './task-journal.js';
 import type { TaskCheckpoint, TaskOutcome } from './task-journal.js';
 export interface WorkspaceCleanupFailure {
@@ -387,6 +389,16 @@ function recipientInbox(
   return inbox;
 }
 export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions {
+  intakeStore?: WorkerIntakeStore;
+  /** Hard owner-DID perimeter. An explicit empty array denies all peers. */
+  allowedPeerDids?: readonly string[];
+  /** Label custom LLM adapters explicitly. Built-in LLM IDs are also recognized. */
+  adapterKind?: 'llm' | 'non-llm';
+  automaticApproval?: boolean;
+  /** Separate human decision channel for limited peers; never the automatic provider. */
+  ownerApprovalProvider?: ApprovalProvider;
+  /** Reread host contact decisions at admission, execution and each outbound frame. */
+  checkPeer?: (did: string) => 'trusted' | void;
   /** Startup invite and signed card lifetime in seconds. Default 86400 (24 hours). */
   inviteTtlSeconds?: number;
   /** Shared host state, independent of requester and worker identity. */
@@ -473,6 +485,7 @@ export class WorkerNode {
   readonly agentCard: SignedAgentCard;
   readonly approvalProvider: ApprovalProvider;
   readonly acceptance: WorkerAcceptancePolicy;
+  readonly intakeStore: WorkerIntakeStore;
   private completed = 0;
   private activeTasks = 0;
   private readonly taskJournal?: TaskJournal;
@@ -493,6 +506,7 @@ export class WorkerNode {
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
     validateSessionTimeouts(options);
+    this.intakeStore = options.intakeStore ?? new WorkerTrustStore(options.owner);
     if (options.inviteTtlSeconds !== undefined && (!Number.isSafeInteger(options.inviteTtlSeconds) ||
         options.inviteTtlSeconds < 1 || options.inviteTtlSeconds > 2592000))
       throw new Error('INVALID_INVITE_TTL');
@@ -670,6 +684,18 @@ export class WorkerNode {
     }
     return this.lastResult;
   }
+  private assertPeer(did: string): 'trusted' | void {
+    if (this.options.allowedPeerDids !== undefined && !this.options.allowedPeerDids.includes(did))
+      throw new Error('PEER_NOT_ALLOWED');
+    if (this.intakeStore.level(did) === 'denied') throw new Error('REQUEST_DENIED');
+    return this.options.checkPeer?.(did);
+  }
+  private trust(did: string, invited: boolean): 'unknown' | 'limited' | 'trusted' {
+    const contactTrust = this.assertPeer(did);
+    if (contactTrust === 'trusted' || this.acceptance.allowAnyRequester || this.acceptance.allowedRequesterDids?.includes(did)) return 'trusted';
+    const grant = this.intakeStore.level(did);
+    return grant === 'limited' || grant === 'trusted' ? grant : invited ? 'limited' : 'unknown';
+  }
   private async notifyOutcome(record: TaskCheckpoint, outcome = record.outcome!): Promise<void> {
     const send = (recovery: unknown) => this.relay.send(signEnvelope({ taskId: record.taskId,
       recipientDid: record.requesterDid, seq: 0, eventType: 'ERROR',
@@ -694,16 +720,22 @@ export class WorkerNode {
     this.taskJournal.load();
     for (const saved of this.taskJournal.tasks.values()) {
       let record = saved;
+      const pending = this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
       if (record.phase !== 'terminal') {
         const result = this.sealedTaskResult(record);
         // Adapters expose executeTask only. Unknown execution/tool results cannot be retried safely.
-        record = { ...record, phase: 'terminal', outcome: result
+        record = { ...record, phase: 'terminal', outcome: pending ? { code: 'PENDING_OWNER_APPROVAL' } : result
           ? { code: result.state === 'SETTLED' ? 'TASK_SETTLED' : 'TASK_CANCELLED', result }
           : { code: 'TASK_INTERRUPTED' }, notificationPending: true };
         this.taskJournal.save(record);
-        if (!result) this.options.onEvent?.('INTERRUPTED', record.taskId, { code: 'TASK_INTERRUPTED' });
+        if (!result && !pending) this.options.onEvent?.('INTERRUPTED', record.taskId, { code: 'TASK_INTERRUPTED' });
       }
       if (record.notificationPending) {
+        try { this.assertPeer(record.requesterDid); } catch { continue; }
+        if (pending) {
+          record = { ...record, phase: 'terminal', outcome: { code: 'PENDING_OWNER_APPROVAL' } };
+          this.taskJournal.save(record);
+        }
         await this.notifyOutcome(record);
         this.taskJournal.save({ ...record, notificationPending: false });
       }
@@ -729,6 +761,11 @@ export class WorkerNode {
   private async recoverProposal(envelope: SignedEnvelope): Promise<boolean> {
     if (!this.taskJournal || envelope.payload.eventType !== 'PROPOSE' || envelope.payload.seq !== 0 ||
         !verifyEnvelope(envelope, this.options.owner.did)) return false;
+    try { this.assertPeer(envelope.payload.senderDid); } catch (error) {
+      this.reportRejection(envelope.payload.taskId, error);
+      await acknowledgeRelay(this.relay, envelope);
+      return true;
+    }
     let data: Proposal;
     try {
       data = openEnvelope(envelope, this.options.owner,
@@ -888,6 +925,7 @@ export class WorkerNode {
       first.payload.seq !== 0
     )
       throw new Error('INVALID_PROPOSAL_ENVELOPE');
+    this.assertPeer(first.payload.senderDid);
     // PROPOSE arrives before the session wire is constructed. Open it with the same rule,
     // and return an encrypted ERROR frame if pre-wire validation fails so the requester does not hang.
     let data!: Proposal;
@@ -923,6 +961,7 @@ export class WorkerNode {
         Date.parse(manifest.createdAt) > Date.now() + DEFAULT_CLOCK_SKEW_MS
       )
         throw new Error('INVALID_PROPOSAL');
+      this.assertPeer(first.payload.senderDid);
       m = manifest;
       auditPath = this.options.auditPath
         ? this.completed++ === 0 && !existsSync(this.options.auditPath)
@@ -988,8 +1027,7 @@ export class WorkerNode {
     let progressFailure: unknown;
     let wireFailureSent = false;
     try {
-      await wire.receiveEvent('PROPOSE', first);
-      this.assertInviteActive(data);
+      const invited = this.assertInviteActive(data);
       if (this.options.accessMode === 'open') {
         for (const field of OPEN_POLICY_FIELDS) {
           const limit = this.agentCard.payload.openPolicy?.[field];
@@ -1008,7 +1046,7 @@ export class WorkerNode {
         audience: this.options.owner.did,
         taskId: m.taskId,
       };
-      if (!Array.isArray(data.capabilityChains)) throw new Error('CAPABILITY_VIOLATION');
+      if (!Array.isArray(data.capabilityChains) || data.capabilityChains.length > 32) throw new Error('CAPABILITY_VIOLATION');
       for (const chain of data.capabilityChains) verifyCapabilityChain(chain, capabilityContext);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       this.rememberChains(m.taskId, data.capabilityChains, capabilityContext);
@@ -1036,8 +1074,33 @@ export class WorkerNode {
         throw diagnosticError('INCOMPATIBLE_TIMEOUTS', 'peerIdleTimeoutMs',
           { greaterThan: this.options.heartbeatIntervalMs ?? 15_000 }, data.peerIdleTimeoutMs,
           'Raise the requester idle timeout or shorten the worker heartbeat interval before accepting.');
+      // Validate capability scope before the admission queue or an owner prompt.
+      const scopedTools = new Set<string>();
+      for (const chain of data.capabilityChains) {
+        const leaf = verifyCapabilityChain(chain, capabilityContext).payload;
+        const grant = m.permissions.grantedCapabilities.find(g => g.resource === leaf.resource &&
+          leaf.allowedTools.every(t => g.allowedTools.includes(t)) && leaf.maxCalls <= g.maxInvocations &&
+          Date.parse(leaf.expiresAt) <= Date.parse(g.expiresAt));
+        if (!grant || leaf.maxDepth > m.permissions.maxDelegationDepth || leaf.allowedTools.some(t =>
+          scopedTools.has(t) || !schemaNarrows(leaf.argConstraints[t], grant.argConstraints ?? { type: 'object' })))
+          throw new Error('CAPABILITY_VIOLATION');
+        leaf.allowedTools.forEach(t => scopedTools.add(t));
+      }
+      const peerTrust = this.trust(m.requester.ownerDid, invited);
+      if (peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId,
+          digest({ manifest: m, input: data.input }))) {
+        if (peerTrust === 'unknown') this.intakeStore.enqueue(m, data.input);
+        throw new Error('PENDING_OWNER_APPROVAL');
+      }
+      const llm = this.options.adapterKind === 'llm' ||
+        ['claude', 'codex', 'openai'].includes(this.options.adapter.id);
+      // An explicit non-LLM automatic policy retains invited sandbox/command behavior.
+      const contractProvider = peerTrust === 'limited' && (llm || this.options.automaticApproval === false)
+        ? this.options.ownerApprovalProvider : this.approvalProvider;
+      if (!contractProvider) throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      await wire.receiveEvent('PROPOSE', first);
       const contract = createContract(m, data.proposal, this.options.owner);
-      const approval = await abortable(this.approvalProvider.approve({
+      const approval = await abortable(contractProvider.approve({
         taskId: m.taskId,
         gate: 'contract_acceptance',
         target: contract.contractDigest,
@@ -1049,6 +1112,12 @@ export class WorkerNode {
         },
         signal: activeSignal,
       }), activeSignal);
+      if (this.trust(m.requester.ownerDid, this.assertInviteActive(data)) === 'unknown')
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
+      this.assertPeer(m.requester.ownerDid);
+      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, invited) !== 'trusted')
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
       saveCheckpoint({ phase: 'accepted' });
@@ -1149,6 +1218,7 @@ export class WorkerNode {
           isActive: () => gateway!.machine.state === 'IN_PROGRESS',
         });
       });
+      this.assertPeer(m.requester.ownerDid);
       workspace = await mkdtemp(join(tmpdir(), 'acp-adapter-'));
       saveCheckpoint({ phase: 'running', workspace });
       let invocationCount = 0;
@@ -1246,6 +1316,7 @@ export class WorkerNode {
           sandboxBoundary = boundary;
         },
         callTool: async (tool, args) => {
+          this.assertPeer(m.requester.ownerDid);
           executionSignal.throwIfAborted();
           if (!args || typeof args !== 'object' || Array.isArray(args))
             throw new Error('CAPABILITY_VIOLATION: arguments');
@@ -1275,6 +1346,12 @@ export class WorkerNode {
           return result;
         },
       };
+      this.assertPeer(m.requester.ownerDid);
+      if (this.trust(m.requester.ownerDid, this.assertInviteActive(data)) === 'unknown')
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
+      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, invited) !== 'trusted')
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
       if (!this.options.inboxPath) await acknowledgeRelay(relay, first);
       // A task may return while a queued progress update is still waiting for its ACK.
@@ -1350,7 +1427,10 @@ export class WorkerNode {
       if (!wireFailureSent) {
         wireFailureSent = true;
         await wire.rawSend('ERROR', diagnostic)
-          .then(() => saveCheckpoint({ notificationPending: false })).catch(() => {});
+          .then(async () => {
+            saveCheckpoint({ notificationPending: false });
+            if (diagnostic.code === 'PENDING_OWNER_APPROVAL') await acknowledgeRelay(relay, first);
+          }).catch(() => {});
       }
       // A quota abort already surfaces as EXECUTION_ABORTED. Keep that error.
       // A caught INVALID_PROGRESS still fails the session with the sticky error.
@@ -1427,7 +1507,10 @@ export class WorkerNode {
     };
     return {
       get connectionStatus() { return relay.connectionStatus; },
-      send: (envelope) => relay.send(envelope),
+      send: (envelope) => {
+        this.assertPeer(envelope.payload.recipientDid);
+        return relay.send(envelope);
+      },
       ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string) => relay.acknowledgeDelivery!(did, id) } : {}),
       receive,
       ...(relay.register ? { register: (card) => relay.register!(card) } : {}),
@@ -1491,27 +1574,27 @@ export class WorkerNode {
       // The caller registry can refuse a notice. The inbox copy still applies.
     }
   }
-  private assertInviteActive(data: Proposal): void {
+  private assertInviteActive(data: Proposal): boolean {
     const token = data.inviteToken;
     if (typeof token !== 'string' || token.length === 0) {
       if (this.options.accessMode !== 'open' &&
-          !this.options.allowedRequesterDids?.includes(data.proposal.payload.requester.ownerDid))
+          !this.options.allowedRequesterDids?.includes(data.proposal.payload.requester.ownerDid) &&
+          !['limited', 'trusted'].includes(this.intakeStore.level(data.proposal.payload.requester.ownerDid)))
         throw new Error('INVITE_REQUIRED');
-      return;
+      return false;
     }
-    let invite: Invite;
-    try {
-      invite = parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true });
-    } catch (error) {
-      if (this.options.accessMode === 'open' && error instanceof Error && error.message === 'INVITE_EXPIRED') return;
-      throw error;
-    }
+    const invite = parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true, allowExpired: true });
     if (invite.ownerDid !== this.options.owner.did ||
         invite.agentDid !== this.agentCard.payload.agentDid ||
         invite.relayUrl !== this.agentCard.payload.relayEndpoint)
       throw new Error('INVITE_WORKER_MISMATCH');
     this.revocation.assertNotRevoked('invite', digest(invite));
     this.revocation.assertNotRevoked('invite', token);
+    if (Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)) <= Date.now()) {
+      if (this.options.accessMode === 'open') return false;
+      throw new Error('INVITE_EXPIRED');
+    }
+    return true;
   }
   /**
    * Before ACCEPT, every verified capability chain is checked against revocation
@@ -1685,11 +1768,12 @@ function diagnosticError(code: string, field: string, expected: unknown, actual:
 function rejectionBody(error: unknown): ErrorDiagnostic & { reason?: string } {
   if (error instanceof DiagnosticError) return { code: safeError(error), detail: error.detail };
   if (error instanceof ProposalRejectedError) return { code: error.code, reason: error.reason };
+  if (safeError(error) === 'PENDING_OWNER_APPROVAL') return { code: 'PENDING_OWNER_APPROVAL', reason: PENDING_MESSAGE };
   return { code: safeError(error) };
 }
 function safeError(e: unknown): string {
   const s = String(e);
-  for (const code of ['INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
+  for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
   if (s.includes('TOKEN_REVOKED')) return 'TOKEN_REVOKED';
   return (

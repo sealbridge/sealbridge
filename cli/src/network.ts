@@ -8,6 +8,8 @@ import { createSignedAgentCard, createInviteToken, discoverAgentCards, isInviteT
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
+  WorkerTrustStore,
+  workerIntakePath,
   resolveOrCreateIdentity,
   selectApplicationRelay,
   DEFAULT_PUBLIC_RELAY,
@@ -30,7 +32,7 @@ import { contactsPath, loadContacts, contactsApproval, addContact } from './cont
 import { readTaskInputFile } from './task-input.js';
 import { approvalSummary } from './approval-summary.js';
 import { japaneseErrorReason } from './error-messages.js';
-const REPEATABLE = new Set(['--allow-requester', '--open-allow-task-type']);
+const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--open-allow-task-type']);
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
 function flags(args: string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();
@@ -140,9 +142,10 @@ function assertLlmAutoAccept(
   adapter: string,
   automatic: boolean,
   acceptance: WorkerAcceptancePolicy,
+  trustedGrant = false,
 ): void {
   if (!automatic || !LLM_ADAPTERS.has(adapter)) return;
-  if (acceptance.allowAnyRequester || (acceptance.allowedRequesterDids?.length ?? 0) > 0) return;
+  if (trustedGrant || acceptance.allowAnyRequester || (acceptance.allowedRequesterDids?.length ?? 0) > 0) return;
   throw new Error(
     'LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST: --auto-accept with the ' +
       adapter +
@@ -163,6 +166,8 @@ export async function networkCommand(command: string, args: string[], applicatio
   --notification-key <file>      Persistent signing key (default: ephemeral local identity).
   --notification-ttl-ms <n>      Wake registration/dedup and expiry notice retention (default: 3600000).
   --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 600000).` : TIMEOUT_HELP + REVIEW_HELP + `
+  --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
+  requests list|approve|deny     Local owner review; approve defaults to limited trust.
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
                                  The local relay CLI provides channel "default".`);
     return;
@@ -283,7 +288,11 @@ export async function networkCommand(command: string, args: string[], applicatio
       const general = acceptance[field];
       if (general !== undefined) openPolicy[field] = Math.min(openPolicy[field] ?? general, general);
     }
-    assertLlmAutoAccept(adapterName, automatic, acceptance);
+    const intakeStore = new WorkerTrustStore(key, {
+      path: workerIntakePath(key.did, application.identityOptions),
+      fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
+    });
+    assertLlmAutoAccept(adapterName, automatic, acceptance, intakeStore.hasTrustedGrant());
     if (adapterName === 'claude' || adapterName === 'codex')
       assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
     let adapter: AgentAdapter;
@@ -324,6 +333,19 @@ export async function networkCommand(command: string, args: string[], applicatio
         path: join(dirname(contactsPath()), 'daily-tasks.json'),
         maxTasks: optionalCount(f, 'max-tasks-per-day')!,
       } } : {}),
+      intakeStore,
+      ...(f.has('--allowed-peer') ? { allowedPeerDids: text(f, 'allowed-peer').split(',').map(d => d.trim()).filter(Boolean) } : {}),
+      adapterKind: LLM_ADAPTERS.has(adapterName) ? 'llm' : 'non-llm',
+      automaticApproval: automatic,
+      ownerApprovalProvider: process.stdin.isTTY && process.stderr.isTTY
+        ? contactsApproval(contactFile, key, false, explicitAcceptance, approval(key, false, undefined, f.has('--verbose')))
+        : undefined,
+      checkPeer: (did) => {
+        const contact = loadContacts(contactFile, key.did).find(c => c.ownerDid === did);
+        if (contact?.revoked) throw new Error('CONTACT_REVOKED');
+        if (automatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
+        if (contact?.allow) return 'trusted';
+      },
       accessMode: accessMode as 'invite-only' | 'open',
       ...(Object.keys(openPolicy).length ? { openPolicy } : {}),
       ...sessionTimeouts(f),
@@ -350,8 +372,6 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     if (f.has('--wake-channel')) await workerRelay.registerWake(key.did, text(f, 'wake-channel'));
     if (acceptance.publishToRegistry) await worker.register();
-    if (accessMode === 'open' && automatic && !acceptance.allowedRequesterDids?.length)
-      console.error(`[Sealbridge WARNING] Worker started in --open mode with ${f.has('--yes') ? '--yes' : 'automatic approval'} and no requester allowlist. Any requester can submit tasks for automatic acceptance within configured limits.`);
     const token = worker.invite(inviteTtl);
     console.log(token);
     console.log('https://sealbridge.app/i#' + token);
