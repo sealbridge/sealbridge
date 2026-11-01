@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./application-config": {
+      "types": "./dist/application-config.d.ts",
+      "import": "./dist/application-config.js"
+    },
     "./local-identity": {
       "types": "./dist/local-identity.d.ts",
       "import": "./dist/local-identity.js"

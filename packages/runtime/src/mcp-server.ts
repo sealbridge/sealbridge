@@ -31,13 +31,14 @@ import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from
 import { RequesterClient } from './session.js';
 import { resolveOrCreateIdentity } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
-import { DEFAULT_PUBLIC_RELAY, normalizeRelayUrl, selectApplicationRelay } from './relay-selection.js';
+import { normalizeRelayUrl, selectApplicationRelay } from './relay-selection.js';
+import { readApplicationConfig } from './application-config.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 
 export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions {
   owner?: KeyPair;
-  /** Application defaults are loaded only for identity-dependent operations. */
+  /** Data-root and filesystem options shared by local application state. */
   identityOptions?: LocalIdentityOptions;
   /** Constructs transports after relay policy checks; useful for offline hosts/tests. */
   transportFactory?: (url: string, owner?: KeyPair) => RelayTransport;
@@ -306,6 +307,8 @@ export class AcpMcpServer {
   private selectedRelay(explicit?: string, inviteRelay?: string): RelayTransport | string {
     return selectApplicationRelay({
       configured: this.options.relay, explicit, inviteRelay,
+      fallbackCandidates: readApplicationConfig({ ...this.options.identityOptions,
+        allowPrivateRelay: this.options.allowPrivateRelay }).relays,
       allowPrivateRelay: this.options.allowPrivateRelay,
       allowAnyRelay: this.options.allowAnyRelay,
       allowedRelayUrls: this.options.allowedRelayUrls,
@@ -554,8 +557,10 @@ export class AcpMcpServer {
   }
   private createInvite(args: Record<string, unknown>): Json {
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
+    const config = readApplicationConfig({ ...this.options.identityOptions,
+      allowPrivateRelay: this.options.allowPrivateRelay });
     const relayUrl = typeof args.relayUrl === 'string' ? args.relayUrl
-      : typeof this.options.relay === 'string' ? this.options.relay : DEFAULT_PUBLIC_RELAY;
+      : typeof this.options.relay === 'string' ? this.options.relay : config.relays[0];
     const owner = this.owner();
     const agentDid = typeof args.agentDid === 'string' ? args.agentDid : owner.did;
     const card = createSignedAgentCard(

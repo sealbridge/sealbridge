@@ -10,6 +10,8 @@ export function normalizeRelayUrl(value: string): string {
 export interface RelaySelectionOptions {
   configured?: RelayTransport | string;
   explicit?: string;
+  /** Ordered local defaults; only the first is selected, and these are not pins. */
+  fallbackCandidates?: readonly string[];
   /** Must come from an already verified invitation. */
   inviteRelay?: string;
   allowPrivateRelay?: boolean;
@@ -20,11 +22,11 @@ export interface RelaySelectionOptions {
 /** Keep an injected transport or explicit pin distinct from the implicit public fallback. */
 export function selectApplicationRelay(options: RelaySelectionOptions = {}): {
   relay: RelayTransport | string;
-  source: 'transport' | 'configured' | 'explicit' | 'invite' | 'default';
+  source: 'transport' | 'configured' | 'explicit' | 'invite' | 'local-default' | 'default';
 } {
   const { configured, explicit, inviteRelay } = options;
   const transport = configured !== undefined && typeof configured !== 'string';
-  const relay = configured && transport ? configured : explicit ?? configured ?? inviteRelay ?? DEFAULT_PUBLIC_RELAY;
+  const relay = configured && transport ? configured : explicit ?? configured ?? inviteRelay ?? options.fallbackCandidates?.[0] ?? DEFAULT_PUBLIC_RELAY;
   const urls = [explicit, typeof configured === 'string' ? configured : undefined, inviteRelay,
     typeof relay === 'string' ? relay : undefined].filter((v): v is string => v !== undefined);
   for (const url of urls) validateRelayEndpointUrl(url, options);
@@ -42,5 +44,5 @@ export function selectApplicationRelay(options: RelaySelectionOptions = {}): {
       normalizeRelayUrl(explicit) !== normalizeRelayUrl(inviteRelay))
     throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
   return { relay, source: transport ? 'transport' : explicit ? 'explicit' : configured ? 'configured'
-    : inviteRelay ? 'invite' : 'default' };
+    : inviteRelay ? 'invite' : options.fallbackCandidates?.length ? 'local-default' : 'default' };
 }

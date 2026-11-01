@@ -238,7 +238,10 @@ describe('Sealbridge MCP server', () => {
       await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }),
     ).toBeUndefined();
     const listed = await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    const names = (listed as { result: { tools: Array<{ name: string }> } }).result.tools.map(
+    const tools = (listed as { result: { tools: Array<{
+      name: string; inputSchema: { properties: Record<string, unknown> };
+    }> } }).result.tools;
+    const names = tools.map(
       (tool) => tool.name,
     );
     expect(names).toEqual([
@@ -250,6 +253,10 @@ describe('Sealbridge MCP server', () => {
       'acp_discover_workers',
       'acp_inspect_revocations',
     ]);
+    expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual([
+      'accessMode', 'skillId', 'taskType', 'relayUrl',
+    ]);
+    for (const tool of tools) expect(tool.inputSchema.properties).not.toHaveProperty('relays');
     const created = await server.handle({
       jsonrpc: '2.0',
       id: 3,
