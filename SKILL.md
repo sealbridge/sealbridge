@@ -152,6 +152,23 @@ For the optional audit paths below, create the audit directory first:
    招待トークンをオーナーに提示し、プロセスを維持します。対話承認はオーナーの
    返答を受けて操作します。再起動時は未使用の監査パスを指定します。
 
+   Startup stdout remains token then HTTPS link. `--invite-output none` suppresses
+   both; `file:<path>` writes only token plus newline to an unused `0600` file in
+   an existing private directory (POSIX owner-only, typically `0700`); `fd:<n>`
+   uses an inherited descriptor above 2 (pipe/socket or owner-only file), left open.
+   Parents manage descriptor routing; Windows ACLs are inherited, not verified.
+   Failure returns `INVITE_OUTPUT_UNAVAILABLE` without a stdout fallback.
+   Stderr `invite_ready` JSON contains `event`, full SHA-256 `inviteDigest`, ISO
+   `expiresAt`, `workerDid`, and `relay` before listener startup, without invite
+   material. Status/event JSON selects diagnostic fields and replaces unrecognized
+   free-form values. Inbox/hook records and approvals keep their existing content.
+   `--invite-output` の既定は従来の `stdout` です。`none` で表示を省略し、
+   `file:<path>` は既存の私的ディレクトリへ未使用ファイルを `0600` で作成します。
+   `fd:<n>` は 2 より大きい継承記述子へトークンと改行だけを渡し、閉じません。
+   POSIX は所有者だけの権限（ディレクトリは通常 `0700`）を使い、Windows の ACL は継承のみです。
+   出力失敗時に標準出力へ切り替えません。stderr の `invite_ready` はダイジェスト・期限・
+   DID・中継器だけを記録し、接続完了は表しません。状態・イベントは診断フィールドを選択して出力します。
+
    Adapter selection: `sandbox` defaults to `return input;` and accepts
    JavaScript via `--cmd`; `command` requires `--cmd` (JSON stdin/stdout).
    `claude`/`codex` require installed CLIs and accept a `--cmd` override.

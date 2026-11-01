@@ -34,8 +34,9 @@ import { createReceiveHook } from './receive-hook.js';
 import { contactsPath, loadContacts, contactsApproval, addContact } from './contacts.js';
 import { readTaskInputFile } from './task-input.js';
 import { approvalSummary } from './approval-summary.js';
-import { japaneseErrorReason } from './error-messages.js';
 import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
+import { parseInviteOutput, deliverInvite } from './invite-output.js';
+import { emitWorkerJson, inviteDigest } from './worker-json.js';
 const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--open-allow-task-type']);
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
 function flags(args: string[]): Map<string, string | true> {
@@ -107,6 +108,10 @@ const REVIEW_HELP = `
   --to <invite|link|did>          Delegate: accepts https://sealbridge.app/i#acp-invite:... links.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
+  --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (n > 2).
+                                 File: unused path in an existing private directory; token + newline.
+                                 FD: inherited pipe/socket or private file; remains open. No stdout copy.
+                                 Stderr invite_ready JSON contains metadata only in every mode.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
 Task HOME is fresh: host CLI login directories are not exposed. --cmd overrides manage their own authentication.`;
@@ -193,6 +198,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
     throw new Error('Expected ' + command + ' start');
   const f = flags(args);
+  const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
   const authRecovery = relayAuthOptions(f);
   const allowPrivateRelay = f.has('--allow-private-relay');
   if (command === 'relay') {
@@ -376,9 +382,9 @@ export async function networkCommand(command: string, args: string[], applicatio
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
       inboxPath: f.has('--inbox') ? text(f, 'inbox') : undefined,
       onInboxRecord,
-      onStatus: (status, error) => console.error(JSON.stringify({ status, ...(error ? { error: error.message, reasonJa: japaneseErrorReason(error.message) } : {}) })),
-      onEvent: (event, taskId, error) => console.error(JSON.stringify({ event, taskId, ...error,
-        ...(error ? { reasonJa: japaneseErrorReason(error.code) } : {}) })),
+      onStatus: (status, error) => emitWorkerJson({ status, error }),
+      onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,
+        code: error?.code, detail: error?.detail, reason: (error as { reason?: string } | undefined)?.reason }),
       ...acceptance,
       allowPrivateRelay,
     });
@@ -390,8 +396,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (f.has('--wake-channel')) await workerRelay.registerWake(key.did, text(f, 'wake-channel'));
     if (acceptance.publishToRegistry) await worker.register();
     const token = worker.invite(inviteTtl);
-    console.log(token);
-    console.log('https://sealbridge.app/i#' + token);
+    const invite = parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay });
+    deliverInvite(inviteOutput!, token);
+    emitWorkerJson({ event: 'invite_ready', inviteDigest: inviteDigest(token),
+      expiresAt: invite.expiresAt, workerDid: invite.agentDid, relay: relayUrl });
     const stop = () => worker.stop();
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
