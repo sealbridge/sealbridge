@@ -231,6 +231,24 @@ human TTY. `INVITE_STORE_BUSY` leaves existing locks intact; explicit local lock
 recovery requires first checking that no writer is alive.
 招待はユーザーが MCP と同じ端末・OS アカウントで保存し、モデルは参照だけを使います。
 
+Imported tokens follow the shared key-store selection. File keeps the existing signed
+JSON format; keychain keeps only signed references/digests there and uses accounts
+`invite:<entry id>` in the data-root-scoped service. Existing inline tokens remain readable
+without automatic migration. Use `sealbridge invites migrate --to keychain --dry-run`,
+then omit `--dry-run` to apply; `--key <file>` selects an existing requester signer.
+Migration preserves the original metadata on failure; previously written strings may remain.
+References still use keychain after switching to file. Missing/differing strings report
+`INVITE_SECRET_MISSING` / `INVITE_SECRET_MISMATCH`; unavailable access reports
+`KEY_STORE_UNAVAILABLE` without file fallback. `INVITE_SECRET_DELETE_FAILED` reports
+metadata removal with incomplete keychain cleanup. Embedders use `InviteStore.open`
+and may inject `InviteStoreOptions.secretStore` or MCP `identityOptions.secretStore`.
+招待にも共通の方式選択を適用します。file は従来の署名付き JSON を維持し、keychain は参照・
+ダイジェストをファイルに残してトークンを同じサービスの `invite:<entry id>` に保存します。
+既存のインライン項目は自動移行しません。上記 migrate の dry run で件数を確認し、フラグを外して適用します。
+`--key` は既存の署名者ファイルを指定します。失敗時は元のメタデータを維持し、書込済み文字列が残る場合があります。
+file に戻しても既存参照は keychain を使います。欠落・不一致・利用不能は上記コードで報告します。
+削除後の keychain 処理が失敗した場合も専用コードで報告します。組み込みでは上記の注入 API を使えます。
+
 ## Worker peer review / ワーカーの依頼者審査
 
 Open workers quarantine unknown peers and return terminal `PENDING_OWNER_APPROVAL`;

@@ -41,6 +41,7 @@ function fixture() {
     }
     getPassword() { return secrets.get(this.id) ?? null; }
     setPassword(value: string) { secrets.set(this.id, value); }
+    deletePassword() { return secrets.delete(this.id); }
   } };
   const loader = vi.fn(async () => module);
   const options: IdentityStoreOptions = {

@@ -374,6 +374,40 @@ signed store. `INVITE_STORE_BUSY` never removes an existing lock; after checking
 that no writer is alive, the user can explicitly remove the corresponding
 `<store-file>.lock` and retry the local mutation.
 
+Imported invitation tokens follow the shared key-store selection (option, environment,
+config, then file). File selection retains the existing signed JSON format and bytes.
+With keychain selection, new entries retain signed metadata, an `inviteSecret` reference,
+and a `tokenDigest`; the token is held in the same data-root-scoped keychain service,
+under account `invite:<entry id>`. Existing inline entries remain readable without
+migration. Stored references continue to resolve through keychain after selecting file;
+new imports then use inline file storage. Listing and MCP results omit tokens.
+Unavailable keychain access returns `KEY_STORE_UNAVAILABLE`; missing or differing
+strings return `INVITE_SECRET_MISSING` or `INVITE_SECRET_MISMATCH`, with no file fallback.
+Removal also deletes the referenced string. `INVITE_SECRET_DELETE_FAILED` means metadata
+was removed but keychain cleanup failed; the string may remain under its account name.
+
+Move existing inline tokens explicitly, using the existing requester identity:
+
+```sh
+sealbridge invites migrate --to keychain --dry-run
+sealbridge invites migrate --to keychain
+# Select an existing requester file when needed:
+sealbridge invites migrate --to keychain --key /path/to/requester.private.json
+```
+
+Dry run reports the number of inline entries without writes. Apply writes and reads
+back every string before atomically publishing signed metadata without inline tokens.
+A failure leaves the original metadata file unchanged; strings written before a failure
+may remain and are reused on retry. Migration neither changes the selected backend nor
+moves the requester identity. Existing references, aliases and import times are retained.
+Embedders can inject synchronous `SecretStore.get/set/delete` via
+`InviteStoreOptions.secretStore` or MCP `identityOptions.secretStore`. Use
+`await InviteStore.open(owner, options)` to load the configured native backend;
+`new InviteStore(owner, options)` retains the synchronous file/injected-store API.
+An injected identity `KeyStore` alone retains inline token storage; pass `secretStore`
+separately to use external strings. Explicit identity file paths select only the signer;
+invitation storage still follows the shared selection.
+
 Direct CLI delegation remains available with the complete invitation:
 
 ```sh

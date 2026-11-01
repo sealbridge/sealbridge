@@ -20,7 +20,7 @@ import {
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
 } from '@acp/runtime';
-import type { IdentityStoreOptions, DelegateOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
+import type { InviteStoreOptions, DelegateOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
 import {
   CommandAgentAdapter,
   ClaudeCodeAdapter,
@@ -158,7 +158,7 @@ function assertLlmAutoAccept(
   );
 }
 export async function networkCommand(command: string, args: string[], application: {
-  identityOptions?: IdentityStoreOptions; fetch?: typeof fetch;
+  identityOptions?: InviteStoreOptions; fetch?: typeof fetch;
   pendingRequest?: DelegateOptions; pendingRelayUrl?: string;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   onDelegated?: () => void;
@@ -421,7 +421,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     const workerRef = application.pendingRequest?.workerRef;
     const to = workerRef
-      ? new InviteStore(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } }).resolve(workerRef).inviteToken
+      ? (await InviteStore.open(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } })).resolve(workerRef).inviteToken
       : application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
     const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
