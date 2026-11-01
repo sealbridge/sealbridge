@@ -228,6 +228,11 @@ async function main(args: string[]) {
   }
 }
 main(process.argv.slice(2)).catch((error) => {
-  console.error(formatCliError(error));
-  process.exitCode = (error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL' ? 3 : 1;
+  const exitCode = (error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL' ? 3 : 1;
+  process.exitCode = exitCode;
+  process.stderr.write(formatCliError(error) + '\n', () => {
+    // A rejected stdin import must exit even if the producer keeps its pipe open.
+    // Wait for the diagnostic to flush before forcing exit.
+    if (process.argv[2] === 'accept' && process.argv.slice(3).includes('--stdin')) process.exit(exitCode);
+  });
 });
