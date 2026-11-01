@@ -57,8 +57,8 @@ import type {
 } from '@acp/core';
 import { parseJsonl, verifyAudit, type AuditBundle, type AuditEntry } from '@acp/ledger';
 import type { SandboxBoundaryMetadata } from '@acp/sandbox';
-import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline } from '@acp/relay';
-import type { RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
+import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions } from '@acp/relay';
+import type { RelayAuthRecoveryOptions, RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
 import type {
   AgentAdapter,
   AgentTaskContext,
@@ -149,6 +149,7 @@ function transport(
     get connectionStatus() { return bound.connectionStatus; },
     send: (envelope) => relayDeadline(Promise.resolve(bound.send(envelope)), security?.requestTimeoutMs ?? 45_000),
     receive: async (did, waitMs, signal, filter) => {
+      if (bound.managesRequestDeadlines) return bound.receive(did, waitMs, signal, filter);
       const controller = new AbortController();
       const readSignal = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]);
       try {
@@ -159,9 +160,11 @@ function transport(
         throw error;
       }
     },
-    ...(bound.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string) =>
-      relayDeadline(Promise.resolve(bound.acknowledgeDelivery!(did, id)), security?.requestTimeoutMs ?? 45_000) } : {}),
-    ...(bound.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => relayDeadline(Promise.resolve(bound.deliveryStatus!(envelope, signal)), security?.requestTimeoutMs ?? 45_000, signal) } : {}),
+    ...(bound.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) =>
+      bound.managesRequestDeadlines ? bound.acknowledgeDelivery!(did, id, signal) :
+        relayDeadline(Promise.resolve(bound.acknowledgeDelivery!(did, id, signal)), security?.requestTimeoutMs ?? 45_000, signal) } : {}),
+    ...(bound.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => bound.managesRequestDeadlines
+      ? bound.deliveryStatus!(envelope, signal) : relayDeadline(Promise.resolve(bound.deliveryStatus!(envelope, signal)), security?.requestTimeoutMs ?? 45_000, signal) } : {}),
     ...(bound.register ? { register: (card: SignedAgentCard) => bound.register!(card) } : {}),
     ...(bound.discover ? { discover: () => relayDeadline(Promise.resolve(bound.discover!()), security?.requestTimeoutMs ?? 45_000) } : {}),
   };
@@ -215,7 +218,7 @@ function mailboxRelay(relay: RelayTransport, mailbox: TaskMailbox): RelayTranspo
   return {
     send: (envelope) => relay.send(envelope),
     ...(relay.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => relay.deliveryStatus!(envelope, signal) } : {}),
-    ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string) => relay.acknowledgeDelivery!(did, id) } : {}),
+    ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, signal) } : {}),
     receive: (_recipientDid, _waitMs, signal) => mailbox.take(signal),
   };
 }
@@ -386,7 +389,7 @@ function recipientInbox(
   }
   return inbox;
 }
-export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions {
+export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions {
   /** Startup invite and signed card lifetime in seconds. Default 86400 (24 hours). */
   inviteTtlSeconds?: number;
   /** Shared host state, independent of requester and worker identity. */
@@ -492,6 +495,7 @@ export class WorkerNode {
   /** Inbox registry composed with options.revocation when the caller passed one. */
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
+    validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     if (options.inviteTtlSeconds !== undefined && (!Number.isSafeInteger(options.inviteTtlSeconds) ||
         options.inviteTtlSeconds < 1 || options.inviteTtlSeconds > 2592000))
@@ -514,6 +518,8 @@ export class WorkerNode {
         allowPrivateRelay: options.allowPrivateRelay,
         lookup: options.lookup,
         requestTimeoutMs: options.connectTimeoutMs,
+        maxAuthRecoveryAttempts: options.maxAuthRecoveryAttempts,
+        authRecoveryTimeoutMs: options.authRecoveryTimeoutMs,
       }),
     );
     this.approvalProvider =
@@ -656,7 +662,7 @@ export class WorkerNode {
       if (!idleSignal.aborted) {
         // A rejected one-shot task may be followed by another start on this node.
         // Only a terminal listener failure shuts down the worker and all of its tasks.
-        if (error instanceof Error && 'code' in error && error.code === 'RELAY_TERMINAL') {
+        if (error instanceof Error && 'code' in error && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code))) {
           this.listenerStatus('unavailable', error);
           for (const mailbox of this.mailboxes.values()) mailbox.close(error);
           this.controller.abort(error);
@@ -1079,7 +1085,7 @@ export class WorkerNode {
         } finally {
           closeSync(fd);
         }
-        await acknowledgeRelay(relay, first);
+        await acknowledgeRelay(relay, first, activeSignal);
         // Notification errors must not fail a persisted task.
         try {
           void Promise.resolve(this.options.onInboxRecord?.(record)).catch(() => undefined);
@@ -1276,7 +1282,7 @@ export class WorkerNode {
         },
       };
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
-      if (!this.options.inboxPath) await acknowledgeRelay(relay, first);
+      if (!this.options.inboxPath) await acknowledgeRelay(relay, first, executionSignal);
       // A task may return while a queued progress update is still waiting for its ACK.
       // Skip the drain once the task is already aborted, cancelled, or over budget.
       if (!executionSignal.aborted && !wire.cancelHandled) {
@@ -1428,7 +1434,7 @@ export class WorkerNode {
     return {
       get connectionStatus() { return relay.connectionStatus; },
       send: (envelope) => relay.send(envelope),
-      ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string) => relay.acknowledgeDelivery!(did, id) } : {}),
+      ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])])) } : {}),
       receive,
       ...(relay.register ? { register: (card) => relay.register!(card) } : {}),
       ...(relay.discover ? { discover: () => relay.discover!() } : {}),
@@ -1716,7 +1722,7 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
     signal.removeEventListener('abort', listener);
   }
 }
-export interface RequesterClientOptions extends SessionTimeoutOptions {
+export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions {
   owner: KeyPair;
   relay?: RelayTransport | string;
   approvalProvider?: ApprovalProvider;
@@ -1731,7 +1737,22 @@ export interface RequesterClientOptions extends SessionTimeoutOptions {
    */
   allowUnencryptedEnvelopes?: boolean;
 }
+/** Resolved action reviewed before any session envelope is transmitted. */
+export interface BeforeProposeContext {
+  manifest: TaskManifest;
+  input: Json;
+  relay: string;
+  signal: AbortSignal;
+}
+function freezeApprovalAction<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeApprovalAction(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 export interface DelegateOptions extends SessionTimeoutOptions {
+  beforePropose?: (action: BeforeProposeContext) => Promise<void>;
   to: string;
   discover?: { skillId?: string; taskType?: string };
   relay?: RelayTransport | string;
@@ -1803,6 +1824,7 @@ export interface DelegateMultiResult {
   cancelled: string[];
 }
 export interface DelegateMultiOptions extends SessionTimeoutOptions {
+  beforePropose?: DelegateOptions['beforePropose'];
   workers: DelegateWorkerTarget[];
   mode: 'race' | 'quorum';
   quorumSize?: number;
@@ -1880,6 +1902,7 @@ export async function deliverRevocation(
 export class RequesterClient {
   readonly approvalProvider: ApprovalProvider;
   constructor(readonly options: RequesterClientOptions) {
+    validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     this.approvalProvider =
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
@@ -1935,6 +1958,13 @@ export class RequesterClient {
       onDelivered?: () => void;
     },
   ): Promise<SessionResult> {
+    // Retain the reviewed values even if the caller changes its objects while awaiting consent.
+    if (options.beforePropose) options = { ...options,
+      input: structuredClone(options.input), manifest: options.manifest && structuredClone(options.manifest),
+      budget: options.budget && structuredClone(options.budget),
+      outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+      capabilities: options.capabilities && structuredClone(options.capabilities),
+    };
     const timeoutOptions = resolveSessionTimeouts(this.options, options);
     validateSessionTimeouts(timeoutOptions);
     if (timeoutOptions.executionTimeoutMs !== undefined && timeoutOptions.executionTimeoutMs < 1000)
@@ -1957,6 +1987,8 @@ export class RequesterClient {
         allowPrivateRelay: this.options.allowPrivateRelay,
         lookup: this.options.lookup,
         requestTimeoutMs: timeoutOptions.connectTimeoutMs,
+        maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
+        authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
       }),
       owner = this.options.owner,
       inbox =
@@ -2016,6 +2048,29 @@ export class RequesterClient {
         manifest.verification = { ...manifest.verification, requireExecutionAttestation: true };
     }
     if (!validateOutput(manifest.io.inputSchema, options.input)) throw new Error('INPUT_SCHEMA');
+    if (options.beforePropose) {
+      const approvalSignal = AbortSignal.any([
+        AbortSignal.timeout(Math.max(0, Date.parse(manifest.deadline) - Date.now())),
+        ...(options.signal ? [options.signal] : []),
+      ]);
+      try {
+        await abortable(options.beforePropose({
+          manifest: freezeApprovalAction(manifest), input: freezeApprovalAction(options.input),
+          relay: typeof relayOption === 'string' ? relayOption
+            : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport',
+          signal: approvalSignal,
+        }), approvalSignal);
+        approvalSignal.throwIfAborted();
+      } catch (error) {
+        if (approvalSignal.aborted)
+          throw new Error(options.signal?.aborted ? 'APPROVAL_ABORTED' : 'APPROVAL_TIMEOUT');
+        throw error;
+      }
+      if (invite) parseAndVerifyInviteToken(options.to, Date.now(), {
+        allowPrivateRelay: this.options.allowPrivateRelay,
+      });
+      if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('APPROVAL_TIMEOUT');
+    }
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
     const bridge = new AbortController();
@@ -2141,6 +2196,7 @@ export class RequesterClient {
           gate: 'final_verification',
           target: data,
           details: { manifest, deliverableDigest: data.artifact.payload.digest },
+          deadline: manifest.deadline,
           signal,
         });
       const { result, verification, settlement } = await abortable(gateway.verifyAndSettle(
@@ -2203,7 +2259,7 @@ export class RequesterClient {
         if (verifiedReceipt) throw e;
         // A closed recipient inbox is terminal for every attached task. Do not wait
         // for another relay send (or cancellation handshake) on the failed connection.
-        if (e instanceof Error && 'code' in e && ['RELAY_TERMINAL', 'RELAY_ENVELOPE_EXPIRED'].includes(String(e.code))) throw e;
+        if (e instanceof Error && 'code' in e && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED', 'RELAY_ENVELOPE_EXPIRED'].includes(String(e.code))) throw e;
         if (cancelStarted) {
           try {
             await wire.cancelSession();
@@ -2269,6 +2325,8 @@ export class RequesterClient {
     const receipts: DelegateReceipt[] = [];
     const incompleteReceipts: IncompleteDelegateReceipt[] = [];
     let failures = 0;
+    const approvalFailures: Error[] = [];
+    const allApprovalFailed = () => approvalFailures.length === count ? approvalFailures[0] : undefined;
     let winnerDigest: string | undefined;
     const abortUnfinished = (reason: string) => {
       controllers.forEach((controller, index) => {
@@ -2306,6 +2364,7 @@ export class RequesterClient {
           minimumIsolationLevel: options.minimumIsolationLevel,
           signal,
           onProgress: options.onProgress,
+          beforePropose: options.beforePropose,
           auditPath: options.auditPath
             ? options.auditPath.replace(/(\.jsonl)?$/, '.' + index + '.jsonl')
             : undefined,
@@ -2338,6 +2397,8 @@ export class RequesterClient {
       } catch (error) {
         if (error instanceof IncompleteSettlementError)
           incompleteReceipts.push(error.incompleteReceipt);
+        if (options.beforePropose && error instanceof Error && error.message.startsWith('APPROVAL_'))
+          approvalFailures.push(error);
         finished[index] = true;
         failures += 1;
         if (options.mode === 'quorum' && !winnerDigest && failures > count - quorumSize)
@@ -2352,7 +2413,7 @@ export class RequesterClient {
       try {
         winner = await Promise.any(jobs);
       } catch {
-        throw Object.assign(new Error('RACE_FAILED'), { receipts, incompleteReceipts });
+        throw Object.assign(allApprovalFailed() ?? new Error('RACE_FAILED'), { receipts, incompleteReceipts });
       }
       abortUnfinished('RACE_LOST');
       await Promise.allSettled(jobs);
@@ -2378,7 +2439,7 @@ export class RequesterClient {
       };
     }
     await Promise.allSettled(jobs);
-    if (!winnerDigest) throw Object.assign(new Error('QUORUM_NOT_REACHED'), { receipts, incompleteReceipts });
+    if (!winnerDigest) throw Object.assign(allApprovalFailed() ?? new Error('QUORUM_NOT_REACHED'), { receipts, incompleteReceipts });
     const seenWinners = new Set<string>();
     const winners = receipts.filter((receipt) => {
       if (receipt.outputDigest !== winnerDigest || seenWinners.has(receipt.workerDid)) return false;

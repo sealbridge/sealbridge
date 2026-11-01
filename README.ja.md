@@ -333,7 +333,11 @@ pnpm sealbridge mcp-server \
 
 `--allow-worker <did>` と `--allow-relay <url>` は、繰り返しとカンマ区切りの両方を受けます。`--allow-worker` があるとき、素のワーカー DID は一覧と一致しなければなりません。招待トークンは、その `agentDid` または `ownerDid` のどちらかが一覧にあれば許可されます。それ以外は、接続する前に `MCP_WORKER_NOT_ALLOWED` で拒否します。`--allow-relay` があるとき、リレー URL は末尾スラッシュを除いたオリジンとパスへ正規化します。設定した `--relay`、ツールの `relayUrl`、招待トークンに埋め込まれたリレー URL は、すべて一覧と一致しなければなりません。一致しなければ `MCP_RELAY_NOT_ALLOWED` です。ツール呼び出しや招待が `--relay` と別の中継器を選ぶ場合も、その URL が一覧になければ拒否します。許可リストを付けないプログラムからの利用では、`allowAnyRelay: true` を明示したときだけ別の中継器を選べます。許可リストがあるときは、そちらが優先されます。設定したリレー URL は `validateRelayEndpointUrl` で検査します。
 
-`--require-approval` は `InteractiveCliApprovalProvider` を使い、入力を送る前と最終検収のときに標準入力で確認します。`--approval-webhook <url>` は、所有者決定モードの `WebhookApprovalProvider` を使います。`{ taskId, summaryHash, reason, approverDid }` を POST し、HTTP 2xx かつ `{ approved: true }` のときだけ続行します。`{ approved: false }` または 2xx 以外は `APPROVAL_REJECTED` となり、何も送りません。独自の承認器は `AcpMcpServer` の `approvalProvider` に渡します。許可リストとこの承認は、`delegate` / `delegateMulti` がタスク入力を中継器へ書く前に実行されます。挙動は `conformance/p1-7-mcp-outbound-policy.test.ts` が固定します。
+`--require-approval`（プログラムでは `requireInteractiveApproval: true`）は、タスク送信前と最終検収時に MCP のフォーム elicitation を要求します。ホストはフォーム対応を広告し、プロトコル `2025-06-18` を使用する必要があります。従来の空の `elicitation: {}` もフォーム対応として扱いますが、URL のみの対応では利用できません。`action: accept` かつ真偽値の `approved: true` の場合だけ承認します。各フォームの待機は最大60秒で、タスクの残り期限も超えません。複数ワーカーには送信先ごとに総数を示して確認します。送信時は解決済みタスクと入力、検収時は成果物と署名済みメタデータを表示し、大きすぎる確認内容は `APPROVAL_REVIEW_TOO_LARGE` で拒否します。
+
+フォーム非対応のホストでは、タスク送信前に `APPROVAL_CHANNEL_UNAVAILABLE` を返します。elicitation 対応ホスト、または `--approval-webhook` を使用してください。標準出力への端末プロンプト表示や MCP 標準入力からの承認読み取りは、TTY でも行いません。通常の CLI worker/delegate の端末承認は従来どおりです。フォーム表示と利用者の決定の返却はホストに依存します。
+
+`--require-approval` も明示的な webhook/provider 設定もない場合、従来の policy-auto 動作は変わりません。`--approval-webhook <url>` は所有者決定モードを維持し、`{ taskId, summaryHash, reason, approverDid }` を POST して HTTP 2xx かつ `{ approved: true }` の場合のみ続行します。拒否または非2xxは `APPROVAL_REJECTED` です。独自の承認器は `AcpMcpServer.approvalProvider` で指定できます。許可リスト検査の後、送信承認では確定したマニフェスト・宛先・入力を確認します。最終検収の失敗は送信後にも発生するため、失敗が未送信を意味するとは限りません。関連テストは `conformance/mcp-host-approval.test.ts`、`conformance/mcp-approval-session.test.ts`、`conformance/p1-7-mcp-outbound-policy.test.ts` です。
 
 ワーカーは実行中に `PROGRESS`（`percent`、`step`、`message`、途中のトークン数やツール回数）を送れます。ほかのセッション封筒と同じ暗号と相互署名の監査に入ります。`delegate(request, { onProgress })` は、`DELIVER` の前に復号した更新を受け取ります。申告された使用量は `QuotaMeter` に計上されます。
 
