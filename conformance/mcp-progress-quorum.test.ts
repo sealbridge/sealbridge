@@ -252,6 +252,8 @@ describe('Sealbridge MCP server', () => {
       'acp_revoke_token',
       'acp_discover_workers',
       'acp_inspect_revocations',
+      'acp_list_invites',
+      'acp_remove_invite',
     ]);
     expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual([
       'accessMode', 'skillId', 'taskType', 'relayUrl',

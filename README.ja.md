@@ -101,6 +101,37 @@ POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モ
 明示した `--relay` は接続先を固定します。未指定なら検証済み招待の中継器が公開既定値より優先されます。明示の許可リスト（プログラムの空リストを含む）と注入した transport の優先順位は維持します。ループバック接続には引き続き `--allow-private-relay` が必要です。
 
 
+招待はモデル実行の外で、ご自身でターミナルに保存します。
+
+```sh
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+# または人が操作する TTY で貼り付けます:
+sealbridge accept --paste --alias reviewer
+sealbridge invites list
+```
+
+ホストには `acp_list_invites {}` を呼び出してもらい、返された `saved:…` の参照または正確な別名を
+`acp_delegate_task {"workerRef":"reviewer","title":"Review diff","description":"Review these changes","input":{"diff":"..."}}`
+に渡します。モデルに招待トークンを渡す必要はありません。招待ページはローカル検証後に accept コマンドを表示します。
+保存時は通信せず、相互招待や連絡先の承諾権限を作成しません。仕事の承認にもなりません。
+依頼時は設定済みの承認方針に従い入力を外部へ送信します。名前・説明は表示データとして扱います。
+
+招待の所持者は期限または失効まで提案を送れる場合があります。署名付き保存先は
+`<data-root>/invites/<sha256-local-owner-DID>.json` です。CLI と MCP は同じ端末・OS アカウント・
+データルート・依頼者鍵を使います。リモート MCP の場合はその端末で保存してください。
+POSIX はディレクトリ 0700・ファイル 0600、Windows は親の DACL を継承し ACL は検証しません。
+上書き保存先の親アクセス権はユーザーが管理します。位置引数のリンクはシェル履歴やプロセス一覧に
+残る場合があります。`--paste` は人の TTY を必須とし、argv・シェル履歴へのリンクの記載を避けますが、
+端末履歴を消去しません。非 TTY は直ちに `INVITE_INPUT_UNAVAILABLE` を返します。
+
+別名は先頭が英数字の ASCII 英数字・ハイフン・アンダースコア 1–64 文字で、大文字小文字を区別します。
+省略時は表示名と安定したダイジェスト接尾辞から生成します。同一招待の保存は冪等で、別名の衝突は
+`ALIAS_EXISTS` です。期限切れも一覧に残りますが依頼には使えません。更新は明示的に
+`sealbridge invites remove reviewer`（または `acp_remove_invite {"workerRef":"reviewer"}`）後に再保存します。
+削除はローカルで冪等です。発行者の招待やワーカーの受諾設定は変更しません。
+排他ロックと同一ディレクトリの一時ファイルで置換します。`INVITE_STORE_BUSY` は既存ロックを削除しません。
+書き込みプロセスが動いていないことを確認後、ご自身で対応する `<store-file>.lock` を削除して再試行できます。
+
 中継器の既定候補は `<data-root>/config.json` に保存できます。
 
 ```json
@@ -331,6 +362,8 @@ pnpm sealbridge mcp-server
 
 | ツール                     | 戻り値                                                                 |
 | -------------------------- | ---------------------------------------------------------------------- |
+| `acp_list_invites`          | 保存した参照・別名・公開メタデータ・期限状態                           |
+| `acp_remove_invite`         | ローカル削除結果。発行者の招待は失効しません                           |
 | `acp_delegate_task`        | 検証済み成果物、`taskId`、状態、監査の要約                             |
 | `acp_delegate_multi`       | 複数ワーカーへの `race` または `quorum` 委任                           |
 | `acp_verify_audit_bundle`  | 暗号検証レポート。トラストアンカーで末尾切断を見たかも含む             |

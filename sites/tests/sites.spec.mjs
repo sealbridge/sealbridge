@@ -43,11 +43,12 @@ test('valid invitation shows verified identity, local QR and supported CLI comma
   await expect(page.locator('#status')).toContainText('Signature verified');
   await expect(page.locator('#owner')).toHaveText(owner.did);
   await expect(page.locator('#qr svg')).toBeVisible();
-  const command = `sealbridge delegate --key requester.private.json --to "https://sealbridge.app/i#${token}" --title "Review my code diff" --description "Review this diff for bugs and suggest improvements. Return a JSON review." --input-file code.diff --out review.json`;
+  const command = `sealbridge accept "https://sealbridge.app/i#${token}"`;
   await expect(page.locator('#install')).toHaveText('curl -fsSL https://sealbridge.dev/install.sh | sh');
-  await expect(page.locator('[data-text=acceptText]')).toContainText('git diff > code.diff');
-  await expect(page.locator('[data-text=nextText]')).toContainText('read the result');
+  await expect(page.locator('[data-text=acceptText]')).toContainText('sealbridge accept --paste');
+  await expect(page.locator('[data-text=nextText]')).toContainText('acp_list_invites');
   await expect(page.locator('#command')).toHaveText(command);
+  await expect(page.locator('main')).not.toContainText('keygen');
   await page.locator('#copy-command').click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
   await page.locator('#copy-link').click();
@@ -55,7 +56,7 @@ test('valid invitation shows verified identity, local QR and supported CLI comma
   await page.locator('#language').click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   await expect(page.locator('#status')).toContainText('署名を検証済み');
-  await expect(page.locator('[data-text=acceptTitle]')).toHaveText('02 / この相手にレビューを依頼');
+  await expect(page.locator('[data-text=acceptTitle]')).toHaveText('02 / 招待をローカルに保存');
   await expect(page.locator('#command')).toHaveText(command);
 });
 
