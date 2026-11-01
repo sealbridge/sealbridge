@@ -228,6 +228,22 @@ describe('MCP tool definition quality', () => {
     expect(tools.find((tool) => tool.name === 'acp_revoke_token')?.description).toMatch(
       /capability/,
     );
+    const discovery = tools.find((tool) => tool.name === 'acp_discover_workers');
+    const selectors = discovery?.inputSchema?.properties as Record<string, Record<string, unknown>>;
+    expect(selectors.accessMode).toMatchObject({ enum: ['open', 'invite-only', 'all'], default: 'open' });
+    expect(selectors.skillId).toMatchObject({ type: 'string', minLength: 1 });
+    expect(selectors.taskType).toMatchObject({ type: 'string', minLength: 1 });
+    expect(selectors.relayUrl).toMatchObject({ type: 'string' });
+    assertSchema(discovery?.inputSchema, {}, 'default discovery');
+    assertSchema(discovery?.inputSchema, { accessMode: 'all', skillId: 'echo', taskType: 'json' }, 'filtered discovery');
+    expect(discovery?.description).toContain('workerDid and relayUrl unchanged');
+    expect(task?.description).toContain('bare DIDs match exactly');
+    expect(task?.description).toContain('post-transmission failures do not undo tasks');
+    expect(task?.description).toContain('PENDING_OWNER_APPROVAL, retryable: false');
+    expect(task?.description).toContain('do not retry or poll');
+    expect(task?.description).toContain('worker owner review and explicit new delegation are required');
+    assertSchema(task?.inputSchema, { workerDid: 'did:key:example', relayUrl: 'https://relay.example',
+      title: 'Echo', input: {} }, 'description omitted');
   });
 
   it('returns structuredContent that matches the text payload', async () => {
@@ -251,9 +267,12 @@ describe('MCP tool definition quality', () => {
       createSignedAgentCard(
         {
           name: 'Listed Worker',
+          accessMode: 'open',
+          openPolicy: { maxInputTokens: 1000 },
           agentDid: worker.did,
           relayEndpoint: 'https://acp-relay.agent-collab.workers.dev',
-          skills: [{ id: 'json-task', name: 'JSON task', description: 'Echo JSON' }],
+          skills: [{ id: 'json-task', name: 'JSON task', description: 'Echo JSON', taskTypes: ['json'],
+            inputSchema: { type: 'object' }, outputSchema: { type: 'object' } }],
         },
         worker,
       ),
