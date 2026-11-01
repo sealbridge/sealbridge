@@ -26,11 +26,24 @@ Run all subsequent commands from the repository root.
 For local MCP host registration after building, use
 `node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
 macOS/Windows). Use `--dry-run` or `--print` to review without writes.
-Setup prepares requester identity/defaults locally and adds plain `mcp-server`
-with no approval flags. Reload the host and configure task approvals separately.
+Setup prepares requester identity/defaults locally and adds
+`mcp-server --require-approval` for host form approval before sending and for final
+verification. Form support cannot be detected offline; hosts without it return
+`APPROVAL_CHANNEL_UNAVAILABLE` before sending. Explicit `--no-require-approval`
+registers the previous plain entry: the host can send without per-request
+confirmation and accept final results automatically. Each output labels the mode.
+An existing entry in a different mode returns `SETUP_APPROVAL_MODE_CONFLICT`
+without changes. Review with `--update-existing --dry-run` or
+`--update-existing --print`, then use `--update-existing` to replace only the
+Sealbridge entry with a backup. Matching options are idempotent; running nothing leaves configs untouched.
+Reload the host and check its tools separately.
 See [agent-readable connection instructions](sites/connect-agent.txt); invitation
 import/open discovery require releases exposing those commands and tools.
-ローカル設定後はホストを再読込し、仕事の承認は別途行います。
+既定は送信前・最終検収時のホスト承認です。フォーム非対応なら送信前に
+`APPROVAL_CHANNEL_UNAVAILABLE` を返します。`--no-require-approval` は依頼ごとの
+確認なしに送信・最終承認する従来のモードを明示的に選びます。モードが異なる既存登録は
+変更せず停止します。`--update-existing --dry-run` で確認し、`--update-existing` で
+バックアップ付きでその登録だけを置換します。設定後はホストを再読込してください。
 
 ## Role determination / 役割の判断
 
@@ -206,6 +219,8 @@ on the MCP server's machine and OS account with the same data root/requester ide
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # Or paste at a human TTY prompt:
 sealbridge accept --paste --alias reviewer
+# Or read a link from a file or an application-provided pipe:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 sealbridge invites remove reviewer
 ```
@@ -246,6 +261,21 @@ and may inject `InviteStoreOptions.secretStore` or MCP `identityOptions.secretSt
 `--key` は既存の署名者ファイルを指定します。失敗時は元のメタデータを維持し、書込済み文字列が残る場合があります。
 file に戻しても既存参照は keychain を使います。欠落・不一致・利用不能は上記コードで報告します。
 削除後の keychain 処理が失敗した場合も専用コードで報告します。組み込みでは上記の注入 API を使えます。
+
+`--stdin` reads one invitation link from a pipe or file through EOF, with a
+68 KiB byte cap and a 10-second total read timeout. Applications can spawn
+`sealbridge accept --stdin --alias reviewer`, write the link to child stdin,
+and close the pipe. Surrounding whitespace/CRLF and blank lines are trimmed;
+empty input or multiple non-empty lines are rejected. TTY input returns
+`INVITE_STDIN_REQUIRES_PIPE`; use `--paste` at a terminal. `--stdin`, `--paste`,
+and a positional link are mutually exclusive. Neither stdin input nor read-error
+text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
+`agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
+標準入力は `--stdin` でパイプ・ファイルから EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
+アプリは子プロセスの stdin にリンクを書き、パイプを閉じてください。前後の空白・CRLF と空行を除き、
+空入力・複数の非空行は拒否します。TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、
+端末では `--paste` を使います。位置引数・`--paste`・`--stdin` は併用できません。
+入力リンクや読み取りエラーの内容は出力せず、既存のトークンを含まない JSON 形式で結果を返します。
 
 ## Worker peer review / ワーカーの依頼者審査
 
