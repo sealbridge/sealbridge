@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createInterface } from 'node:readline/promises';
-import { inspectLocalIdentity } from '@acp/runtime/local-identity';
-import type { LocalIdentityOptions } from '@acp/runtime/local-identity';
+import { inspectStoredIdentity } from '@acp/runtime/key-store';
+import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 import { WorkerTrustStore, workerIntakePath } from '@acp/runtime/worker-trust-store';
 
 export async function requestsCommand(args: string[], options: {
-  identityOptions?: LocalIdentityOptions;
+  identityOptions?: IdentityStoreOptions;
   /** Test/host seam representing a human review channel, never an automatic policy. */
   review?: (summary: string) => Promise<boolean>;
   output?: (value: string) => void;
@@ -25,7 +25,7 @@ export async function requestsCommand(args: string[], options: {
   if (!['list', 'approve', 'deny'].includes(action) || ids.length !== (action === 'list' ? 0 : 1) ||
       !['limited', 'trusted'].includes(trust) || (flags.has('--trust') && action !== 'approve')) throw new Error(usage);
   const identityOptions = { ...options.identityOptions, explicitKeyPath: flags.get('--key') };
-  const key = inspectLocalIdentity('worker', identityOptions).key;
+  const key = (await inspectStoredIdentity('worker', identityOptions)).key;
   if (!key) throw new Error('REQUEST_REVIEW_UNAVAILABLE');
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions),
     fs: identityOptions.fs, platform: identityOptions.platform });
