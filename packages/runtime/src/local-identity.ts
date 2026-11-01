@@ -236,3 +236,11 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
   if (!winner) throw failure('IDENTITY_UNREADABLE');
   return winner;
 }
+
+// Shared checks for application files under the same data root.
+export {
+  checkPath as checkPrivatePath,
+  checkStat as checkPrivateStat,
+  inspectDirectory as inspectPrivateDirectory,
+  privateDirectory as ensurePrivateDirectory,
+};
