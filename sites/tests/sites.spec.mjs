@@ -8,6 +8,22 @@ import { generateKeyPair, signPayload } from '../../packages/core/dist/crypto.js
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const receiver = 'http://127.0.0.1:4174/i';
 const site = 'http://127.0.0.1:4173';
+test('agent instructions are served unchanged as plain text and linked from install pages', async ({ request }) => {
+  const source = await readFile(path.join(directory, '../connect-agent.txt'));
+  const response = await request.get(site + '/connect-agent.txt');
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-type']).toBe('text/plain; charset=utf-8');
+  expect(await response.body()).toEqual(source);
+  const text = source.toString('utf8');
+  for (const command of ['sealbridge setup', 'sealbridge accept --paste', 'acp_list_invites',
+    'workerRef', 'acp_discover_workers', 'acp_delegate_task', 'workerDid', 'relayUrl']) expect(text).toContain(command);
+  expect(text).not.toMatch(/<script|<form|acp-invite:/i);
+  for (const route of ['/en/', '/ja/', '/en/install/', '/ja/install/', '/en/get-started/', '/install/']) {
+    const page = await request.get(site + route);
+    expect(await page.text()).toContain('href="/connect-agent.txt"');
+  }
+});
+
 function fixture({ delegated = false, name = 'Example collaborator', ttl = 3600, description } = {}) {
   const owner = generateKeyPair(), agent = delegated ? generateKeyPair() : owner;
   const card = createSignedAgentCard({ name, description, agentDid: agent.did,

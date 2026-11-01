@@ -63,21 +63,33 @@ Run the full 4-scenario zero-trust collaboration & red-team tamper defense demo 
 git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm install --frozen-lockfile && pnpm build && pnpm sealbridge demo
 ```
 
-Or add **`sealbridge mcp-server`** directly to **Claude Desktop**, **Cursor**, **Codex**, or **Grok Bot** (`mcpServers` config):
+### Local host setup
 
-```json
-{
-  "mcpServers": {
-    "sealbridge": {
-      "command": "node",
-      "args": [
-        "/path/to/sealbridge/cli/dist/index.js",
-        "mcp-server"
-      ]
-    }
-  }
-}
-```
+For a release containing this command, check `sealbridge setup --help`, then run
+`sealbridge setup --host cursor` or `sealbridge setup --host claude-desktop`
+(macOS/Windows). Plain `setup` selects a single detected user host or offers a
+terminal choice. Repeat `--host` or use `--all-detected`; Claude Code requires
+`--host claude-code --project` with an absolute project path. `--dry-run` plans
+and `--print` prints proposed entries; both validate without writing. A source
+checkout must be built first and run via `node cli/dist/index.js setup`.
+
+Setup locally creates/reuses requester identity, optionally worker with
+`--worker`, records the existing `config.json` relay-list contract, and registers
+absolute Node/CLI paths for plain `mcp-server`, with no approval flags. It sends
+nothing to the network and starts no process. `--relay URL` records a fallback
+and refuses a differing saved default. Existing entries must match exactly.
+Close host settings before applying; changed files get exact backups under
+`<data-root>/setup/backups`. Backups may contain host credentials. Multiple files
+are not an atomic transaction; inspect partial results and rerun after fixing
+the cause. Reload the host and check its tools separately. Configure task
+approvals separately; registration does not grant approval or prove readiness.
+
+Follow the [agent-readable instructions](sites/connect-agent.txt) for human-run
+`sealbridge accept --paste` and `acp_list_invites`/`workerRef`, or open-worker
+`acp_discover_workers` then `acp_delegate_task` with returned `workerDid` and
+`relayUrl`. Invitation import and open discovery require their corresponding
+release features; check help and the tool catalog before use. Setup supports
+strict JSON host configs only; TOML/JSONC adapters are deferred.
 
 `sealbridge mcp-server`, `delegate`, `worker start`, `discover`, and `invite create` need no `--key` or `--relay`. The application uses `https://relay.sealbridge.dev` by default. MCP initialization and tool listing make no network request. Discovery reads the relay directory; delegation sends encrypted task payloads and routing metadata is visible to the relay. Invite creation only signs locally and does not start a worker.
 
