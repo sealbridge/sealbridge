@@ -98,13 +98,15 @@ POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モ
 
 既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
 
-秘密鍵の既定保存先はファイルです。`SEALBRIDGE_KEY_STORE=keychain` または `file` で明示選択します。`--key <path>` は常に既存ファイルを選択します。CLI フラグ、MCP ツール名、中継器設定専用の `<data-root>/config.json` は変更しません。
+秘密鍵の既定保存先はファイルです。`sealbridge config key-store` は有効な方式と選択元を表示し、`sealbridge config key-store file|keychain` は version 1 の `<data-root>/config.json` に中継器設定とともに `"keyStore"` を保存します。優先順位はプログラム指定 > `SEALBRIDGE_KEY_STORE` > config > 既定の file です。`--key <path>` は常にファイルを指定します。設定時は利用可否を確認し、他方式に既存の鍵があれば表示します。鍵の移動・作成・削除は行いません。他の設定項目を保持し、同じ値の再設定では既存バイト列を維持します。保存後も環境変数の指定が優先されます。
+
+`--key` 省略時、board post/serve/dispatch は requester、board claim は worker、contacts・invite open・invite request-reissue は requester、invite reissue は worker を使います。既存の明示ファイル読込と MCP ツール名は維持します。board 一覧・contacts 一覧・MCP 一覧では鍵を作成しません。contacts ファイルと返信招待の既定ディレクトリは従来どおりです。invite open は旧 requester ファイルを含む役割の鍵を再利用し、初回は選択した方式に従います。ファイル方式の出力は `local.keyFile`、keychain 方式はファイルパスの代わりに `local.keyStore` と `local.role` を含みます。`invite share` は鍵ストアへアクセスしません。
 
 keychain 方式は任意の [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node)（MIT ライセンス、2.x の 2.1.2 以降）を動的に読み込みます。Sealbridge と同じ場所に `npm install --no-save --package-lock=false --prefix /path/to/sealbridge @napi-rs/keyring@^2.1.2`、ソースチェックアウトでは `pnpm --filter @acp/runtime add --optional @napi-rs/keyring@^2.1.2` で導入します。グローバル導入だけでは足りず、runtime モジュールから解決できる必要があります。Linux では Secret Service を指定し、メモリ内だけのストアは選択しません。ネイティブ配布物には依存ライブラリのライセンス表記も含まれます。
 
 保存内容は Ed25519 の秘密 JWK JSON で、`kid` に公開 DID を格納します。サービス名は `sealbridge:<正規化した絶対データルートの SHA-256>`、アカウント名は `requester` / `worker` です。作成時に鍵ファイルは書かず、データルート内で鍵情報を含まない一時的な `.keychain-<role>.lock` を使います。同時作成は `KEY_STORE_BUSY` です。終了時にロックが残った場合は、書込プロセスを閉じてから手動で削除します。
 
-明示した keychain を利用できない場合は `KEY_STORE_UNAVAILABLE` とし、ファイルに切り替えません。未指定時はファイルが既定ですが、資格情報ストアを検査でき、keychain に同じ役割の鍵があれば明示選択が必要です。ファイルもあれば `KEY_STORE_CONFLICT`、なければ `KEY_STORE_SELECTION_REQUIRED` です。明示選択はどちらの鍵も移動・削除しません。モジュールやストアへアクセスできない未設定環境ではファイル動作を維持し、keychain の存在は検査できません。自動移行は行いません。`sealbridge doctor --offline` は鍵を生成せず中継器に接続せずに、方式・場所・鍵の有無を表示します。OS の資格情報アクセス画面が出る場合があります。
+明示した keychain を利用できない場合は `KEY_STORE_UNAVAILABLE` とし、ファイルに切り替えません。未指定時はファイルが既定ですが、資格情報ストアを検査でき、keychain に同じ役割の鍵があれば明示選択が必要です。ファイルもあれば `KEY_STORE_CONFLICT`、なければ `KEY_STORE_SELECTION_REQUIRED` です。明示選択はどちらの鍵も移動・削除しません。モジュールやストアへアクセスできない未設定環境ではファイル動作を維持し、keychain の存在は検査できません。自動移行は行いません。`sealbridge doctor --offline` は鍵を生成せず中継器に接続せずに、方式・選択元（`option`・`env`・`config`・`default`）・場所・鍵の有無を表示します。OS の資格情報アクセス画面が出る場合があります。
 
 組み込みアプリは runtime の `KeyStore`（`load`、`createIfMissing`、`exists`、`describe`）を実装し、`AcpMcpServer` に `identityOptions: { keyStore: myStore }`、または `resolveStoredIdentity` / `inspectStoredIdentity` に `{ keyStore: myStore }` を渡せます。値または Promise を返せます。`createIfMissing` は既存の鍵を保持し、`describe` は方式・場所のメタデータのみを返します。`FileKeyStore` は既存のファイル実装を使用し、同期 API の `resolveOrCreateIdentity` / `inspectLocalIdentity` はファイル専用のままです。
 

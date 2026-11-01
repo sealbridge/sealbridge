@@ -13,6 +13,7 @@ import { DEFAULT_PUBLIC_RELAY, normalizeRelayUrl } from './relay-selection.js';
 export interface ApplicationConfig {
   version: 1;
   relays: readonly string[];
+  keyStore?: 'file' | 'keychain';
   /** Retained for callers that later write additional application settings. */
   [field: string]: unknown;
 }
@@ -29,6 +30,8 @@ export function validateApplicationConfig(value: unknown, options: ApplicationCo
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw failure('APP_CONFIG_INVALID');
   const record = value as Record<string, unknown>;
   if (record.version !== 1) throw failure('APP_CONFIG_UNSUPPORTED_VERSION');
+  if (Object.hasOwn(record, 'keyStore') && record.keyStore !== 'file' && record.keyStore !== 'keychain')
+    throw failure('APP_CONFIG_INVALID');
   const candidate = (entry: unknown): string => {
     if (typeof entry !== 'string' || !entry || Buffer.byteLength(entry) > 2048)
       throw failure('APP_CONFIG_INVALID');
@@ -62,7 +65,7 @@ function location(options: ApplicationConfigOptions) {
 }
 
 /** Absent configuration is an in-memory default; reading never creates files. */
-export function readApplicationConfig(options: ApplicationConfigOptions = {}): ApplicationConfig {
+function readConfig(options: ApplicationConfigOptions): { config: ApplicationConfig; raw?: string } {
   const { root, path, platform, io } = location(options);
   let fd: number | undefined;
   let observed = false;
@@ -89,14 +92,66 @@ export function readApplicationConfig(options: ApplicationConfigOptions = {}): A
     if (length > MAX_CONFIG_BYTES) throw failure('APP_CONFIG_INVALID');
     raw = bytes.subarray(0, length).toString('utf8');
   } catch (error) {
-    if (!observed && errno(error) === 'ENOENT') return { version: 1, relays: [DEFAULT_PUBLIC_RELAY] };
+    if (!observed && errno(error) === 'ENOENT') return { config: { version: 1, relays: [DEFAULT_PUBLIC_RELAY] } };
     if (error instanceof Error && ['IDENTITY_INVALID', 'APP_CONFIG_INVALID'].includes(error.message))
       throw failure('APP_CONFIG_INVALID');
     throw failure('APP_CONFIG_UNREADABLE');
   } finally { if (fd !== undefined) io.closeSync(fd); }
   let value: unknown;
   try { value = JSON.parse(raw); } catch { throw failure('APP_CONFIG_INVALID'); }
-  return validateApplicationConfig(value, options);
+  return { config: validateApplicationConfig(value, options), raw };
+}
+
+export function readApplicationConfig(options: ApplicationConfigOptions = {}): ApplicationConfig {
+  return readConfig(options).config;
+}
+
+/** Update only the backend setting; retain unknown fields and leave matching bytes untouched. */
+export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions = {}): ApplicationConfig {
+  if (keyStore !== 'file' && keyStore !== 'keychain') throw failure('KEY_STORE_INVALID');
+  const { root, path, paths, platform, io } = location(options);
+  const lock = paths.join(root, '.config.lock');
+  const temporary = paths.join(root, '.config.' + randomUUID() + '.tmp');
+  let lockFd: number | undefined, fd: number | undefined;
+  let created = false;
+  try {
+    ensurePrivateDirectory(root, io, platform);
+    checkPrivatePath(lock, io, platform);
+    lockFd = io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+      (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    checkPrivateStat(io.fstatSync(lockFd));
+    const before = readConfig(options);
+    if (before.config.keyStore === keyStore) return before.config;
+    const value = { ...(before.raw === undefined ? before.config : JSON.parse(before.raw)), keyStore };
+    const config = validateApplicationConfig(value, options);
+    if (before.raw === undefined) return createApplicationConfig(value, options);
+    const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n');
+    if (bytes.length > MAX_CONFIG_BYTES) throw failure('APP_CONFIG_INVALID');
+    fd = io.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+      (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    created = true;
+    checkPrivateStat(io.fstatSync(fd));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = io.writeSync(fd, bytes, offset, bytes.length - offset);
+      if (!count) throw failure('APP_CONFIG_UNWRITABLE');
+      offset += count;
+    }
+    io.fsyncSync(fd);
+    io.closeSync(fd);
+    fd = undefined;
+    if (readConfig(options).raw !== before.raw) throw failure('APP_CONFIG_BUSY');
+    io.renameSync(temporary, path);
+    created = false;
+    return config;
+  } catch (error) {
+    if (error instanceof Error && /^(APP_CONFIG_|KEY_STORE_)/.test(error.message)) throw error;
+    throw failure(errno(error) === 'EEXIST' ? 'APP_CONFIG_BUSY' : 'APP_CONFIG_UNWRITABLE');
+  } finally {
+    if (fd !== undefined) io.closeSync(fd);
+    if (created) io.unlinkSync(temporary);
+    if (lockFd !== undefined) { io.closeSync(lockFd); io.unlinkSync(lock); }
+  }
 }
 
 /** Publish an initial config exclusively. Existing files are never replaced. */

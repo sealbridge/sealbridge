@@ -14,11 +14,12 @@ import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
 import { doctorCommand, parseDoctorArgs } from './doctor.js';
 import { setupCommand } from './setup.js';
+import { configCommand } from './config.js';
 import { boardCommand } from './board.js';
 import { acceptCommand } from './accept.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
-const USAGE = 'Usage: sealbridge <setup|doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
+const USAGE = 'Usage: sealbridge <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|requests|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
@@ -98,11 +99,14 @@ async function main(args: string[]) {
       break;
     case 'doctor':
       if (rest.length === 1 && rest[0] === '--help')
-        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nReports identity backend and presence without creating keys. SEALBRIDGE_KEY_STORE=file|keychain selects the backend; --key selects a file. --offline skips the relay health request.');
+        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'setup':
       await setupCommand(rest);
+      break;
+    case 'config':
+      await configCommand(rest);
       break;
     case 'board':
       await boardCommand(rest);
@@ -114,7 +118,7 @@ async function main(args: string[]) {
       await requestsCommand(rest);
       break;
     case 'contacts':
-      contactsCommand(rest);
+      await contactsCommand(rest);
       break;
     case 'accept':
     case 'invites':
