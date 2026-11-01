@@ -147,7 +147,7 @@ For the optional audit paths below, create the audit directory first:
    `--max-wall-clock-seconds`) reject larger proposals before `ACCEPT`.
    `--max-concurrent-tasks` defaults to 8, and `--max-requests-per-minute`
    limits one requester DID. `--auto-accept` with `claude`, `codex`, or `openai`
-   requires `--allow-requester <did>` or `--allow-any-requester`.
+   requires `--allow-requester <did>`, `--allow-any-requester`, or a current trusted peer grant.
    公開登録は `--publish` のみです。LLM の `--auto-accept` には依頼者許可が必要です。
 
 ## User-operated invitation import / ユーザーによる招待保存
@@ -181,6 +181,20 @@ does not erase terminal history, and returns `INVITE_INPUT_UNAVAILABLE` without 
 human TTY. `INVITE_STORE_BUSY` leaves existing locks intact; explicit local lock
 recovery requires first checking that no writer is alive.
 招待はユーザーが MCP と同じ端末・OS アカウントで保存し、モデルは参照だけを使います。
+
+## Worker peer review / ワーカーの依頼者審査
+
+Open workers quarantine unknown peers and return terminal `PENDING_OWNER_APPROVAL`;
+do not retry automatically. No task is accepted or executed while pending.
+Only the human worker owner runs `sealbridge requests list`, `requests approve ID`
+(default limited), `requests approve ID --trust trusted`, or `requests deny ID`.
+Decisions require a human TTY; agents must not answer that confirmation for the owner.
+Use the same worker identity/data root, with `--key FILE` when explicitly selected.
+Review admits a peer and never resumes or replays the original task. A requester
+owner must explicitly start a fresh delegation after review. Limited peers require
+separate owner approval before LLM execution; trusted grants still require an enabled
+automatic policy for automatic execution. `--allowed-peer DID` intersects all trust
+and allow flags for worker session receives/sends; excluded peers get no response.
 
 ## Requester flow / 発注側
 

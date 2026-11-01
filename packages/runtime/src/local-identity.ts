@@ -83,7 +83,7 @@ export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform
     }
   } catch (error) { if (errno(error) !== 'ENOENT') throw error; }
 }
-function checkStat(stat: fs.Stats, directory = false): void {
+export function checkStat(stat: fs.Stats, directory = false): void {
   if (directory ? !stat.isDirectory() : !stat.isFile()) throw failure('IDENTITY_INVALID');
   if (process.platform !== 'win32' &&
       (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))

@@ -265,7 +265,17 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 
 `--max-input-tokens`、`--max-output-tokens`、`--max-tool-invocations`、`--max-wall-clock-seconds` は、ワーカーが受ける契約の上限です。どれかを超える提案は、`--auto-accept` でも `ACCEPT` の前に拒否されます。マニフェストの `timeoutSeconds` は `--max-wall-clock-seconds` と比較します。`--max-concurrent-tasks` は同時実行数の上限です（既定は 8）。`--max-requests-per-minute` は、依頼者 DID ごとの提案回数の上限です。
 
-`--allow-requester <did>` は繰り返せます。カンマ区切りでも指定できます。`--allow-any-requester` は、すべての依頼者を明示的に許可します。`--adapter claude`、`codex`、`openai` で `--auto-accept`（および `--auto-approve` / `--yes`）を使うときは、どちらかの許可フラグが必要です。公開ディレクトリから見つかったワーカーが、持ち主の API キーを任意の依頼者に使わせないためです。上の sandbox 例に許可リストは不要です。
+`--allow-requester <did>` は繰り返し・カンマ区切りに対応します。空でないリストは依頼者を制限し、`--allow-any-requester` の優先順位は従来どおりです。LLM の自動承認には、これらのフラグか有効な trusted 許可が必要です。招待は limited として扱い、LLM 実行前には別の所有者による契約承認が必要です。招待済み sandbox/command の明示的な自動承認は維持します。
+
+### ワーカーの依頼者審査
+
+open ワーカーは未知の依頼者を保留します。sandbox の `--yes` / `--auto-accept` でも、受諾・実行・アプリケーション返信を行いません。依頼者には終了コード `PENDING_OWNER_APPROVAL`（CLI 終了値 3、MCP は `retryable:false`）を返します。自動再試行はしません。
+
+ワーカー所有者は `sealbridge requests list` でメタデータを確認し、`sealbridge requests approve ID` または `sealbridge requests deny ID` を人間の TTY で確認して実行します。既存のワーカー鍵には `--key FILE` を指定できます。既定の承認は limited で、LLM 実行には別の所有者契約承認が必要です。`approve ID --trust trusted` は明示的な昇格で、所有者が自動承認も有効にした場合に後続の自動実行を認めます。許可は24時間で失効します。deny は許可を取り消し、再起動後も拒否を維持します。
+
+審査はピアの入場許可だけです。元のタスクの再開・再送・実行・通知は行いません。審査後に依頼者所有者が新しいタスクを明示的に開始します。保留は元の期限または15分で失効します。保存するのは署名付きのプレビューとダイジェストで、入力本文やトークンは含みません。contacts の allow/revoked と既存の依頼者制限は引き続き適用します。
+
+`--allowed-peer DID` は繰り返し・カンマ区切りで、全信頼レベルの受信とセッション送信（進捗・復旧を含む）を制限します。対象外には応答しないため、別の手段で伝えてください。公開登録は引き続き `--publish` の指定が必要です。
 
 **ターミナル 3 — 依頼側 Alice**
 
