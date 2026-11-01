@@ -67,6 +67,12 @@ const EXPECTED_HINTS: Record<
     idempotentHint: true,
     openWorldHint: false,
   },
+  acp_list_invites: {
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+  },
+  acp_remove_invite: {
+    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
+  },
 };
 
 interface ToolDefinition {
