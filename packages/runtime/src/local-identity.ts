@@ -68,7 +68,7 @@ function legacyPaths(role: IdentityRole, options: DataRootOptions): string[] {
   return result;
 }
 /** Reject links, except macOS's root-owned /var and /tmp system aliases. */
-function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform): void {
   const paths = platform === 'win32' ? win32 : posix;
   const parent = paths.dirname(path);
   if (parent !== path) checkPath(parent, io, platform);
@@ -83,13 +83,13 @@ function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform): void
     }
   } catch (error) { if (errno(error) !== 'ENOENT') throw error; }
 }
-function checkStat(stat: fs.Stats, directory = false): void {
+export function checkStat(stat: fs.Stats, directory = false): void {
   if (directory ? !stat.isDirectory() : !stat.isFile()) throw failure('IDENTITY_INVALID');
   if (process.platform !== 'win32' &&
       (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
     throw failure('IDENTITY_INVALID');
 }
-function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
   checkPath(path, io, platform);
   const before = io.lstatSync(path);
   checkStat(before, true);
@@ -172,7 +172,7 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
   }
   return legacy ?? { path, source: 'default' };
 }
-function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
+export function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform): void {
   checkPath(path, io, platform);
   io.mkdirSync(path, { recursive: true, mode: 0o700 });
   inspectDirectory(path, io, platform);

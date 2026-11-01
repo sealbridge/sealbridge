@@ -125,6 +125,7 @@ describe('application relay provenance', () => {
     expect(selected).toEqual([]);
     const worker = new WorkerNode({ owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
       relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: target.startsWith('did') ? 'open' : 'invite-only',
+      allowedRequesterDids: [resolveOrCreateIdentity('requester', identityOptions).did],
       approvalProvider: approving(() => owner), timeoutMs: 3000,
       adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo' }], executeTask: async ctx => ctx.input } });
     await worker.register();

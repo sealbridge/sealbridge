@@ -115,6 +115,8 @@ async function session(
     owner: bob,
     relay: client,
     adapter,
+    // Adapter sessions use a trusted requester; intake decisions are tested separately.
+    allowedRequesterDids: [alice.did],
     approvalProvider: workerApproval ?? auto(bob),
     auditPath: join(dir, 'bob.jsonl'),
     timeoutMs: 10000,

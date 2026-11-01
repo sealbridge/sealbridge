@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 // their existing workspace module paths.
 const unbuiltHelpers = [
   ['@acp/runtime/application-config', 'packages/runtime', 'application-config'],
+  ['@acp/runtime/worker-trust-store', 'packages/runtime', 'worker-trust-store'],
   ['@acp/runtime/local-identity', 'packages/runtime', 'local-identity'],
   ['@acp/runtime/relay-selection', 'packages/runtime', 'relay-selection'],
   ['@acp/core', 'packages/core', 'index'],
