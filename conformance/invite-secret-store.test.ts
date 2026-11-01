@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import * as fs from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createInviteToken, createSignedAgentCard, digest, digestBytes, generateKeyPair,
   parseAndVerifyInviteToken, signApproval, signPayload } from '../packages/core/src/index.js';
@@ -210,7 +210,7 @@ describe('imported invitation string storage', () => {
     const action = async () => (await InviteStore.open(owner, selected)).import(token);
     await expect(action()).rejects.toThrow(stage === 'readback' ? 'INVITE_SECRET_MISMATCH' : 'KEY_STORE_UNAVAILABLE');
     expect(fs.readFileSync(file.path).equals(before)).toBe(true);
-    expect(fs.readdirSync(dirname(file.path))).toEqual([file.path.split('/').at(-1)]);
+    expect(fs.readdirSync(dirname(file.path))).toEqual([basename(file.path)]);
   });
 
   it('reports cleanup failure after metadata removal and retains the lock through cleanup', async () => {
