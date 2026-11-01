@@ -250,6 +250,33 @@ Copy the printed `acp-invite:...` line. This local example echoes the JSON input
 
 `sealbridge worker` does not register its AgentCard in the public relay directory unless you pass `--publish`. Share the invite directly. `sealbridge discover` lists only workers that opted in with `--publish`.
 
+Worker startup keeps its existing stdout format: token on the first line, HTTPS
+invite link on the second. Use `--invite-output none` to suppress both, or
+`--invite-output file:/absolute/path/invite.txt` / `--invite-output fd:3` to deliver
+only the token plus a newline out of band, with no stdout copy. Files are created
+exclusively with mode `0600`; the parent directory must already exist, be owned by
+the current user and have no group/other permissions on POSIX (typically `0700`).
+Existing files and detectable links are rejected. Windows inherits directory ACLs;
+ACLs are not verified. `fd:<n>` is POSIX-only: Windows rejects it with
+`INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` during argument parsing, before identity
+creation, relay registration, or listener startup. Node's inherited extra stdio
+pipes on Windows are not plain filesystem descriptors usable with synchronous
+filesystem writes. Use `file:<path>` for separate invitation output on Windows.
+Inherited descriptors must be above 2 and refer to a
+pipe, socket, or file; files must be owned by the current user with no
+group/other permissions. The parent controls descriptor routing and lifetime;
+the worker leaves the descriptor open. Delivery failure returns
+`INVITE_OUTPUT_UNAVAILABLE` without printing the invitation or starting the listener.
+
+Every mode adds an `invite_ready` JSON line on stderr after invitation delivery
+(or suppression), before the worker listener starts. Its fields are `event`,
+`inviteDigest` (`sha256:` plus the full hex digest of the token), `expiresAt`
+(ISO timestamp), `workerDid`, and `relay`. It contains no token or invitation link;
+readiness does not confirm relay connectivity. Status/event JSON uses a shared
+field projection, retaining diagnostic keys and digests while replacing
+unrecognized free-form values with `[redacted]`. Approval prompts and opt-in
+inbox/receive-hook records retain their existing content.
+
 Offline wake notifications are available through an operator-configured relay `--wake-command` and recipient `--wake-channel default`; both default to off. Wakes are signed and contain only routing identifiers. Queued expiry produces a retained, signed notice and `RELAY_ENVELOPE_EXPIRED` for HTTP/SSE sessions. See [offline wake, expiry notices, and option defaults](docs/relay-reliability.md#offline-wake-notifications).
 
 Add `--on-receive 'node /path/to/notify.cjs'` alongside `--inbox` to launch a

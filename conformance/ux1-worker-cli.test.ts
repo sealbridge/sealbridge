@@ -7,15 +7,13 @@ import { generateKeyPair, createSignedAgentCard, createInviteToken } from '../pa
 import type { WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
 const captured = vi.hoisted(() => ({ options: undefined as WorkerNodeOptions | undefined }));
-vi.mock('../packages/runtime/dist/index.js', async original => ({
-  ...await original<typeof import('../packages/runtime/src/index.js')>(),
-  WorkerNode: class {
-    constructor(options: WorkerNodeOptions) { captured.options = options; }
-    invite() { return 'test'; }
-    async start() {}
-    stop() {}
-  },
-}));
+vi.mock('../packages/runtime/dist/index.js', async original => {
+  const runtime = await original<typeof import('../packages/runtime/src/index.js')>();
+  return { ...runtime, WorkerNode: class extends runtime.WorkerNode {
+    constructor(options: WorkerNodeOptions) { super(options); captured.options = options; }
+    override async start() { return undefined; }
+  } };
+});
 import { networkCommand } from '../cli/src/network.js';
 import { addContact, updateContacts } from '../cli/src/contacts.js';
 afterEach(() => vi.restoreAllMocks());

@@ -7,15 +7,13 @@ import { join } from 'node:path';
 import { generateKeyPair } from '../packages/core/src/index.js';
 
 const captured = vi.hoisted(() => ({ options: undefined as any }));
-vi.mock('../packages/runtime/dist/index.js', async (original) => ({
-  ...await original<typeof import('../packages/runtime/src/index.js')>(),
-  WorkerNode: class {
-    constructor(options: any) { captured.options = options; }
-    invite() { return 'test invite'; }
-    async start() {}
-    stop() {}
-  },
-}));
+vi.mock('../packages/runtime/dist/index.js', async (original) => {
+  const runtime = await original<typeof import('../packages/runtime/src/index.js')>();
+  return { ...runtime, WorkerNode: class extends runtime.WorkerNode {
+    constructor(options: any) { super(options); captured.options = options; }
+    override async start() { return undefined; }
+  } };
+});
 import { networkCommand } from '../cli/src/network.js';
 
 async function run(args: string[]) {
