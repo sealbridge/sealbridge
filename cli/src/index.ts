@@ -12,9 +12,10 @@ import { contactsCommand } from './contacts.js';
 import { receiptCommand } from './receipt.js';
 import { doctorCommand, parseDoctorArgs } from './doctor.js';
 import { boardCommand } from './board.js';
+import { acceptCommand } from './accept.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
-const USAGE = 'Usage: sealbridge <doctor|keygen|validate|approve|audit-verify|receipt|contacts|board|demo|relay|worker|delegate|discover|invite|mcp-server>';
+const USAGE = 'Usage: sealbridge <doctor|keygen|validate|approve|audit-verify|receipt|contacts|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
@@ -102,6 +103,10 @@ async function main(args: string[]) {
       break;
     case 'contacts':
       contactsCommand(rest);
+      break;
+    case 'accept':
+    case 'invites':
+      await acceptCommand(command, rest);
       break;
     case 'receipt':
       receiptCommand(rest);
