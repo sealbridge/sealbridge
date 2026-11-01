@@ -98,7 +98,7 @@ async function main(args: string[]) {
       break;
     case 'doctor':
       if (rest.length === 1 && rest[0] === '--help')
-        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nInspects persisted identities without creating keys. --offline skips the relay health request.');
+        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nReports identity backend and presence without creating keys. SEALBRIDGE_KEY_STORE=file|keychain selects the backend; --key selects a file. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'setup':

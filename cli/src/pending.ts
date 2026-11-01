@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { KeyPair } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
-import { inspectLocalIdentity, RequesterPendingStore } from '@acp/runtime';
-import type { LocalIdentityOptions } from '@acp/runtime';
+import { inspectStoredIdentity, RequesterPendingStore } from '@acp/runtime';
+import type { IdentityStoreOptions } from '@acp/runtime';
 import { networkCommand } from './network.js';
 
 export async function pendingCommand(args: string[], application: {
-  identityOptions?: LocalIdentityOptions; fetch?: typeof fetch;
+  identityOptions?: IdentityStoreOptions; fetch?: typeof fetch;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
 } = {}): Promise<void> {
   const usage = 'Usage: sealbridge pending list [--key FILE] | resubmit ID [delegate approval/relay/audit/output options] | remove ID [--key FILE]';
@@ -21,7 +21,7 @@ export async function pendingCommand(args: string[], application: {
     explicitKeyPath: keyIndex >= 0 ? rest[keyIndex + 1] : application.identityOptions?.explicitKeyPath };
   if (action !== 'resubmit' && rest.some((_, index) => keyIndex < 0 || (index !== keyIndex && index !== keyIndex + 1)))
     throw new Error(usage);
-  const owner = inspectLocalIdentity('requester', identityOptions).key;
+  const owner = (await inspectStoredIdentity('requester', identityOptions)).key;
   if (!owner) {
     if (action === 'list') { console.log(JSON.stringify({ requests: [] })); return; }
     throw new Error('PENDING_NOT_FOUND');

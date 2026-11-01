@@ -31,9 +31,9 @@ import type { ApprovalProvider } from './approval-providers.js';
 import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from './session.js';
 import { RequesterClient } from './session.js';
 import { RequesterPendingStore, PENDING_NEXT_STEP } from './requester-pending-store.js';
-import { resolveOrCreateIdentity, inspectLocalIdentity } from './local-identity.js';
+import { inspectStoredIdentity, resolveStoredIdentity } from './key-store.js';
+import type { IdentityStoreOptions } from './key-store.js';
 import { InviteStore } from './invite-store.js';
-import type { LocalIdentityOptions } from './local-identity.js';
 import { normalizeRelayUrl, selectApplicationRelay } from './relay-selection.js';
 import { readApplicationConfig } from './application-config.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
@@ -42,7 +42,7 @@ import type { SessionTimeoutOptions } from './session-timeouts.js';
 export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions {
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
-  identityOptions?: LocalIdentityOptions;
+  identityOptions?: IdentityStoreOptions;
   /** Constructs transports after relay policy checks; useful for offline hosts/tests. */
   transportFactory?: (url: string, owner?: KeyPair) => RelayTransport;
   relay?: RelayTransport | string;
@@ -207,24 +207,27 @@ export class AcpMcpServer {
   private readonly allowedWorkers?: ReadonlySet<string>;
   private readonly allowedRelays?: ReadonlySet<string>;
   private selectedApproval?: ApprovalProvider;
-  private selectedOwner?: KeyPair;
   private selectedPending?: RequesterPendingStore;
-  private get pending(): RequesterPendingStore {
-    return this.selectedPending ??= new RequesterPendingStore(this.owner(), this.options.identityOptions);
+  private async pending(): Promise<RequesterPendingStore> {
+    const owner = await this.owner();
+    return this.selectedPending ??= new RequesterPendingStore(owner, this.options.identityOptions);
   }
-  private owner(): KeyPair {
-    return this.options.owner ?? (this.selectedOwner ??=
-      resolveOrCreateIdentity('requester', this.options.identityOptions));
+  private selectedOwner?: Promise<KeyPair>;
+  private owner(): Promise<KeyPair> {
+    if (this.options.owner) return Promise.resolve(this.options.owner);
+    return this.selectedOwner ??= resolveStoredIdentity('requester', this.options.identityOptions)
+      .catch(error => { this.selectedOwner = undefined; throw error; });
   }
-  private get approval(): ApprovalProvider {
+  private async approval(): Promise<ApprovalProvider> {
+    const owner = await this.owner();
     return this.selectedApproval ??= this.options.requireInteractiveApproval &&
       !this.options.approvalProvider && !this.options.approvalWebhookUrl
-      ? new McpFormApprovalProvider(this.owner(), {
+      ? new McpFormApprovalProvider(owner, {
           available: () => this.formSupported && this.rpc !== undefined,
           request: (params, signal) => this.rpc!.request('elicitation/create', params, signal),
           timeoutMs: this.options.approvalTimeoutMs,
         })
-      : selectApproval(this.options, this.owner());
+      : selectApproval(this.options, owner);
   }
   private rpc?: McpRpc;
   private formSupported = false;
@@ -311,14 +314,15 @@ export class AcpMcpServer {
   private async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<Json> {
     if (name === 'acp_list_pending_requests') {
       if (Object.keys(args).length) throw new RpcError(-32602, 'Invalid params');
-      const owner = this.options.owner ?? this.selectedOwner ?? inspectLocalIdentity('requester', this.options.identityOptions).key;
+      const owner = this.options.owner ?? await this.selectedOwner ??
+        (await inspectStoredIdentity('requester', this.options.identityOptions)).key;
       return { requests: owner ? new RequesterPendingStore(owner, this.options.identityOptions).list() as unknown as Json : [],
         nextStep: PENDING_NEXT_STEP };
     }
     if (name === 'acp_resubmit_pending_request') {
       if (typeof args.pendingId !== 'string' || Object.keys(args).some(k => k !== 'pendingId'))
         throw new RpcError(-32602, 'Invalid params');
-      return this.pending.resubmit(args.pendingId, (request, relayUrl) => this.delegateTask({
+      return (await this.pending()).resubmit(args.pendingId, (request, relayUrl) => this.delegateTask({
         ...(request.workerRef ? { workerRef: request.workerRef } :
           isInviteTarget(request.to) ? { inviteToken: request.to } : { workerDid: request.to }),
         ...(relayUrl ? { relayUrl } : {}), title: request.title,
@@ -326,13 +330,13 @@ export class AcpMcpServer {
     }
     if (name === 'acp_list_invites') {
       if (Object.keys(args).length) throw new RpcError(-32602, 'Invalid params');
-      const invites = this.inviteStore()?.list() ?? [];
+      const invites = (await this.inviteStore())?.list() ?? [];
       return { count: invites.length, invites: invites as unknown as Json };
     }
     if (name === 'acp_remove_invite') {
       if (Object.keys(args).length !== 1 || typeof args.workerRef !== 'string' || !args.workerRef)
         throw new RpcError(-32602, 'Invalid params');
-      return { removed: this.inviteStore()?.remove(args.workerRef) ?? false };
+      return { removed: (await this.inviteStore())?.remove(args.workerRef) ?? false };
     }
     if (name === 'acp_delegate_task') return this.delegateTask(args, signal);
     if (name === 'acp_delegate_multi') return this.delegateMulti(args, signal);
@@ -343,9 +347,9 @@ export class AcpMcpServer {
     if (name === 'acp_inspect_revocations') return this.inspectRevocations(args);
     throw new RpcError(-32602, 'Unknown tool');
   }
-  private inviteStore(): InviteStore | undefined {
-    const owner = this.options.owner ?? this.selectedOwner ??
-      inspectLocalIdentity('requester', this.options.identityOptions).key;
+  private async inviteStore(): Promise<InviteStore | undefined> {
+    const owner = this.options.owner ?? await this.selectedOwner ??
+      (await inspectStoredIdentity('requester', this.options.identityOptions)).key;
     return owner ? new InviteStore(owner, { ...this.options.identityOptions,
       relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay } }) : undefined;
   }
@@ -373,8 +377,8 @@ export class AcpMcpServer {
         authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
       }));
   }
-  private client(relay: RelayTransport | string): RequesterClient {
-    const owner = this.owner();
+  private async client(relay: RelayTransport | string): Promise<RequesterClient> {
+    const owner = await this.owner();
     const server = this;
     return new class extends RequesterClient {
       override delegate(options: DelegateOptions, hooks?: Parameters<RequesterClient['delegate']>[1]) {
@@ -385,10 +389,10 @@ export class AcpMcpServer {
       }
     }({
       owner,
-      pendingStore: this.pending,
+      pendingStore: await this.pending(),
       pendingRelayUrl: typeof relay === 'string' ? relay : undefined,
       relay: typeof relay === 'string' && this.options.transportFactory ? this.transport(relay, owner) : relay,
-      approvalProvider: this.approval,
+      approvalProvider: await this.approval(),
       allowPrivateRelay: this.options.allowPrivateRelay,
       maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
       authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
@@ -442,16 +446,17 @@ export class AcpMcpServer {
     return Boolean(this.options.approvalWebhookUrl || this.options.requireInteractiveApproval);
   }
   /** Bind pre-send consent to the resolved task, without including invitation tokens. */
-  private beforePropose(fanOut: number): DelegateOptions['beforePropose'] {
-    if (this.approval instanceof McpFormApprovalProvider) this.approval.assertAvailable();
+  private async beforePropose(fanOut: number): Promise<DelegateOptions['beforePropose']> {
+    const approval = await this.approval();
+    if (approval instanceof McpFormApprovalProvider) approval.assertAvailable();
     if (!this.outboundApprovalRequired()) return undefined;
     return async ({ manifest, input, relay, signal }: BeforeProposeContext) => {
       const target = Object.freeze({ manifest, description: manifest.task.description, input, relay, fanOut });
-      const receipt = await this.approval.approve({
+      const receipt = await approval.approve({
         taskId: manifest.taskId, gate: 'external_side_effect', target,
         details: { reason: OUTBOUND_REASON }, signal, deadline: manifest.deadline,
       });
-      if (!verifyApproval(receipt, this.owner().did, manifest.taskId, 'external_side_effect', target) ||
+      if (!verifyApproval(receipt, (await this.owner()).did, manifest.taskId, 'external_side_effect', target) ||
           receipt.payload.decision !== 'APPROVED') throw new Error('APPROVAL_REJECTED');
     };
   }
@@ -461,7 +466,7 @@ export class AcpMcpServer {
       if (args.inviteToken !== undefined || args.workerDid !== undefined)
         throw new Error('CONFLICTING_WORKER_TARGET');
       if (typeof args.workerRef !== 'string' || !args.workerRef) throw new RpcError(-32602, 'Invalid params');
-      const saved = this.inviteStore()?.resolve(args.workerRef);
+      const saved = (await this.inviteStore())?.resolve(args.workerRef);
       if (!saved) throw new Error('INVITE_NOT_FOUND');
       this.revocation.assertNotRevoked('invite', digest(saved.invite));
       this.revocation.assertNotRevoked('invite', saved.inviteToken);
@@ -481,7 +486,7 @@ export class AcpMcpServer {
     const relay = this.selectedRelay(explicitRelay, invite?.relayUrl);
     const request: DelegateOptions = {
       signal,
-      beforePropose: this.beforePropose(1),
+      beforePropose: await this.beforePropose(1),
       ...taskTimeouts(args),
       to,
       ...(typeof args.workerRef === 'string' ? { workerRef: args.workerRef } : {}),
@@ -493,7 +498,7 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(relay).delegate(pendingRequest
+    const result = await (await this.client(relay)).delegate(pendingRequest
       ? { ...pendingRequest, to, signal, beforePropose: request.beforePropose } : request);
     const report = verifyAudit(result.bundle);
     return {
@@ -541,7 +546,7 @@ export class AcpMcpServer {
           : Number.NaN;
     const request: DelegateMultiOptions = {
       signal,
-      beforePropose: this.beforePropose(workers.length),
+      beforePropose: await this.beforePropose(workers.length),
       ...taskTimeouts(args),
       workers,
       mode: args.mode,
@@ -554,7 +559,7 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(this.selectedRelay(workers[0]?.relayUrl ?? relay)).delegateMulti(request);
+    const result = await (await this.client(this.selectedRelay(workers[0]?.relayUrl ?? relay))).delegateMulti(request);
     return {
       mode: result.mode,
       status: result.status,
@@ -618,13 +623,13 @@ export class AcpMcpServer {
     const report = verifyAudit(bundle, anchored ? options : undefined);
     return report as unknown as Json;
   }
-  private createInvite(args: Record<string, unknown>): Json {
+  private async createInvite(args: Record<string, unknown>): Promise<Json> {
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
     const config = readApplicationConfig({ ...this.options.identityOptions,
       allowPrivateRelay: this.options.allowPrivateRelay });
     const relayUrl = typeof args.relayUrl === 'string' ? args.relayUrl
       : typeof this.options.relay === 'string' ? this.options.relay : config.relays[0];
-    const owner = this.owner();
+    const owner = await this.owner();
     const agentDid = typeof args.agentDid === 'string' ? args.agentDid : owner.did;
     const card = createSignedAgentCard(
       {
@@ -647,7 +652,7 @@ export class AcpMcpServer {
       inviteToken: createInviteToken(inviteOptions, owner),
     };
   }
-  private revokeToken(args: Record<string, unknown>): Json {
+  private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (
       (args.targetType !== 'invite' && args.targetType !== 'capability') ||
       typeof args.targetId !== 'string' ||
@@ -656,7 +661,7 @@ export class AcpMcpServer {
       throw new RpcError(-32602, 'Invalid params');
     const notice = createRevocationNotice(
       { targetType: args.targetType, targetId: args.targetId, reason: args.reason },
-      this.owner(),
+      await this.owner(),
     );
     this.revocation.revoke(notice);
     return { notice: notice as unknown as Json };
