@@ -20,6 +20,7 @@ it.each([[false, false], [true, false], [false, true]])('CLI advertises limits a
     const worker = generateKeyPair(), requester = generateKeyPair();
     await writeFile(join(dir, 'worker.private.json'), JSON.stringify(worker), { mode: 0o600 });
     await writeFile(join(dir, 'requester.private.json'), JSON.stringify(requester), { mode: 0o600 });
+    const identityOptions = { env: { SEALBRIDGE_DATA_DIR: dir }, home: dir };
     const common = ['--relay', server.url, '--allow-private-relay'];
     pending = networkCommand('worker', ['start', '--key', join(dir, 'worker.private.json'), ...common,
       '--open', '--publish', '--skill', 'echo', '--task-type', 'json', '--yes', '--once',
@@ -27,7 +28,7 @@ it.each([[false, false], [true, false], [false, true]])('CLI advertises limits a
       '--open-max-tool-calls', '2', '--open-max-wall-seconds', '30',
       '--open-allow-task-type', 'json, text', '--open-allow-task-type', 'json',
       '--open-rate-limit-per-did', '10/min',
-      ...(allowlisted ? ['--allow-requester', requester.did] : [])]);
+      ...(allowlisted ? ['--allow-requester', requester.did] : [])], { identityOptions });
     pending.catch(() => undefined);
     const relay = new HttpRelayClient(server.url, { allowPrivateRelay: true });
     await vi.waitFor(async () => expect((await relay.discover()).length).toBe(1));
@@ -38,8 +39,7 @@ it.each([[false, false], [true, false], [false, true]])('CLI advertises limits a
     expect(cards[0].payload.openPolicy).toEqual({ maxInputTokens: 1000, maxOutputTokens: 500,
       maxToolInvocations: 2, maxWallClockSeconds: 30 });
     const warnings = error.mock.calls.filter(([line]) => String(line).startsWith('[Sealbridge WARNING]'));
-    expect(warnings).toHaveLength(allowlisted ? 0 : 1);
-    if (!allowlisted) expect(warnings[0][0]).toContain('Worker started in --open mode with --yes and no requester allowlist');
+    expect(warnings).toHaveLength(0);
     if (rejected) {
       const client = new RequesterClient({ owner: requester,
         relay: new HttpRelayClient(server.url, requester, { allowPrivateRelay: true }),
@@ -53,11 +53,17 @@ it.each([[false, false], [true, false], [false, true]])('CLI advertises limits a
       await pending?.catch(() => undefined);
       return;
     }
-    await networkCommand('delegate', ['--key', join(dir, 'requester.private.json'), ...common,
+    const delegation = networkCommand('delegate', ['--key', join(dir, 'requester.private.json'), ...common,
       '--discover', 'echo', '--task-type', 'json', '--title', 'Echo', '--description', 'Echo',
-      '--input', '{"ok":true}', '--yes']);
-    expect(JSON.parse(lines.at(-1)!)).toMatchObject({ state: 'SETTLED', deliverable: { ok: true } });
-    await pending;
+      '--input', '{"ok":true}', '--yes'], { identityOptions });
+    if (!allowlisted) {
+      await expect(delegation).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
+      await expect(pending).rejects.toThrow('PENDING_OWNER_APPROVAL');
+    } else {
+      await delegation;
+      expect(JSON.parse(lines.at(-1)!)).toMatchObject({ state: 'SETTLED', deliverable: { ok: true } });
+      await pending;
+    }
   } finally {
     await server.close();
     await pending?.catch(() => undefined);

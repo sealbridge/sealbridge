@@ -242,7 +242,7 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
     };
 
     const worker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: workerOwner,
       agentDid: workerAgent.did,
       agentKey: workerAgent,
@@ -350,7 +350,7 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const dotsKey = generateKeyPair();
 
     const grokWorker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: grokKey,
       relay: server.url,
       allowPrivateRelay: true,
@@ -368,7 +368,7 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     });
 
     const dotsWorker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: dotsKey,
       relay: server.url,
       allowPrivateRelay: true,
@@ -450,7 +450,7 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const sameKey = generateKeyPair();
 
     const worker = new WorkerNode({
-      accessMode: 'open',
+      accessMode: 'open', allowAnyRequester: true,
       owner: sameKey,
       relay,
       publishToRegistry: true,

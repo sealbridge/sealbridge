@@ -42,6 +42,7 @@ function setup(accessMode: 'open' | 'invite-only' = 'open', auditPath?: string) 
 describe('Direct compatibility and signed ERROR diagnostics', () => {
   it('accepts direct proposals with neither skillId nor taskType', async () => {
     const s = setup();
+    s.worker.acceptance.allowedRequesterDids = [s.requester.did];
     const m = s.manifest();
     expect(m.task.skillId).toBeUndefined();
     expect(m.task.taskType).toBeUndefined();
@@ -85,7 +86,7 @@ describe('Direct compatibility and signed ERROR diagnostics', () => {
     const done = s.worker.start({ once: true }).catch((e: Error) => e);
     try {
       const result = await s.client.delegate({ title: 'Test', description: 'Test', to: s.owner.did, manifest: s.manifest(), input: {} }).catch((e: Error) => e);
-      if (mode === 'open') { expect(result).toMatchObject({ state: 'SETTLED' }); expect(s.calls()).toBe(1); }
+      if (mode === 'open') { expect(result).toMatchObject({ code: 'PENDING_OWNER_APPROVAL' }); expect(s.calls()).toBe(0); }
       else { expect(s.frames[0]).toEqual({ code: 'INVITE_EXPIRED' }); expect(s.calls()).toBe(0); }
       await done;
     } finally { vi.restoreAllMocks(); s.worker.stop(); }
