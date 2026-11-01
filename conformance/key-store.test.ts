@@ -18,8 +18,10 @@ import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { networkCommand } from '../cli/src/network.js';
 import { requestsCommand } from '../cli/src/requests.js';
+import { pendingCommand } from '../cli/src/pending.js';
 import { acceptCommand } from '../cli/src/accept.js';
 import { WorkerNode } from '../packages/runtime/src/session.js';
+import { WorkerTrustStore } from '../packages/runtime/src/worker-trust-store.js';
 import type { ApprovalRequest } from '../packages/runtime/src/approval-providers.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 
@@ -322,6 +324,68 @@ describe('embedding and application entry points', () => {
       expect(JSON.stringify(output.mock.calls)).not.toContain(token);
       expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
     } finally { worker.stop(); await pending; }
+  });
+
+  it.each(['keychain', 'embedded'] as const)('shares %s pending requests across CLI and MCP without creating identities on listing', async backend => {
+    const { options } = fixture();
+    const store = memoryStore();
+    const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
+    const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
+    const relayUrl = 'https://relay.example';
+    const application = { identityOptions: configured, transportFactory: () => relay };
+    const server = new AcpMcpServer({ ...application, relay: relayUrl });
+    const call = async (target: AcpMcpServer, name: string, args = {}) => {
+      const response = await target.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name, arguments: args } }) as any;
+      expect(response.error).toBeUndefined();
+      return JSON.parse(response.result.content[0].text);
+    };
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await pendingCommand(['list'], application);
+    expect(output).toHaveBeenLastCalledWith('{"requests":[]}');
+    expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [] });
+    expect(store.createIfMissing).not.toHaveBeenCalled();
+    expect((await inspectStoredIdentity('requester', configured)).present).toBe(false);
+    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+
+    const intake = new WorkerTrustStore(workerOwner);
+    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl, accessMode: 'open', intakeStore: intake,
+      adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
+      approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
+    const task = { title: 'Echo', description: 'Return JSON', input: { retained: 'hello' } };
+    const running = worker.start();
+    try {
+      const held = await networkCommand('delegate', ['--to', workerOwner.did, '--relay', relayUrl,
+        '--title', task.title, '--description', task.description, '--input', JSON.stringify(task.input),
+        '--auto-approve'], application).catch(error => error);
+      expect(held).toMatchObject({ code: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
+      expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [{ id: held.pendingId }] });
+      const mcpHeld = await call(server, 'acp_delegate_task', { ...task, workerDid: workerOwner.did });
+      expect(mcpHeld).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
+      // Listing must also await the owner cached by a signing call.
+      expect(await call(server, 'acp_list_pending_requests')).toMatchObject({
+        requests: [{ id: held.pendingId }, { id: mcpHeld.pendingId }],
+      });
+      await pendingCommand(['list'], application);
+      expect(JSON.parse(output.mock.calls.at(-1)![0]).requests.map((r: { id: string }) => r.id))
+        .toEqual([held.pendingId, mcpHeld.pendingId]);
+      const requester = await resolveStoredIdentity('requester', configured);
+      expect(intake.list()[0].requesterOwnerDid).toBe(requester.did);
+      intake.decide(intake.list()[0].id, 'approve');
+      // A new server inspects the configured store instead of using a cached owner.
+      const restart = new AcpMcpServer({ ...application, relay: relayUrl });
+      expect(await call(restart, 'acp_resubmit_pending_request', { pendingId: held.pendingId }))
+        .toMatchObject({ status: 'SETTLED', deliverable: task.input });
+      await pendingCommand(['resubmit', mcpHeld.pendingId, '--auto-approve'], application);
+      expect(await call(restart, 'acp_list_pending_requests')).toMatchObject({
+        requests: [{ id: held.pendingId, state: 'resolved' }, { id: mcpHeld.pendingId, state: 'resolved' }],
+      });
+      await pendingCommand(['remove', held.pendingId], application);
+      await pendingCommand(['remove', mcpHeld.pendingId], application);
+      expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [] });
+      expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+      if (backend === 'embedded') expect(store.createIfMissing).toHaveBeenCalledTimes(1);
+    } finally { worker.stop(); await running; }
   });
 
   it('uses injected stores without loading the native module or creating files', async () => {

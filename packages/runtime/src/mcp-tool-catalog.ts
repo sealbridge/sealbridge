@@ -486,7 +486,7 @@ export const mcpTools: Json = [
     name: 'acp_delegate_task',
     title: 'Delegate one task',
     description:
-      'Delegate one JSON task; return verified deliverable, taskId, status and audit summary; use acp_delegate_multi for race/quorum or acp_verify_audit_bundle for audits. Use workerRef from acp_list_invites or an exact alias, resolved locally and exclusive with inviteToken/workerDid; import does not approve work. Optional relayUrl: invites bind relay and match allowedWorkerDids by agentDid or ownerDid; bare DIDs match exactly. Ed25519 owner signing, worker/relay allowlists and approval precede input transmitted externally over the relay; requested approval uses advertised MCP form elicitation or explicit webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE before transmission. Each call opens a new session and is not idempotent; bad arguments: JSON-RPC -32602; operational errors: isError true with { error: CODE }; post-transmission failures do not undo tasks. PENDING_OWNER_APPROVAL returns { error: PENDING_OWNER_APPROVAL, retryable: false }; do not retry or poll: worker owner review and explicit new delegation are required.',
+      'Delegate one JSON task; return verified deliverable, taskId, status and audit summary; use acp_delegate_multi for race/quorum or acp_verify_audit_bundle for audits. Use workerRef from acp_list_invites or an exact alias, exclusive with inviteToken/workerDid; import does not approve work. Optional relayUrl: invites bind relay and match allowedWorkerDids by agentDid or ownerDid; bare DIDs match exactly; Ed25519 owner signing, worker/relay allowlists and approval precede input transmitted externally over the relay. Requested approval uses advertised MCP form elicitation or explicit webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE before transmission. Each call opens a new session and is not idempotent; bad arguments: JSON-RPC -32602; operational errors: isError true with { error: CODE }; post-transmission failures do not undo tasks. Holds return PENDING_OWNER_APPROVAL, retryable: false, pendingId and local next steps; do not retry or poll: worker owner review and explicit new delegation are required; use acp_list_pending_requests and acp_resubmit_pending_request.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -810,6 +810,45 @@ export const mcpTools: Json = [
       },
       ['count', 'notices'],
     ),
+  }),
+  tool({
+    name: 'acp_list_pending_requests',
+    title: 'List local pending requests',
+    description: 'List requester-local held delegations with record ids, worker DIDs, task ids, observed states and timestamps; use acp_resubmit_pending_request after worker owner review. Reads only this requester identity and data root without contacting a relay or learning remote approval status. Task text, inputs and invitation material are omitted; entries expire after 24 hours and listing never sends or retries a task.',
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    inputSchema: objectSchema('No arguments; reads records for this requester identity.', {}),
+    outputSchema: objectSchema('Local observations without task content or invitation material.', {
+      requests: described('Local records including their last observed state and attempt count.', {
+        type: 'array', items: objectSchema('Metadata for one locally retained delegation.', {
+          id: described('Local pending record id used for explicit resubmission.', { type: 'string' }),
+          workerDid: described('Owner DID of the worker for the retained delegation.', { type: 'string' }),
+          originalTaskId: described('Original protocol task id to quote to the worker owner.', { type: 'string' }),
+          lastTaskId: described('Protocol task id of the most recent explicit attempt.', { type: 'string' }),
+          state: described('Last locally observed outcome; pending does not indicate current remote review state.', { type: 'string', enum: ['pending', 'resolved', 'failed', 'expired'] }),
+          createdAt: described('Unix timestamp in milliseconds when the local record was created.', { type: 'integer' }),
+          expiresAt: described('Unix timestamp in milliseconds when local retention expires.', { type: 'integer' }),
+          lastChecked: described('Unix timestamp in milliseconds of the most recent explicit attempt.', { type: 'integer' }),
+          attempts: described('Total explicit delegation attempts, including the original held attempt.', { type: 'integer' }),
+          lastError: described('Last observed error code, omitted after a completed delegation.', { type: 'string' }),
+        }, ['id', 'workerDid', 'originalTaskId', 'lastTaskId', 'state', 'createdAt', 'expiresAt', 'lastChecked', 'attempts']),
+      }),
+      nextStep: described('Guidance for explicit resubmission after worker owner review.', { type: 'string' }),
+    }, ['requests', 'nextStep']),
+  }),
+  tool({
+    name: 'acp_resubmit_pending_request',
+    title: 'Resubmit a local pending request',
+    description: 'Explicitly submit a retained requester-local delegation as a fresh task with a new task id; use acp_list_pending_requests to obtain pendingId after worker owner review. Applies current worker and relay checks and the configured approval policy, including required host elicitation, before task input is transmitted externally. A repeated hold keeps the record, completion resolves it, and other errors mark it failed; invitation material is never returned and no task is retried automatically.',
+    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true,
+    inputSchema: objectSchema('Select a retained delegation for one explicit fresh attempt.', {
+      pendingId: described('Local pending record id returned by delegation or acp_list_pending_requests.', { type: 'string' }),
+    }, ['pendingId']),
+    outputSchema: objectSchema('Verified result of the fresh task, matching acp_delegate_task.', {
+      taskId: described('New protocol task id generated for this explicit resubmission.', { type: 'string' }),
+      status: described('SETTLED when verified, or CANCELLED when the fresh task was cancelled.', { type: 'string', enum: ['SETTLED', 'CANCELLED'] }),
+      deliverable: jsonValue('Verified JSON result returned by the worker for this fresh task.'),
+      auditBundle: auditSummarySchema,
+    }, ['taskId', 'status', 'deliverable', 'auditBundle']),
   }),
   tool({
     name: 'acp_list_invites',
