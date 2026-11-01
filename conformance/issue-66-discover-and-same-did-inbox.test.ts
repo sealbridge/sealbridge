@@ -127,7 +127,7 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
       jsonrpc: '2.0',
       id: 1,
       method: 'tools/call',
-      params: { name: 'acp_discover_workers', arguments: {} },
+      params: { name: 'acp_discover_workers', arguments: { accessMode: 'all' } },
     })) as { result?: { structuredContent?: { count: number; workers: Array<{ name: string }> } } };
     expect(mcpResponse.result?.structuredContent?.count).toBe(1);
     expect(mcpResponse.result?.structuredContent?.workers.map((w) => w.name)).toEqual([
