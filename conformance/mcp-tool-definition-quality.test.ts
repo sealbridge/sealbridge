@@ -67,6 +67,12 @@ const EXPECTED_HINTS: Record<
     idempotentHint: true,
     openWorldHint: false,
   },
+  acp_list_pending_requests: {
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+  },
+  acp_resubmit_pending_request: {
+    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true,
+  },
 };
 
 interface ToolDefinition {

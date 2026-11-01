@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
+import type { RequesterPendingStore } from './requester-pending-store.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { consumeDailyTask } from './daily-limit.js';
 import {
@@ -1807,6 +1809,10 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   }
 }
 export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions {
+  /** Application-owned local records; omitted by library callers unless requested. */
+  pendingStore?: RequesterPendingStore;
+  /** Selected endpoint when the application injects a transport. */
+  pendingRelayUrl?: string;
   owner: KeyPair;
   relay?: RelayTransport | string;
   approvalProvider?: ApprovalProvider;
@@ -1836,6 +1842,10 @@ function freezeApprovalAction<T>(value: T): T {
   return value;
 }
 export interface DelegateOptions extends SessionTimeoutOptions {
+  /** Existing requester-local record when explicitly resubmitting. */
+  pendingId?: string;
+  /** Selected endpoint when an application replaces a per-task transport. */
+  pendingRelayUrl?: string;
   beforePropose?: (action: BeforeProposeContext) => Promise<void>;
   to: string;
   discover?: { skillId?: string; taskType?: string };
@@ -2313,6 +2323,18 @@ export class RequesterClient {
         verification: result,
       };
     } catch (e) {
+      if (e instanceof PeerRejectedError && e.code === 'PENDING_OWNER_APPROVAL' && this.options.pendingStore) {
+        let pendingId = options.pendingId, pendingStoreError: string | undefined;
+        if (!pendingId) {
+          try {
+            pendingId = this.options.pendingStore.save({ to: invite ? options.to : peer,
+              relayUrl: typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl ??
+                ('url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : undefined),
+              manifest, input: options.input, timeouts: timeoutOptions });
+          } catch (error) { pendingStoreError = pendingErrorCode(error); }
+        }
+        Object.assign(e, { pendingId, pendingStoreError, originalTaskId: manifest.taskId, nextStep: PENDING_NEXT_STEP });
+      }
       try {
         if (e instanceof PeerRejectedError && e.recovery) {
           if (e.recovery.proposalDigest !== digest({ manifest, input: options.input }))

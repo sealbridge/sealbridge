@@ -29,7 +29,8 @@ import {
 import type { ApprovalProvider } from './approval-providers.js';
 import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from './session.js';
 import { RequesterClient } from './session.js';
-import { resolveOrCreateIdentity } from './local-identity.js';
+import { RequesterPendingStore, PENDING_NEXT_STEP } from './requester-pending-store.js';
+import { resolveOrCreateIdentity, inspectLocalIdentity } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
 import { selectApplicationRelay } from './relay-selection.js';
 import { readApplicationConfig } from './application-config.js';
@@ -106,7 +107,7 @@ const OUTBOUND_REASON = 'outbound delegation to a remote Sealbridge worker';
  * the sibling-tool split, and the outbound security boundary in this text.
  */
 const SERVER_INSTRUCTIONS =
-  "This server delegates JSON tasks to remote Sealbridge workers over an encrypted Blind Relay and checks the bilateral audit trail. Call acp_discover_workers or start from an acp-invite, mint one with acp_create_invite when you are the worker owner, then use acp_delegate_task for one worker or acp_delegate_multi for race or quorum. Use acp_verify_audit_bundle with an anchor or expected tail fields when truncation must be ruled out, and use acp_revoke_token with acp_inspect_revocations to record and read local invite or capability revocation. Delegation signs with this process's Ed25519 owner key, and task input is transmitted externally only after allowedWorkerDids, allowedRelayUrls, and the configured approval policy permit transmission. When approval is requested, use advertised host form elicitation or an explicit webhook/provider; MCP stdio is never a terminal approval channel. Verify and inspect stay on this machine, discover only reads a relay directory, and revoke does not push a notice to a worker. Do not put secrets in arguments: delegation is synchronous and returns the verified result in that same call.";
+  "This server delegates JSON tasks to remote Sealbridge workers over an encrypted Blind Relay and checks the bilateral audit trail. Call acp_discover_workers or start from an acp-invite, mint one with acp_create_invite when you are the worker owner, then use acp_delegate_task for one worker or acp_delegate_multi for race or quorum. Use acp_verify_audit_bundle with an anchor or expected tail fields when truncation must be ruled out, and use acp_revoke_token with acp_inspect_revocations to record and read local invite or capability revocation. Delegation signs with this process's Ed25519 owner key, and task input is transmitted externally only after allowedWorkerDids, allowedRelayUrls, and the configured approval policy permit transmission. When approval is requested, use advertised host form elicitation or an explicit webhook/provider; MCP stdio is never a terminal approval channel. Verify and inspect stay on this machine, discover only reads a relay directory, and revoke does not push a notice to a worker. Use acp_list_pending_requests for local held-request observations and acp_resubmit_pending_request only after worker owner review; each resubmission opens a fresh task and applies current outbound and approval policy. Do not put secrets in arguments: delegation is synchronous and returns the verified result in that same call.";
 
 function rpcError(id: unknown, code: number, message: string): Json {
   return { jsonrpc: '2.0', id: (id ?? null) as Json, error: { code, message } };
@@ -205,6 +206,10 @@ export class AcpMcpServer {
   private readonly allowedRelays?: ReadonlySet<string>;
   private selectedApproval?: ApprovalProvider;
   private selectedOwner?: KeyPair;
+  private selectedPending?: RequesterPendingStore;
+  private get pending(): RequesterPendingStore {
+    return this.selectedPending ??= new RequesterPendingStore(this.owner(), this.options.identityOptions);
+  }
   private owner(): KeyPair {
     return this.options.owner ?? (this.selectedOwner ??=
       resolveOrCreateIdentity('requester', this.options.identityOptions));
@@ -290,13 +295,32 @@ export class AcpMcpServer {
       const value = await this.callTool(name, args, signal);
       return toolResult(value, false);
     } catch (error) {
-      if ((error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL')
-        return toolResult({ error: 'PENDING_OWNER_APPROVAL', retryable: false }, true);
+      if ((error as { code?: string } | null)?.code === 'PENDING_OWNER_APPROVAL') {
+        const pending = error as { pendingId?: string; pendingStoreError?: string; originalTaskId?: string };
+        return toolResult({ error: 'PENDING_OWNER_APPROVAL', retryable: false,
+          ...(pending.pendingId ? { pendingId: pending.pendingId } : {}),
+          ...(pending.pendingStoreError ? { pendingStoreError: pending.pendingStoreError } : {}),
+          ...(pending.originalTaskId ? { originalTaskId: pending.originalTaskId } : {}), nextStep: PENDING_NEXT_STEP }, true);
+      }
       if (error instanceof RpcError) throw error;
       return toolResult({ error: error instanceof Error ? error.message : String(error) }, true);
     }
   }
   private async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<Json> {
+    if (name === 'acp_list_pending_requests') {
+      if (Object.keys(args).length) throw new RpcError(-32602, 'Invalid params');
+      const owner = this.options.owner ?? this.selectedOwner ?? inspectLocalIdentity('requester', this.options.identityOptions).key;
+      return { requests: owner ? new RequesterPendingStore(owner, this.options.identityOptions).list() as unknown as Json : [],
+        nextStep: PENDING_NEXT_STEP };
+    }
+    if (name === 'acp_resubmit_pending_request') {
+      if (typeof args.pendingId !== 'string' || Object.keys(args).some(k => k !== 'pendingId'))
+        throw new RpcError(-32602, 'Invalid params');
+      return this.pending.resubmit(args.pendingId, (request, relayUrl) => this.delegateTask({
+        ...(isInviteTarget(request.to) ? { inviteToken: request.to } : { workerDid: request.to }),
+        ...(relayUrl ? { relayUrl } : {}), title: request.title,
+      }, signal, request));
+    }
     if (name === 'acp_delegate_task') return this.delegateTask(args, signal);
     if (name === 'acp_delegate_multi') return this.delegateMulti(args, signal);
     if (name === 'acp_verify_audit_bundle') return this.verifyBundle(args);
@@ -337,10 +361,13 @@ export class AcpMcpServer {
       override delegate(options: DelegateOptions, hooks?: Parameters<RequesterClient['delegate']>[1]) {
         const relay = typeof options.relay === 'string' && server.options.transportFactory
           ? server.transport(options.relay, owner) : options.relay;
-        return super.delegate({ ...options, relay }, hooks);
+        return super.delegate({ ...options, relay,
+          pendingRelayUrl: typeof options.relay === 'string' ? options.relay : typeof relay === 'string' ? relay : options.pendingRelayUrl }, hooks);
       }
     }({
       owner,
+      pendingStore: this.pending,
+      pendingRelayUrl: typeof relay === 'string' ? relay : undefined,
       relay: typeof relay === 'string' && this.options.transportFactory ? this.transport(relay, owner) : relay,
       approvalProvider: this.approval,
       allowPrivateRelay: this.options.allowPrivateRelay,
@@ -409,7 +436,7 @@ export class AcpMcpServer {
           receipt.payload.decision !== 'APPROVED') throw new Error('APPROVAL_REJECTED');
     };
   }
-  private async delegateTask(args: Record<string, unknown>, signal?: AbortSignal): Promise<Json> {
+  private async delegateTask(args: Record<string, unknown>, signal?: AbortSignal, pendingRequest?: DelegateOptions): Promise<Json> {
     const to = typeof args.inviteToken === 'string' ? args.inviteToken : args.workerDid;
     if (typeof to !== 'string' || typeof args.title !== 'string')
       throw new RpcError(-32602, 'Invalid params');
@@ -431,7 +458,8 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(relay).delegate(request);
+    const result = await this.client(relay).delegate(pendingRequest
+      ? { ...pendingRequest, signal, beforePropose: request.beforePropose } : request);
     const report = verifyAudit(result.bundle);
     return {
       taskId: result.taskId,

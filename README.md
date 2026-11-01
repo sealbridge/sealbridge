@@ -588,6 +588,32 @@ Pending metadata expires after at most 15 minutes or the original deadline.
 The signed metadata store is under `<data-root>/workers/<worker-owner-hash>/intake.json`;
 it contains previews and digests, without task input or invitation/capability tokens.
 
+
+The requester retains held CLI/MCP delegations for 24 hours under
+`<data-root>/requesters/<requester-did-hash>/pending.private.json` (POSIX 0600).
+The private record includes the task and input and, when used, its invite reference;
+list/error results omit invitation material and task content. The pending response
+adds `pendingId`, `originalTaskId` and a next-step hint; quote the original task ID
+or requester DID to the worker owner to locate the review entry.
+
+```sh
+sealbridge pending list
+sealbridge pending resubmit PENDING_ID --audit ./fresh-audit.jsonl --out ./fresh-result.json
+sealbridge pending remove PENDING_ID
+```
+
+Use the same requester identity/data root, with `--key FILE` for an explicit key.
+Resubmission uses the current approval policy (interactive by default in the CLI);
+pass `--auto-approve` only when the owner explicitly authorizes it. Use fresh audit
+and output paths. Relay and approval options are checked again; a retained invite
+is still subject to expiry and revocation. MCP exposes `acp_list_pending_requests {}`
+and `acp_resubmit_pending_request {pendingId}` with the current outbound checks and
+required host elicitation. Each resubmission creates a new task ID; another hold
+updates the same record, completion marks it resolved, and other errors mark it
+failed. Retention is not renewed; expired entries are pruned on the next store update. Listing shows the last local observation, not
+remote approval status; it never polls or resubmits. Worker review and grants are
+unchanged. Remote status probes and notifications are deferred.
+
 `--allowed-peer DID` (repeatable or comma-separated) restricts both incoming requests
 and all worker session output, including progress and recovery. It intersects every
 trust level and allow flag. Excluded peers receive no worker response and may time

@@ -22,6 +22,10 @@ import type { ErrorDetail, SessionResult } from './session.js';
 export class PeerRejectedError extends Error {
   readonly code?: string;
   readonly retryable?: false;
+  readonly pendingId?: string;
+  readonly pendingStoreError?: string;
+  readonly originalTaskId?: string;
+  readonly nextStep?: string;
   readonly detail?: ErrorDetail;
   readonly recovery?: { proposalDigest: string; result?: SessionResult;
     part?: { index: number; count: number; data: string; resultDigest: string } };

@@ -22,6 +22,10 @@ export function japaneseErrorReason(message: string): string | undefined {
   return reasons.find(([pattern]) => pattern.test(message))?.[1];
 }
 export function formatCliError(error: unknown): string {
+  const pending = error as { code?: string; pendingId?: string; pendingStoreError?: string; originalTaskId?: string; nextStep?: string } | null;
+  if (pending?.code === 'PENDING_OWNER_APPROVAL') return JSON.stringify({ error: pending.code, retryable: false,
+    pendingId: pending.pendingId, originalTaskId: pending.originalTaskId, pendingStoreError: pending.pendingStoreError,
+    nextStep: pending.nextStep ?? 'After worker owner review, explicitly submit a fresh task. Do not retry automatically.' });
   const message = String(error);
   const reason = japaneseErrorReason(error instanceof Error ? error.message : message);
   return message + (reason ? '\n' + reason : '');

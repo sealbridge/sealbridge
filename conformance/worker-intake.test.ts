@@ -126,7 +126,7 @@ it('reports exact terminal pending status through MCP without retrying', async (
   await done;
   const response = result as { result: { isError: boolean; content: Array<{ text: string }> } };
   expect(response.result.isError).toBe(true);
-  expect(JSON.parse(response.result.content[0].text)).toEqual({ error: 'PENDING_OWNER_APPROVAL', retryable: false });
+  expect(JSON.parse(response.result.content[0].text)).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', retryable: false, pendingId: expect.any(String), nextStep: expect.stringContaining('pending resubmit') });
   expect(f.frames.filter(e => e.payload.eventType === 'PROPOSE')).toHaveLength(1);
 });
 it('rereads a denial before progress or delivery from an already running adapter', async () => {

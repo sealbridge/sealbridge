@@ -252,6 +252,8 @@ describe('Sealbridge MCP server', () => {
       'acp_revoke_token',
       'acp_discover_workers',
       'acp_inspect_revocations',
+      'acp_list_pending_requests',
+      'acp_resubmit_pending_request',
     ]);
     expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual(['relayUrl']);
     for (const tool of tools) expect(tool.inputSchema.properties).not.toHaveProperty('relays');
