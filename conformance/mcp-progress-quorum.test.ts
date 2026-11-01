@@ -253,7 +253,9 @@ describe('Sealbridge MCP server', () => {
       'acp_discover_workers',
       'acp_inspect_revocations',
     ]);
-    expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual(['relayUrl']);
+    expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual([
+      'accessMode', 'skillId', 'taskType', 'relayUrl',
+    ]);
     for (const tool of tools) expect(tool.inputSchema.properties).not.toHaveProperty('relays');
     const created = await server.handle({
       jsonrpc: '2.0',
