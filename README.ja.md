@@ -96,6 +96,8 @@ POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モ
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # または人が操作する TTY で貼り付けます:
 sealbridge accept --paste --alias reviewer
+# またはファイル・アプリからのパイプで読み込みます:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 ```
 
@@ -112,6 +114,14 @@ POSIX はディレクトリ 0700・ファイル 0600、Windows は親の DACL �
 上書き保存先の親アクセス権はユーザーが管理します。位置引数のリンクはシェル履歴やプロセス一覧に
 残る場合があります。`--paste` は人の TTY を必須とし、argv・シェル履歴へのリンクの記載を避けますが、
 端末履歴を消去しません。非 TTY は直ちに `INVITE_INPUT_UNAVAILABLE` を返します。
+
+`--stdin` はパイプ・ファイルからリンクを EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
+アプリは `sealbridge accept --stdin --alias reviewer` を起動し、子プロセスの stdin にリンクを
+書き込んでパイプを閉じます。前後の空白・CRLF と空行を除き、空入力・複数の非空行は拒否します。
+TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、端末では `--paste` を使ってください。
+位置引数・`--paste`・`--stdin` は併用できません。入力リンクや読み取りエラーの内容は出力しません。
+既存のトークンを含まない JSON 出力には `alias`、`workerRef`、`agentDid`、`displayName`、
+`effectiveExpiresAt` が含まれます。JSON 用の追加フラグは不要です。
 
 別名は先頭が英数字の ASCII 英数字・ハイフン・アンダースコア 1–64 文字で、大文字小文字を区別します。
 省略時は表示名と安定したダイジェスト接尾辞から生成します。同一招待の保存は冪等で、別名の衝突は

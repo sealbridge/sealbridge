@@ -316,6 +316,8 @@ personally in a terminal**, outside model execution:
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # Or enter the invitation at a human terminal prompt:
 sealbridge accept --paste --alias reviewer
+# Or read a link from a file or an application-provided pipe:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 ```
 
@@ -337,6 +339,16 @@ user-managed parent access. Positional links can appear in shell history and
 process inspection. `--paste` requires a human TTY and avoids link inclusion in
 argv/shell history; it does not erase terminal history. Non-TTY paste returns
 `INVITE_INPUT_UNAVAILABLE` immediately.
+
+`--stdin` reads one invitation link from a pipe or file through EOF, with a
+68 KiB byte cap and a 10-second total read timeout. Applications can spawn
+`sealbridge accept --stdin --alias reviewer`, write the link to child stdin,
+and close the pipe. Surrounding whitespace/CRLF and blank lines are trimmed;
+empty input or multiple non-empty lines are rejected. TTY input returns
+`INVITE_STDIN_REQUIRES_PIPE`; use `--paste` at a terminal. `--stdin`, `--paste`,
+and a positional link are mutually exclusive. Neither stdin input nor read-error
+text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
+`agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
 
 Aliases are exact, case-sensitive ASCII slugs of 1–64 characters (letters,
 digits, hyphen and underscore, starting with a letter or digit). Omission derives
