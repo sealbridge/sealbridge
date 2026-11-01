@@ -226,7 +226,10 @@ describe('persistent role identities', () => {
   });
   it('keeps MCP scanning and discovery independent of identity storage', async () => {
     const options = fixture();
-    const deny = () => { throw new Error('identity accessed'); };
+    const deny = ((path: fs.PathLike) => {
+      if (String(path).includes('identities')) throw new Error('identity accessed');
+      return fs.lstatSync(path);
+    }) as typeof fs.lstatSync;
     const mapped = mcpServerOptionsFromArgs(parseMcpServerArgs([]));
     const transportFactory = vi.fn(() => ({ discover: async () => [] } as never));
     const server = new AcpMcpServer({ ...mapped, identityOptions: { ...options, fs: { ...fs, lstatSync: deny } }, transportFactory });

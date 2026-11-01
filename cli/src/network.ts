@@ -10,7 +10,7 @@ import {
   WorkerNode,
   resolveOrCreateIdentity,
   selectApplicationRelay,
-  DEFAULT_PUBLIC_RELAY,
+  readApplicationConfig,
   RequesterClient,
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
@@ -175,7 +175,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     args.splice(index, 2);
     if (args.some(a => ['--open','--publish','--auto-accept','--auto-approve','--yes','--allow-any-requester','--access-mode'].includes(a) || a.startsWith('--open-') || a === '--max-tasks-per-day'))
       throw new Error('CONFLICTING_PUBLIC_SETTINGS');
-    return networkCommand('worker', ['start', ...args, ...publicSettingsFlags(settings)]);
+    return networkCommand('worker', ['start', ...args, ...publicSettingsFlags(settings)], application);
   }
   if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args);
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
@@ -204,8 +204,13 @@ export async function networkCommand(command: string, args: string[], applicatio
     await relay.close();
     return;
   }
+  const { relays: fallbackCandidates } = readApplicationConfig({ ...application.identityOptions, allowPrivateRelay });
+  const selectedRelay = (inviteRelay?: string) => selectApplicationRelay({
+    configured: f.has('--relay') ? text(f, 'relay') : undefined,
+    inviteRelay, fallbackCandidates, allowPrivateRelay,
+  }).relay as string;
   if (command === 'discover') {
-    const client = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, undefined, { allowPrivateRelay });
+    const client = new HttpRelayClient(selectedRelay(), application.fetch ?? fetch, undefined, { allowPrivateRelay });
     console.log(JSON.stringify(discoverAgentCards(await client.discover(), {
       ...(f.has('--skill') ? { skillId: text(f, 'skill') } : {}),
       ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),
@@ -218,11 +223,13 @@ export async function networkCommand(command: string, args: string[], applicatio
     explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined,
   });
   if (command === 'invite') {
+    // Local signing retains the explicit URL; connection policy applies when dialing.
+    const relayUrl = text(f, 'relay', fallbackCandidates[0]);
     const card = createSignedAgentCard(
       {
         name: text(f, 'name', 'Sealbridge Worker'),
         agentDid: key.did,
-        relayEndpoint: text(f, 'relay', DEFAULT_PUBLIC_RELAY),
+        relayEndpoint: relayUrl,
         skills: [{ id: 'json-task', name: 'JSON task' }],
       },
       key,
@@ -317,7 +324,8 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     if (allowedTaskTypes)
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
-    const workerRelay = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, key, { allowPrivateRelay,
+    const relayUrl = selectedRelay();
+    const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay,
       requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
     const worker = new WorkerNode({
       ...(f.has('--max-tasks-per-day') ? { dailyLimit: {
@@ -330,7 +338,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       owner: key,
       relay: workerRelay,
       inviteTtlSeconds: inviteTtl,
-      relayUrl: text(f, 'relay', DEFAULT_PUBLIC_RELAY),
+      relayUrl,
       adapter,
       name: text(f, 'name', adapter.name),
       approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
@@ -384,11 +392,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     const to = text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
-    const { relay } = selectApplicationRelay({
-      configured: f.has('--relay') ? text(f, 'relay') : undefined,
-      inviteRelay: invite?.relayUrl,
-      allowPrivateRelay,
-    });
+    const relay = selectedRelay(invite?.relayUrl);
     const client = new RequesterClient({
       ...sessionTimeouts(f),
       owner: key,
