@@ -255,8 +255,13 @@ only the token plus a newline out of band, with no stdout copy. Files are create
 exclusively with mode `0600`; the parent directory must already exist, be owned by
 the current user and have no group/other permissions on POSIX (typically `0700`).
 Existing files and detectable links are rejected. Windows inherits directory ACLs;
-ACLs are not verified. Inherited descriptors must be above 2 and refer to a
-pipe, socket, or file; POSIX files must be owned by the current user with no
+ACLs are not verified. `fd:<n>` is POSIX-only: Windows rejects it with
+`INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` during argument parsing, before identity
+creation, relay registration, or listener startup. Node's inherited extra stdio
+pipes on Windows are not plain filesystem descriptors usable with synchronous
+filesystem writes. Use `file:<path>` for separate invitation output on Windows.
+Inherited descriptors must be above 2 and refer to a
+pipe, socket, or file; files must be owned by the current user with no
 group/other permissions. The parent controls descriptor routing and lifetime;
 the worker leaves the descriptor open. Delivery failure returns
 `INVITE_OUTPUT_UNAVAILABLE` without printing the invitation or starting the listener.

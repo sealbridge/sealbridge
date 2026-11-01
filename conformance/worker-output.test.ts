@@ -112,7 +112,7 @@ it('writes only the token and newline to an exclusively created private file', a
   expect(events()).toHaveLength(1);
 });
 
-it('writes to a private descriptor without closing or changing its permissions', async () => {
+it.skipIf(process.platform === 'win32')('writes to a private descriptor without closing or changing its permissions', async () => {
   const file = join(dir, 'fd.txt'), fd = openSync(file, 'wx', 0o600);
   try {
     await start(['--invite-output', 'fd:' + fd]);
@@ -123,6 +123,24 @@ it('writes to a private descriptor without closing or changing its permissions',
   } finally { closeSync(fd); }
 });
 
+it('rejects fd output on Windows before identity creation or worker startup', async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const root = join(dir, 'unsupported-data');
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+  try {
+    await expect(networkCommand('worker', ['start', '--invite-output', 'fd:3', '--publish'], {
+      identityOptions: { home: dir, env: { SEALBRIDGE_DATA_DIR: root } },
+    })).rejects.toThrow('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM');
+    // Direct callers must also get the platform error, without attempting I/O.
+    expect(() => deliverInvite({ kind: 'fd', fd: 3 }, 'fixture'))
+      .toThrow('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM');
+    expect(existsSync(root)).toBe(false);
+    expect(captured.options).toBeUndefined(); expect(captured.starts).toBe(0);
+    expect(stdout()).toBe(''); expect(stderr()).toBe('');
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { Object.defineProperty(process, 'platform', platform); }
+});
+
 it('delivers to an inherited pipe independently of child stdout and stderr', async () => {
   await start(['--invite-output', 'none']);
   const fixture = join(dir, 'child-invite.txt');
@@ -130,8 +148,21 @@ it('delivers to an inherited pipe independently of child stdout and stderr', asy
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import { readFileSync } from 'node:fs';
     import { deliverInvite, parseInviteOutput } from './cli/dist/invite-output.js';
-    deliverInvite(parseInviteOutput('fd:3'), readFileSync(process.argv[1], 'utf8'));
+    try {
+      deliverInvite(parseInviteOutput('fd:3'), readFileSync(process.argv[1], 'utf8'));
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    }
   `, fixture], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'], encoding: 'utf8', timeout: 5000 });
+  expect(child.error).toBeUndefined();
+  if (process.platform === 'win32') {
+    expect(child.status).toBe(1);
+    expect(child.stdout).toBe('');
+    expect(child.stderr).toBe('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM\n');
+    expect(child.output[3]).toBe('');
+    return;
+  }
   expect(child.status).toBe(0);
   expect(child.stdout).toBe(''); expect(child.stderr).toBe('');
   expect(child.output[3] === captured.token + '\n').toBe(true);
@@ -145,7 +176,8 @@ it.each(['', 'file:', 'file: ', 'fd:0', 'fd:1', 'fd:2', 'fd:03', 'fd:-1', 'fd:3.
 });
 
 it('reports descriptor failure without a stdout fallback or ready event', async () => {
-  await expect(start(['--invite-output', 'fd:2147483647'])).rejects.toThrow('INVITE_OUTPUT_UNAVAILABLE');
+  await expect(start(['--invite-output', 'fd:2147483647'])).rejects.toThrow(
+    process.platform === 'win32' ? 'INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM' : 'INVITE_OUTPUT_UNAVAILABLE');
   expect(captured.starts).toBe(0); expect(stdout()).toBe(''); expect(stderr()).toBe('');
 });
 

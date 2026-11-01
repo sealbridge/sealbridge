@@ -6,6 +6,11 @@ import { inspectPrivateDirectory, writePrivateFile } from '@acp/runtime/local-id
 export type InviteOutput = { kind: 'stdout' } | { kind: 'none' } | { kind: 'file'; path: string } |
   { kind: 'fd'; fd: number };
 
+function requireFdOutputSupport(): void {
+  // Windows extra stdio pipes are not plain fds usable by fstatSync/writeSync.
+  if (process.platform === 'win32') throw new Error('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM');
+}
+
 export function parseInviteOutput(value: string | true | undefined): InviteOutput {
   if (value === undefined || value === 'stdout') return { kind: 'stdout' };
   if (value === 'none') return { kind: 'none' };
@@ -14,7 +19,10 @@ export function parseInviteOutput(value: string | true | undefined): InviteOutpu
       return { kind: 'file', path: resolve(value.slice(5)) };
     if (/^fd:[1-9]\d*$/.test(value)) {
       const fd = Number(value.slice(3));
-      if (Number.isSafeInteger(fd) && fd > 2 && fd <= 2_147_483_647) return { kind: 'fd', fd };
+      if (Number.isSafeInteger(fd) && fd > 2 && fd <= 2_147_483_647) {
+        requireFdOutputSupport();
+        return { kind: 'fd', fd };
+      }
     }
   }
   throw new Error('INVALID_INVITE_OUTPUT');
@@ -22,6 +30,7 @@ export function parseInviteOutput(value: string | true | undefined): InviteOutpu
 
 /** The caller owns inherited descriptors and the existing destination directory. */
 export function deliverInvite(output: InviteOutput, token: string): void {
+  if (output.kind === 'fd') requireFdOutputSupport();
   if (output.kind === 'none') return;
   if (output.kind === 'stdout') {
     console.log(token);
@@ -36,7 +45,7 @@ export function deliverInvite(output: InviteOutput, token: string): void {
     } else {
       const stat = fs.fstatSync(output.fd);
       if (!stat.isFile() && !stat.isFIFO() && !stat.isSocket()) throw new Error();
-      if (stat.isFile() && process.platform !== 'win32' &&
+      if (stat.isFile() &&
           (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0)) throw new Error();
       let offset = 0;
       while (offset < bytes.length) {

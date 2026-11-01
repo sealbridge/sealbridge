@@ -165,6 +165,10 @@ For the optional audit paths below, create the audit directory first:
    for an inherited descriptor above 2 (pipe/socket or owner-only file).
    Descriptors remain open; parents manage their routing. Windows ACLs are inherited,
    not verified. Failure returns `INVITE_OUTPUT_UNAVAILABLE` without a stdout fallback.
+   `fd:<n>` is POSIX-only. Windows rejects it during argument parsing with
+   `INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM`, before identity creation, relay
+   registration, or listener startup; use `file:<path>` instead. Node's Windows
+   extra stdio pipes are not plain fds usable with synchronous filesystem writes.
    Stderr `invite_ready` JSON carries only `event`, full SHA-256 `inviteDigest`,
    ISO `expiresAt`, `workerDid`, and `relay`; it precedes listener startup.
    Status/event JSON retains documented diagnostic fields, replacing unrecognized
@@ -172,6 +176,9 @@ For the optional audit paths below, create the audit directory first:
    `--invite-output` の既定は従来の `stdout` です。`none` で表示を省略し、
    `file:<path>` は既存の私的ディレクトリへ未使用ファイルを `0600` で作成します。
    `fd:<n>` は 2 より大きい継承記述子へトークンと改行だけを渡し、閉じません。
+   `fd:<n>` は POSIX 専用です。Windows は引数解析時に `INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` で
+   拒否し、鍵の作成・リレーへの登録・待受開始は行いません。代わりに `file:<path>` を使います。
+   Windows の Node が継承する追加の stdio パイプは、同期ファイル書き込みに使える通常の記述子ではありません。
    POSIX は所有者だけの権限（ディレクトリは通常 `0700`）を使い、Windows の ACL は継承のみです。
    出力失敗時に標準出力へ切り替えません。stderr の `invite_ready` はダイジェスト・期限・
    DID・中継器だけを記録し、接続完了は表しません。状態・イベントは診断フィールドを選択して出力します。

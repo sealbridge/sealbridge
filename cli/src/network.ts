@@ -108,7 +108,7 @@ const REVIEW_HELP = `
   --to <invite|link|did>          Delegate: accepts https://sealbridge.app/i#acp-invite:... links.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
-  --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (n > 2).
+  --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (POSIX only, n > 2).
                                  File: unused path in an existing private directory; token + newline.
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
