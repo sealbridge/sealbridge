@@ -109,7 +109,8 @@ describe.skipIf(process.platform === 'win32')('Docker runtime identity', () => {
       encoding: 'utf8', timeout: 15000,
     });
     expect(result.error).toBeUndefined();
-    expect(result.status).toBe(0);
+    // Keep the original tmpdir spelling: macOS commonly exposes /var via /private/var.
+    expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe('');
     const response = JSON.parse(result.stdout);
     expect(response.id).toBe(1);

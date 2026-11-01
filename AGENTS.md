@@ -48,7 +48,8 @@ Files are `identities/requester.private.json` and `identities/worker.private.jso
 POSIX directories/keys use 0700/0600 with ownership/type/mode checks. Windows
 inherits the parent DACL; Node modes do not establish a user-only DACL and ACLs
 are not verified. Overrides require user-managed parent access. Detectable links
-and non-files are rejected; first-use publication requires same-directory hard links.
+and non-files are rejected except macOS’s root-owned /var and /tmp aliases to
+the corresponding /private directories; first-use publication requires same-directory hard links.
 Matching-role ~/.acp keys and old contacts-root owner.private.json (requester)
 are reused in place if no canonical key exists. Conflicting legacy identities
 require explicit `--key` selection. Invalid keys are never replaced.
