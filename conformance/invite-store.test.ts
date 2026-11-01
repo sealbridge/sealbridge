@@ -7,6 +7,7 @@ import { createInviteToken, createSignedAgentCard, digestBytes, generateKeyPair,
 import type { Invite, Signed } from '../packages/core/src/index.js';
 import { InviteStore } from '../packages/runtime/src/invite-store.js';
 import type { InviteStoreOptions } from '../packages/runtime/src/invite-store.js';
+import { inspectLocalIdentity, resolveOrCreateIdentity } from '../packages/runtime/src/local-identity.js';
 import { addContact, loadContacts } from '../cli/src/contacts.js';
 
 const NOW = Date.parse('2026-11-01T00:00:00.000Z');
@@ -28,6 +29,37 @@ function fixture(name = 'Example Worker', relayEndpoint = 'https://relay.example
 const pack = (signed: unknown) => 'acp-invite:' + Buffer.from(JSON.stringify(signed)).toString('base64url');
 
 describe('local invitation store', () => {
+  it.skipIf(process.platform === 'win32').each(['/var', '/tmp'])('shares Darwin %s alias handling with default identities', alias => {
+    const virtualHome = alias + '/folders/sealbridge-invites';
+    const realPath = (path: fs.PathLike) => String(path).startsWith(virtualHome)
+      ? home + String(path).slice(virtualHome.length) : String(path);
+    const directory = fs.lstatSync(home);
+    const io = { ...fs,
+      lstatSync: ((path: fs.PathLike) => String(path) === alias
+        ? { ...directory, uid: 0, isSymbolicLink: () => true }
+        : String(path).startsWith(virtualHome) ? fs.lstatSync(realPath(path)) : directory) as typeof fs.lstatSync,
+      readlinkSync: (() => '/private' + alias) as unknown as typeof fs.readlinkSync,
+      openSync: ((path, flags, mode) => fs.openSync(realPath(path), flags, mode)) as typeof fs.openSync,
+      mkdirSync: ((path, opts) => fs.mkdirSync(realPath(path), opts)) as typeof fs.mkdirSync,
+      linkSync: (from, to) => fs.linkSync(realPath(from), realPath(to)),
+      renameSync: (from, to) => fs.renameSync(realPath(from), realPath(to)),
+      unlinkSync: path => fs.unlinkSync(realPath(path)),
+    } satisfies typeof fs;
+    const selected: InviteStoreOptions = { ...options, home: virtualHome, platform: 'darwin',
+      env: { SEALBRIDGE_DATA_DIR: virtualHome + '/data' }, fs: io };
+    const owner = resolveOrCreateIdentity('requester', selected);
+    expect(inspectLocalIdentity('requester', selected).key).toEqual(owner);
+    const store = new InviteStore(owner, selected), { token } = fixture();
+    expect(store.list()).toEqual([]);
+    const saved = store.import(token, 'reviewer');
+    expect(new InviteStore(owner, selected).list()).toEqual([saved]);
+    expect(store.resolve('reviewer').inviteToken).toBe(token);
+    expect(store.remove('reviewer')).toBe(true);
+    expect(store.list()).toEqual([]);
+    expect(() => new InviteStore(owner, { ...selected, platform: 'linux' }).list()).toThrow('INVITE_STORE_INVALID');
+    const untrusted = { ...io, readlinkSync: (() => '/elsewhere') as unknown as typeof io.readlinkSync };
+    expect(() => new InviteStore(owner, { ...selected, fs: untrusted }).import(token)).toThrow('INVITE_STORE_INVALID');
+  });
   it('imports all core link formats idempotently, persists signed bindings, and never fetches or resolves DNS', () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('UNEXPECTED_FETCH'));
     const lookup = vi.spyOn(dns, 'lookup').mockRejectedValue(new Error('UNEXPECTED_DNS'));

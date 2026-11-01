@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import * as fs from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, posix, win32, resolve } from 'node:path';
+import { dirname, join, posix, win32 } from 'node:path';
 import { createPrivateKey, randomUUID } from 'node:crypto';
 import { generateKeyPair, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair } from '@acp/core';
@@ -67,12 +67,20 @@ function legacyPaths(role: IdentityRole, options: DataRootOptions): string[] {
   }
   return result;
 }
-/** Reject detectable links in the selected path, including linked parents. */
-export function checkPath(path: string, io: typeof fs): void {
-  const parent = dirname(path);
-  if (parent !== path) checkPath(parent, io);
+/** Reject links, except macOS's root-owned /var and /tmp system aliases. */
+export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+  const paths = platform === 'win32' ? win32 : posix;
+  const parent = paths.dirname(path);
+  if (parent !== path) checkPath(parent, io, platform);
   try {
-    if (io.lstatSync(path).isSymbolicLink()) throw failure('IDENTITY_INVALID');
+    const stat = io.lstatSync(path);
+    if (stat.isSymbolicLink()) {
+      if (platform !== 'darwin' || !['/var', '/tmp'].includes(path) || stat.uid !== 0)
+        throw failure('IDENTITY_INVALID');
+      const target = posix.resolve(parent, io.readlinkSync(path));
+      if (target !== '/private' + path) throw failure('IDENTITY_INVALID');
+      checkPath(target, io, platform);
+    }
   } catch (error) { if (errno(error) !== 'ENOENT') throw error; }
 }
 function checkStat(stat: fs.Stats, directory = false): void {
@@ -81,8 +89,8 @@ function checkStat(stat: fs.Stats, directory = false): void {
       (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
     throw failure('IDENTITY_INVALID');
 }
-export function inspectDirectory(path: string, io: typeof fs): void {
-  checkPath(path, io);
+export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+  checkPath(path, io, platform);
   const before = io.lstatSync(path);
   checkStat(before, true);
   if (process.platform === 'win32') return;
@@ -95,11 +103,11 @@ export function inspectDirectory(path: string, io: typeof fs): void {
   } finally { io.closeSync(fd); }
 }
 /** Bounded descriptor-based read using the application private-file policy. */
-export function readPrivateFile(path: string, io: typeof fs, maxBytes: number): string | undefined {
+export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, platform: NodeJS.Platform = process.platform): string | undefined {
   let fd: number | undefined;
   let observed = false;
   try {
-    checkPath(path, io);
+    checkPath(path, io, platform);
     // Check type before opening so special files cannot block the reader.
     const before = io.lstatSync(path);
     observed = true;
@@ -124,8 +132,8 @@ export function readPrivateFile(path: string, io: typeof fs, maxBytes: number): 
     throw failure('IDENTITY_UNREADABLE');
   } finally { if (fd !== undefined) io.closeSync(fd); }
 }
-function readKey(path: string, io: typeof fs): KeyPair | undefined {
-  const contents = readPrivateFile(path, io, MAX_KEY_BYTES);
+function readKey(path: string, io: typeof fs, platform: NodeJS.Platform): KeyPair | undefined {
+  const contents = readPrivateFile(path, io, MAX_KEY_BYTES, platform);
   if (contents === undefined) return undefined;
   try {
     const value = JSON.parse(contents) as KeyPair;
@@ -140,16 +148,17 @@ function readKey(path: string, io: typeof fs): KeyPair | undefined {
 /** Inspect without creating directories or identities. Canonical files take precedence. */
 export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): LocalIdentity {
   const io = options.fs ?? fs;
+  const platform = options.platform ?? process.platform;
   if (options.explicitKeyPath !== undefined) {
-    const path = resolve(options.explicitKeyPath);
-    const key = readKey(path, io);
+    const path = context(options).paths.resolve(options.explicitKeyPath);
+    const key = readKey(path, io, platform);
     if (!key) throw failure('IDENTITY_UNREADABLE');
     return { path, source: 'explicit', key };
   }
   const root = resolveDataRoot(options);
   for (const directory of [root, join(root, 'identities')]) {
     try {
-      inspectDirectory(directory, io);
+      inspectDirectory(directory, io, platform);
     } catch (error) {
       if (errno(error) !== 'ENOENT') {
         if (error instanceof Error && error.message === 'IDENTITY_INVALID') throw error;
@@ -158,25 +167,25 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
     }
   }
   const path = join(root, 'identities', role + '.private.json');
-  const key = readKey(path, io);
+  const key = readKey(path, io, platform);
   if (key) return { path, source: 'default', key };
   let legacy: LocalIdentity | undefined;
   for (const candidate of legacyPaths(role, options)) {
-    const key = readKey(candidate, io);
+    const key = readKey(candidate, io, platform);
     if (!key) continue;
     if (legacy && legacy.key!.did !== key.did) throw failure('IDENTITY_SELECTION_REQUIRED');
     legacy ??= { path: candidate, source: 'legacy', key };
   }
   return legacy ?? { path, source: 'default' };
 }
-export function privateDirectory(path: string, io: typeof fs): void {
-  checkPath(path, io);
+export function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+  checkPath(path, io, platform);
   io.mkdirSync(path, { recursive: true, mode: 0o700 });
-  inspectDirectory(path, io);
+  inspectDirectory(path, io, platform);
 }
 /** Exclusive creation of a flushed private temporary file. Caller owns cleanup. */
-export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs): void {
-  checkPath(path, io);
+export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+  checkPath(path, io, platform);
   const fd = io.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
     (fs.constants.O_NOFOLLOW ?? 0), 0o600);
   try {
@@ -198,17 +207,18 @@ export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs): vo
 /** Publish a flushed temporary key without replacing a concurrently committed identity. */
 export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): KeyPair {
   const io = options.fs ?? fs;
+  const platform = options.platform ?? process.platform;
   const selected = inspectLocalIdentity(role, options);
   if (selected.key) return selected.key;
   const root = resolveDataRoot(options);
   const temporary = join(dirname(selected.path), '.' + role + '.' + randomUUID() + '.tmp');
   let temporaryCreated = false;
   try {
-    privateDirectory(root, io);
-    privateDirectory(dirname(selected.path), io);
-    writePrivateFile(temporary, Buffer.from(JSON.stringify(generateKeyPair()) + '\n'), io);
+    privateDirectory(root, io, platform);
+    privateDirectory(dirname(selected.path), io, platform);
+    writePrivateFile(temporary, Buffer.from(JSON.stringify(generateKeyPair()) + '\n'), io, platform);
     temporaryCreated = true;
-    checkPath(selected.path, io);
+    checkPath(selected.path, io, platform);
     try { io.linkSync(temporary, selected.path); }
     catch (error) {
       if (errno(error) === 'EEXIST') { /* The committed winner is loaded below. */ }
@@ -222,7 +232,7 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
   } finally {
     if (temporaryCreated) io.unlinkSync(temporary);
   }
-  const winner = readKey(selected.path, io);
+  const winner = readKey(selected.path, io, platform);
   if (!winner) throw failure('IDENTITY_UNREADABLE');
   return winner;
 }

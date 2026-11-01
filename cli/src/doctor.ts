@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
-import { inspectLocalIdentity, DEFAULT_PUBLIC_RELAY } from '@acp/runtime';
-import type { LocalIdentityOptions } from '@acp/runtime';
+import { inspectLocalIdentity } from '@acp/runtime/local-identity';
+import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
+import type { LocalIdentityOptions } from '@acp/runtime/local-identity';
 export interface DoctorOptions {
   version?: string;
   execPath?: string;

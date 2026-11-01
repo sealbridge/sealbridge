@@ -82,10 +82,10 @@ export class InviteStore {
   private read(): StoredInvite[] {
     try {
       for (const path of [this.root, this.directory]) {
-        try { inspectDirectory(path, this.io); }
+        try { inspectDirectory(path, this.io, this.options.platform); }
         catch (error) { if (code(error) !== 'ENOENT') throw error; }
       }
-      const contents = readPrivateFile(this.path, this.io, MAX_STORE_BYTES);
+      const contents = readPrivateFile(this.path, this.io, MAX_STORE_BYTES, this.options.platform);
       if (contents === undefined) return [];
       const signed = JSON.parse(contents) as Signed<StoredInvites>;
       const p = signed.payload;
@@ -130,9 +130,9 @@ export class InviteStore {
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     let locked = false, written = false;
     try {
-      privateDirectory(this.root, this.io);
-      privateDirectory(this.directory, this.io);
-      try { writePrivateFile(lock, Buffer.from(String(process.pid) + '\n'), this.io); locked = true; }
+      privateDirectory(this.root, this.io, this.options.platform);
+      privateDirectory(this.directory, this.io, this.options.platform);
+      try { writePrivateFile(lock, Buffer.from(String(process.pid) + '\n'), this.io, this.options.platform); locked = true; }
       catch (error) {
         if (code(error) === 'EEXIST') throw new Error('INVITE_STORE_BUSY');
         throw error;
@@ -143,8 +143,8 @@ export class InviteStore {
         type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did, entries,
       }, this.owner, new Date(this.now()).toISOString())) + '\n');
       if (bytes.length > MAX_STORE_BYTES) throw new Error('INVITE_STORE_INVALID');
-      writePrivateFile(temporary, bytes, this.io); written = true;
-      checkPath(this.path, this.io);
+      writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
+      checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
       return result;
     } catch (error) {
