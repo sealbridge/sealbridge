@@ -133,7 +133,10 @@ it('creates separate default identities, records M config, and stays byte-idempo
 
 it.each([true, false])('registers every host with requireApproval=%s and preserves identities on rerun', async requireApproval => {
   const o = fixture(), project = join(o.home, 'project');
-  const options = { ...o, platform: 'darwin' as const, hosts: ['claude-desktop', 'cursor', 'claude-code'], project,
+  // Keep real filesystem paths native; use macOS on POSIX to include Claude Desktop.
+  const platform = process.platform === 'win32' ? 'win32' as const : 'darwin' as const;
+  const options = { ...o, platform, env: { ...o.env, APPDATA: join(o.home, 'AppData', 'Roaming') },
+    hosts: ['claude-desktop', 'cursor', 'claude-code'], project,
     ...(requireApproval ? {} : { requireApproval: false }) };
   const fetch = vi.fn(() => { throw new Error('unexpected fetch'); }); vi.stubGlobal('fetch', fetch);
   const first = applied(await runSetup(options));
