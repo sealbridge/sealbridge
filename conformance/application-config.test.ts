@@ -154,7 +154,7 @@ describe('application config storage', () => {
     expect(() => readApplicationConfig(options)).toThrow('APP_CONFIG_INVALID');
     expect(fs.statSync(path).mode & 0o777).toBe(0o644);
   });
-  it('rejects a file that disappears or changes between inspection and opening', () => {
+  it.each([0, 2 ** 60])('rejects a file that disappears or changes between inspection and opening (ino %s)', ino => {
     const options = fixture();
     put(options, JSON.stringify(config));
     const io = { ...fs, openSync: ((path, ...args) => {
@@ -162,9 +162,14 @@ describe('application config storage', () => {
       return fs.openSync(path, ...args);
     }) as typeof fs.openSync };
     expect(() => readApplicationConfig({ ...options, fs: io })).toThrow('APP_CONFIG_UNREADABLE');
-    const changed = { ...fs, fstatSync: ((fd: number) => {
+    const changed = { ...fs, lstatSync: ((path: fs.PathLike) => {
+      const stat = fs.lstatSync(path);
+      if (stat.isFile()) stat.ino = ino;
+      return stat;
+    }) as typeof fs.lstatSync, fstatSync: ((fd: number) => {
       const stat = fs.fstatSync(fd);
-      if (stat.isFile()) stat.ino += 1;
+      // Incrementing large Windows file IDs can round back to the same number.
+      if (stat.isFile()) stat.ino = ino === 0 ? 1 : 0;
       return stat;
     }) as typeof fs.fstatSync };
     expect(() => readApplicationConfig({ ...options, fs: changed })).toThrow('APP_CONFIG_INVALID');
