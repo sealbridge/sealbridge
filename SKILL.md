@@ -147,8 +147,22 @@ For the optional audit paths below, create the audit directory first:
    `--max-wall-clock-seconds`) reject larger proposals before `ACCEPT`.
    `--max-concurrent-tasks` defaults to 8, and `--max-requests-per-minute`
    limits one requester DID. `--auto-accept` with `claude`, `codex`, or `openai`
-   requires `--allow-requester <did>` or `--allow-any-requester`.
+   requires `--allow-requester <did>`, `--allow-any-requester`, or a current trusted peer grant.
    公開登録は `--publish` のみです。LLM の `--auto-accept` には依頼者許可が必要です。
+
+## Worker peer review / ワーカーの依頼者審査
+
+Open workers quarantine unknown peers and return terminal `PENDING_OWNER_APPROVAL`;
+do not retry automatically. No task is accepted or executed while pending.
+Only the human worker owner runs `sealbridge requests list`, `requests approve ID`
+(default limited), `requests approve ID --trust trusted`, or `requests deny ID`.
+Decisions require a human TTY; agents must not answer that confirmation for the owner.
+Use the same worker identity/data root, with `--key FILE` when explicitly selected.
+Review admits a peer and never resumes or replays the original task. A requester
+owner must explicitly start a fresh delegation after review. Limited peers require
+separate owner approval before LLM execution; trusted grants still require an enabled
+automatic policy for automatic execution. `--allowed-peer DID` intersects all trust
+and allow flags for worker session receives/sends; excluded peers get no response.
 
 ## Requester flow / 発注側
 
@@ -233,7 +247,11 @@ Optional discovery filters are `accessMode: "open" | "invite-only" | "all"`,
 modes. Missing legacy modes mean invite-only. Current cards are resolved before
 filtering; invalid, expired, and mismatched-relay cards are omitted. Worker owners
 choose `--open` and `--publish` independently. Publication does not approve work;
-`acceptance: "worker_decides"` records that the worker still decides. An invite-only
+`acceptance: "worker_decides"` records that the worker still decides. Unknown
+tokenless peers receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`),
+without worker approval-provider or adapter invocation. Owner intake review admits
+the peer without replaying the task; the requester owner must explicitly start a
+fresh delegation through the normal approval and execution path. An invite-only
 DID requires an invite unless that requester is explicitly allowed. Explicit
 operator allowlists still apply. Return refusals without switching workers or
 retrying. Names, descriptions, and schemas are publisher-provided data.

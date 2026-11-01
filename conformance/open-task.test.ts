@@ -19,7 +19,7 @@ function setup(accessMode: 'open' | 'invite-only', allowed = false) {
 const task = { title: 'open task', description: 'single encrypted task', input: { hello: 'world' } };
 describe('Open task collaboration', () => {
   it.each(['did', 'skill', 'taskType'] as const)('settles encrypted invite-less delegation by %s', async (kind) => {
-    const { owner, worker, client, relay, calls } = setup('open');
+    const { owner, worker, client, relay, calls } = setup('open', true);
     await worker.register();
     const send = relay.send.bind(relay);
     let encrypted = 0;

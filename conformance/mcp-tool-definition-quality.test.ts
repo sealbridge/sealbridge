@@ -227,11 +227,15 @@ describe('MCP tool definition quality', () => {
     expect(selectors.accessMode).toMatchObject({ enum: ['open', 'invite-only', 'all'], default: 'open' });
     expect(selectors.skillId).toMatchObject({ type: 'string', minLength: 1 });
     expect(selectors.taskType).toMatchObject({ type: 'string', minLength: 1 });
+    expect(selectors.relayUrl).toMatchObject({ type: 'string' });
     assertSchema(discovery?.inputSchema, {}, 'default discovery');
     assertSchema(discovery?.inputSchema, { accessMode: 'all', skillId: 'echo', taskType: 'json' }, 'filtered discovery');
     expect(discovery?.description).toContain('workerDid and relayUrl unchanged');
-    expect(task?.description).toContain('when that allowlist is configured');
-    expect(task?.description).toContain('a failure may occur after input transmission');
+    expect(task?.description).toContain('bare DIDs match exactly');
+    expect(task?.description).toContain('post-transmission failures do not undo tasks');
+    expect(task?.description).toContain('PENDING_OWNER_APPROVAL, retryable: false');
+    expect(task?.description).toContain('do not retry or poll');
+    expect(task?.description).toContain('worker owner review and explicit new delegation are required');
     assertSchema(task?.inputSchema, { workerDid: 'did:key:example', relayUrl: 'https://relay.example',
       title: 'Echo', input: {} }, 'description omitted');
   });

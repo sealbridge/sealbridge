@@ -279,7 +279,7 @@ Worker listeners recover dropped relay connections with jittered backoff and rep
 
 `--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and `--max-wall-clock-seconds` cap the contract a worker will accept. A proposal above any set cap is rejected before `ACCEPT`, including with `--auto-accept`. `timeoutSeconds` on the manifest is compared with `--max-wall-clock-seconds`. `--max-concurrent-tasks` limits in-flight tasks (default 8). `--max-requests-per-minute` limits proposals from one requester DID.
 
-`--allow-requester <did>` is repeatable and also accepts a comma-separated list. `--allow-any-requester` opts in to every requester. For `--adapter claude`, `codex`, or `openai`, `--auto-accept` (and the `--auto-approve` / `--yes` aliases) refuses to start unless one of those allow flags is present, so a discovered worker cannot spend the owner API key for arbitrary callers. The sandbox example above does not need an allowlist.
+`--allow-requester <did>` is repeatable and accepts comma-separated DIDs. A nonempty list restricts requesters; `--allow-any-requester` retains precedence. LLM automatic approval (`--auto-accept`, `--auto-approve`, `--yes`) requires one of these flags or a current owner-created trusted grant. Invitations provide limited admission and require a separate interactive owner contract approval before LLM execution. An invited sandbox/command worker can still use explicit automatic approval.
 
 **Terminal 3 — Alice, the requester**
 
@@ -419,7 +419,7 @@ Call `acp_delegate_task` with those arguments. An omitted single-worker descript
 
 MCP discovery now defaults to `accessMode: "open"`. Use `accessMode: "all"` for the operator view, or `"invite-only"` for private advertisements, including legacy cards without a mode. Optional `skillId` and `taskType` filters must match the same advertised skill. CLI `sealbridge discover` retains its historical all-mode default. Discovery resolves the newest valid card before filtering and omits expired, invalid, or mismatched-relay cards. Results retain the public card fields and include the complete signed card, skill schemas, access mode, and `acceptance: "worker_decides"`. An empty result is `{ "count": 0, "workers": [] }` with the queried `relayUrl`.
 
-Worker owners choose `--open` and `--publish` separately: open permits proposals without an invite, while publish lists the card in the directory. Publication does not approve a task. Worker admission and owner approval remain independent, and a card may change between discovery and delegation. Invite-only workers addressed by DID still return `INVITE_REQUIRED` unless that requester is explicitly allowed. A refusal is returned without selecting another worker or retrying the task. Names, descriptions, and schemas are publisher-provided data.
+Worker owners choose `--open` and `--publish` separately: open permits proposals without an invite, while publish lists the card in the directory. Publication does not approve a task. Unknown tokenless requesters receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`); the worker invokes neither its approval provider nor its adapter. Owner intake review admits the peer without replaying the held task; the requester owner must explicitly start a fresh delegation, which follows the normal approval and execution path. Worker admission and owner approval remain independent, and a card may change between discovery and delegation. Invite-only workers addressed by DID still return `INVITE_REQUIRED` unless that requester is explicitly allowed. A refusal is returned without selecting another worker or retrying the task. Names, descriptions, and schemas are publisher-provided data.
 
 `acp_delegate_task` and `acp_delegate_multi` transmit task input to the target worker over the relay. Restrict that path when the host might supply the arguments:
 
@@ -539,7 +539,7 @@ Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spe
 
 Workers started through the CLI default to `--access-mode invite-only`. They
 require a valid worker invite or a requester owner DID listed with
-`--allow-requester`. An invite remains a bearer invitation; an explicit
+`--allow-requester`, or a current local peer grant. An invite remains a bearer invitation; an explicit
 allowlist still restricts its use. `--allow-any-requester` does not bypass the
 invite requirement in this mode.
 
@@ -572,9 +572,48 @@ Workers reject proposals exceeding these ceilings before contract acceptance;
 stricter existing acceptance limits still apply. When discovering an open card,
 requesters cap only unspecified default budget fields, never increase defaults,
 and preserve explicit budgets and custom manifests for worker validation.
-Omitted policy fields impose no additional ceiling. Starting an open worker with
-`--yes` (or another automatic approval flag) and no requester allowlist prints
-an `[Sealbridge WARNING]` line to stderr.
+Omitted policy fields impose no additional ceiling.
+
+### Worker peer review
+
+Open workers now quarantine unknown requesters by default, including sandbox workers
+started with `--yes` or `--auto-accept`. No task is accepted, executed, or answered by
+an application. The requester receives terminal `PENDING_OWNER_APPROVAL` (CLI exit 3;
+MCP `{error:"PENDING_OWNER_APPROVAL",retryable:false}`). Do not retry automatically.
+Invite-only workers still require an invite, a matching explicit requester allow,
+or a current peer grant. Publishing remains explicit.
+
+The worker owner reviews local metadata using the same worker identity and data root:
+
+```sh
+sealbridge requests list
+sealbridge requests approve REQUEST_ID
+sealbridge requests approve REQUEST_ID --trust trusted
+sealbridge requests deny REQUEST_ID
+```
+
+Add `--key FILE` to select an existing worker identity. Decisions require a human
+TTY confirmation; there is no unattended approval flag. Approval defaults to
+`limited`: LLM execution still needs a separate owner contract approval channel.
+Explicit `trusted` approval permits later automatic execution only when the owner
+also enables automatic policy. Grants expire after 24 hours. Denial removes the
+peer grant and persists across restarts, including after an earlier approval.
+Contacts allow/revoked decisions and explicit requester restrictions still apply.
+
+Approval admits the peer; it sends nothing, executes nothing, and never replays the
+original task. After review, the requester owner must explicitly submit a fresh task.
+Pending metadata expires after at most 15 minutes or the original deadline.
+The signed metadata store is under `<data-root>/workers/<worker-owner-hash>/intake.json`;
+it contains previews and digests, without task input or invitation/capability tokens.
+
+`--allowed-peer DID` (repeatable or comma-separated) restricts both incoming requests
+and all worker session output, including progress and recovery. It intersects every
+trust level and allow flag. Excluded peers receive no worker response and may time
+out; communicate the restriction out of band. Runtime `allowedPeerDids: []` denies all.
+Custom LLM integrations must set `adapterKind: 'llm'` and supply a distinct human
+`ownerApprovalProvider` for limited peers; automatic providers cannot replace it.
+Programmatic workers use an in-memory intake store unless a store is supplied.
+Local CLI workers and `requests` share P1 default identity/data-root selection.
 
 Discovery also supports `--task-type <type>` and `--did <did>`; delegation
 supports `--task-type <type>` or the existing `--to <did>`. Skill selection

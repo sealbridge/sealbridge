@@ -9,7 +9,7 @@ import type { KeyPair } from '../packages/core/src/index.js';
 import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay } from '../packages/relay/src/index.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
 import { AcpMcpServer, DEFAULT_PUBLIC_RELAY, resolveOrCreateIdentity,
-  WorkerNode } from '../packages/runtime/src/index.js';
+  WorkerNode, WorkerTrustStore } from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, ApprovalProvider, WorkerNodeOptions } from '../packages/runtime/src/index.js';
 import { mcpServerOptionsFromArgs, parseMcpServerArgs } from '../cli/src/mcp.js';
 
@@ -52,6 +52,7 @@ function card(mode?: 'open' | 'invite-only', owner = generateKeyPair(), endpoint
 function harness() {
   const identityOptions = { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } };
   const relay = new InMemoryRelay({ now: () => Date.now() });
+  const send = vi.spyOn(relay, 'send');
   const handler = createRelayFetchHandler({ relay });
   const routes: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
@@ -66,7 +67,7 @@ function harness() {
   const options = { ...mcpServerOptionsFromArgs(parseMcpServerArgs([])),
     identityOptions, transportFactory, approvalProvider };
   const server = new AcpMcpServer(options);
-  return { relay, routes, options, server, requester, approvalProvider, transportFactory };
+  return { relay, send, routes, options, server, requester, approvalProvider, transportFactory };
 }
 function directory(raw: unknown, options: Partial<AcpMcpServerOptions> = {}) {
   return new AcpMcpServer({
@@ -76,7 +77,7 @@ function directory(raw: unknown, options: Partial<AcpMcpServerOptions> = {}) {
 }
 
 describe('default MCP open discovery', () => {
-  it('discovers over GET /agents and delegates returned DID/relay with default application options', async () => {
+  it('discovers over GET /agents, holds unknown peers, and settles a fresh owner-approved delegation', async () => {
     const h = harness();
     const owner = resolveOrCreateIdentity('worker', h.options.identityOptions);
     const agent = generateKeyPair();
@@ -86,10 +87,12 @@ describe('default MCP open discovery', () => {
       expect(ctx.manifest.worker).toMatchObject({ ownerDid: owner.did, agentDid: agent.did });
       return ctx.input;
     });
+    const store = new WorkerTrustStore(owner);
+    const workerApproval = approving(() => owner);
     const worker = new WorkerNode({ owner, agentDid: agent.did, agentKey: agent,
       relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
       accessMode: 'open', openPolicy: POLICY, publishToRegistry: true, allowedRequesterDids: [],
-      approvalProvider: approving(() => owner),
+      intakeStore: store, approvalProvider: workerApproval,
       adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } });
     await h.server.handle({ jsonrpc: '2.0', id: 1, method: 'initialize' });
     await h.server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
@@ -105,16 +108,38 @@ describe('default MCP open discovery', () => {
     expect(verifySignedAgentCard(selected.signedAgentCard)).toBe(true);
     expect(existsSync(join(root, 'data', 'identities', 'requester.private.json'))).toBe(false);
     expect(h.approvalProvider.approve).not.toHaveBeenCalled();
-    const done = worker.start({ once: true });
+    let done = worker.start({ once: true }).catch((error: Error) => error);
     try {
-      const result = await call(h.server, 'acp_delegate_task', {
+      const args = {
         workerDid: selected.workerDid, relayUrl: selected.relayUrl,
         title: 'Echo JSON', input: { hello: 'world' },
-      });
+      };
+      expect(await call(h.server, 'acp_delegate_task', args)).toMatchObject({ isError: true,
+        value: { error: 'PENDING_OWNER_APPROVAL', retryable: false } });
+      expect(await done).toMatchObject({ message: 'PENDING_OWNER_APPROVAL' });
+      expect(executeTask).not.toHaveBeenCalled();
+      expect(workerApproval.approve).not.toHaveBeenCalled();
+      expect(store.list()).toHaveLength(1);
+      const pending = store.list()[0];
+      expect(pending).toMatchObject({ requesterOwnerDid: h.requester().did, state: 'pending' });
+      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
+      expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.eventType === 'PROPOSE')).toHaveLength(1);
+      expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.senderDid === owner.did)
+        .map(([envelope]) => envelope.payload.eventType)).toEqual(['ERROR']);
+
+      // Simulate owner intake review as in worker-intake.test.ts. Review never replays work.
+      store.decide(pending.id, 'approve', 'trusted');
+      expect(executeTask).not.toHaveBeenCalled();
+      expect(workerApproval.approve).not.toHaveBeenCalled();
+      done = worker.start({ once: true }).catch((error: Error) => error);
+      const result = await call(h.server, 'acp_delegate_task', args);
       expect(result).toMatchObject({ isError: false, value: { status: 'SETTLED',
         deliverable: { hello: 'world' }, auditBundle: { valid: true } } });
-      expect((await done)?.state).toBe('SETTLED');
+      expect(await done).toMatchObject({ state: 'SETTLED' });
+      expect(result.value.taskId).not.toBe(pending.taskId);
       expect(executeTask).toHaveBeenCalledTimes(1);
+      expect(workerApproval.approve).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(workerApproval.approve).mock.calls[0][0].gate).toBe('contract_acceptance');
       const approvals = vi.mocked(h.approvalProvider.approve).mock.calls.map(([request]) => request);
       expect(approvals).toEqual(expect.arrayContaining([
         expect.objectContaining({ gate: 'external_side_effect', target: expect.objectContaining({ description: 'Echo JSON' }) }),
@@ -122,7 +147,7 @@ describe('default MCP open discovery', () => {
       ]));
       expect(h.requester().did).not.toBe(owner.did);
       expect(h.routes).toContain('POST /agents');
-      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
+      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(3);
       expect(h.transportFactory.mock.calls.every(([url]) => url === DEFAULT_PUBLIC_RELAY)).toBe(true);
     } finally { worker.stop(); await done.catch(() => undefined); }
   });
@@ -275,6 +300,7 @@ describe('MCP DID admission compatibility', () => {
     ('preserves worker decisions and does not retry: %s', async scenario => {
       const h = harness();
       const owner = generateKeyPair();
+      const store = new WorkerTrustStore(owner);
       const executeTask = vi.fn(async (ctx: Parameters<WorkerNodeOptions['adapter']['executeTask']>[0]) => ctx.input);
       const options: WorkerNodeOptions = { owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),
         relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: scenario.includes('private') || scenario === 'invite-only' || scenario === 'allowed-requester'
@@ -282,6 +308,7 @@ describe('MCP DID admission compatibility', () => {
         allowedRequesterDids: scenario === 'allowed-requester' ? [h.requester().did]
           : scenario === 'open-disallowed' ? [generateKeyPair().did] : scenario === 'open-default' ? undefined : [],
         allowAnyRequester: scenario === 'allow-any-private',
+        intakeStore: store,
         approvalProvider: approving(() => owner, scenario === 'worker-declines' ? 'REJECTED' : 'APPROVED'),
         adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } };
       const worker = new WorkerNode(options);
@@ -293,25 +320,54 @@ describe('MCP DID admission compatibility', () => {
         vi.setSystemTime(new Date(NOW.getTime() + 1000));
         await h.relay.register(card('invite-only', owner));
       }
-      const done = worker.start({ once: true }).catch((error: Error) => error);
+      let done = worker.start({ once: true }).catch((error: Error) => error);
       try {
-        const result = await call(h.server, 'acp_delegate_task', {
+        const args = {
           workerDid: selected.workerDid, relayUrl: selected.relayUrl, title: 'Echo',
           input: { hello: 'world' },
           ...(scenario === 'excess-budget' ? { budget: { maxInputTokens: POLICY.maxInputTokens + 1 } } : {}),
-        });
+        };
+        const needsReview = ['open-default', 'open-empty', 'worker-declines'].includes(scenario);
+        let pendingTaskId: string | undefined;
+        if (needsReview) {
+          expect(await call(h.server, 'acp_delegate_task', args)).toMatchObject({ isError: true,
+            value: { error: 'PENDING_OWNER_APPROVAL', retryable: false } });
+          expect(await done).toMatchObject({ message: 'PENDING_OWNER_APPROVAL' });
+          expect(executeTask).not.toHaveBeenCalled();
+          expect(options.approvalProvider!.approve).not.toHaveBeenCalled();
+          expect(store.list()).toHaveLength(1);
+          const pending = store.list()[0];
+          expect(pending).toMatchObject({ requesterOwnerDid: h.requester().did, state: 'pending' });
+          pendingTaskId = pending.taskId;
+          expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
+          expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.eventType === 'PROPOSE')).toHaveLength(1);
+          expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.senderDid === owner.did)
+            .map(([envelope]) => envelope.payload.eventType)).toEqual(['ERROR']);
+          store.decide(pending.id, 'approve', 'trusted');
+          expect(executeTask).not.toHaveBeenCalled();
+          expect(options.approvalProvider!.approve).not.toHaveBeenCalled();
+          done = worker.start({ once: true }).catch((error: Error) => error);
+        }
+        const result = await call(h.server, 'acp_delegate_task', args);
         const success = scenario === 'allowed-requester' || scenario === 'open-empty' || scenario === 'open-default';
         if (success) {
           expect(result).toMatchObject({ isError: false, value: { status: 'SETTLED', auditBundle: { valid: true } } });
+          expect(await done).toMatchObject({ state: 'SETTLED' });
+          expect(result.value.taskId).not.toBe(pendingTaskId);
           expect(executeTask).toHaveBeenCalledTimes(1);
+          expect(options.approvalProvider!.approve).toHaveBeenCalledTimes(1);
         } else {
           const error = scenario === 'worker-declines' ? 'APPROVAL' : scenario === 'open-disallowed' ? 'PROPOSAL_REJECTED'
             : scenario === 'excess-budget' ? 'TASK_SCOPE_REJECTED' : 'INVITE_REQUIRED';
           expect(result).toMatchObject({ isError: true });
           expect(result.value.error).toContain(error);
           expect(executeTask).not.toHaveBeenCalled();
+          if (scenario === 'worker-declines') {
+            expect(result.value.error).not.toBe('PENDING_OWNER_APPROVAL');
+            expect(options.approvalProvider!.approve).toHaveBeenCalledTimes(1);
+          }
         }
-        expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
+        expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(needsReview ? 3 : 2);
       } finally { worker.stop(); await done; }
     });
 });
