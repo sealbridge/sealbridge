@@ -11,10 +11,12 @@ import { detectedHosts, hostDestination, runtimeEntry } from './setup-hosts.js';
 import type { SetupHost, HostDestination } from './setup-hosts.js';
 import { snapshot, strictObject, hostChange, assertUnchanged, publish } from './setup-files.js';
 
-export const SETUP_USAGE = 'Usage: sealbridge setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--dry-run | --print]';
+export const SETUP_USAGE = 'Usage: sealbridge setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
+const ENTRY_CONFLICT_HELP = 'An existing Sealbridge entry differs from the proposed entry. Review with --update-existing --dry-run or --update-existing --print, then use --update-existing to replace only that entry with a backup. Use --no-require-approval to select the previous plain mcp-server mode.';
 export interface SetupOptions extends LocalIdentityOptions {
   hosts?: string[]; allDetected?: boolean; project?: string; worker?: boolean;
   relay?: string; dryRun?: boolean; print?: boolean; execPath?: string; entryPath?: string;
+  requireApproval?: boolean; updateExisting?: boolean;
   chooseHost?: (hosts: readonly SetupHost[]) => Promise<SetupHost | undefined>;
 }
 export function parseSetupArgs(args: string[]): SetupOptions {
@@ -33,6 +35,8 @@ export function parseSetupArgs(args: string[]): SetupOptions {
     else if (arg === '--worker') result.worker = true;
     else if (arg === '--dry-run') result.dryRun = true;
     else if (arg === '--print') result.print = true;
+    else if (arg === '--no-require-approval') result.requireApproval = false;
+    else if (arg === '--update-existing') result.updateExisting = true;
     else throw new Error('SETUP_INVALID_ARGUMENT');
   }
   validateOptions(result);
@@ -57,7 +61,7 @@ export async function selectSetupHosts(options: SetupOptions): Promise<HostDesti
 }
 export function setupExitCode(code: string): number {
   if (['SETUP_INVALID_ARGUMENT', 'SETUP_HOST_REQUIRED', 'SETUP_HOST_UNSUPPORTED'].includes(code)) return 2;
-  if (['SETUP_ENTRY_CONFLICT', 'SETUP_CONFIG_CONFLICT', 'SETUP_CONFIG_INVALID', 'SETUP_RUNTIME_UNSTABLE'].includes(code)) return 3;
+  if (['SETUP_ENTRY_CONFLICT', 'SETUP_APPROVAL_MODE_CONFLICT', 'SETUP_CONFIG_CONFLICT', 'SETUP_CONFIG_INVALID', 'SETUP_RUNTIME_UNSTABLE'].includes(code)) return 3;
   return 1;
 }
 function errorCode(error: unknown): string {
@@ -73,6 +77,11 @@ export async function runSetup(options: SetupOptions = {}) {
   const io = options.fs ?? fs, platform = options.platform ?? process.platform;
   const hosts = await selectSetupHosts(options), root = resolveDataRoot(options);
   const entry = runtimeEntry(root, options);
+  const alternateEntry = { ...entry, args: options.requireApproval === false
+    ? [...entry.args, '--require-approval'] : entry.args.slice(0, -1) };
+  const approval = options.requireApproval === false
+    ? { approvalMode: 'automatic', approvalNote: 'The host can send without per-request confirmation and accept final results automatically.' }
+    : { approvalMode: 'host-mediated', approvalNote: 'Host form elicitation is required before sending and for final verification. Hosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending.' };
   const roles: IdentityRole[] = options.worker ? ['requester', 'worker'] : ['requester'];
   const identities = roles.map(role => {
     const selected = inspectLocalIdentity(role, options);
@@ -91,14 +100,16 @@ export async function runSetup(options: SetupOptions = {}) {
     }
   } catch (error) { throw new Error(errorCode(error) === 'SETUP_WRITE_FAILED' ? 'SETUP_CONFIG_INVALID' : errorCode(error)); }
   const selected = selectApplicationRelay({ fallbackCandidates: config.relays });
-  const changes = hosts.map(host => ({ host, change: hostChange(snapshot(host.path, io, platform), entry) }));
-  if (options.print) return { snippets: hosts.map(({ host, path }) => ({ host, path, mcpServers: { sealbridge: entry } })) };
+  const changes = hosts.map(host => ({ host, change: hostChange(snapshot(host.path, io, platform), entry,
+    { updateExisting: options.updateExisting, alternateEntry }) }));
+  if (options.print) return { snippets: hosts.map(({ host, path }) => ({ host, path, ...approval, mcpServers: { sealbridge: entry } })) };
   const summary = {
     mode: options.dryRun ? 'dry-run' : 'apply', identities,
     config: { path: configOriginal.path, previous: configOriginal.bytes ? 'existing' : 'previously absent',
       status: configOriginal.bytes ? 'reused' : 'created on apply',
       relay: selected.relay, source: configOriginal.bytes ? 'local-default' : options.relay ? 'setup --relay' : 'built-in default' },
     destinations: changes.map(({ host, change }) => ({ host: host.host, path: host.path,
+      ...approval,
       previous: change.bytes ? 'existing' : 'previously absent',
       status: change.bytes?.equals(change.next) ? 'unchanged' : 'planned', backup: undefined as string | undefined })),
     next: 'Reload the selected host, then check its MCP tools. Setup does not check host readiness or grant task approval.',
@@ -148,7 +159,7 @@ export async function runSetup(options: SetupOptions = {}) {
 
 export async function setupCommand(args: string[]) {
   if (args.length === 1 && args[0] === '--help') {
-    console.log(SETUP_USAGE + '\nHosts: claude-desktop (macOS/Windows), cursor, claude-code (explicit --project only).\nLocal only. Close host settings before applying; reload the host afterward.\n--dry-run reads and validates; --print outputs proposed entries. Neither writes files.\nUse a persistent installation or a built checkout; setup does not install dependencies.');
+    console.log(SETUP_USAGE + '\nHosts: claude-desktop (macOS/Windows), cursor, claude-code (explicit --project only).\nLocal only. Close host settings before applying; reload the host afterward.\nDefault: mcp-server --require-approval requests host form elicitation before sending and for final verification.\nHosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending; support cannot be detected offline.\n--no-require-approval selects automatic approval: the host can send without per-request confirmation and accept final results automatically.\n--update-existing replaces only a differing Sealbridge entry, retaining a backup of the original file.\n--dry-run reads and validates; --print outputs proposed entries. Neither writes files.\nUse a persistent installation or a built checkout; setup does not install dependencies.');
     return;
   }
   try {
@@ -168,6 +179,8 @@ export async function setupCommand(args: string[]) {
     }
   } catch (error) {
     const code = errorCode(error);
+    if (code === 'SETUP_APPROVAL_MODE_CONFLICT') console.error('Existing Sealbridge entry uses a different approval mode.');
+    if (code === 'SETUP_APPROVAL_MODE_CONFLICT' || code === 'SETUP_ENTRY_CONFLICT') console.error(ENTRY_CONFLICT_HELP);
     console.error(code);
     process.exitCode = setupExitCode(code);
   }

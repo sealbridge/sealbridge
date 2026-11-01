@@ -10,12 +10,14 @@ import type { SetupOptions } from '../cli/src/setup.js';
 import { hostDestination, runtimeEntry } from '../cli/src/setup-hosts.js';
 import { hostChange, snapshot, publish } from '../cli/src/setup-files.js';
 import { generateKeyPair } from '../packages/core/src/index.js';
+import { parseMcpServerArgs, mcpServerOptionsFromArgs } from '../cli/src/mcp.js';
+import { japaneseErrorReason } from '../cli/src/error-messages.js';
 
 const roots: string[] = [];
 const initialExit = process.exitCode;
 afterEach(() => {
   process.exitCode = initialExit;
-  vi.restoreAllMocks(); vi.unstubAllGlobals();
+  vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 function fixture(): SetupOptions & { home: string; entryPath: string; env: { SEALBRIDGE_DATA_DIR: string } } {
@@ -59,6 +61,10 @@ it('requires an explicit absolute project and rejects ambiguous/unsupported argu
     expect(() => parseSetupArgs(args)).toThrow('SETUP_INVALID_ARGUMENT');
   expect(parseSetupArgs(['--host', 'cursor', '--host', 'claude-desktop', '--worker', '--print']))
     .toMatchObject({ hosts: ['cursor', 'claude-desktop'], worker: true, print: true });
+  expect(parseSetupArgs(['--no-require-approval', '--update-existing']))
+    .toEqual({ requireApproval: false, updateExisting: true });
+  for (const flag of ['--no-require-approval', '--update-existing'])
+    expect(() => parseSetupArgs([flag, flag])).toThrow('SETUP_INVALID_ARGUMENT');
   await expect(runSetup({ ...o, hosts: ['claude-code'], project: 'relative' })).rejects.toThrow('SETUP_INVALID_ARGUMENT');
   await expect(runSetup({ ...o, hosts: ['vscode'] })).rejects.toThrow('SETUP_HOST_UNSUPPORTED');
   expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
@@ -79,7 +85,9 @@ it('selects detected user hosts and leaves ambiguity/cancellation without writes
   expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
 });
 
-it.each(['dryRun', 'print'] as const)('%s validates but makes zero writes or requests', async mode => {
+it.each([
+  ['dryRun', true], ['dryRun', false], ['print', true], ['print', false],
+] as const)('%s with requireApproval=%s validates but makes zero writes or requests', async (mode, requireApproval) => {
   const o = fixture(), fetch = vi.fn(() => { throw new Error('unexpected fetch'); });
   vi.stubGlobal('fetch', fetch);
   const deny = vi.fn(() => { throw new Error('unexpected mutation'); });
@@ -88,11 +96,15 @@ it.each(['dryRun', 'print'] as const)('%s validates but makes zero writes or req
       if (typeof flags === 'string' ? flags !== 'r' : (flags & (fs.constants.O_CREAT | fs.constants.O_WRONLY | fs.constants.O_RDWR))) deny();
       return fs.openSync(path, flags, ...rest);
     }) as typeof fs.openSync });
-  const result = await runSetup({ ...o, fs: io, worker: true, [mode]: true });
+  const result = await runSetup({ ...o, fs: io, worker: true, requireApproval, [mode]: true });
   expect(deny).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
   expect(fs.existsSync(join(o.home, '.cursor'))).toBe(false);
   const text = JSON.stringify(result);
+  expect(text).toContain(requireApproval ? 'host-mediated' : 'automatic');
+  expect(text).toContain(requireApproval ? 'APPROVAL_CHANNEL_UNAVAILABLE' : 'The host can send without per-request confirmation');
+  if (mode === 'print' && 'snippets' in result)
+    expect(result.snippets[0].mcpServers.sealbridge.args).toEqual([o.entryPath, 'mcp-server', ...(requireApproval ? ['--require-approval'] : [])]);
   expect(text).not.toContain('privateKey'); expect(text).not.toContain('did:key:');
   if (mode === 'print') expect(Object.keys(result)).toEqual(['snippets']);
   else expect(text).toContain('created on apply');
@@ -108,7 +120,7 @@ it('creates separate default identities, records M config, and stays byte-idempo
   expect(JSON.parse(fs.readFileSync(config, 'utf8'))).toEqual({ version: 1, relays: ['https://relay.sealbridge.dev'] });
   const bytes = fs.readFileSync(hostPath(o));
   const entry = JSON.parse(bytes.toString()).mcpServers.sealbridge;
-  expect(entry).toEqual({ command: fs.realpathSync(process.execPath), args: [fs.realpathSync(o.entryPath), 'mcp-server'],
+  expect(entry).toEqual({ command: fs.realpathSync(process.execPath), args: [fs.realpathSync(o.entryPath), 'mcp-server', '--require-approval'],
     env: { SEALBRIDGE_DATA_DIR: o.env.SEALBRIDGE_DATA_DIR } });
   const second = applied(await runSetup({ ...o, worker: true }));
   expect(second.error).toBeUndefined(); expect(second.destinations[0].status).toBe('unchanged');
@@ -116,6 +128,116 @@ it('creates separate default identities, records M config, and stays byte-idempo
   expect(second.identities.map(i => i.status)).toEqual(['reused', 'reused']);
   expect(fs.readFileSync(hostPath(o))).toEqual(bytes);
   expect(fs.existsSync(join(o.env.SEALBRIDGE_DATA_DIR, 'setup'))).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each([true, false])('registers every host with requireApproval=%s and preserves identities on rerun', async requireApproval => {
+  const o = fixture(), project = join(o.home, 'project');
+  const options = { ...o, platform: 'darwin' as const, hosts: ['claude-desktop', 'cursor', 'claude-code'], project,
+    ...(requireApproval ? {} : { requireApproval: false }) };
+  const fetch = vi.fn(() => { throw new Error('unexpected fetch'); }); vi.stubGlobal('fetch', fetch);
+  const first = applied(await runSetup(options));
+  expect(first.error).toBeUndefined(); expect(first.destinations).toHaveLength(3);
+  const before = first.destinations.map(destination => fs.readFileSync(destination.path));
+  for (const destination of first.destinations) {
+    const entry = JSON.parse(fs.readFileSync(destination.path, 'utf8')).mcpServers.sealbridge;
+    expect(entry.args).toEqual([o.entryPath, 'mcp-server', ...(requireApproval ? ['--require-approval'] : [])]);
+    expect(destination.approvalMode).toBe(requireApproval ? 'host-mediated' : 'automatic');
+    expect(mcpServerOptionsFromArgs(parseMcpServerArgs(entry.args.slice(2))).requireInteractiveApproval).toBe(requireApproval);
+  }
+  const keyPath = first.identities[0].path, key = fs.readFileSync(keyPath);
+  const second = applied(await runSetup(options));
+  expect(second.error).toBeUndefined(); expect(second.destinations.every(d => d.status === 'unchanged')).toBe(true);
+  expect(second.destinations.map(d => fs.readFileSync(d.path))).toEqual(before);
+  expect(fs.readFileSync(keyPath)).toEqual(key);
+  expect(fs.existsSync(join(o.env.SEALBRIDGE_DATA_DIR, 'setup'))).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each(['apply', 'dryRun', 'print'] as const)('reports a legacy approval mode without modifying files in %s', async mode => {
+  const o = fixture(), entry = runtimeEntry(o.env.SEALBRIDGE_DATA_DIR, { ...o, requireApproval: false });
+  const raw = JSON.stringify({ mcpServers: { sealbridge: entry } }); write(hostPath(o), raw);
+  await expect(runSetup({ ...o, ...(mode === 'apply' ? {} : { [mode]: true }) }))
+    .rejects.toThrow('SETUP_APPROVAL_MODE_CONFLICT');
+  expect(fs.readFileSync(hostPath(o), 'utf8')).toBe(raw);
+  expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
+  expect(setupExitCode('SETUP_APPROVAL_MODE_CONFLICT')).toBe(3);
+  expect(japaneseErrorReason('SETUP_APPROVAL_MODE_CONFLICT')).toContain('--update-existing');
+  expect(japaneseErrorReason('SETUP_ENTRY_CONFLICT')).toContain('--update-existing');
+  const unchanged = applied(await runSetup({ ...o, requireApproval: false }));
+  expect(unchanged.error).toBeUndefined(); expect(unchanged.destinations[0].status).toBe('unchanged');
+  expect(fs.readFileSync(hostPath(o), 'utf8')).toBe(raw);
+});
+
+it.each([true, false])('replaces only the Sealbridge value with a backup when requireApproval=%s is requested explicitly', async requireApproval => {
+  const o = fixture(), oldEntry = runtimeEntry(o.env.SEALBRIDGE_DATA_DIR, { ...o, requireApproval: !requireApproval });
+  const prefix = '\uFEFF{\r\n\t"mcpServers": {"other": { "command": "other" }, "sealbridge": ', suffix = '},\r\n\t"tail": [ 1,2 ]\r\n}\r\n';
+  const raw = prefix + JSON.stringify(oldEntry, null, '\t').replaceAll('\n', '\r\n') + suffix;
+  write(hostPath(o), raw, 0o640);
+  await expect(runSetup({ ...o, requireApproval })).rejects.toThrow('SETUP_APPROVAL_MODE_CONFLICT');
+  for (const mode of ['dryRun', 'print'] as const) {
+    const preview = await runSetup({ ...o, requireApproval, updateExisting: true, [mode]: true });
+    expect(JSON.stringify(preview)).toContain(requireApproval ? 'host-mediated' : 'automatic');
+    expect(fs.readFileSync(hostPath(o), 'utf8')).toBe(raw);
+    expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
+  }
+  const options = { ...o, requireApproval, updateExisting: true };
+  const result = applied(await runSetup(options)); expect(result.error).toBeUndefined();
+  expect(result.destinations[0].status).toBe('configured');
+  const backup = result.destinations[0].backup!;
+  expect(fs.readFileSync(backup, 'utf8')).toBe(raw);
+  expect(fs.readFileSync(hostPath(o), 'utf8')).toBe(prefix + JSON.stringify(runtimeEntry(o.env.SEALBRIDGE_DATA_DIR, options)) + suffix);
+  if (process.platform !== 'win32') expect(fs.statSync(hostPath(o)).mode & 0o777).toBe(0o640);
+  const rerun = applied(await runSetup(options)); expect(rerun.error).toBeUndefined();
+  expect(rerun.destinations[0].status).toBe('unchanged'); expect(rerun.destinations[0].backup).toBeUndefined();
+  expect(fs.readdirSync(dirname(backup))).toHaveLength(1);
+});
+
+it('requires explicit replacement for a differing runtime entry and retains the original on publication failure', async () => {
+  const o = fixture(), raw = '{"mcpServers":{"sealbridge":{"command":"previous"},"other":{}},"owner":true}';
+  write(hostPath(o), raw);
+  await expect(runSetup(o)).rejects.toThrow('SETUP_ENTRY_CONFLICT');
+  const result = applied(await runSetup({ ...o, updateExisting: true,
+    fs: injected({ renameSync: () => { throw new Error('rename failed'); } }) }));
+  expect(result.error).toBe('SETUP_WRITE_FAILED');
+  expect(fs.readFileSync(hostPath(o), 'utf8')).toBe(raw);
+  expect(fs.readFileSync(result.destinations[0].backup!, 'utf8')).toBe(raw);
+  const rerun = applied(await runSetup({ ...o, updateExisting: true })); expect(rerun.error).toBeUndefined();
+  expect(JSON.parse(fs.readFileSync(hostPath(o), 'utf8'))).toEqual({
+    mcpServers: { sealbridge: runtimeEntry(o.env.SEALBRIDGE_DATA_DIR, o), other: {} }, owner: true,
+  });
+});
+
+it('prints CLI approval modes and explicit instructions for replacing a legacy entry', async () => {
+  const o = fixture();
+  vi.stubEnv('HOME', o.home); vi.stubEnv('USERPROFILE', o.home);
+  vi.stubEnv('SEALBRIDGE_DATA_DIR', o.env.SEALBRIDGE_DATA_DIR);
+  const fetch = vi.fn(() => { throw new Error('unexpected fetch'); }); vi.stubGlobal('fetch', fetch);
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  // Use the built entry so module-relative runtime resolution has its installed JavaScript path.
+  const { setupCommand: installedSetupCommand } = await import('../cli/dist/setup.js');
+  const run = (...args: string[]) => installedSetupCommand(['--host', 'cursor', ...args]);
+  for (const flag of ['--print', '--dry-run']) {
+    await run(flag); expect(log.mock.lastCall![0]).toContain('host-mediated');
+    await run(flag, '--no-require-approval');
+    expect(log.mock.lastCall![0]).toContain('automatic');
+    expect(log.mock.lastCall![0]).toContain('without per-request confirmation');
+    expect(fs.existsSync(o.env.SEALBRIDGE_DATA_DIR)).toBe(false);
+  }
+  await run('--no-require-approval');
+  expect(JSON.parse(log.mock.lastCall![0]).destinations[0].approvalMode).toBe('automatic');
+  const before = fs.readFileSync(hostPath(o));
+  await run(); expect(process.exitCode).toBe(3);
+  expect(error).toHaveBeenCalledWith('Existing Sealbridge entry uses a different approval mode.');
+  expect(error).toHaveBeenCalledWith(expect.stringContaining('--update-existing --dry-run'));
+  expect(error).toHaveBeenLastCalledWith('SETUP_APPROVAL_MODE_CONFLICT');
+  expect(fs.readFileSync(hostPath(o))).toEqual(before);
+  expect(fs.existsSync(join(o.env.SEALBRIDGE_DATA_DIR, 'setup'))).toBe(false);
+  await run('--update-existing');
+  const updated = JSON.parse(log.mock.lastCall![0]);
+  expect(updated.destinations[0].approvalMode).toBe('host-mediated');
+  expect(fs.readFileSync(updated.destinations[0].backup)).toEqual(before);
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -333,7 +455,7 @@ it('keeps Windows argv literal and uses native Node with a JavaScript entry', as
   const io = injected({ realpathSync: ((p: string) => p) as typeof fs.realpathSync,
     statSync: (() => ({ isFile: () => true })) as unknown as typeof fs.statSync });
   const entry = runtimeEntry('C:\\User data', { fs: io, platform: 'win32', execPath: command, entryPath });
-  expect(entry).toEqual({ command, args: [entryPath, 'mcp-server'], env: { SEALBRIDGE_DATA_DIR: 'C:\\User data' } });
+  expect(entry).toEqual({ command, args: [entryPath, 'mcp-server', '--require-approval'], env: { SEALBRIDGE_DATA_DIR: 'C:\\User data' } });
   const o = fixture();
   const output = join(o.home, 'argv.json');
   await promisify(execFile)(process.execPath, [o.entryPath, ...entry.args], { shell: false, timeout: 10000,
@@ -345,6 +467,8 @@ it('keeps Windows argv literal and uses native Node with a JavaScript entry', as
 it('prints help and stable exit codes without creating local state', async () => {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {}), error = vi.spyOn(console, 'error').mockImplementation(() => {});
   await setupCommand(['--help']); expect(log.mock.calls[0][0]).toContain('sealbridge setup');
+  for (const text of ['--require-approval', '--no-require-approval', '--update-existing', 'APPROVAL_CHANNEL_UNAVAILABLE', 'without per-request confirmation'])
+    expect(log.mock.calls[0][0]).toContain(text);
   await setupCommand(['--yes']); expect(process.exitCode).toBe(2); expect(error).toHaveBeenLastCalledWith('SETUP_INVALID_ARGUMENT');
   expect(setupExitCode('SETUP_ENTRY_CONFLICT')).toBe(3); expect(setupExitCode('IDENTITY_INVALID')).toBe(1);
 });

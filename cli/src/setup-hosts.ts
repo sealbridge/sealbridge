@@ -39,7 +39,7 @@ export function detectedHosts(options: HostOptions): HostDestination[] {
 export interface McpEntry { command: string; args: string[]; env: { SEALBRIDGE_DATA_DIR: string } }
 /** Resolve module-relative installed JavaScript, never a PATH shim or cwd-relative script. */
 export function runtimeEntry(root: string, options: {
-  fs?: typeof fs; platform?: NodeJS.Platform; execPath?: string; entryPath?: string;
+  fs?: typeof fs; platform?: NodeJS.Platform; execPath?: string; entryPath?: string; requireApproval?: boolean;
 } = {}): McpEntry {
   const io = options.fs ?? fs, platform = options.platform ?? process.platform;
   const paths = platform === 'win32' ? win32 : posix;
@@ -54,6 +54,7 @@ export function runtimeEntry(root: string, options: {
     const command = resolve(options.execPath ?? process.execPath);
     const entry = resolve(options.entryPath ?? fileURLToPath(new URL('./index.js', import.meta.url)));
     if (!entry.endsWith('.js') || (platform === 'win32' && !/\.exe$/i.test(command))) throw new Error();
-    return { command, args: [entry, 'mcp-server'], env: { SEALBRIDGE_DATA_DIR: root } };
+    return { command, args: [entry, 'mcp-server', ...(options.requireApproval === false ? [] : ['--require-approval'])],
+      env: { SEALBRIDGE_DATA_DIR: root } };
   } catch { throw new Error('SETUP_RUNTIME_UNSTABLE'); }
 }

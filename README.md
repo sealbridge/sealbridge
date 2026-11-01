@@ -75,14 +75,24 @@ checkout must be built first and run via `node cli/dist/index.js setup`.
 
 Setup locally creates/reuses requester identity, optionally worker with
 `--worker`, records the existing `config.json` relay-list contract, and registers
-absolute Node/CLI paths for plain `mcp-server`, with no approval flags. It sends
+absolute Node/CLI paths for `mcp-server --require-approval`. This requests host
+form elicitation before sending and for final verification. Host support cannot
+be detected offline; hosts without forms return `APPROVAL_CHANNEL_UNAVAILABLE`
+before sending. Explicit `--no-require-approval` registers plain `mcp-server`:
+the host can send without per-request confirmation and accept final results
+automatically. Apply, `--dry-run`, and `--print` label each entry's approval mode. Setup sends
 nothing to the network and starts no process. `--relay URL` records a fallback
-and refuses a differing saved default. Existing entries must match exactly.
+and refuses a differing saved default. Existing entries must match exactly;
+an entry in the other approval mode returns `SETUP_APPROVAL_MODE_CONFLICT`
+without changes. Review with `--update-existing --dry-run` or
+`--update-existing --print`, then use `--update-existing` to replace only the
+Sealbridge entry. To keep a previous plain entry, use `--no-require-approval`.
 Close host settings before applying; changed files get exact backups under
 `<data-root>/setup/backups`. Backups may contain host credentials. Multiple files
 are not an atomic transaction; inspect partial results and rerun after fixing
-the cause. Reload the host and check its tools separately. Configure task
-approvals separately; registration does not grant approval or prove readiness.
+the cause. Reload the host and check its tools separately. Registration does
+not grant task approval or prove host readiness. Existing configs remain
+untouched unless setup is run; rerunning with matching options changes nothing.
 
 Follow the [agent-readable instructions](sites/connect-agent.txt) for human-run
 `sealbridge accept --paste` and `acp_list_invites`/`workerRef`, or open-worker

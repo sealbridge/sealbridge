@@ -31,11 +31,24 @@ All commands below run from the repository root.
 For local MCP host registration after building, use
 `node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
 macOS/Windows). Use `--dry-run` or `--print` to review without writes.
-Setup prepares requester identity/defaults locally and adds plain `mcp-server`
-with no approval flags. Reload the host and configure task approvals separately.
+Setup prepares requester identity/defaults locally and adds
+`mcp-server --require-approval` for host form approval before sending and for final
+verification. Form support cannot be detected offline; hosts without it return
+`APPROVAL_CHANNEL_UNAVAILABLE` before sending. Explicit `--no-require-approval`
+registers the previous plain entry: the host can send without per-request
+confirmation and accept final results automatically. Each output labels the mode.
+An existing entry in a different mode returns `SETUP_APPROVAL_MODE_CONFLICT`
+without changes. Review with `--update-existing --dry-run` or
+`--update-existing --print`, then use `--update-existing` to replace only the
+Sealbridge entry with a backup. Matching options are idempotent; running nothing leaves configs untouched.
+Reload the host and check its tools separately.
 See [agent-readable connection instructions](sites/connect-agent.txt); invitation
 import/open discovery require releases exposing those commands and tools.
-ローカル設定後はホストを再読込し、仕事の承認は別途行います。
+既定は送信前・最終検収時のホスト承認です。フォーム非対応なら送信前に
+`APPROVAL_CHANNEL_UNAVAILABLE` を返します。`--no-require-approval` は依頼ごとの
+確認なしに送信・最終承認する従来のモードを明示的に選びます。モードが異なる既存登録は
+変更せず停止します。`--update-existing --dry-run` で確認し、`--update-existing` で
+バックアップ付きでその登録だけを置換します。設定後はホストを再読込してください。
 
 ## Role determination / 役割の判断
 
