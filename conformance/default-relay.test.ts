@@ -1,18 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair, createSignedAgentCard, createInviteToken, parseAndVerifyInviteToken, signApproval } from '../packages/core/src/index.js';
 import type { Json, KeyPair } from '../packages/core/src/index.js';
 import { InMemoryRelay, HttpRelayClient, createRelayFetchHandler } from '../packages/relay/src/index.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
-import { AcpMcpServer, WorkerNode, resolveOrCreateIdentity, selectApplicationRelay, DEFAULT_PUBLIC_RELAY } from '../packages/runtime/src/index.js';
+import { AcpMcpServer, WorkerNode, resolveOrCreateIdentity, selectApplicationRelay, DEFAULT_PUBLIC_RELAY, createApplicationConfig } from '../packages/runtime/src/index.js';
 import type { ApprovalProvider } from '../packages/runtime/src/index.js';
+import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 import { networkCommand } from '../cli/src/network.js';
 import { mcpServerOptionsFromArgs, parseMcpServerArgs } from '../cli/src/mcp.js';
 
 const roots: string[] = [];
-afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 async function call(server: AcpMcpServer, name: string, args: Record<string, unknown> = {}) {
   const response = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as {
     result: { isError: boolean; content: { text: string }[]; structuredContent?: Record<string, Json> };
@@ -105,10 +106,11 @@ describe('application relay provenance', () => {
     expect(factory).toHaveBeenCalled();
     expect(factory.mock.calls.every(args => (args as unknown[])[0] === 'https://self.example')).toBe(true);
   });
-  it.each(['did', 'invite'] as const)('settles a default-shaped %s session and reuses both identities after restart', async target => {
+  it.each(['did', 'invite', 'did-with-candidates', 'invite-with-candidates'])('settles a %s session and reuses both identities after restart', async target => {
     const home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-session-'));
     roots.push(home);
     const identityOptions = { home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') } };
+    if (target.endsWith('-with-candidates')) createApplicationConfig({ version: 1, relays: [DEFAULT_PUBLIC_RELAY, 'https://unused.example'] }, identityOptions);
     const relay = new InMemoryRelay();
     const handler = createRelayFetchHandler({ relay });
     const fetcher = (async (input, init) => handler(new Request(input, init))) as typeof fetch;
@@ -122,7 +124,7 @@ describe('application relay provenance', () => {
     const owner = resolveOrCreateIdentity('worker', identityOptions);
     expect(selected).toEqual([]);
     const worker = new WorkerNode({ owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
-      relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: target === 'did' ? 'open' : 'invite-only',
+      relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: target.startsWith('did') ? 'open' : 'invite-only',
       allowedRequesterDids: [resolveOrCreateIdentity('requester', identityOptions).did],
       approvalProvider: approving(() => owner), timeoutMs: 3000,
       adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo' }], executeTask: async ctx => ctx.input } });
@@ -130,7 +132,7 @@ describe('application relay provenance', () => {
     // Starting immediately begins the receive loop; no port or sleeps are needed.
     const done = worker.start({ once: true });
     try {
-      const result = await call(server, 'acp_delegate_task', { ...(target === 'did'
+      const result = await call(server, 'acp_delegate_task', { ...(target.startsWith('did')
         ? { workerDid: owner.did } : { inviteToken: worker.invite() }),
         title: 'Echo', description: 'Echo JSON', input: { hello: 'world' }, taskTimeoutMs: 5000 });
       expect(result).toMatchObject({ error: false, value: { status: 'SETTLED', deliverable: { hello: 'world' }, auditBundle: { valid: true } } });
@@ -181,5 +183,178 @@ describe('application relay provenance', () => {
       'acp_delegate_task', { inviteToken: invite('https://self.example'), title: 'Echo', description: 'Echo JSON', input: {} });
     expect(result.value.error).toBe('INJECTED_TRANSPORT');
     expect(factory).not.toHaveBeenCalled();
+  });
+});
+
+describe('multiple local candidates, one active route', () => {
+  const first = 'https://first.example';
+  const unused = 'https://unused.example';
+  function fixture(relays = [first, unused]) {
+    const home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-candidates-'));
+    roots.push(home);
+    const identityOptions = { home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') } };
+    createApplicationConfig({ version: 1, relays }, identityOptions);
+    return { home, identityOptions };
+  }
+  it.each(['absent', 'candidates'])('signs an explicit loopback invite locally without connection opt-in with %s config', async form => {
+    const home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-loopback-invite-'));
+    roots.push(home);
+    const identityOptions = { home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') } };
+    if (form === 'candidates') createApplicationConfig({ version: 1, relays: [first, unused] }, identityOptions);
+    const owner = resolveOrCreateIdentity('worker', identityOptions);
+    const keyPath = join(identityOptions.env.SEALBRIDGE_DATA_DIR, 'identities', 'worker.private.json');
+    const loopback = 'http://127.0.0.1:8787';
+    const handler = createRelayFetchHandler({ relay: new InMemoryRelay() });
+    const fetcher = vi.fn((async (input, init) => {
+      expect(String(input).startsWith(loopback + '/')).toBe(true);
+      return handler(new Request(input, init));
+    }) as typeof fetch);
+    const application = { identityOptions, fetch: fetcher };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await networkCommand('invite', ['create', '--key', keyPath, '--relay', loopback], application);
+    const token = log.mock.calls.at(-1)![0] as string;
+    expect(parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true }))
+      .toMatchObject({ ownerDid: owner.did, relayUrl: loopback, agentCard: { payload: { relayEndpoint: loopback } } });
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(networkCommand('discover', ['--relay', loopback], application)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+    await expect(networkCommand('delegate', ['--to', token, '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}'], application))
+      .rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+    expect(fetcher).not.toHaveBeenCalled();
+    await networkCommand('discover', ['--relay', loopback, '--allow-private-relay'], application);
+    expect(log).toHaveBeenLastCalledWith('[]');
+    expect(fetcher.mock.calls).toHaveLength(1);
+    expect(fetcher.mock.calls[0][0]).toBe(loopback + '/agents');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const workerAudit = join(home, 'worker.jsonl');
+    const requesterAudit = join(home, 'requester.jsonl');
+    await Promise.all([
+      networkCommand('worker', ['start', '--key', keyPath, '--relay', loopback, '--allow-private-relay',
+        '--adapter', 'sandbox', '--auto-accept', '--once', '--contacts', join(home, 'contacts.json'),
+        '--audit', workerAudit], application),
+      networkCommand('delegate', ['--to', token, '--allow-private-relay', '--title', 'Echo',
+        '--description', 'Echo JSON', '--input', '{"value":7}', '--auto-approve', '--task-timeout-ms', '5000',
+        '--audit', requesterAudit], application),
+    ]);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({ state: 'SETTLED', deliverable: { value: 7 } });
+    for (const path of [workerAudit, requesterAudit])
+      expect(verifyAudit(parseJsonl(readFileSync(path, 'utf8')))).toMatchObject({ valid: true, status: 'VALID' });
+    expect(fetcher.mock.calls.every(([url]) => String(url).startsWith(loopback + '/'))).toBe(true);
+  });
+  it.each(['success', 'failure', '401'])('never contacts another candidate after discovery %s in CLI or MCP', async outcome => {
+    const { identityOptions } = fixture();
+    const handler = createRelayFetchHandler({ relay: new InMemoryRelay() });
+    const fetcher = vi.fn((async (input, init) => {
+      expect(String(input)).toBe(first + '/agents');
+      if (outcome === 'failure') throw new Error('REQUEST_FAILED');
+      if (outcome === '401') return new Response('{}', { status: 401 });
+      return handler(new Request(input, init));
+    }) as typeof fetch);
+    const factory = vi.fn((url: string) => new HttpRelayClient(url, fetcher));
+    const server = new AcpMcpServer({ identityOptions, transportFactory: factory });
+    const result = await call(server, 'acp_discover_workers');
+    if (outcome === 'success') expect(result).toEqual({ error: false, value: { relayUrl: first, count: 0, workers: [] } });
+    else expect(result.error).toBe(true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const cli = networkCommand('discover', [], { identityOptions, fetch: fetcher });
+    if (outcome === 'success') {
+      await cli;
+      expect(log).toHaveBeenCalledExactlyOnceWith('[]');
+    } else await expect(cli).rejects.toThrow();
+    expect(factory.mock.calls).toEqual([[first, undefined]]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(existsSync(join(identityOptions.env.SEALBRIDGE_DATA_DIR, 'identities'))).toBe(false);
+  });
+  it.each(['did', 'invite', 'explicit', 'transport'])('keeps the %s selection independent of candidate membership', async target => {
+    const { identityOptions } = fixture();
+    const outside = 'https://outside.example';
+    const transport = { send: vi.fn(async () => { throw new Error('SELECTED_ROUTE'); }) } as unknown as RelayTransport;
+    const factory = vi.fn(() => transport);
+    const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions, transportFactory: factory,
+      ...(target === 'transport' ? { relay: transport } : {}) });
+    const result = await call(server, 'acp_delegate_task', { title: 'Echo', description: 'Echo JSON', input: {},
+      ...(target === 'invite' || target === 'transport' ? { inviteToken: invite(outside) } : { workerDid: generateKeyPair().did }),
+      ...(target === 'explicit' ? { relayUrl: outside } : {}) });
+    expect(result.value.error).toBe('SELECTED_ROUTE');
+    expect(transport.send).toHaveBeenCalled();
+    if (target === 'transport') expect(factory).not.toHaveBeenCalled();
+    else expect(factory.mock.calls).toEqual([[target === 'did' ? first : outside, server.options.owner]]);
+  });
+  it.each(['did', 'invite', 'explicit'])('uses one scalar route for CLI %s delegation after a request failure', async target => {
+    const { identityOptions } = fixture();
+    const outside = 'https://outside.example';
+    const selected = target === 'did' ? first : outside;
+    const fetcher = vi.fn((async (input) => {
+      expect(String(input).startsWith(selected + '/')).toBe(true);
+      throw new Error('CLI_SELECTED_ROUTE');
+    }) as typeof fetch);
+    await expect(networkCommand('delegate', ['--to', target === 'invite' ? invite(outside) : generateKeyPair().did,
+      '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}', '--auto-approve',
+      ...(target === 'explicit' ? ['--relay', outside] : [])], { identityOptions, fetch: fetcher }))
+      .rejects.toThrow('CLI_SELECTED_ROUTE');
+    expect(fetcher).toHaveBeenCalled();
+    expect(fetcher.mock.calls.every(([url]) => String(url).startsWith(selected + '/'))).toBe(true);
+  });
+  it('keeps MCP allowlists independent of stored candidates, including explicit empty lists', async () => {
+    const { identityOptions } = fixture();
+    const factory = vi.fn(() => ({ discover: async () => [] }) as unknown as RelayTransport);
+    for (const allowedRelayUrls of [[], [unused]]) {
+      const result = await call(new AcpMcpServer({ identityOptions, transportFactory: factory, allowedRelayUrls }), 'acp_discover_workers');
+      expect(result.value.error).toBe('MCP_RELAY_NOT_ALLOWED');
+      expect(factory).not.toHaveBeenCalled();
+    }
+    const allowed = await call(new AcpMcpServer({ identityOptions, transportFactory: factory, allowedRelayUrls: [first] }), 'acp_discover_workers');
+    expect(allowed).toEqual({ error: false, value: { relayUrl: first, count: 0, workers: [] } });
+    expect(factory.mock.calls).toEqual([[first, undefined]]);
+  });
+  it('fails on config corruption before a dial or identity creation, including with an explicit pin', async () => {
+    const { identityOptions } = fixture();
+    const path = join(identityOptions.env.SEALBRIDGE_DATA_DIR, 'config.json');
+    writeFileSync(path, '{');
+    const factory = vi.fn();
+    const fetcher = vi.fn();
+    const server = new AcpMcpServer({ identityOptions, transportFactory: factory, relay: first });
+    for (const method of ['initialize', 'tools/list'])
+      expect(await server.handle({ jsonrpc: '2.0', id: 1, method })).not.toHaveProperty('error');
+    for (const name of ['acp_discover_workers', 'acp_create_invite', 'acp_delegate_task', 'acp_delegate_multi']) {
+      const result = await call(server, name, { title: 'Echo', workerDid: generateKeyPair().did,
+        mode: 'quorum', workers: [{ workerDid: generateKeyPair().did }] });
+      expect(result.value.error).toBe('APP_CONFIG_INVALID');
+    }
+    for (const [command, args] of [
+      ['discover', ['--relay', first]], ['invite', ['create']],
+      ['worker', ['start', '--preview']], ['delegate', ['--relay', first]],
+    ] as const) await expect(networkCommand(command, [...args], { identityOptions, fetch: fetcher })).rejects.toThrow('APP_CONFIG_INVALID');
+    expect(factory).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(existsSync(join(identityOptions.env.SEALBRIDGE_DATA_DIR, 'identities'))).toBe(false);
+  });
+  it('keeps signed cards, invite serialization and CLI output identical when an unused candidate is added', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
+    const { home, identityOptions } = fixture([first]);
+    const owner = resolveOrCreateIdentity('worker', identityOptions);
+    const server = new AcpMcpServer({ owner, identityOptions });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetcher = vi.fn(() => { throw new Error('UNEXPECTED_NETWORK'); });
+    const capture = async () => {
+      log.mockClear();
+      await networkCommand('worker', ['start', '--preview', '--contacts', join(home, 'contacts.json')], { identityOptions, fetch: fetcher });
+      const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);
+      await networkCommand('invite', ['create'], { identityOptions, fetch: fetcher });
+      const token = log.mock.calls.at(-1)![0] as string;
+      const minted = await call(server, 'acp_create_invite');
+      return { preview, token, minted };
+    };
+    const single = await capture();
+    unlinkSync(join(identityOptions.env.SEALBRIDGE_DATA_DIR, 'config.json'));
+    createApplicationConfig({ version: 1, relays: [first, unused] }, identityOptions);
+    expect(await capture()).toEqual(single);
+    const parsed = parseAndVerifyInviteToken(single.token);
+    expect(parsed.relayUrl).toBe(first);
+    expect(parsed.agentCard.payload.relayEndpoint).toBe(first);
+    expect(Object.keys(parsed).sort()).toEqual(['agentCard', 'agentDid', 'expiresAt', 'issuedAt', 'ownerDid', 'relayUrl', 'type']);
+    expect(single.preview.signedCard.payload.relayEndpoint).toBe(first);
+    expect(JSON.stringify(single)).not.toContain(unused);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

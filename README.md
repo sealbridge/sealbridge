@@ -89,6 +89,21 @@ Existing role-matched `~/.acp/{requester,worker}.private.json` keys and the old 
 
 Explicit `--key` selects an existing identity. An explicit `--relay` pins routing; without a pin, a verified invite's relay takes precedence over the public fallback. Explicit worker/relay allowlists, including empty programmatic lists, remain authoritative. Injected transports remain authoritative for embedded callers. Loopback relays still require `--allow-private-relay`.
 
+Application relay defaults can be stored in `<data-root>/config.json`:
+
+```json
+{
+  "version": 1,
+  "relays": ["https://relay.sealbridge.dev", "https://relay.example"]
+}
+```
+
+Without this file, the in-memory default is `{ "version": 1, "relays": ["https://relay.sealbridge.dev"] }`. Reads create no files or identities. CLI network operations and MCP relay operations load this file; MCP initialization and tool listing do not load it. Use the same directory and file permissions as the identity store (0700/0600 on POSIX).
+
+Only the first local fallback is active. Additional entries are stored candidates: they are never contacted, registered with, or tried after an error, including HTTP 401. There is no failover, fan-out, parallel discovery, or automatic resend to another relay. Selection remains injected transport, explicit/configured pin, verified invite, first local fallback, then the built-in default. An invite may select a relay outside the candidates; existing allowlists still apply and are never expanded by this file. Cards, invites, manifests, discovery output, and audit routing retain one relay URL.
+
+Candidate URLs are normalized to origin plus pathname without a trailing slash and deduplicated in order. The entire list is validated locally before use. Invalid or unreadable configuration stops the operation. The compatibility form `{ "version": 1, "relay": "https://relay.example" }` is accepted as a singleton without rewriting the file; contradictory scalar/list forms are rejected. Existing CLI `--relay`, MCP `relayUrl`, and constructor `relay` remain scalar. This version adds no config-management command or MCP argument.
+
 An MCP host can pass untrusted tool arguments. Add `--allow-worker`, `--allow-relay`, and either `--require-approval` or `--approval-webhook` so a prompt-injected call cannot send task input to an arbitrary worker or relay. The MCP section below lists those flags.
 
 ## One-screen summary
