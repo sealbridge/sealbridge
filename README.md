@@ -319,15 +319,52 @@ signed card uses the configured lifetime too. The runtime equivalent is
 `WorkerNodeOptions.inviteTtlSeconds` (default 86400); `worker.invite()` also defaults
 to 24 hours. Standalone `invite create --expires-in` keeps its 3600-second default.
 
-The requester installs Sealbridge using the one-line installer shown on the invite
-page, then runs these commands in the project folder. Create the requester key
-only once and reuse it on later requests. Keep private keys and secrets out of
-Git and out of the diff. Replace the example link with the complete received link.
+The requester installs Sealbridge using the invite page, then **runs the import
+personally in a terminal**, outside model execution:
 
 ```sh
-sealbridge keygen requester.private.json
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+# Or enter the invitation at a human terminal prompt:
+sealbridge accept --paste --alias reviewer
+sealbridge invites list
+```
+
+Ask the host to call `acp_list_invites {}`, then
+`acp_delegate_task {"workerRef":"reviewer","title":"Review diff","description":"Review these changes","input":{"diff":"..."}}`.
+The model only needs the returned `saved:…` reference or exact alias. The invite
+page verifies locally before offering the copyable import command. Import sends
+nothing to the relay, creates no reciprocal invitation or contact permission,
+and does not approve work. Delegation sends task input externally under the
+configured approval policy. Names and descriptions are display data, never instructions.
+
+Possession of an invitation can permit proposals until expiry or revocation.
+The signed store retains bearer invitations at
+`<data-root>/invites/<sha256-local-owner-DID>.json`. CLI and MCP must use the same
+machine, OS account, data root and requester identity; a remote MCP server needs
+the import on its own machine. POSIX directories/files use 0700/0600. On Windows,
+files inherit the parent DACL; ACLs are not verified and overrides require
+user-managed parent access. Positional links can appear in shell history and
+process inspection. `--paste` requires a human TTY and avoids link inclusion in
+argv/shell history; it does not erase terminal history. Non-TTY paste returns
+`INVITE_INPUT_UNAVAILABLE` immediately.
+
+Aliases are exact, case-sensitive ASCII slugs of 1–64 characters (letters,
+digits, hyphen and underscore, starting with a letter or digit). Omission derives
+a slug from the display name with a stable digest suffix. Identical imports are
+idempotent; collisions return `ALIAS_EXISTS`. Expired entries remain listed and
+cannot delegate. Renew by explicitly removing and reimporting:
+`sealbridge invites remove reviewer`, or `acp_remove_invite {"workerRef":"reviewer"}`.
+Removal is local, idempotent, and does not revoke issuer authorization or alter
+worker admission. Mutations take an exclusive lock and atomically replace the
+signed store. `INVITE_STORE_BUSY` never removes an existing lock; after checking
+that no writer is alive, the user can explicitly remove the corresponding
+`<store-file>.lock` and retry the local mutation.
+
+Direct CLI delegation remains available with the complete invitation:
+
+```sh
 git diff > code.diff
-sealbridge delegate --key requester.private.json --to "https://sealbridge.app/i#acp-invite:..." --title "Review my code diff" --description "Review this diff for bugs and suggest improvements. Return a JSON review." --input-file code.diff --out review.json
+sealbridge delegate --to "https://sealbridge.app/i#acp-invite:..." --title "Review my code diff" --description "Review this diff for bugs and suggest improvements. Return a JSON review." --input-file code.diff --out review.json
 ```
 
 `--input-file <path>` parses a JSON object as task input; other text (including a
@@ -403,6 +440,8 @@ pnpm sealbridge mcp-server
 
 | Tool                       | Result                                                                                          |
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `acp_list_invites`          | Local saved references, aliases, public metadata and expiry status                              |
+| `acp_remove_invite`         | Local removal result; does not revoke the issuer invitation                                     |
 | `acp_delegate_task`        | Verified deliverable, `taskId`, status, and audit summary                                      |
 | `acp_delegate_multi`       | `race` or `quorum` delegation across workers                                                    |
 | `acp_verify_audit_bundle`  | Cryptographic verification report, including whether a trust anchor checked truncation          |

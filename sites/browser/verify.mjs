@@ -8,5 +8,5 @@ export function verifyFragment(hash, now = Date.now()) {
   const invite = parseAndVerifyInviteToken(token, now);
   const link = `https://sealbridge.app/i#${token}`;
   return { token, invite, link,
-    command: `sealbridge delegate --key requester.private.json --to "${link}" --title "Review my code diff" --description "Review this diff for bugs and suggest improvements. Return a JSON review." --input-file code.diff --out review.json` };
+    command: `sealbridge accept "${link}"` };
 }

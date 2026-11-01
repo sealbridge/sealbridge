@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { createPrivateKey } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { generateKeyPair } from '../packages/core/src/index.js';
+import { generateKeyPair, signApproval } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import {
   FileKeyStore, KeychainKeyStore, inspectStoredIdentity, keychainService,
@@ -18,6 +18,10 @@ import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { networkCommand } from '../cli/src/network.js';
 import { requestsCommand } from '../cli/src/requests.js';
+import { acceptCommand } from '../cli/src/accept.js';
+import { WorkerNode } from '../packages/runtime/src/session.js';
+import type { ApprovalRequest } from '../packages/runtime/src/approval-providers.js';
+import { InMemoryRelay } from '../packages/relay/src/index.js';
 
 const roots: string[] = [];
 function fixture() {
@@ -264,6 +268,62 @@ function memoryStore(): KeyStore & { keys: Map<string, KeyPair> } {
 }
 
 describe('embedding and application entry points', () => {
+  it.each(['keychain', 'embedded'] as const)('shares %s requester identities across CLI imports and MCP aliases', async backend => {
+    const { options } = fixture();
+    const store = memoryStore();
+    const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
+    const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
+    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl: 'https://relay.example',
+      adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
+      approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
+    const approvalProvider = { approve: vi.fn(async (r: ApprovalRequest) => signApproval(r.taskId, r.gate, r.target,
+      await resolveStoredIdentity('requester', configured), 'APPROVED')) };
+    const serverOptions = { identityOptions: configured, relay, approvalProvider };
+    const server = new AcpMcpServer(serverOptions);
+    const call = async (target: AcpMcpServer, name: string, args = {}) => {
+      const response = await target.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name, arguments: args } }) as any;
+      expect(response.error).toBeUndefined();
+      expect(response.result.isError).toBe(false);
+      return JSON.parse(response.result.content[0].text);
+    };
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await acceptCommand('invites', ['list'], configured);
+    await acceptCommand('invites', ['remove', 'reviewer'], configured);
+    expect(await call(server, 'acp_list_invites')).toEqual({ count: 0, invites: [] });
+    expect(await call(server, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ removed: false });
+    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+    expect(store.createIfMissing).not.toHaveBeenCalled();
+
+    const token = worker.invite();
+    await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
+    const imported = JSON.parse(output.mock.calls.at(-1)![0]);
+    expect(await call(server, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
+    expect(approvalProvider.approve).not.toHaveBeenCalled();
+    // Signing initializes the cached asynchronous owner before the next alias lookup.
+    await call(server, 'acp_revoke_token', { targetType: 'capability', targetId: 'unrelated', reason: 'Test' });
+    const restart = new AcpMcpServer(serverOptions);
+    expect(await call(restart, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
+    const pending = worker.start();
+    try {
+      for (const [target, workerRef] of [[server, 'reviewer'], [restart, imported.workerRef]] as const) {
+        const result = await call(target, 'acp_delegate_task', { workerRef, title: 'Echo',
+          description: 'Return JSON', input: { echo: 'hello' }, taskTimeoutMs: 5000 });
+        expect(result).toMatchObject({ status: 'SETTLED', deliverable: { echo: 'hello' }, auditBundle: { valid: true } });
+        expect(JSON.stringify(result)).not.toContain(token);
+      }
+      expect(JSON.stringify(approvalProvider.approve.mock.calls)).not.toContain(token);
+      await acceptCommand('invites', ['list'], configured);
+      expect(JSON.parse(output.mock.calls.at(-1)![0])).toEqual({ invites: [imported] });
+      expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ removed: true });
+      await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
+      await acceptCommand('invites', ['remove', imported.workerRef], configured);
+      expect(await call(server, 'acp_list_invites')).toEqual({ count: 0, invites: [] });
+      expect(JSON.stringify(output.mock.calls)).not.toContain(token);
+      expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+    } finally { worker.stop(); await pending; }
+  });
+
   it('uses injected stores without loading the native module or creating files', async () => {
     const { options, loader } = fixture();
     const store = memoryStore();
