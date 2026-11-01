@@ -17,6 +17,10 @@
       "types": "./dist/local-identity.d.ts",
       "import": "./dist/local-identity.js"
     },
+    "./key-store": {
+      "types": "./dist/key-store.d.ts",
+      "import": "./dist/key-store.js"
+    },
     "./relay-selection": {
       "types": "./dist/relay-selection.d.ts",
       "import": "./dist/relay-selection.js"

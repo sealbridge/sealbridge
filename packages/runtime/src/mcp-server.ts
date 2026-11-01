@@ -29,8 +29,8 @@ import {
 import type { ApprovalProvider } from './approval-providers.js';
 import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from './session.js';
 import { RequesterClient } from './session.js';
-import { resolveOrCreateIdentity } from './local-identity.js';
-import type { LocalIdentityOptions } from './local-identity.js';
+import { resolveStoredIdentity } from './key-store.js';
+import type { IdentityStoreOptions } from './key-store.js';
 import { selectApplicationRelay } from './relay-selection.js';
 import { readApplicationConfig } from './application-config.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
@@ -39,7 +39,7 @@ import type { SessionTimeoutOptions } from './session-timeouts.js';
 export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions {
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
-  identityOptions?: LocalIdentityOptions;
+  identityOptions?: IdentityStoreOptions;
   /** Constructs transports after relay policy checks; useful for offline hosts/tests. */
   transportFactory?: (url: string, owner?: KeyPair) => RelayTransport;
   relay?: RelayTransport | string;
@@ -204,20 +204,22 @@ export class AcpMcpServer {
   private readonly allowedWorkers?: ReadonlySet<string>;
   private readonly allowedRelays?: ReadonlySet<string>;
   private selectedApproval?: ApprovalProvider;
-  private selectedOwner?: KeyPair;
-  private owner(): KeyPair {
-    return this.options.owner ?? (this.selectedOwner ??=
-      resolveOrCreateIdentity('requester', this.options.identityOptions));
+  private selectedOwner?: Promise<KeyPair>;
+  private owner(): Promise<KeyPair> {
+    if (this.options.owner) return Promise.resolve(this.options.owner);
+    return this.selectedOwner ??= resolveStoredIdentity('requester', this.options.identityOptions)
+      .catch(error => { this.selectedOwner = undefined; throw error; });
   }
-  private get approval(): ApprovalProvider {
+  private async approval(): Promise<ApprovalProvider> {
+    const owner = await this.owner();
     return this.selectedApproval ??= this.options.requireInteractiveApproval &&
       !this.options.approvalProvider && !this.options.approvalWebhookUrl
-      ? new McpFormApprovalProvider(this.owner(), {
+      ? new McpFormApprovalProvider(owner, {
           available: () => this.formSupported && this.rpc !== undefined,
           request: (params, signal) => this.rpc!.request('elicitation/create', params, signal),
           timeoutMs: this.options.approvalTimeoutMs,
         })
-      : selectApproval(this.options, this.owner());
+      : selectApproval(this.options, owner);
   }
   private rpc?: McpRpc;
   private formSupported = false;
@@ -330,8 +332,8 @@ export class AcpMcpServer {
         authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
       }));
   }
-  private client(relay: RelayTransport | string): RequesterClient {
-    const owner = this.owner();
+  private async client(relay: RelayTransport | string): Promise<RequesterClient> {
+    const owner = await this.owner();
     const server = this;
     return new class extends RequesterClient {
       override delegate(options: DelegateOptions, hooks?: Parameters<RequesterClient['delegate']>[1]) {
@@ -342,7 +344,7 @@ export class AcpMcpServer {
     }({
       owner,
       relay: typeof relay === 'string' && this.options.transportFactory ? this.transport(relay, owner) : relay,
-      approvalProvider: this.approval,
+      approvalProvider: await this.approval(),
       allowPrivateRelay: this.options.allowPrivateRelay,
       maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
       authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
@@ -396,16 +398,17 @@ export class AcpMcpServer {
     return Boolean(this.options.approvalWebhookUrl || this.options.requireInteractiveApproval);
   }
   /** Bind pre-send consent to the resolved task, without including invitation tokens. */
-  private beforePropose(fanOut: number): DelegateOptions['beforePropose'] {
-    if (this.approval instanceof McpFormApprovalProvider) this.approval.assertAvailable();
+  private async beforePropose(fanOut: number): Promise<DelegateOptions['beforePropose']> {
+    const approval = await this.approval();
+    if (approval instanceof McpFormApprovalProvider) approval.assertAvailable();
     if (!this.outboundApprovalRequired()) return undefined;
     return async ({ manifest, input, relay, signal }: BeforeProposeContext) => {
       const target = Object.freeze({ manifest, input, relay, fanOut });
-      const receipt = await this.approval.approve({
+      const receipt = await approval.approve({
         taskId: manifest.taskId, gate: 'external_side_effect', target,
         details: { reason: OUTBOUND_REASON }, signal, deadline: manifest.deadline,
       });
-      if (!verifyApproval(receipt, this.owner().did, manifest.taskId, 'external_side_effect', target) ||
+      if (!verifyApproval(receipt, (await this.owner()).did, manifest.taskId, 'external_side_effect', target) ||
           receipt.payload.decision !== 'APPROVED') throw new Error('APPROVAL_REJECTED');
     };
   }
@@ -420,7 +423,7 @@ export class AcpMcpServer {
     const relay = this.selectedRelay(explicitRelay, invite?.relayUrl);
     const request: DelegateOptions = {
       signal,
-      beforePropose: this.beforePropose(1),
+      beforePropose: await this.beforePropose(1),
       ...taskTimeouts(args),
       to,
       title: args.title,
@@ -431,7 +434,7 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(relay).delegate(request);
+    const result = await (await this.client(relay)).delegate(request);
     const report = verifyAudit(result.bundle);
     return {
       taskId: result.taskId,
@@ -478,7 +481,7 @@ export class AcpMcpServer {
           : Number.NaN;
     const request: DelegateMultiOptions = {
       signal,
-      beforePropose: this.beforePropose(workers.length),
+      beforePropose: await this.beforePropose(workers.length),
       ...taskTimeouts(args),
       workers,
       mode: args.mode,
@@ -491,7 +494,7 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await this.client(this.selectedRelay(workers[0]?.relayUrl ?? relay)).delegateMulti(request);
+    const result = await (await this.client(this.selectedRelay(workers[0]?.relayUrl ?? relay))).delegateMulti(request);
     return {
       mode: result.mode,
       status: result.status,
@@ -555,13 +558,13 @@ export class AcpMcpServer {
     const report = verifyAudit(bundle, anchored ? options : undefined);
     return report as unknown as Json;
   }
-  private createInvite(args: Record<string, unknown>): Json {
+  private async createInvite(args: Record<string, unknown>): Promise<Json> {
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
     const config = readApplicationConfig({ ...this.options.identityOptions,
       allowPrivateRelay: this.options.allowPrivateRelay });
     const relayUrl = typeof args.relayUrl === 'string' ? args.relayUrl
       : typeof this.options.relay === 'string' ? this.options.relay : config.relays[0];
-    const owner = this.owner();
+    const owner = await this.owner();
     const agentDid = typeof args.agentDid === 'string' ? args.agentDid : owner.did;
     const card = createSignedAgentCard(
       {
@@ -584,7 +587,7 @@ export class AcpMcpServer {
       inviteToken: createInviteToken(inviteOptions, owner),
     };
   }
-  private revokeToken(args: Record<string, unknown>): Json {
+  private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (
       (args.targetType !== 'invite' && args.targetType !== 'capability') ||
       typeof args.targetId !== 'string' ||
@@ -593,7 +596,7 @@ export class AcpMcpServer {
       throw new RpcError(-32602, 'Invalid params');
     const notice = createRevocationNotice(
       { targetType: args.targetType, targetId: args.targetId, reason: args.reason },
-      this.owner(),
+      await this.owner(),
     );
     this.revocation.revoke(notice);
     return { notice: notice as unknown as Json };

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const unbuiltHelpers = [
   ['@acp/runtime/worker-trust-store', 'packages/runtime', 'worker-trust-store'],
   ['@acp/runtime/local-identity', 'packages/runtime', 'local-identity'],
+  ['@acp/runtime/key-store', 'packages/runtime', 'key-store'],
   ['@acp/runtime/relay-selection', 'packages/runtime', 'relay-selection'],
   ['@acp/core', 'packages/core', 'index'],
 ].flatMap(([find, directory, entry]) => existsSync(new URL(`./${directory}/dist/${entry}.js`, import.meta.url))
