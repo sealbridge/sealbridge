@@ -86,6 +86,26 @@ require explicit `--key` selection. Invalid keys are never replaced.
 or contacting the relay. MCP initialization and tool listing make no network
 request. Discovery reads the directory; delegation transmits encrypted payloads
 and relay-visible routing metadata. Installers do not generate identities.
+
+Private-key storage defaults to files. Explicitly set `SEALBRIDGE_KEY_STORE=file|keychain`;
+`--key <path>` always selects a file. Keychain dynamically loads optional `@napi-rs/keyring`
+(MIT, 2.x >=2.1.2); source install: `pnpm --filter @acp/runtime add --optional @napi-rs/keyring@^2.1.2`.
+Selected but unavailable stores return `KEY_STORE_UNAVAILABLE` without file fallback.
+When credential inspection is available, an existing keychain entry requires explicit selection
+(`KEY_STORE_CONFLICT` if a role file also exists, otherwise `KEY_STORE_SELECTION_REQUIRED`).
+Without credential inspection, unconfigured file operation is unchanged and cannot inspect keychain entries.
+There is no automatic migration. Doctor reports backend and presence without creating keys.
+Runtime embedders can inject `KeyStore` into `resolveStoredIdentity` / `inspectStoredIdentity`
+or MCP `identityOptions.keyStore`. See README for entry naming, creation locks, and installation.
+鍵は従来のファイルが既定です。`SEALBRIDGE_KEY_STORE=file|keychain` で明示選択し、
+`--key` は常にファイルを指定します。keychain には任意の `@napi-rs/keyring`（MIT、
+2.x の 2.1.2 以降）を同じ場所に導入します。利用できなければ `KEY_STORE_UNAVAILABLE` で
+停止します。ストアを検査できるときに keychain の鍵があれば明示選択が必要です。
+ファイルもあれば `KEY_STORE_CONFLICT`、なければ `KEY_STORE_SELECTION_REQUIRED` です。
+ストアを検査できない未設定環境ではファイル動作を維持し、keychain は検査できません。
+自動移行は行いません。doctor は鍵を作らず方式と存在を表示します。
+組み込みアプリは `KeyStore` を注入できます。導入方法・命名・作成ロックは README を参照します。
+
 For the optional audit paths below, create the audit directory first:
 `mkdir -p ~/.acp && chmod 700 ~/.acp`.
 

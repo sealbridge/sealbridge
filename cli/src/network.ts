@@ -10,14 +10,14 @@ import {
   WorkerNode,
   WorkerTrustStore,
   workerIntakePath,
-  resolveOrCreateIdentity,
+  resolveStoredIdentity,
   selectApplicationRelay,
   readApplicationConfig,
   RequesterClient,
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
 } from '@acp/runtime';
-import type { LocalIdentityOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
+import type { IdentityStoreOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
 import {
   CommandAgentAdapter,
   ClaudeCodeAdapter,
@@ -155,7 +155,7 @@ function assertLlmAutoAccept(
   );
 }
 export async function networkCommand(command: string, args: string[], application: {
-  identityOptions?: LocalIdentityOptions; fetch?: typeof fetch;
+  identityOptions?: IdentityStoreOptions; fetch?: typeof fetch;
 } = {}): Promise<void> {
   if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
     console.log(command === 'relay' ? `Relay notification options:
@@ -225,7 +225,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     }), null, 2));
     return;
   }
-  const key = resolveOrCreateIdentity(command === 'delegate' ? 'requester' : 'worker', {
+  const key = await resolveStoredIdentity(command === 'delegate' ? 'requester' : 'worker', {
     ...application.identityOptions,
     explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined,
   });
