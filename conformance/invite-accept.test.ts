@@ -143,19 +143,21 @@ it('accepts the stdin byte boundary and counts bytes across chunks', async () =>
   oversized.write('\u3000');
   await expect(rejected).rejects.toThrow('INVITE_INPUT_TOO_LARGE');
   expect(oversized.isPaused()).toBe(true);
-  oversized.destroy();
+  expect(oversized.destroyed).toBe(true);
 });
 it('rejects an oversized first chunk before EOF without creating an identity', async () => {
-  const input = new PassThrough();
+  const input = Object.assign(new PassThrough(), { unref: vi.fn() });
   const pending = acceptCommand('accept', ['--stdin'], { ...options, input });
   input.write(' '.repeat(68 * 1024 + 1));
   await expect(pending).rejects.toThrow('INVITE_INPUT_TOO_LARGE');
   expect(existsSync(join(home, 'data'))).toBe(false);
-  input.destroy();
+  expect(input.destroyed).toBe(true);
+  expect(input.unref).toHaveBeenCalledOnce();
+  for (const event of ['data', 'end', 'error', 'close']) expect(input.listenerCount(event)).toBe(0);
 });
 it('applies a total stdin deadline even while input arrives', async () => {
   vi.useFakeTimers(); vi.setSystemTime('2026-11-01T00:00:00.000Z');
-  const input = new PassThrough();
+  const input = Object.assign(new PassThrough(), { unref: vi.fn() });
   const pending = acceptCommand('accept', ['--stdin'], { ...options, input });
   const rejected = expect(pending).rejects.toThrow('INVITE_INPUT_TIMEOUT');
   await vi.advanceTimersByTimeAsync(9_999);
@@ -165,17 +167,21 @@ it('applies a total stdin deadline even while input arrives', async () => {
   expect(input.isPaused()).toBe(true);
   expect(input.listenerCount('data')).toBe(0);
   expect(existsSync(join(home, 'data'))).toBe(false);
-  input.destroy();
+  expect(input.destroyed).toBe(true);
+  expect(input.unref).toHaveBeenCalledOnce();
+  for (const event of ['end', 'error', 'close']) expect(input.listenerCount(event)).toBe(0);
 });
 it.each(['error', 'close', 'destroyed'] as const)('reports unavailable stdin for %s without including stream error text', async event => {
-  const input = new PassThrough();
+  const input = Object.assign(new PassThrough(), { unref: vi.fn() });
   if (event === 'destroyed') input.destroy();
   const pending = acceptCommand('accept', ['--stdin'], { ...options, input });
   if (event === 'error') input.emit('error', new Error(token));
   if (event === 'close') input.emit('close');
   await expect(pending).rejects.toThrow(/^INVITE_INPUT_UNAVAILABLE$/);
   expect(existsSync(join(home, 'data'))).toBe(false);
-  input.destroy();
+  expect(input.destroyed).toBe(true);
+  if (event !== 'destroyed') expect(input.unref).toHaveBeenCalledOnce();
+  for (const name of ['data', 'end', 'error', 'close']) expect(input.listenerCount(name)).toBe(0);
 });
 it('rejects TTY stdin immediately and directs the user to paste mode', async () => {
   const input = Object.assign(new PassThrough(), { isTTY: true });
@@ -214,7 +220,7 @@ globalThis.Date = class extends OriginalDate {
   const stdoutFd = openSync(stdoutPath, 'w'), stderrFd = openSync(stderrPath, 'w');
   const link = 'https://sealbridge.app/i#' + token;
   const value = mode === 'empty' ? '\r\n' : mode === 'multiple' ? link + '\n' + link
-    : mode === 'oversized' ? link + ' '.repeat(68 * 1024)
+    : mode === 'oversized' ? link + ' '.repeat(1024 * 1024)
     : mode === 'invalid' ? link + '_invalid' : ' \r\n' + link + '\r\n';
   let inputFd: number | undefined;
   if (source === 'file') {
@@ -225,18 +231,22 @@ globalThis.Date = class extends OriginalDate {
     env: { ...process.env, SEALBRIDGE_DATA_DIR: options.env.SEALBRIDGE_DATA_DIR },
     stdio: [inputFd ?? 'pipe', stdoutFd, stderrFd],
   });
-  child.stdin?.on('error', () => {});
+  const stdinErrors: NodeJS.ErrnoException[] = [];
+  // Early rejection may close the pipe while the parent still has buffered writes.
+  child.stdin?.on('error', error => { stdinErrors.push(error); });
   const closed = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', resolve);
   });
-  const watchdog = setTimeout(() => child.kill(), 5_000);
+  const watchdog = setTimeout(() => child.kill(), 15_000);
   try {
     if (source === 'pipe') {
+      // Leave the producer open: overflow must fail without waiting for EOF.
       if (mode === 'oversized') child.stdin!.write(value);
       else child.stdin!.end(value);
     }
     expect(await closed).toBe(mode === 'valid' ? 0 : 1);
+    for (const error of stdinErrors) expect(['EPIPE', 'ECONNRESET']).toContain(error.code);
     const stdout = readFileSync(stdoutPath, 'utf8'), stderr = readFileSync(stderrPath, 'utf8');
     expect(stdout + stderr).not.toContain(token);
     if (mode === 'valid') {

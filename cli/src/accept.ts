@@ -5,7 +5,7 @@ import { InviteStore, inspectLocalIdentity, resolveOrCreateIdentity } from '@acp
 import type { InviteStoreOptions } from '@acp/runtime';
 
 interface AcceptOptions extends InviteStoreOptions {
-  input?: Readable & { isTTY?: boolean };
+  input?: Readable & { isTTY?: boolean; unref?: () => unknown };
   output?: Writable;
   readPaste?: () => Promise<string>;
 }
@@ -14,7 +14,7 @@ const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] | accept --paste
 const MAX_STDIN_BYTES = 68 * 1024;
 const STDIN_TIMEOUT_MS = 10_000;
 async function readStdin(options: AcceptOptions): Promise<string> {
-  const input = options.input ?? process.stdin;
+  const input: NonNullable<AcceptOptions['input']> = options.input ?? process.stdin;
   if (input.isTTY) throw new Error('INVITE_STDIN_REQUIRES_PIPE: use a pipe or file with --stdin, or --paste at a terminal');
   if (input.destroyed || input.readableEnded) throw new Error('INVITE_INPUT_UNAVAILABLE');
   return new Promise((resolve, reject) => {
@@ -28,7 +28,15 @@ async function readStdin(options: AcceptOptions): Promise<string> {
       input.off('error', onError);
       input.off('close', onError);
     };
-    const fail = (code: string) => { cleanup(); reject(new Error(code)); };
+    const fail = (code: string) => {
+      cleanup();
+      chunks.length = 0;
+      // Pausing alone leaves an open pipe alive and can block its writer.
+      // Destroy without the original error so invitation material stays private.
+      input.destroy();
+      input.unref?.();
+      reject(new Error(code));
+    };
     const onData = (chunk: Buffer | string) => {
       const size = Buffer.byteLength(chunk);
       if (size > MAX_STDIN_BYTES - bytes) { fail('INVITE_INPUT_TOO_LARGE'); return; }
