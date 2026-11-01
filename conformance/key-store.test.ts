@@ -19,6 +19,8 @@ import { diagnose } from '../cli/src/doctor.js';
 import { networkCommand } from '../cli/src/network.js';
 import { requestsCommand } from '../cli/src/requests.js';
 import { acceptCommand } from '../cli/src/accept.js';
+import { runSetup } from '../cli/src/setup.js';
+import type { SetupOptions } from '../cli/src/setup.js';
 import { WorkerNode } from '../packages/runtime/src/session.js';
 import type { ApprovalRequest } from '../packages/runtime/src/approval-providers.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
@@ -266,6 +268,89 @@ function memoryStore(): KeyStore & { keys: Map<string, KeyPair> } {
     describe: vi.fn(async role => ({ backend: 'embedded', location: 'app/' + role })),
   };
 }
+
+describe('setup identity storage', () => {
+  function setupOptions(options: IdentityStoreOptions): SetupOptions {
+    const entryPath = join(options.home!, 'installed-cli.js');
+    fs.writeFileSync(entryPath, '');
+    return { ...options, hosts: ['cursor'], entryPath };
+  }
+  function summary(result: Awaited<ReturnType<typeof runSetup>>) {
+    if (!('identities' in result)) throw new Error('Expected setup summary');
+    return result;
+  }
+
+  it('creates and reuses both roles in the configured keychain without key files', async () => {
+    const { options, secrets } = fixture();
+    const configured = { ...setupOptions(options), worker: true,
+      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } };
+    const first = summary(await runSetup(configured));
+    expect(first.error).toBeUndefined();
+    expect(first.identities.map(i => i.status)).toEqual(['created', 'created']);
+    expect(new Set(first.identities.map(i => i.did)).size).toBe(2);
+    for (const identity of first.identities) {
+      expect(identity.path).toBe(keychainService(options) + '/' + identity.role);
+      expect(JSON.parse(secrets.get(identity.path)!).kid).toBe(identity.did);
+    }
+    const second = summary(await runSetup(configured));
+    expect(second.error).toBeUndefined();
+    expect(second.identities.map(i => i.status)).toEqual(['reused', 'reused']);
+    expect(second.identities.map(i => i.did)).toEqual(first.identities.map(i => i.did));
+    expect(second.destinations[0].status).toBe('unchanged');
+    expect(secrets.size).toBe(2);
+    expect(JSON.stringify(first)).not.toContain('privateKey');
+    expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+  });
+
+  it.each(['dryRun', 'print'] as const)('%s creates no keychain entries or files', async mode => {
+    const { options, secrets, module } = fixture();
+    const write = vi.spyOn(module.Entry.prototype, 'setPassword');
+    await runSetup({ ...setupOptions(options), worker: true, [mode]: true,
+      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } });
+    expect(write).not.toHaveBeenCalled();
+    expect(secrets.size).toBe(0);
+    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+  });
+
+  it.each(['load', 'read', 'write'] as const)('never falls back to files on keychain %s failure', async stage => {
+    const { options, module, loader, secrets } = fixture();
+    if (stage === 'load') loader.mockImplementation(async () => unavailable());
+    else vi.spyOn(module.Entry.prototype, stage === 'read' ? 'getPassword' : 'setPassword')
+      .mockImplementation(unavailable);
+    const configured = { ...setupOptions(options),
+      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } };
+    if (stage === 'write') expect(summary(await runSetup(configured)).error).toBe('KEY_STORE_UNAVAILABLE');
+    else await expect(runSetup(configured)).rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
+    expect(secrets.size).toBe(0);
+    expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+  });
+
+  it.each([false, true])('preserves selection errors with an existing keychain (file present: %s)', async file => {
+    const { options, module } = fixture();
+    new KeychainKeyStore(module, options).createIfMissing('requester');
+    const path = inspectLocalIdentity('requester', options).path;
+    if (file) put(path, generateKeyPair());
+    const before = file ? fs.readFileSync(path) : undefined;
+    await expect(runSetup(setupOptions(options))).rejects.toThrow(
+      file ? /^KEY_STORE_CONFLICT$/ : /^KEY_STORE_SELECTION_REQUIRED$/);
+    expect(fs.existsSync(path)).toBe(file);
+    if (file) expect(fs.readFileSync(path)).toEqual(before);
+    expect(fs.existsSync(join(resolveDataRoot(options), 'config.json'))).toBe(false);
+    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+  });
+
+  it('preserves a key-store conflict during apply without creating a key file', async () => {
+    const { options } = fixture();
+    const store = memoryStore();
+    vi.mocked(store.createIfMissing).mockRejectedValue(new Error('KEY_STORE_CONFLICT'));
+    const result = summary(await runSetup({ ...setupOptions(options), keyStore: store }));
+    expect(result.error).toBe('KEY_STORE_CONFLICT');
+    expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+  });
+});
 
 describe('embedding and application entry points', () => {
   it.each(['keychain', 'embedded'] as const)('shares %s requester identities across CLI imports and MCP aliases', async backend => {
