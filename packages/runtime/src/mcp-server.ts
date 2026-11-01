@@ -13,7 +13,8 @@ import type { BudgetSpec, Invite, Json, KeyPair, Schema } from '@acp/core';
 import { RevocationRegistry } from '@acp/core';
 import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
 import { verifyAudit } from '@acp/ledger';
-import { HttpRelayClient } from '@acp/relay';
+import { HttpRelayClient, validateRelayAuthRecoveryOptions } from '@acp/relay';
+import type { RelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayTransport } from '@acp/relay';
 import { McpRpc } from './mcp-rpc.js';
 import { mcpTools } from './mcp-tool-catalog.js';
@@ -30,7 +31,7 @@ import { RequesterClient } from './session.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 
-export interface AcpMcpServerOptions {
+export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions {
   owner: KeyPair;
   relay?: RelayTransport | string;
   revocation?: RevocationRegistry;
@@ -197,6 +198,7 @@ export class AcpMcpServer {
   private rpc?: McpRpc;
   private formSupported = false;
   constructor(readonly options: AcpMcpServerOptions) {
+    validateRelayAuthRecoveryOptions(options);
     this.revocation = options.revocation ?? new RevocationRegistry();
     this.allowedWorkers = workerAllowlist(options.allowedWorkerDids);
     this.allowedRelays = relayAllowlist(options.allowedRelayUrls, options.allowPrivateRelay);
@@ -293,6 +295,8 @@ export class AcpMcpServer {
       relay: selected,
       approvalProvider: this.approval,
       allowPrivateRelay: this.options.allowPrivateRelay,
+      maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
+      authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
     });
   }
   private isInvite(value: string): boolean {

@@ -7,6 +7,7 @@ import type { LookupFunction } from 'node:net';
 import { validateIpAddress, validateRelayEndpointUrl } from '@acp/core';
 import { RelayTimeoutError, relayDeadline, isTransientRelayError } from './retry.js';
 import type { RelayEndpointPolicy } from '@acp/core';
+import type { RelayAuthRecoveryOptions } from './retry.js';
 
 export interface ResolvedAddress {
   address: string;
@@ -21,7 +22,7 @@ export interface RelayLookup {
   ): Promise<ResolvedAddress[]>;
 }
 
-export interface RelayClientSecurityOptions extends RelayEndpointPolicy {
+export interface RelayClientSecurityOptions extends RelayEndpointPolicy, RelayAuthRecoveryOptions {
   lookup?: RelayLookup;
   requestTimeoutMs?: number;
   socketTimeoutMs?: number;

@@ -4,6 +4,8 @@ import type { KeyPair } from '@acp/core';
 import { generateKeyPair } from '@acp/core';
 import { AcpMcpServer } from '@acp/runtime';
 import type { AcpMcpServerOptions } from '@acp/runtime';
+import type { RelayAuthRecoveryOptions } from '@acp/relay';
+import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 
 const REPEATABLE = new Set(['--allow-worker', '--allow-relay']);
 const KNOWN = new Set([
@@ -14,6 +16,8 @@ const KNOWN = new Set([
   '--allow-private-relay',
   '--require-approval',
   '--approval-webhook',
+  '--relay-auth-retries',
+  '--relay-auth-recovery-timeout-ms',
 ]);
 const USAGE =
   'Usage: sealbridge mcp-server [--key <file>] [--relay URL] [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]';
@@ -50,7 +54,7 @@ function listOption(parsed: Map<string, string | true>, name: string): string[] 
   return values;
 }
 
-export interface ParsedMcpServerArgs {
+export interface ParsedMcpServerArgs extends RelayAuthRecoveryOptions {
   keyFile?: string;
   relay?: string;
   allowedWorkerDids?: string[];
@@ -74,6 +78,7 @@ export function parseMcpServerArgs(args: string[]): ParsedMcpServerArgs {
   const key = parsed.get('--key');
   if (parsed.has('--key') && typeof key !== 'string') throw new Error(USAGE);
   return {
+    ...relayAuthOptions(parsed),
     keyFile: typeof key === 'string' ? key : undefined,
     relay: typeof relay === 'string' ? relay : undefined,
     allowedWorkerDids: listOption(parsed, '--allow-worker'),
@@ -91,6 +96,8 @@ export function mcpServerOptionsFromArgs(
 ): AcpMcpServerOptions {
   return {
     owner,
+    maxAuthRecoveryAttempts: parsed.maxAuthRecoveryAttempts,
+    authRecoveryTimeoutMs: parsed.authRecoveryTimeoutMs,
     relay: parsed.relay,
     allowedWorkerDids: parsed.allowedWorkerDids,
     allowedRelayUrls: parsed.allowedRelayUrls,
@@ -102,6 +109,7 @@ export function mcpServerOptionsFromArgs(
 
 /** `acp mcp-server` speaks MCP over stdio with an outbound allowlist and approval policy. */
 export async function mcpServerCommand(args: string[]): Promise<void> {
+  if (args.includes('--help')) { console.log(USAGE + '\n' + RELAY_AUTH_HELP); return; }
   const parsed = parseMcpServerArgs(args);
   const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, resolveOwner(parsed.keyFile)));
   await server.serve(process.stdin, process.stdout);
