@@ -11,6 +11,11 @@
 | sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc`（`sealbridge-site`） |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc`（`sealbridge-invite`） |
 
+`sites/connect-agent.txt` を変更せず `/connect-agent.txt` へコピーし、ヘッダーで
+`text/plain; charset=utf-8` を指定します。トップ・インストールページからリンクします。
+ローカル設定、ホスト再読込、人間による招待取込、オープンワーカー検索と通信範囲を記載します。
+別途提供のコマンド・ツールは対応リリースが必要です。この経路に新しい実行環境や公開操作はありません。
+
 ## ビルドとプレビュー
 
 Node.js 22 と pnpm 10 を使い、リポジトリ直下で実行します。

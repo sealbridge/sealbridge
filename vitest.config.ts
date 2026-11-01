@@ -1,10 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-// Installer checks run before build. Resolve only doctor's helper dependencies
+// Installer checks run before build. Resolve CLI helper dependencies
 // from source when their compiled entries are absent; built-suite mocks retain
 // their existing workspace module paths.
 const unbuiltHelpers = [
+  ['@acp/runtime/application-config', 'packages/runtime', 'application-config'],
   ['@acp/runtime/worker-trust-store', 'packages/runtime', 'worker-trust-store'],
   ['@acp/runtime/local-identity', 'packages/runtime', 'local-identity'],
   ['@acp/runtime/relay-selection', 'packages/runtime', 'relay-selection'],

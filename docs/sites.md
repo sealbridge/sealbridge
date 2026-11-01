@@ -11,6 +11,13 @@ external font, CDN script, or remote QR service.
 | sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc` (`sealbridge-site`) |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc` (`sealbridge-invite`) |
 
+`sites/connect-agent.txt` is copied unchanged to `/connect-agent.txt` and served
+as `text/plain; charset=utf-8` by the headers file. Landing/install pages link
+to it. It describes local setup, host reload, human-run invite import and open
+worker discovery, distinguishing local state from relay traffic. Commands and
+tools delivered separately require a release exposing them. No site runtime or
+deployment is added by this route.
+
 ## Build and preview
 
 Use Node.js 22 and pnpm 10 from the repository root:
