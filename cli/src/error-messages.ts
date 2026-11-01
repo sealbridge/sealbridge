@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 const reasons: [RegExp, string][] = [
+  [/SETUP_HOST_REQUIRED|SETUP_HOST_UNSUPPORTED|SETUP_INVALID_ARGUMENT/, 'setup --help を確認し、対応ホストを --host で指定してください。'],
+  [/SETUP_RUNTIME_UNSTABLE/, '永続的な場所にインストールするか、ビルド済みチェックアウトから実行してください。'],
+  [/SETUP_/, 'ホストの設定画面を閉じ、設定とバックアップを確認してから再実行してください。'],
   [/PENDING_OWNER_APPROVAL/, 'ワーカー所有者による依頼者の審査待ちです。タスクは受諾されていません。自動再試行せず、審査後に所有者が新しい依頼を開始してください。'],
   [/RELAY_AUTH_RECOVERY_EXHAUSTED/, 'システム時計が同期されていることと、鍵が登録された DID と一致することを確認してください。'],
   [/ADAPTER_PROXY_NOT_USED/, 'Codex からタスク用プロキシへの認証済みリクエストを確認できないため、成果物を返せません。プロバイダー設定とワーカーログを確認してください。'],
