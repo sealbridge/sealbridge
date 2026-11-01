@@ -8,7 +8,7 @@ import {
   parseAndVerifyInviteToken,
   resolveDid,
   validateRelayEndpointUrl,
-  verifySignedAgentCard,
+  discoverAgentCards,
 } from '@acp/core';
 import type { BudgetSpec, Invite, Json, KeyPair, Schema } from '@acp/core';
 import { RevocationRegistry } from '@acp/core';
@@ -31,7 +31,7 @@ import type { BeforeProposeContext, DelegateMultiOptions, DelegateOptions } from
 import { RequesterClient } from './session.js';
 import { resolveOrCreateIdentity } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
-import { selectApplicationRelay } from './relay-selection.js';
+import { normalizeRelayUrl, selectApplicationRelay } from './relay-selection.js';
 import { readApplicationConfig } from './application-config.js';
 import { validateSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
@@ -106,7 +106,7 @@ const OUTBOUND_REASON = 'outbound delegation to a remote Sealbridge worker';
  * the sibling-tool split, and the outbound security boundary in this text.
  */
 const SERVER_INSTRUCTIONS =
-  "This server delegates JSON tasks to remote Sealbridge workers over an encrypted Blind Relay and checks the bilateral audit trail. Call acp_discover_workers or start from an acp-invite, mint one with acp_create_invite when you are the worker owner, then use acp_delegate_task for one worker or acp_delegate_multi for race or quorum. Use acp_verify_audit_bundle with an anchor or expected tail fields when truncation must be ruled out, and use acp_revoke_token with acp_inspect_revocations to record and read local invite or capability revocation. Delegation signs with this process's Ed25519 owner key, and task input is transmitted externally only after allowedWorkerDids, allowedRelayUrls, and the configured approval policy permit transmission. When approval is requested, use advertised host form elicitation or an explicit webhook/provider; MCP stdio is never a terminal approval channel. Verify and inspect stay on this machine, discover only reads a relay directory, and revoke does not push a notice to a worker. Do not put secrets in arguments: delegation is synchronous and returns the verified result in that same call.";
+  "This server delegates JSON tasks to remote Sealbridge workers over an encrypted Blind Relay and checks the bilateral audit trail. Call acp_discover_workers for published open workers and pass the selected workerDid and relayUrl unchanged to acp_delegate_task, or start from an acp-invite, mint one with acp_create_invite when you are the worker owner, then use acp_delegate_task for one worker or acp_delegate_multi for race or quorum. Use acp_verify_audit_bundle with an anchor or expected tail fields when truncation must be ruled out, and use acp_revoke_token with acp_inspect_revocations to record and read local invite or capability revocation. Delegation signs with this process's Ed25519 owner key, and task input is transmitted externally only after allowedWorkerDids, allowedRelayUrls, and the configured approval policy permit transmission. When approval is requested, use advertised host form elicitation or an explicit webhook/provider; MCP stdio is never a terminal approval channel. Verify and inspect stay on this machine, discover only reads a relay directory, and revoke does not push a notice to a worker. Do not put secrets in arguments: delegation is synchronous and returns the verified result in that same call.";
 
 function rpcError(id: unknown, code: number, message: string): Json {
   return { jsonrpc: '2.0', id: (id ?? null) as Json, error: { code, message } };
@@ -400,7 +400,7 @@ export class AcpMcpServer {
     if (this.approval instanceof McpFormApprovalProvider) this.approval.assertAvailable();
     if (!this.outboundApprovalRequired()) return undefined;
     return async ({ manifest, input, relay, signal }: BeforeProposeContext) => {
-      const target = Object.freeze({ manifest, input, relay, fanOut });
+      const target = Object.freeze({ manifest, description: manifest.task.description, input, relay, fanOut });
       const receipt = await this.approval.approve({
         taskId: manifest.taskId, gate: 'external_side_effect', target,
         details: { reason: OUTBOUND_REASON }, signal, deadline: manifest.deadline,
@@ -411,8 +411,10 @@ export class AcpMcpServer {
   }
   private async delegateTask(args: Record<string, unknown>, signal?: AbortSignal): Promise<Json> {
     const to = typeof args.inviteToken === 'string' ? args.inviteToken : args.workerDid;
-    if (typeof to !== 'string' || typeof args.title !== 'string')
+    if (typeof to !== 'string' || typeof args.title !== 'string' ||
+        (args.description !== undefined && typeof args.description !== 'string'))
       throw new RpcError(-32602, 'Invalid params');
+    const description = typeof args.description === 'string' ? args.description : args.title;
     const invite = isInviteTarget(to) ? this.parseInvite(to) : undefined;
     const explicitRelay = typeof args.relayUrl === 'string' ? args.relayUrl : undefined;
     this.assertWorker(invite, invite ? undefined : to);
@@ -424,7 +426,7 @@ export class AcpMcpServer {
       ...taskTimeouts(args),
       to,
       title: args.title,
-      description: typeof args.description === 'string' ? args.description : '',
+      description,
       input: (args.input ?? null) as Json,
       outputSchema: args.outputSchema as Schema | undefined,
       budget: args.budget as Partial<BudgetSpec> | undefined,
@@ -599,7 +601,10 @@ export class AcpMcpServer {
     return { notice: notice as unknown as Json };
   }
   private async discoverWorkers(args: Record<string, unknown>): Promise<Json> {
-    if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string')
+    if ((args.relayUrl !== undefined && typeof args.relayUrl !== 'string') ||
+        (args.accessMode !== undefined && !['open', 'invite-only', 'all'].includes(args.accessMode as string)) ||
+        ['skillId', 'taskType'].some(key => args[key] !== undefined &&
+          (typeof args[key] !== 'string' || args[key].length === 0)))
       throw new RpcError(-32602, 'Invalid params');
     const explicitRelay = typeof args.relayUrl === 'string' ? args.relayUrl : undefined;
     this.assertRelays(explicitRelay ? [explicitRelay] : [], []);
@@ -609,7 +614,15 @@ export class AcpMcpServer {
     const rawCards = await transport.discover();
     if (!Array.isArray(rawCards)) throw new Error('INVALID_AGENT_CARD');
     const now = Date.now();
-    const cards = rawCards.filter((card) => verifySignedAgentCard(card, now));
+    const accessMode = args.accessMode ?? 'open';
+    // Resolve current cards first: an older matching advertisement must not win.
+    const cards = discoverAgentCards(rawCards, {
+      skillId: args.skillId as string | undefined,
+      taskType: args.taskType as string | undefined,
+    }, now).filter(card =>
+      (accessMode === 'all' || (card.payload.accessMode ?? 'invite-only') === accessMode) &&
+      (typeof selected !== 'string' ||
+        normalizeRelayUrl(card.payload.relayEndpoint) === normalizeRelayUrl(selected)));
     return {
       relayUrl: typeof selected === 'string' ? selected : null,
       count: cards.length,
@@ -619,19 +632,21 @@ export class AcpMcpServer {
           description: card.payload.description,
           ownerDid: card.payload.ownerDid,
           agentDid: card.payload.agentDid,
+          workerDid: card.payload.agentDid,
+          relayUrl: typeof selected === 'string' ? selected : null,
+          accessMode: card.payload.accessMode ?? 'invite-only',
+          acceptance: 'worker_decides',
           relayEndpoint: card.payload.relayEndpoint,
           expiresAt: card.payload.expiresAt,
           version: card.payload.version,
           costModes: card.payload.costModes,
-          skills: card.payload.skills.map((skill) => {
-            const item: { [key: string]: Json } = { id: skill.id, name: skill.name };
-            if (typeof skill.description === 'string') item.description = skill.description;
-            return item;
-          }),
+          skills: card.payload.skills as unknown as Json,
+          signedAgentCard: card as unknown as Json,
           signerDid: card.signature.signerDid,
           signedAt: card.signature.signedAt,
           signature: card.signature as unknown as Json,
         };
+        if (card.payload.openPolicy) worker.openPolicy = card.payload.openPolicy as unknown as Json;
         if (card.payload.agentDelegation)
           worker.agentDelegation = card.payload.agentDelegation as unknown as Json;
         return worker;

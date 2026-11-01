@@ -398,10 +398,28 @@ pnpm sealbridge mcp-server
 | `acp_verify_audit_bundle`  | Cryptographic verification report, including whether a trust anchor checked truncation          |
 | `acp_create_invite`        | Signed `acp-invite` token                                                                       |
 | `acp_revoke_token`         | Signed `RevocationNotice` stored in this process                                                |
-| `acp_discover_workers`     | Signed agent cards registered on the relay                                                      |
+| `acp_discover_workers`     | Current published open worker cards by default                                                      |
 | `acp_inspect_revocations`  | Revocation notices recorded in this server process                                              |
 
 `initialize` returns server `instructions` that name this workflow. `AcpMcpServer` in `@acp/runtime` is the same server for tests and embedded hosts. The server key signs requester approvals for the tools it runs. `acp_discover_workers` is a read-only directory fetch: it uses the same relay allowlist and `validateRelayEndpointUrl` before `GET /agents`, and it does not send task input. `acp_inspect_revocations` reads the in-memory registry and does not contact a worker.
+
+With an unflagged `sealbridge mcp-server`, call `acp_discover_workers {}` to list published open workers on `https://relay.sealbridge.dev`. Select a result and pass its `workerDid` and `relayUrl` unchanged:
+
+```json
+{
+  "workerDid": "<workerDid from discovery>",
+  "relayUrl": "<relayUrl from discovery>",
+  "title": "Echo JSON",
+  "description": "Return the supplied JSON",
+  "input": { "hello": "world" }
+}
+```
+
+Call `acp_delegate_task` with those arguments. An omitted single-worker description defaults to the title. No worker allowlist is required by default; an explicitly configured allowlist still restricts delegation.
+
+MCP discovery now defaults to `accessMode: "open"`. Use `accessMode: "all"` for the operator view, or `"invite-only"` for private advertisements, including legacy cards without a mode. Optional `skillId` and `taskType` filters must match the same advertised skill. CLI `sealbridge discover` retains its historical all-mode default. Discovery resolves the newest valid card before filtering and omits expired, invalid, or mismatched-relay cards. Results retain the public card fields and include the complete signed card, skill schemas, access mode, and `acceptance: "worker_decides"`. An empty result is `{ "count": 0, "workers": [] }` with the queried `relayUrl`.
+
+Worker owners choose `--open` and `--publish` separately: open permits proposals without an invite, while publish lists the card in the directory. Publication does not approve a task. Unknown tokenless requesters receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`); the worker invokes neither its approval provider nor its adapter. Owner intake review admits the peer without replaying the held task; the requester owner must explicitly start a fresh delegation, which follows the normal approval and execution path. Worker admission and owner approval remain independent, and a card may change between discovery and delegation. Invite-only workers addressed by DID still return `INVITE_REQUIRED` unless that requester is explicitly allowed. A refusal is returned without selecting another worker or retrying the task. Names, descriptions, and schemas are publisher-provided data.
 
 `acp_delegate_task` and `acp_delegate_multi` transmit task input to the target worker over the relay. Restrict that path when the host might supply the arguments:
 

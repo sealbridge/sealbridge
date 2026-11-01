@@ -279,7 +279,7 @@ const taskTitleSchema = described(
 );
 
 const taskDescriptionSchema = described(
-  'Task detail copied into the manifest and shown to the worker. It must be 1 to 32768 characters. An omitted value is sent as an empty string and fails with SCHEMA_VIOLATION.',
+  'Task detail copied into the manifest and shown to the worker. It must be 1 to 32768 characters. For single-worker delegation, an omitted value defaults to the task title; multi-worker delegation requires a description.',
   { type: 'string', minLength: 1, maxLength: 32768 },
 );
 
@@ -394,6 +394,9 @@ const skillSchema = objectSchema(
     description: described('Skill detail from the card, present only when the publisher set one.', {
       type: 'string',
     }),
+    taskTypes: described('Task types advertised for this skill.', { type: 'array', items: { type: 'string' } }),
+    inputSchema: jsonValue('JSON input schema advertised for this skill.'),
+    outputSchema: jsonValue('JSON output schema advertised for this skill.'),
   },
   ['id', 'name'],
 );
@@ -405,6 +408,12 @@ const discoveredWorkerSchema = objectSchema(
     description: described('Card description published by the worker owner.', { type: 'string' }),
     ownerDid: described('Owner did:key that signed the card.', { type: 'string' }),
     agentDid: described('Agent did:key that will receive delegated tasks.', { type: 'string' }),
+    workerDid: described('Agent DID to pass unchanged to acp_delegate_task.', { type: 'string' }),
+    relayUrl: described('Queried relay to pass unchanged to acp_delegate_task; null for an injected transport without a URL.', { type: ['string', 'null'] }),
+    accessMode: described('Effective access mode; legacy cards without a mode are invite-only.', { type: 'string', enum: ['open', 'invite-only'] }),
+    acceptance: described('The worker independently decides whether to accept each task.', { type: 'string', const: 'worker_decides' }),
+    openPolicy: described('Signed open policy when the publisher includes one.', { type: 'object', additionalProperties: { type: 'integer', minimum: 1 } }),
+    signedAgentCard: described('Complete signed card as published, including the original payload and signature.', { type: 'object', additionalProperties: true }),
     relayEndpoint: described('Relay URL embedded in the card.', { type: 'string' }),
     expiresAt: described('ISO-8601 expiry after which the card must be rejected.', { type: 'string' }),
     version: described('Card version string published by the worker.', { type: 'string' }),
@@ -429,6 +438,11 @@ const discoveredWorkerSchema = objectSchema(
     'ownerDid',
     'agentDid',
     'relayEndpoint',
+    'workerDid',
+    'relayUrl',
+    'accessMode',
+    'acceptance',
+    'signedAgentCard',
     'expiresAt',
     'version',
     'costModes',
@@ -719,7 +733,7 @@ export const mcpTools: Json = [
     name: 'acp_discover_workers',
     title: 'Discover registered workers',
     description:
-      'List signed agent cards on a Blind Relay and return each card\'s public name, DIDs, skills, endpoint, expiry, and signature. Use this to choose a worker before acp_delegate_task or acp_delegate_multi, and do not use it to register or edit cards. relayUrl defaults to the server relay or https://relay.sealbridge.dev; it is normalized and must satisfy allowedRelayUrls or the call fails with MCP_RELAY_NOT_ALLOWED before any request. The tool is a read-only directory fetch that verifies card signatures, sends no task input, and does not ask for delegation approval. It is idempotent, bad arguments are JSON-RPC -32602, and transport failures return isError true with { error: CODE }.',
+      'List current signed worker cards on the server relay or https://relay.sealbridge.dev, defaulting to accessMode open. Use accessMode all for the operator view, or filter by skillId and taskType; legacy cards without a mode are invite-only. Pass a selected workerDid and relayUrl unchanged to acp_delegate_task with title and input; unknown tokenless peers receive terminal PENDING_OWNER_APPROVAL without worker approval or execution, requiring owner intake review and an explicitly started fresh delegation. This read-only directory fetch verifies signatures and expiry, drops invalid cards and mismatched endpoints, sends no task input, and requires no delegation approval. Explicit relay policies apply, bad arguments are JSON-RPC -32602, and operational failures return isError true with { error: CODE }.',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -727,14 +741,17 @@ export const mcpTools: Json = [
     inputSchema: objectSchema(
       'Arguments for reading one relay agent directory.',
       {
+        accessMode: described('Access mode to list; open is the MCP default, all includes invite-only and legacy cards.', { type: 'string', enum: ['open', 'invite-only', 'all'], default: 'open' }),
+        skillId: described('Return workers advertising this exact skill identifier.', { type: 'string', minLength: 1 }),
+        taskType: described('Return workers advertising this task type in a matching skill.', { type: 'string', minLength: 1 }),
         relayUrl: described(
-          'Directory relay to query. Omit it to use the server relay. Normalized to origin plus pathname with no trailing slash and rejected with MCP_RELAY_NOT_ALLOWED when it is outside allowedRelayUrls. Private and loopback relays stay blocked unless the server was started with allowPrivateRelay.',
+          'Directory relay to query. Omit it to use the server relay or https://relay.sealbridge.dev. Normalized to origin plus pathname with no trailing slash and rejected with MCP_RELAY_NOT_ALLOWED when it is outside allowedRelayUrls. Private and loopback relays stay blocked unless the server was started with allowPrivateRelay.',
           { type: 'string' },
         ),
       },
     ),
     outputSchema: objectSchema(
-      'Success payload in structuredContent. Cards that fail signature checks raise INVALID_AGENT_CARD instead of appearing here.',
+      'Success payload in structuredContent. Invalid or expired cards are omitted; a non-array directory response raises INVALID_AGENT_CARD.',
       {
         relayUrl: described(
           'Relay URL that was queried, or null when the server relay is an in-memory transport with no URL.',
