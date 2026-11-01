@@ -59,14 +59,22 @@ export function strictObject(bytes: Buffer): { text: string; tree: JsonNode } {
   return { text, tree };
 }
 
-export function hostChange(original: Snapshot, entry: unknown): FileChange {
+export function hostChange(original: Snapshot, entry: unknown,
+  options: { updateExisting?: boolean; alternateEntry?: unknown } = {}): FileChange {
   const { text, tree } = strictObject(original.bytes ?? Buffer.from('{}\n'));
   const value = JSON.parse(text) as Record<string, unknown>;
   const servers = tree.children?.find(p => p.children![0].value === 'mcpServers')?.children![1];
   if (servers && servers.type !== 'object') fail('SETUP_CONFIG_INVALID');
   if (servers && Object.hasOwn(value.mcpServers as object, 'sealbridge')) {
-    if (!isDeepStrictEqual((value.mcpServers as Record<string, unknown>).sealbridge, entry)) fail('SETUP_ENTRY_CONFLICT');
-    return { ...original, next: original.bytes! };
+    const existing = (value.mcpServers as Record<string, unknown>).sealbridge;
+    if (isDeepStrictEqual(existing, entry)) return { ...original, next: original.bytes! };
+    if (!options.updateExisting) fail(options.alternateEntry !== undefined && isDeepStrictEqual(existing, options.alternateEntry)
+      ? 'SETUP_APPROVAL_MODE_CONFLICT' : 'SETUP_ENTRY_CONFLICT');
+    const node = servers.children!.find(p => p.children![0].value === 'sealbridge')!.children![1];
+    const bom = original.bytes?.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) ? '\uFEFF' : '';
+    const next = Buffer.from(bom + text.slice(0, node.offset) + JSON.stringify(entry) + text.slice(node.offset + node.length));
+    strictObject(next);
+    return { ...original, next };
   }
   // Insert only the property bytes. Existing keys, spacing, BOM and line endings stay intact.
   const object = servers ?? tree;

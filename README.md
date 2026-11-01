@@ -75,14 +75,24 @@ checkout must be built first and run via `node cli/dist/index.js setup`.
 
 Setup locally creates/reuses requester identity, optionally worker with
 `--worker`, records the existing `config.json` relay-list contract, and registers
-absolute Node/CLI paths for plain `mcp-server`, with no approval flags. It sends
+absolute Node/CLI paths for `mcp-server --require-approval`. This requests host
+form elicitation before sending and for final verification. Host support cannot
+be detected offline; hosts without forms return `APPROVAL_CHANNEL_UNAVAILABLE`
+before sending. Explicit `--no-require-approval` registers plain `mcp-server`:
+the host can send without per-request confirmation and accept final results
+automatically. Apply, `--dry-run`, and `--print` label each entry's approval mode. Setup sends
 nothing to the network and starts no process. `--relay URL` records a fallback
-and refuses a differing saved default. Existing entries must match exactly.
+and refuses a differing saved default. Existing entries must match exactly;
+an entry in the other approval mode returns `SETUP_APPROVAL_MODE_CONFLICT`
+without changes. Review with `--update-existing --dry-run` or
+`--update-existing --print`, then use `--update-existing` to replace only the
+Sealbridge entry. To keep a previous plain entry, use `--no-require-approval`.
 Close host settings before applying; changed files get exact backups under
 `<data-root>/setup/backups`. Backups may contain host credentials. Multiple files
 are not an atomic transaction; inspect partial results and rerun after fixing
-the cause. Reload the host and check its tools separately. Configure task
-approvals separately; registration does not grant approval or prove readiness.
+the cause. Reload the host and check its tools separately. Registration does
+not grant task approval or prove host readiness. Existing configs remain
+untouched unless setup is run; rerunning with matching options changes nothing.
 
 Follow the [agent-readable instructions](sites/connect-agent.txt) for human-run
 `sealbridge accept --paste` and `acp_list_invites`/`workerRef`, or open-worker
@@ -360,6 +370,8 @@ personally in a terminal**, outside model execution:
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # Or enter the invitation at a human terminal prompt:
 sealbridge accept --paste --alias reviewer
+# Or read a link from a file or an application-provided pipe:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 ```
 
@@ -381,6 +393,16 @@ user-managed parent access. Positional links can appear in shell history and
 process inspection. `--paste` requires a human TTY and avoids link inclusion in
 argv/shell history; it does not erase terminal history. Non-TTY paste returns
 `INVITE_INPUT_UNAVAILABLE` immediately.
+
+`--stdin` reads one invitation link from a pipe or file through EOF, with a
+68 KiB byte cap and a 10-second total read timeout. Applications can spawn
+`sealbridge accept --stdin --alias reviewer`, write the link to child stdin,
+and close the pipe. Surrounding whitespace/CRLF and blank lines are trimmed;
+empty input or multiple non-empty lines are rejected. TTY input returns
+`INVITE_STDIN_REQUIRES_PIPE`; use `--paste` at a terminal. `--stdin`, `--paste`,
+and a positional link are mutually exclusive. Neither stdin input nor read-error
+text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
+`agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
 
 Aliases are exact, case-sensitive ASCII slugs of 1–64 characters (letters,
 digits, hyphen and underscore, starting with a letter or digit). Omission derives

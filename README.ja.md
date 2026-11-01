@@ -75,13 +75,23 @@ Claude Code は `--host claude-code --project` と絶対パスが必須です。
 
 setup は依頼者鍵（`--worker` ならワーカー鍵も）を作成・再利用し、既存の
 `config.json` の relays 形式で既定値を記録します。絶対パスの Node/CLI で
-`mcp-server` を登録し、承認フラグを追加しません。通信もプロセス起動もしません。
+`mcp-server --require-approval` を登録し、送信前と最終検収時にホストのフォーム
+elicitation を要求します。ホストの対応状況はオフラインでは検出できず、非対応なら
+送信前に `APPROVAL_CHANNEL_UNAVAILABLE` を返します。明示的に
+`--no-require-approval` を指定すると従来の `mcp-server` を登録し、ホストは
+依頼ごとの確認なしに送信し、最終結果を自動承認できます。適用時・`--dry-run`・
+`--print` は登録ごとの承認モードを表示します。通信もプロセス起動もしません。
 `--relay URL` は代替既定値の記録で、保存済みの先頭と異なれば停止します。
-既存の Sealbridge 登録も完全一致が必要です。設定画面を閉じて適用してください。
+既存の Sealbridge 登録も完全一致が必要です。承認モードが異なる登録は
+`SETUP_APPROVAL_MODE_CONFLICT` で停止し、変更しません。
+`--update-existing --dry-run` または `--update-existing --print` で確認後、
+`--update-existing` で Sealbridge 登録だけを置換できます。従来の登録を維持するには
+`--no-require-approval` を指定します。設定画面を閉じて適用してください。
 変更する既存ファイルの原文を `<data-root>/setup/backups` に保存します。
 バックアップはホストの資格情報を含む場合があります。複数ファイルは一括確定できません。
 部分失敗なら結果を確認し、原因を解消して再実行します。ホストを再読込しツールを確認してください。
-承認の設定と動作確認は別途必要で、登録だけでは仕事を承認しません。
+登録だけでは仕事を承認せず、ホストの動作確認は別途必要です。setup を実行しなければ
+既存設定は変わらず、同じオプションで再実行しても変更しません。
 
 [エージェント向け手順](sites/connect-agent.txt) に、人間が実行する
 `sealbridge accept --paste` と `acp_list_invites`/`workerRef`、または
@@ -117,6 +127,8 @@ keychain 方式は任意の [`@napi-rs/keyring`](https://github.com/Brooooooklyn
 sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 # または人が操作する TTY で貼り付けます:
 sealbridge accept --paste --alias reviewer
+# またはファイル・アプリからのパイプで読み込みます:
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 ```
 
@@ -133,6 +145,14 @@ POSIX はディレクトリ 0700・ファイル 0600、Windows は親の DACL �
 上書き保存先の親アクセス権はユーザーが管理します。位置引数のリンクはシェル履歴やプロセス一覧に
 残る場合があります。`--paste` は人の TTY を必須とし、argv・シェル履歴へのリンクの記載を避けますが、
 端末履歴を消去しません。非 TTY は直ちに `INVITE_INPUT_UNAVAILABLE` を返します。
+
+`--stdin` はパイプ・ファイルからリンクを EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
+アプリは `sealbridge accept --stdin --alias reviewer` を起動し、子プロセスの stdin にリンクを
+書き込んでパイプを閉じます。前後の空白・CRLF と空行を除き、空入力・複数の非空行は拒否します。
+TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、端末では `--paste` を使ってください。
+位置引数・`--paste`・`--stdin` は併用できません。入力リンクや読み取りエラーの内容は出力しません。
+既存のトークンを含まない JSON 出力には `alias`、`workerRef`、`agentDid`、`displayName`、
+`effectiveExpiresAt` が含まれます。JSON 用の追加フラグは不要です。
 
 別名は先頭が英数字の ASCII 英数字・ハイフン・アンダースコア 1–64 文字で、大文字小文字を区別します。
 省略時は表示名と安定したダイジェスト接尾辞から生成します。同一招待の保存は冪等で、別名の衝突は
