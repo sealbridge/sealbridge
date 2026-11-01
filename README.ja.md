@@ -336,10 +336,28 @@ pnpm sealbridge mcp-server
 | `acp_verify_audit_bundle`  | 暗号検証レポート。トラストアンカーで末尾切断を見たかも含む             |
 | `acp_create_invite`        | 署名済み `acp-invite` トークン                                         |
 | `acp_revoke_token`         | このプロセスに保存した署名済み `RevocationNotice`                      |
-| `acp_discover_workers`     | 中継器に登録された署名済みエージェントカード                           |
+| `acp_discover_workers`     | 既定では公開済み open ワーカーの現在のカード                           |
 | `acp_inspect_revocations`  | このサーバープロセスに記録された失効通知                               |
 
 `initialize` は、この手順を示したサーバー `instructions` を返します。同じ実装が `@acp/runtime` の `AcpMcpServer` です。サーバー鍵は、ツールが行う依頼側の承認に署名します。`acp_discover_workers` はディレクトリの読み取り専用です。`GET /agents` の前に、委任と同じリレー許可リストと `validateRelayEndpointUrl` を使い、タスク入力は送りません。`acp_inspect_revocations` はメモリ上のレジストリを読むだけで、ワーカーには接続しません。
+
+フラグなしの `sealbridge mcp-server` で `acp_discover_workers {}` を呼ぶと、既定の `https://relay.sealbridge.dev` に公開された open ワーカーを列挙します。結果を選び、その `workerDid` と `relayUrl` をそのまま `acp_delegate_task` に渡します。
+
+```json
+{
+  "workerDid": "<検索結果の workerDid>",
+  "relayUrl": "<検索結果の relayUrl>",
+  "title": "Echo JSON",
+  "description": "入力された JSON を返す",
+  "input": { "hello": "world" }
+}
+```
+
+単一ワーカーへの委任で `description` を省略すると、タイトルを使います。既定ではワーカー許可リストの設定は不要ですが、明示された許可リストは引き続き適用されます。
+
+MCP 検索の既定値は `accessMode: "open"` になりました。運用向けの全件表示は `accessMode: "all"`、非公開モードの表示は `"invite-only"` です。モードを持たない従来カードは invite-only として扱います。任意の `skillId` と `taskType` は同じスキル内で一致する必要があります。CLI の `sealbridge discover` は従来どおり全モードを表示します。最新の有効なカードを解決してから絞り込み、期限切れ・無効・検索した中継器と異なるエンドポイントのカードを除外します。結果には既存の公開フィールドに加え、署名済みカード全体、スキルのスキーマ、アクセスモード、`acceptance: "worker_decides"` が含まれます。該当なしの場合は、検索した `relayUrl` と `count: 0, workers: []` を返します。
+
+ワーカーのオーナーは `--open` と `--publish` を個別に選択します。open は招待なしの提案を認め、publish はカードをディレクトリに掲載します。掲載はタスクの承認を意味しません。招待も信頼付与もない未知の依頼者には、終端の `PENDING_OWNER_APPROVAL`（`retryable: false`）を返し、ワーカーの承認プロバイダーもアダプターも呼びません。オーナーの受付審査は依頼者を許可するだけで、保留タスクを再実行しません。依頼者のオーナーが明示的に新しい委任を開始すると、通常の承認・実行経路に進みます。ワーカーの受付方針とオーナーの承認は独立しており、検索後にカードが変わる場合もあります。invite-only ワーカーへの DID 委任は、依頼者が明示的に許可されていなければ `INVITE_REQUIRED` を返します。拒否時に別ワーカーを自動選択したり再試行したりしません。名前・説明・スキーマは公開者から提供されたデータです。
 
 `acp_delegate_task` と `acp_delegate_multi` は、タスク入力を中継器経由で対象ワーカーへ送ります。ホストが引数を組み立てるときは、送信先を制限します。
 

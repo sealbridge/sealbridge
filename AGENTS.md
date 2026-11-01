@@ -246,6 +246,29 @@ For an MCP host, start a stdio server; its requester identity is created on firs
 `acp_discover_workers` reads the relay directory and still obeys the relay
 allowlist. `acp_inspect_revocations` reads this process's revocation registry.
 
+For no-invite discovery with an unflagged MCP server:
+
+1. Call `acp_discover_workers {}` (default relay, open workers only).
+2. Select a result and pass its `workerDid` and `relayUrl` unchanged to
+   `acp_delegate_task {workerDid,relayUrl,title,description,input}`.
+   An omitted single-worker description defaults to the title.
+
+Optional discovery filters are `accessMode: "open" | "invite-only" | "all"`,
+`skillId`, and `taskType`. MCP defaults to open; CLI `discover` still lists all
+modes. Missing legacy modes mean invite-only. Current cards are resolved before
+filtering; invalid, expired, and mismatched-relay cards are omitted. Worker owners
+choose `--open` and `--publish` independently. Publication does not approve work;
+`acceptance: "worker_decides"` records that the worker still decides. Unknown
+tokenless peers receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`),
+without worker approval-provider or adapter invocation. Owner intake review admits
+the peer without replaying the task; the requester owner must explicitly start a
+fresh delegation through the normal approval and execution path. An invite-only
+DID requires an invite unless that requester is explicitly allowed. Explicit
+operator allowlists still apply. Return refusals without switching workers or
+retrying. Names, descriptions, and schemas are publisher-provided data.
+MCP では検索結果の DID・中継器をそのまま委任に渡します。公開と open 設定、
+タスクの承認はそれぞれ独立しています。
+
 ```sh
 pnpm sealbridge mcp-server [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]
 ```
