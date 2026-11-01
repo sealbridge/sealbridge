@@ -320,6 +320,28 @@ pnpm sealbridge worker start --key /tmp/bob.private.json \
 
 `sealbridge worker` は `--publish` を付けない限り、公開リレーのディレクトリへ AgentCard を登録しません。招待トークンを直接渡してください。`sealbridge discover` に出るのは `--publish` したワーカーだけです。
 
+ワーカー起動時の標準出力は従来どおり、1行目がトークン、2行目が HTTPS 招待リンクです。
+`--invite-output none` で両方を省略できます。`--invite-output file:/absolute/path/invite.txt`
+または `--invite-output fd:3` は、トークンと改行だけを別の出力先へ渡し、標準出力には複製しません。
+ファイルは未使用パスへモード `0600` で排他的に作成します。親ディレクトリは事前に作成し、
+POSIX では現在のユーザーが所有し、グループ・他ユーザーの権限を付けないでください（通常 `0700`）。
+既存ファイルと検出可能なリンクは拒否します。Windows は親の ACL を継承し、ACL は検証しません。
+`fd:<n>` は POSIX 専用です。Windows では引数解析時に `INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` で
+拒否し、鍵の作成・リレーへの登録・待受開始は行いません。Windows の Node が継承する追加の stdio
+パイプは、同期ファイル書き込みに使える通常のファイル記述子ではありません。
+Windows で招待を別の出力先へ渡すには `file:<path>` を使ってください。
+継承する記述子は 2 より大きく、パイプ・ソケット・ファイルを指定します。ファイルは
+現在のユーザーが所有し、グループ・他ユーザーの権限がないことが必要です。出力先と寿命は親プロセスが
+管理し、ワーカーは記述子を閉じません。配送に失敗すると `INVITE_OUTPUT_UNAVAILABLE` で停止し、
+招待の表示と待受開始は行いません。
+
+すべてのモードで、招待の配送（または省略）後、待受開始前に stderr へ `invite_ready` JSON を1行出します。
+フィールドは `event`、`inviteDigest`（`sha256:` とトークンの完全な16進ダイジェスト）、
+`expiresAt`（ISO 日時）、`workerDid`、`relay` です。トークンや招待リンクは含みません。
+このイベントは中継器への接続完了を表しません。状態・イベント JSON は共通のフィールド選択処理を使い、
+診断キーとダイジェストを維持し、認識しない自由形式の値を `[redacted]` に置き換えます。
+承認プロンプトと、明示的に有効にした受信箱・受信フックの内容は従来どおりです。
+
 `--inbox /path/to/inbox.jsonl` を指定すると、対話エージェント向けの受信箱を保存します。
 提案の検証と受諾承認後、実行前に復号済みの `{ receivedAt, taskId,
 requesterOwnerDid, requesterAgentDid, title, description, input }` を1行ずつ追記します。

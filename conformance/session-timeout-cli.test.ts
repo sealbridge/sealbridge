@@ -8,22 +8,22 @@ import type { DelegateOptions, RequesterClientOptions, WorkerNodeOptions } from 
 
 const captured = vi.hoisted(() => ({ worker: undefined as WorkerNodeOptions | undefined,
   requester: undefined as RequesterClientOptions | undefined, task: undefined as DelegateOptions | undefined }));
-vi.mock('../packages/runtime/dist/index.js', async original => ({
-  ...await original<typeof import('../packages/runtime/src/index.js')>(),
-  WorkerNode: class {
-    constructor(options: WorkerNodeOptions) { captured.worker = options; }
-    invite() { return 'local-test-placeholder'; }
-    async start() {}
-    stop() {}
-  },
-  RequesterClient: class {
-    constructor(options: RequesterClientOptions) { captured.requester = options; }
-    async delegate(options: DelegateOptions) {
-      captured.task = options;
-      return { taskId: 'task_local', state: 'SETTLED', deliverable: null };
-    }
-  },
-}));
+vi.mock('../packages/runtime/dist/index.js', async original => {
+  const runtime = await original<typeof import('../packages/runtime/src/index.js')>();
+  return { ...runtime,
+    WorkerNode: class extends runtime.WorkerNode {
+      constructor(options: WorkerNodeOptions) { super(options); captured.worker = options; }
+      override async start() { return undefined; }
+    },
+    RequesterClient: class {
+      constructor(options: RequesterClientOptions) { captured.requester = options; }
+      async delegate(options: DelegateOptions) {
+        captured.task = options;
+        return { taskId: 'task_local', state: 'SETTLED', deliverable: null };
+      }
+    },
+  };
+});
 import { networkCommand } from '../cli/src/network.js';
 afterEach(() => vi.restoreAllMocks());
 
