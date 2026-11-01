@@ -18,7 +18,7 @@ irm https://sealbridge.dev/install.ps1 | iex
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
-インストーラーと `sealbridge doctor` は、Node 実行ファイルの解決済みパスとバージョンを表示します。Windows では解決済み Node と同じ場所に npm が必要です。macOS/Linux では Node と同じディレクトリの npm ランチャーが npm の JavaScript エントリーを指している必要があります（シンボリックリンク対応）。その Node で npm を直接実行します。Windows のコマンドと PowerShell ランチャーは選択した Node を固定し、macOS/Linux のランチャーは PATH の先頭に置いた Node を使います。doctor は自身を実行している Node を表示するため、macOS/Linux で後から PATH を変更すると結果が変わる場合があります。正常な項目は短い `(OK)` 行で表示し、対処方法は `(WARN)` 行だけに表示します。ワーカー鍵がなくても正常です。タスクを受け取る前に `.acp` ディレクトリを作成して `sealbridge keygen "$HOME/.acp/worker.private.json"` を実行するか、`--key` で既存の鍵を指定してください。
+インストーラーと `sealbridge doctor` は、Node 実行ファイルの解決済みパスとバージョンを表示します。Windows では解決済み Node と同じ場所に npm が必要です。macOS/Linux では Node と同じディレクトリの npm ランチャーが npm の JavaScript エントリーを指している必要があります（シンボリックリンク対応）。その Node で npm を直接実行します。Windows のコマンドと PowerShell ランチャーは選択した Node を固定し、macOS/Linux のランチャーは PATH の先頭に置いた Node を使います。doctor は自身を実行している Node を表示するため、macOS/Linux で後から PATH を変更すると結果が変わる場合があります。正常な項目は短い `(OK)` 行で表示し、対処方法は `(WARN)` 行だけに表示します。鍵は初回使用時に作成します。インストーラーと doctor は鍵を生成しません。`sealbridge doctor --offline` は中継器へ接続せずローカル設定を検査します。
 
 削除はスクリプトを保存して `sh install.sh --uninstall` または `& ./install.ps1 -Uninstall`（PowerShellでの --uninstall 表記）を実行します。鍵は保持します。Unixではシェル設定の `# sealbridge installer` 行も削除してください。npmのみの導入は `npm uninstall -g sealbridge` で削除できます。保存先は `~/.local/share/sealbridge` と `%LOCALAPPDATA%\Sealbridge` です。
 
@@ -72,16 +72,23 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
       "command": "node",
       "args": [
         "/path/to/sealbridge/cli/dist/index.js",
-        "mcp-server",
-        "--key",
-        "/tmp/alice.private.json",
-        "--relay",
-        "https://relay.sealbridge.dev"
+        "mcp-server"
       ]
     }
   }
 }
 ```
+
+`mcp-server`、`delegate`、`worker start`、`discover`、`invite create` は `--key` と `--relay` を省略できます。既定の中継器は `https://relay.sealbridge.dev` です。MCP の初期化・ツール一覧は通信せず、検索は公開ディレクトリを取得し、依頼は暗号化したタスクを送ります。中継器には経路メタデータが見えます。招待作成はローカル署名のみで、ワーカーを起動しません。
+
+鍵は `<data-root>/identities/requester.private.json` と `worker.private.json` に保存し再利用します。MCP と delegate は依頼者、worker start と CLI の招待作成はワーカーの鍵を使います。MCP の署名ツールはサーバーの依頼者鍵（または明示した鍵）を使います。MCP は必要になるまで鍵を読み込みません。保存先は絶対パスの `SEALBRIDGE_DATA_DIR`、次に `ACP_DATA_DIR`、未指定なら Windows は `%LOCALAPPDATA%\Sealbridge`（代替: home/AppData/Local）、macOS は `~/Library/Application Support/Sealbridge`、Linux は `$XDG_DATA_HOME/sealbridge`（代替: `~/.local/share/sealbridge`）です。
+
+POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モードを検査します。Windows は LOCALAPPDATA 配下の DACL を継承します。Node のモードはユーザー限定 DACL を設定せず、この版では ACL を検証しません。保存先を変更した場合は親のアクセス設定を継承するため、利用者が管理します。検出可能なリンク・通常ファイル以外は拒否します。ただし macOS の root 所有の `/var`・`/tmp` から対応する `/private` ディレクトリへのリンクは認めます。同じディレクトリ内のハードリンクが使えない場合は `IDENTITY_CREATION_UNSUPPORTED` です。
+
+既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
+
+明示した `--relay` は接続先を固定します。未指定なら検証済み招待の中継器が公開既定値より優先されます。明示の許可リスト（プログラムの空リストを含む）と注入した transport の優先順位は維持します。ループバック接続には引き続き `--allow-private-relay` が必要です。
+
 
 MCP ホストは、信頼できないツール引数を渡すことがあります。`--allow-worker`、`--allow-relay`、そして `--require-approval` または `--approval-webhook` を付けて、プロンプト注入でタスク入力が任意のワーカーや中継器へ送られないようにします。フラグの説明は下の MCP の節にあります。
 
@@ -281,7 +288,7 @@ docker run --rm -i -v sealbridge-data:/data sealbridge
 ## MCP、進捗、失効、クォーラム
 
 ```sh
-pnpm sealbridge mcp-server --key /tmp/alice.private.json --relay https://relay.sealbridge.dev
+pnpm sealbridge mcp-server
 ```
 
 `sealbridge mcp-server` は、依存ライブラリを増やさない JSON-RPC 2.0 の MCP サーバーです。標準入力に、改行区切り JSON と `Content-Length` フレームの両方を受けます。Claude Code、Cursor、Codex、Grok Bot から次のツールを呼べます。

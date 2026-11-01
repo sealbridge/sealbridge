@@ -4,15 +4,18 @@ import { dirname, join } from 'node:path';
 import { inviteShareCommand } from './invite-share.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema, OpenPolicy } from '@acp/core';
-import { createSignedAgentCard, createInviteToken, discoverAgentCards } from '@acp/core';
+import { createSignedAgentCard, createInviteToken, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
+  resolveOrCreateIdentity,
+  selectApplicationRelay,
+  DEFAULT_PUBLIC_RELAY,
   RequesterClient,
   PolicyAutoApprovalProvider,
   InteractiveCliApprovalProvider,
 } from '@acp/runtime';
-import type { AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
+import type { LocalIdentityOptions, AgentAdapter, ApprovalProvider, WorkerAcceptancePolicy, SessionTimeoutOptions } from '@acp/runtime';
 import {
   CommandAgentAdapter,
   ClaudeCodeAdapter,
@@ -148,7 +151,9 @@ function assertLlmAutoAccept(
       '(repeatable or comma-separated) or --allow-any-requester.',
   );
 }
-export async function networkCommand(command: string, args: string[]): Promise<void> {
+export async function networkCommand(command: string, args: string[], application: {
+  identityOptions?: LocalIdentityOptions; fetch?: typeof fetch;
+} = {}): Promise<void> {
   if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
     console.log(command === 'relay' ? `Relay notification options:
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
@@ -202,7 +207,7 @@ export async function networkCommand(command: string, args: string[]): Promise<v
     return;
   }
   if (command === 'discover') {
-    const client = new HttpRelayClient(text(f, 'relay'), { allowPrivateRelay });
+    const client = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, undefined, { allowPrivateRelay });
     console.log(JSON.stringify(discoverAgentCards(await client.discover(), {
       ...(f.has('--skill') ? { skillId: text(f, 'skill') } : {}),
       ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),
@@ -210,13 +215,16 @@ export async function networkCommand(command: string, args: string[]): Promise<v
     }), null, 2));
     return;
   }
-  const key = JSON.parse(readFileSync(text(f, 'key'), 'utf8')) as KeyPair;
+  const key = resolveOrCreateIdentity(command === 'delegate' ? 'requester' : 'worker', {
+    ...application.identityOptions,
+    explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined,
+  });
   if (command === 'invite') {
     const card = createSignedAgentCard(
       {
         name: text(f, 'name', 'Sealbridge Worker'),
         agentDid: key.did,
-        relayEndpoint: text(f, 'relay'),
+        relayEndpoint: text(f, 'relay', DEFAULT_PUBLIC_RELAY),
         skills: [{ id: 'json-task', name: 'JSON task' }],
       },
       key,
@@ -311,7 +319,7 @@ export async function networkCommand(command: string, args: string[]): Promise<v
     }
     if (allowedTaskTypes)
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
-    const workerRelay = new HttpRelayClient(text(f, 'relay'), key, { allowPrivateRelay, ...authRecovery,
+    const workerRelay = new HttpRelayClient(text(f, 'relay', DEFAULT_PUBLIC_RELAY), application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
       requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
     const worker = new WorkerNode({
       ...authRecovery,
@@ -325,7 +333,7 @@ export async function networkCommand(command: string, args: string[]): Promise<v
       owner: key,
       relay: workerRelay,
       inviteTtlSeconds: inviteTtl,
-      relayUrl: text(f, 'relay'),
+      relayUrl: text(f, 'relay', DEFAULT_PUBLIC_RELAY),
       adapter,
       name: text(f, 'name', adapter.name),
       approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
@@ -377,20 +385,26 @@ export async function networkCommand(command: string, args: string[]): Promise<v
         value.trim().startsWith('{') ? value : readFileSync(value, 'utf8'),
       ) as Schema;
     }
+    const to = text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
+    const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
+    const { relay } = selectApplicationRelay({
+      configured: f.has('--relay') ? text(f, 'relay') : undefined,
+      inviteRelay: invite?.relayUrl,
+      allowPrivateRelay,
+    });
     const client = new RequesterClient({
       ...authRecovery,
       ...sessionTimeouts(f),
       owner: key,
-      ...(f.has('--relay')
-        ? { relay: new HttpRelayClient(text(f, 'relay'), key, { allowPrivateRelay, ...authRecovery, requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }) }
-        : {}),
+      relay: new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
+        requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }),
       approvalProvider: approval(key, automatic, undefined, f.has('--verbose')),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
       allowPrivateRelay,
     });
     const result = await client.delegate({
       ...sessionTimeouts(f),
-      to: text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined),
+      to,
       ...(f.has('--discover') || f.has('--task-type') ? { discover: {
         ...(f.has('--discover') ? { skillId: text(f, 'discover') } : {}),
         ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),

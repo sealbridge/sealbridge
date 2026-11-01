@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { realpathSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair } from '../packages/core/src/index.js';
@@ -28,11 +28,11 @@ import { networkCommand } from '../cli/src/network.js';
 afterEach(() => vi.restoreAllMocks());
 
 it('forwards delegate execution, overall, wait, connect, idle and heartbeat flags', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-timeout-cli-'));
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), 'acp-timeout-cli-'));
   vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     const key = join(dir, 'owner.private.json');
-    writeFileSync(key, JSON.stringify(generateKeyPair()));
+    writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
     await networkCommand('delegate', ['--key', key, '--to', generateKeyPair().did,
       '--relay', 'https://relay.example', '--title', 'local', '--description', 'local task', '--input', '{}',
       '--execution-timeout-ms', '240000', '--task-timeout-ms', '600000', '--wait-timeout-ms', '300000',
@@ -45,11 +45,11 @@ it('forwards delegate execution, overall, wait, connect, idle and heartbeat flag
 });
 
 it('forwards matching worker timeout flags and installs status reporting', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-worker-timeout-cli-'));
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), 'acp-worker-timeout-cli-'));
   vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     const key = join(dir, 'owner.private.json');
-    writeFileSync(key, JSON.stringify(generateKeyPair()));
+    writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
     await networkCommand('worker', ['start', '--key', key, '--relay', 'https://relay.example',
       '--contacts', join(dir, 'contacts.json'), '--execution-timeout-ms', '240000',
       '--task-timeout-ms', '600000', '--wait-timeout-ms', '300000', '--connect-timeout-ms', '20000',

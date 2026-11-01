@@ -1,3 +1,4 @@
+import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -291,10 +292,12 @@ describe('MCP tool definition quality', () => {
         error: 'SSRF_BLOCKED_RELAY_URL',
       });
       expect(fetchSpy).not.toHaveBeenCalled();
-      const missing = await callTool(new AcpMcpServer({ owner }), 'acp_discover_workers', {});
-      expect(JSON.parse(missing.result?.content?.[0].text ?? '')).toEqual({
-        error: 'RELAY_REQUIRED',
-      });
+      const discover = vi.fn(async () => []);
+      const factory = vi.fn(() => ({ discover }) as unknown as RelayTransport);
+      const defaults = await callTool(new AcpMcpServer({ owner, transportFactory: factory }), 'acp_discover_workers', {});
+      expect(defaults.result?.structuredContent).toMatchObject({ relayUrl: 'https://relay.sealbridge.dev', count: 0 });
+      expect(factory).toHaveBeenCalledWith('https://relay.sealbridge.dev', undefined);
+      expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
     }

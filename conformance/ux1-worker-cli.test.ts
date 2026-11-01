@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { realpathSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateKeyPair, createSignedAgentCard, createInviteToken } from '../packages/core/src/index.js';
@@ -21,12 +21,12 @@ import { addContact, updateContacts } from '../cli/src/contacts.js';
 afterEach(() => vi.restoreAllMocks());
 
 it('loads only explicitly allowed contacts at every worker startup and enforces live revoke', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'acp-ux1-worker-'));
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), 'acp-ux1-worker-'));
   vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     const owner = generateKeyPair(), peer = generateKeyPair(), saved = generateKeyPair();
     const keyFile = join(dir, 'owner.private.json'), contacts = join(dir, 'contacts.json');
-    writeFileSync(keyFile, JSON.stringify(owner));
+    writeFileSync(keyFile, JSON.stringify(owner), { mode: 0o600 });
     for (const key of [peer, saved]) {
       const card = createSignedAgentCard({ name: 'Friend', agentDid: key.did, relayEndpoint: 'https://relay.example', skills: [] }, key);
       addContact(contacts, owner, createInviteToken({ agentCard: card }, key));

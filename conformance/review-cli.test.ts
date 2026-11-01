@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { realpathSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { generateKeyPair, parseAndVerifyInviteToken, createSignedAgentCard, createInviteToken } from '../packages/core/src/index.js';
 import type { DelegateOptions, WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
 const captured = vi.hoisted(() => ({ worker: undefined as WorkerNodeOptions | undefined,
@@ -35,9 +35,9 @@ import { networkCommand } from '../cli/src/network.js';
 
 let dir: string, key: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'sealbridge-review-cli-'));
+  dir = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-review-cli-'));
   key = join(dir, 'owner.private.json');
-  writeFileSync(key, JSON.stringify(generateKeyPair()));
+  writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
   captured.worker = undefined;
   captured.task = undefined;
   captured.interactive = undefined;
@@ -52,7 +52,9 @@ it('delegate reads a diff file without changing whitespace and forwards an HTTPS
   const file = join(dir, 'code.diff');
   writeFileSync(file, diff);
   const args = delegateArgs();
-  args[3] = 'https://sealbridge.app/i#acp-invite:local';
+  const owner = generateKeyPair();
+  const card = createSignedAgentCard({ name: 'Echo', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] }, owner);
+  args[3] = 'https://sealbridge.app/i#' + createInviteToken({ agentCard: card }, owner);
   await networkCommand('delegate', [...args, '--input-file', file]);
   expect(captured.task?.input).toEqual({ diff });
   expect(captured.task?.to === args[3]).toBe(true);

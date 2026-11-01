@@ -13,9 +13,15 @@ const state = vi.hoisted(() => ({ fetcher: undefined as typeof fetch | undefined
 vi.mock('../packages/relay/dist/index.js', async original => {
   const relay = await original<typeof import('../packages/relay/src/index.js')>();
   return { ...relay, HttpRelayClient: class extends relay.HttpRelayClient {
-    constructor(url: string, key: KeyPair, options?: RelayClientSecurityOptions) {
-      super(url, (input, init) => state.fetcher!(input, init), key, options);
-      state.options = options;
+    constructor(...[url, fetcherOrKey, authOrOptions, options]: ConstructorParameters<typeof relay.HttpRelayClient>) {
+      const injected = (input: RequestInfo | URL, init?: RequestInit) => state.fetcher!(input, init);
+      if (typeof fetcherOrKey === 'function') {
+        super(url, injected, authOrOptions, options);
+        state.options = options;
+      } else {
+        super(url, injected, fetcherOrKey as KeyPair, authOrOptions as RelayClientSecurityOptions);
+        state.options = authOrOptions as RelayClientSecurityOptions;
+      }
     }
   } };
 });

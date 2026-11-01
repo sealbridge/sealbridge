@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { realpathSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ vi.mock('../packages/runtime/dist/index.js', async (original) => ({
 import { networkCommand } from '../cli/src/network.js';
 
 async function run(args: string[]) {
-  const dir = await mkdtemp(join(tmpdir(), 'acp-g3-'));
+  const dir = await mkdtemp(join(realpathSync(tmpdir()), 'acp-g3-'));
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
     const key = join(dir, 'worker.private.json');
