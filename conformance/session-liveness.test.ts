@@ -35,7 +35,7 @@ function fixture(options: { sse?: boolean; fetcher?: (base: typeof fetch) => typ
   const fetcher = options.fetcher?.(base) ?? base;
   const requesterKey = generateKeyPair(), workerKey = generateKeyPair();
   const Client = options.sse ? SseRelayClient : HttpRelayClient;
-  const workerRelay = new Client(origin, fetcher, workerKey);
+  const workerRelay = new Client(origin, fetcher, workerKey, { requestTimeoutMs: options.worker?.connectTimeoutMs });
   const requesterRelay = new Client(origin, fetcher, requesterKey);
   if (options.sse) cleanup.push(async () => {
     await (workerRelay as SseRelayClient).close();
@@ -122,11 +122,11 @@ describe('session liveness and recovery', () => {
     expect(relay.snapshot().queues.flatMap(([, queue]) => queue)).toEqual([]);
   });
 
-  it.each([401, 403])('keeps SSE HTTP %s terminal across subsequent reads', async status => {
+  it.each([401, 403])('keeps SSE HTTP %s terminal across subsequent reads (401 recovery disabled)', async status => {
     vi.useFakeTimers();
     const owner = generateKeyPair();
     const fetcher = vi.fn(async () => new Response('private response text', { status }));
-    const client = new SseRelayClient(origin, fetcher as typeof fetch, owner);
+    const client = new SseRelayClient(origin, fetcher as typeof fetch, owner, { maxAuthRecoveryAttempts: status === 401 ? 0 : 3 });
     cleanup.push(() => client.close());
     await expect(client.receive(owner.did)).rejects.toThrow('RELAY_REJECTED: ' + status);
     await vi.advanceTimersByTimeAsync(60_000);
@@ -170,6 +170,58 @@ describe('session liveness and recovery', () => {
     expect(statuses).toContain('connected');
     expect(statuses.at(-1)).toBe('stopped');
     expect(executions).toBe(1);
+  });
+
+  it.each(['idle poll', 'running poll', 'acknowledgement'])('recovers a worker 401 during %s with one execution', async phase => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let rejected = false, executions = 0, publications = 0;
+    const f = fixture({ fetcher: base => async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/agents') publications++;
+      const workerPoll = url.pathname === '/envelopes' && !init?.method && url.searchParams.get('role') === 'worker';
+      const reject = phase === 'acknowledgement'
+        ? init?.method === 'DELETE' && executions > 0
+        : workerPoll && (phase === 'idle poll' || executions > 0);
+      if (!rejected && reject) {
+        rejected = true;
+        return new Response('ignored response', { status: 401 });
+      }
+      return base(input, init);
+    }, execute: async () => {
+      executions++;
+      await new Promise<void>(resolve => setTimeout(resolve, 300));
+      return { ok: true };
+    }, worker: { connectTimeoutMs: 2000, publishToRegistry: false } });
+    const approve = vi.spyOn(f.worker.options.approvalProvider!, 'approve');
+    const both = Promise.all([f.task(), f.worker.start({ once: true })]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const [result] = await both;
+    expect(result.state).toBe('SETTLED');
+    expect(result.deliverable).toEqual({ ok: true });
+    expect(rejected).toBe(true);
+    expect(executions).toBe(1);
+    expect(approve.mock.calls.filter(([request]) => request.gate === 'contract_acceptance')).toHaveLength(1);
+    expect(publications).toBe(0);
+  });
+
+  it('propagates worker auth exhaustion through the supervisor without restarting its budget', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const owner = generateKeyPair();
+    const fetcher = vi.fn(async () => new Response('ignored response', { status: 401 }));
+    const execute = vi.fn();
+    const statuses: string[] = [];
+    const worker = new WorkerNode({ owner, relay: new HttpRelayClient(origin, fetcher, owner),
+      adapter: adapter(execute), connectTimeoutMs: 50, onStatus: status => statuses.push(status) });
+    cleanup.push(() => worker.stop());
+    const checked = expect(worker.start()).rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED',
+      message: expect.stringContaining('system clock') });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await checked;
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(execute).not.toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe('unavailable');
   });
 
   it.each([401, 403])('stops a worker on permanent HTTP %s without a restart loop', async status => {
