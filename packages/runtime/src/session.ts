@@ -594,10 +594,11 @@ export class WorkerNode {
     if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
     if (!persistencePath && this.deliveryService) {
       this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes);
-      this.deliveryService.onMaintenance(() => {
+      this.deliveryService.onMaintenance(async signal => {
         if (!existsSync(this.taskJournal!.path)) return;
-        this.deliveryService!.store.transaction(() => this.taskJournal!.compact(new Set(
-          this.deliveryService!.store.snapshot('receipts').filter(r => r.retainUntil > this.deliveryService!.store.now()).map(r => r.taskId))));
+        const store = this.deliveryService!.store, retained = new Set<string>();
+        for await (const r of store.scan('receipts', signal)) if (r.retainUntil > store.now()) retained.add(r.taskId);
+        await this.taskJournal!.compactInBackground(retained, change => store.transaction(change), signal);
       });
     }
     this.approvalProvider =
@@ -2344,6 +2345,7 @@ export class RequesterClient {
       this.deliveryService = this.createDelivery();
       if (this.deliveryStarted) await this.deliveryService.start();
     }
+    await this.deliveryService?.prepare(options.signal);
     this.deliveryService?.store.checkAvailable();
     if (options.beforePropose) {
       const approvalSignal = AbortSignal.any([

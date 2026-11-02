@@ -10,7 +10,7 @@ import type { RelayTransport } from '../packages/relay/src/index.js';
 import { createRelayFetchHandler, InMemoryRelay } from '../packages/relay/src/fetch.js';
 import { GatewayDeliveryService } from '../packages/runtime/src/outbox.js';
 import { WorkerNode, RequesterClient, PolicyAutoApprovalProvider, HeldRequestReview, buildTaskManifest } from '../packages/runtime/src/index.js';
-import { outboxFixture, outboxOrigin } from './outbox-fixture.js';
+import { countDeliveryFs, outboxFixture, outboxOrigin } from './outbox-fixture.js';
 import { completeInspection } from './connections-fixture.js';
 import { SessionWire } from '../packages/runtime/src/session-audit.js';
 import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
@@ -23,6 +23,87 @@ function fixture(...args: Parameters<typeof outboxFixture>) { const f = outboxFi
 const reset = () => Object.assign(new Error('fixture transport reset'), { code: 'ECONNRESET' });
 
 describe('gateway envelope retry', () => {
+  it('bounds enqueue, send and receipt work independently of an unrelated pending backlog', async () => {
+    const f = fixture(), counted = countDeliveryFs(f.service.store.io);
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: counted.fs } });
+    // Exceed the verified-record cache so this also detects rereading unrelated ciphertext.
+    for (let i = 0; i < 100; i++) {
+      const p = f.prepare(true); service.enqueue(p.frames, p.context);
+    }
+    const p = f.prepare(true);
+    counted.reset();
+    const ids = service.enqueue(p.frames, p.context);
+    expect(counted.total()).toBeLessThanOrEqual(24);
+    expect(counted.counts.fsyncSync).toBe(4); // two envelopes, message and publication marker
+    expect(counted.counts.readdirSync).toBe(0);
+    const batchId = service.store.read('outbox', ids[0])!.batchId;
+    for (const id of ids) {
+      counted.reset();
+      await service.sendPrepared(id);
+      expect(counted.total()).toBeLessThanOrEqual(14);
+      expect(counted.counts.fsyncSync).toBe(0);
+      expect(counted.counts.readdirSync).toBe(0);
+    }
+    counted.reset();
+    service.finishBatch(batchId);
+    expect(counted.total()).toBeLessThanOrEqual(8);
+    counted.reset();
+    service.store.receipt(p.first, p.context.deliveryDeadline, 'processed');
+    expect(counted.total()).toBeLessThanOrEqual(10);
+    expect(counted.counts.fsyncSync).toBe(1);
+    // An already recorded acknowledgement does not rewrite or flush its receipt.
+    counted.reset();
+    service.store.receipt(p.first, p.context.deliveryDeadline, 'processed');
+    expect(counted.counts.writeSync).toBe(0);
+    expect(counted.counts.fsyncSync).toBe(0);
+  });
+  it('yields while preparing a recovered index and performs no transport work', async () => {
+    const f = fixture();
+    for (let i = 0; i < 8; i++) { const p = f.prepare(true); f.service.enqueue(p.frames, p.context); }
+    const counted = countDeliveryFs(f.service.store.io), resolveTransport = vi.fn(f.service.options.resolveTransport);
+    const restarted = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: counted.fs }, resolveTransport });
+    const controller = new AbortController();
+    let completed = false;
+    const preparing = restarted.prepare(controller.signal).then(() => { completed = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(completed).toBe(false);
+    expect(counted.counts.readSync).toBeLessThanOrEqual(2);
+    controller.abort(new Error('FIXTURE_STOP'));
+    await expect(preparing).rejects.toThrow('FIXTURE_STOP');
+    expect(resolveTransport).not.toHaveBeenCalled();
+    expect(f.posted).toEqual([]);
+  });
+  it('yields between maintenance records and stops a maintenance pass on shutdown', async () => {
+    const f = fixture();
+    for (let i = 0; i < 8; i++) { const p = f.prepare(true); f.service.enqueue(p.frames, p.context); }
+    f.setNow(f.epoch + 86400_000);
+    const controller = new AbortController(), errors = vi.fn();
+    const maintenance = f.service.store.maintainInBackground(errors, controller.signal);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    controller.abort();
+    await maintenance;
+    expect(f.service.store.ids('batches').length).toBeGreaterThan(0);
+    expect(f.service.store.ids('batches').length).toBeLessThan(8);
+    expect(errors).not.toHaveBeenCalled();
+    expect(f.posted).toEqual([]);
+    f.service.store.maintain();
+    expect(f.service.store.ids('batches')).toEqual([]);
+  });
+  it('recovers an unflushed admission update by replaying the original envelope only', async () => {
+    const f = fixture(), p = f.prepare(), base = new InMemoryRelay({ now: f.now });
+    const handler = createRelayFetchHandler({ relay: base });
+    const client = new HttpRelayClient(outboxOrigin, (input, init) => handler(new Request(input, init)), f.owner);
+    f.relay.send = e => client.send(e);
+    f.service.enqueue(p.frames, p.context);
+    const path = f.service.store.path('outbox', p.first.payload.envelopeId), original = readFileSync(path);
+    await f.service.sendPrepared(p.first.payload.envelopeId);
+    // Model loss of bookkeeping after durable enqueue while the relay retained admission.
+    f.service.store.io.writeFileSync(path, original);
+    const restarted = f.restart();
+    await restarted.drainDue();
+    expect(base.snapshot().queues.flatMap(q => q[1])).toHaveLength(1);
+    expect(restarted.store.read('outbox', p.first.payload.envelopeId)).toMatchObject({ state: 'admitted', envelope: p.first });
+  });
   it('defers batch cleanup after a temporary unlink failure without changing admission', async () => {
     const f = fixture(), p = f.prepare(), errors = vi.fn(), io = f.service.store.io;
     let refuseUnlink = true;
@@ -287,7 +368,8 @@ function sessionFixture(inspection: boolean, loseResponse = false) {
 describe('durable session integration', () => {
   it('settles sequential and concurrent delegates across two HTTP relay bindings without a listener', async () => {
     const f = fixture();
-    const io = f.service.store.io;
+    const counted = countDeliveryFs(f.service.store.io);
+    const io = counted.fs;
     let lockedRoot: string | undefined, repeatedReads = 0;
     const transactionReads = new Set<string>();
     const identityOptions = { ...f.identityOptions, fs: { ...io,
@@ -333,17 +415,31 @@ describe('durable session integration', () => {
     const call = (index: number) => client.delegate({ to: workers[index].invite(), title: 'Relay binding',
       description: 'Synthetic relay fixture', input: { index } });
     try {
+      const assertWork = (delegations: number) => {
+        expect(counted.total()).toBeLessThanOrEqual(850 * delegations);
+        expect(counted.counts.fsyncSync).toBeLessThanOrEqual(60 * delegations);
+        expect(counted.counts.readdirSync).toBeLessThanOrEqual(12 * delegations);
+        // Ancestor checks include the platform-specific temporary-directory depth.
+        expect(counted.counts.lstatSync).toBeLessThanOrEqual(12000 * delegations);
+        counted.reset();
+      };
+      counted.reset();
       expect((await call(0)).state).toBe('SETTLED');
+      assertWork(1);
       expect((await call(1)).state).toBe('SETTLED');
+      assertWork(1);
       const fresh = new RequesterClient({ ...client.options });
       cleanups.push(() => fresh.stopDelivery());
       expect((await fresh.delegate({ to: workers[1].invite(), title: 'Fresh client',
         description: 'Same signer and relay binding', input: { index: 1 } })).state).toBe('SETTLED');
+      assertWork(1);
       // Completed history must not be revalidated by later sends under either binding.
       expect(client.deliveryService!.store.ids('outbox')).toEqual([]);
       expect(client.deliveryService!.store.ids('batches')).toEqual([]);
       expect((await Promise.all([call(0), call(1)])).map(r => r.state)).toEqual(['SETTLED', 'SETTLED']);
+      assertWork(2);
       expect((await Promise.all([call(0), call(0)])).map(r => r.state)).toEqual(['SETTLED', 'SETTLED']);
+      assertWork(2);
       expect(client.deliveryService!.store.ids('outbox')).toEqual([]);
       expect(workers.every(worker => worker.deliveryService!.store.ids('outbox').length === 0)).toBe(true);
       // Repeated synchronous reads under the same lock delay every concurrent session.

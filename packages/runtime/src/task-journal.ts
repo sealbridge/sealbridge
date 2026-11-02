@@ -6,7 +6,7 @@ import {
 import { dirname } from 'node:path';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { checkPath, readPrivateFile, writePrivateFile } from './local-identity.js';
+import { checkPath, checkStat, readPrivateFile, writePrivateFile } from './local-identity.js';
 import { signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
 import type { SessionResult } from './session.js';
@@ -53,6 +53,88 @@ export class TaskJournal {
     } finally { if (created) fs.unlinkSync(temporary); }
   }
 
+  /** Default gateway maintenance prepares snapshots without blocking relay polling. */
+  async compactInBackground(retainedTasks: ReadonlySet<string>, commit: (change: () => void) => void, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const stamp = (s: fs.BigIntStats) => [s.dev, s.ino, s.size, s.mode, s.uid, s.mtimeNs, s.ctimeNs].join(':');
+    checkPath(this.path, fs);
+    const before = await fs.promises.lstat(this.path, { bigint: true });
+    if (!before.isFile()) throw new Error('INVALID_TASK_JOURNAL');
+    const handle = await fs.promises.open(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+    const tasks = new Map<string, TaskCheckpoint>();
+    let validBytes = 0;
+    try {
+      checkStat(await handle.stat());
+      if (stamp(await handle.stat({ bigint: true })) !== stamp(before)) return;
+      const chunk = Buffer.alloc(64 * 1024);
+      let tail = Buffer.alloc(0);
+      for (;;) {
+        signal.throwIfAborted();
+        const { bytesRead } = await handle.read(chunk);
+        if (!bytesRead) break;
+        const block = Buffer.concat([tail, chunk.subarray(0, bytesRead)]);
+        let start = 0, end: number;
+        while ((end = block.indexOf(10, start)) !== -1) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          signal.throwIfAborted();
+          const line = block.subarray(start, end).toString('utf8');
+          if (line) { const record = this.decode(line); tasks.set(record.taskId, record); }
+          validBytes += end - start + 1;
+          start = end + 1;
+        }
+        tail = Buffer.from(block.subarray(start));
+        if (tail.length > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
+      }
+      if (stamp(await handle.stat({ bigint: true })) !== stamp(before)) return;
+    } finally { await handle.close(); }
+    if (!validBytes) return;
+    const temporary = this.path + '.' + randomUUID() + '.tmp';
+    let created = false;
+    try {
+      checkPath(temporary, fs);
+      const target = await fs.promises.open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+        (constants.O_NOFOLLOW ?? 0), 0o600);
+      created = true;
+      let compactedBytes = 0;
+      try {
+        checkStat(await target.stat());
+        for (const [id, record] of tasks) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          signal.throwIfAborted();
+          if (record.phase === 'terminal' && !record.notificationPending && !retainedTasks.has(id)) { tasks.delete(id); continue; }
+          const line = JSON.stringify(signPayload(record, this.owner)) + '\n';
+          await target.writeFile(line);
+          compactedBytes += Buffer.byteLength(line);
+        }
+        await target.sync();
+      } finally { await target.close(); }
+      signal.throwIfAborted();
+      commit(() => {
+        checkPath(this.path, fs);
+        // A checkpoint appended during preparation takes precedence over this maintenance snapshot.
+        if (stamp(fs.lstatSync(this.path, { bigint: true })) !== stamp(before)) return;
+        fs.renameSync(temporary, this.path); created = false;
+        this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
+        this.validBytes = compactedBytes; this.loaded = true;
+      });
+      if (!created && process.platform !== 'win32') {
+        const directory = await fs.promises.open(dirname(this.path), constants.O_RDONLY);
+        try { await directory.sync(); } finally { await directory.close(); }
+      }
+    } finally { if (created) await fs.promises.unlink(temporary); }
+  }
+  private decode(line: string): TaskCheckpoint {
+    if (Buffer.byteLength(line) + 1 > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
+    const signed = JSON.parse(line) as Signed<TaskCheckpoint>, record = signed.payload;
+    if (!verifySigned(signed, this.owner.did) || record.version !== 1 ||
+        typeof record.taskId !== 'string' || typeof record.requesterDid !== 'string' ||
+        typeof record.envelopeId !== 'string' || typeof record.proposalDigest !== 'string' ||
+        !['received', 'accepted', 'running', 'delivered', 'terminal'].includes(record.phase) ||
+        !Array.isArray(record.invocations) || (record.phase === 'terminal' && !record.outcome))
+      throw new Error('INVALID_TASK_JOURNAL');
+    return record;
+  }
+
   private open(flags: number): number {
     const platformFlags = process.platform === 'win32' ? 0
       : (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
@@ -76,15 +158,7 @@ export class TaskJournal {
       const bytes = readFileSync(fd);
       const end = bytes.lastIndexOf(10) + 1;
       for (const line of bytes.subarray(0, end).toString('utf8').split('\n').filter(Boolean)) {
-        if (Buffer.byteLength(line) + 1 > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
-        const signed = JSON.parse(line) as Signed<TaskCheckpoint>;
-        const record = signed.payload;
-        if (!verifySigned(signed, this.owner.did) || record.version !== 1 ||
-            typeof record.taskId !== 'string' || typeof record.requesterDid !== 'string' ||
-            typeof record.envelopeId !== 'string' || typeof record.proposalDigest !== 'string' ||
-            !['received', 'accepted', 'running', 'delivered', 'terminal'].includes(record.phase) ||
-            !Array.isArray(record.invocations) || (record.phase === 'terminal' && !record.outcome))
-          throw new Error('INVALID_TASK_JOURNAL');
+        const record = this.decode(line);
         this.tasks.set(record.taskId, record);
       }
       this.validBytes = end;

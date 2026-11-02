@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import * as fs from 'node:fs';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,4 +41,18 @@ export function outboxFixture(options: Partial<GatewayDeliveryOptions> = {}) {
     },
     cleanup: () => { services.forEach(s => s.stop()); rmSync(root, { recursive: true, force: true }); },
   };
+}
+
+/** Count the synchronous operations that dominate delegation on filesystem-backed gateways. */
+export const deliveryFsOperations = ['openSync', 'writeSync', 'fsyncSync', 'renameSync', 'readFileSync',
+  'readdirSync', 'statSync', 'unlinkSync', 'lstatSync', 'fstatSync', 'readSync', 'closeSync', 'mkdirSync'] as const;
+export function countDeliveryFs(io: typeof fs = fs) {
+  const counts = Object.fromEntries(deliveryFsOperations.map(name => [name, 0])) as Record<typeof deliveryFsOperations[number], number>;
+  const wrapped: typeof fs = { ...io };
+  for (const name of deliveryFsOperations) {
+    const original = io[name] as (...args: unknown[]) => unknown;
+    Object.assign(wrapped, { [name]: (...args: unknown[]) => { counts[name]++; return original(...args); } });
+  }
+  return { fs: wrapped, counts, reset: () => { for (const name of deliveryFsOperations) counts[name] = 0; },
+    total: () => deliveryFsOperations.slice(0, 8).reduce((sum, name) => sum + counts[name], 0) };
 }

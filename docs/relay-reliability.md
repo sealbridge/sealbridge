@@ -120,6 +120,8 @@ explicit inbox/audit journal paths retain precedence. Heartbeats and the separat
 connection-consent outbox retain their existing behavior. Concurrent delegations keep
 their own task and relay bindings while sharing the signer’s delivery store.
 
+Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
 POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
 Live sends remove completed batch ciphertext after consuming admission results.
 Maintenance closes expired pending batches before pruning message metadata, and
