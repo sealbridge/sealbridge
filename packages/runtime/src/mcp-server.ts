@@ -35,6 +35,8 @@ import { LiveProtocol } from './protocol-release.js';
 import type { ProtocolReleaseOptions } from './protocol-release.js';
 import type { ConnectionHumanReviewProvider } from './connection-service.js';
 import { RequesterClient } from './session.js';
+import { GatewayDeliveryService } from './outbox.js';
+import type { GatewayDeliveryOptions } from './outbox.js';
 import { RequesterPendingStore, PENDING_NEXT_STEP } from './requester-pending-store.js';
 import { inspectStoredIdentity, resolveStoredIdentity } from './key-store.js';
 import type { InviteStoreOptions } from './invite-store.js';
@@ -45,6 +47,8 @@ import { validateSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 
 export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+  deliveryService?: GatewayDeliveryService;
+  deliveryOptions?: GatewayDeliveryOptions;
   connectionReview?: ConnectionHumanReviewProvider;
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
@@ -209,6 +213,46 @@ function selectApproval(options: AcpMcpServerOptions, owner: KeyPair): ApprovalP
 
 /** Dependency-free MCP server for ACP delegation, discovery, audit verification, and revocation. */
 export class AcpMcpServer {
+  private readonly deliveryTransports = new Map<string, RelayTransport>();
+  private deliveryService?: GatewayDeliveryService;
+  private deliveryStarted = false;
+  private async delivery(owner: KeyPair): Promise<GatewayDeliveryService | undefined> {
+    if (!this.deliveryService) this.deliveryService = this.options.deliveryService ??
+      (typeof this.options.relay !== 'object' || this.options.deliveryOptions ? new GatewayDeliveryService(owner, {
+        ...this.options.deliveryOptions, identityOptions: this.options.deliveryOptions?.identityOptions ?? this.options.identityOptions,
+        now: this.options.deliveryOptions?.now ?? this.options.now,
+        resolveTransport: this.options.deliveryOptions?.resolveTransport ?? ((url, key) => this.transport(url, key)),
+        assertSendAllowed: async record => {
+          this.assertRelays([record.relayUrl], []);
+          const message = this.deliveryService?.store.read('messages', record.messageId);
+          if (this.allowedWorkers && !this.allowedWorkers.has(record.peerOwnerDid) &&
+              (!message || !this.allowedWorkers.has(message.peerAgentDid))) throw new Error('MCP_WORKER_NOT_ALLOWED');
+          const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, this.options.identityOptions), now: this.options.now });
+          if (store.connectionState(record.peerOwnerDid) === 'blocked') throw new Error('REQUEST_DENIED');
+          await this.options.deliveryOptions?.assertSendAllowed?.(record);
+        },
+      }) : undefined);
+    if (this.deliveryService?.owner.did !== undefined && this.deliveryService.owner.did !== owner.did) throw new Error('OUTBOX_STORE_INVALID');
+    if (this.deliveryStarted) await this.deliveryService?.start();
+    return this.deliveryService;
+  }
+  async startDelivery(): Promise<void> {
+    this.deliveryStarted = true;
+    let owner = this.options.owner;
+    if (!owner) {
+      try { owner = (await inspectStoredIdentity('requester', this.options.identityOptions)).key; }
+      catch (error) {
+        // Startup maintenance cannot select another backend or prevent local tool listing.
+        const code = error instanceof Error && ['KEY_STORE_UNAVAILABLE', 'IDENTITY_INVALID', 'IDENTITY_UNREADABLE',
+          'KEY_STORE_CONFLICT', 'KEY_STORE_SELECTION_REQUIRED'].includes(error.message) ? error.message : 'OUTBOX_STORE_INVALID';
+        if (this.options.deliveryOptions?.onError) this.options.deliveryOptions.onError(new Error(code));
+        else console.warn(code);
+        return;
+      }
+    }
+    if (owner) await this.delivery(owner);
+  }
+  stopDelivery(): void { this.deliveryStarted = false; this.deliveryService?.stop(); }
   readonly revocation: RevocationRegistry;
   private readonly allowedWorkers?: ReadonlySet<string>;
   private readonly allowedRelays?: ReadonlySet<string>;
@@ -271,7 +315,7 @@ export class AcpMcpServer {
     const rpc = new McpRpc(output, (message, signal) => this.handle(message, signal));
     this.rpc = rpc;
     try { await rpc.serve(input); }
-    finally { this.rpc = undefined; this.formSupported = false; }
+    finally { this.stopDelivery(); this.rpc = undefined; this.formSupported = false; }
   }
   private async dispatch(method: string, params: unknown, signal?: AbortSignal): Promise<Json> {
     if (method === 'initialize') {
@@ -384,7 +428,10 @@ export class AcpMcpServer {
   }
   private transport(selected: RelayTransport | string, owner?: KeyPair): RelayTransport {
     if (typeof selected !== 'string') return selected;
-    return this.options.transportFactory?.(selected, owner) ??
+    const binding = owner && JSON.stringify([normalizeMcpRelayUrl(selected), owner.did]);
+    const existing = binding && this.deliveryTransports.get(binding);
+    if (existing) return existing;
+    const transport = this.options.transportFactory?.(selected, owner) ??
       (owner ? new HttpRelayClient(selected, owner, {
         allowPrivateRelay: this.options.allowPrivateRelay,
         maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
@@ -394,6 +441,8 @@ export class AcpMcpServer {
         maxAuthRecoveryAttempts: this.options.maxAuthRecoveryAttempts,
         authRecoveryTimeoutMs: this.options.authRecoveryTimeoutMs,
       }));
+    if (binding) this.deliveryTransports.set(binding, transport);
+    return transport;
   }
   private async client(relay: RelayTransport | string): Promise<RequesterClient> {
     const owner = await this.owner();
@@ -407,6 +456,7 @@ export class AcpMcpServer {
       }
     }({
       owner,
+      deliveryService: await this.delivery(owner),
       identityOptions: this.options.identityOptions ?? {},
       protocolPolicy: this.options.protocolPolicy, now: this.options.now,
       protocolPeers: this.options.protocolPeers ?? new ProtocolPeerStore(owner, { ...this.options.identityOptions, now: this.options.now }),

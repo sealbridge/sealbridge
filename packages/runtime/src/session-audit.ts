@@ -18,6 +18,12 @@ import type { RelayConnectionStatus } from '@acp/relay';
 import type { RelayReceiveFilter, RelayTransport } from '@acp/relay';
 import type { ProgressPayload } from './adapter.js';
 import type { ErrorDetail, SessionResult } from './session.js';
+import type { GatewayDeliveryService, DeliveryContext } from './outbox.js';
+import { deliveryError } from './delivery-records.js';
+export interface WireDelivery {
+  service: GatewayDeliveryService;
+  context: DeliveryContext;
+}
 /** The peer's signed ERROR, retaining optional diagnostics for programmatic callers. */
 export class PeerRejectedError extends Error {
   readonly code?: string;
@@ -126,6 +132,9 @@ export class SessionWire {
   private cancellation?: Promise<void>;
   /** One bilateral send at a time so PROGRESS cannot overtake its own ACK. */
   private sendTail: Promise<void> = Promise.resolve();
+  private deliveryTail: Promise<void> = Promise.resolve();
+  private readonly receiptAcks = new Map<string, SignedEnvelope>();
+  hasCommittedSend = false;
   readonly entries: AuditEntry[] = [];
   onProgress?: (progress: ProgressPayload, envelope: SignedEnvelope) => void | Promise<void>;
   onActivity?: () => void;
@@ -145,6 +154,7 @@ export class SessionWire {
     readonly allowUnencryptedEnvelopes = false,
     /** Worker admission may await inspection before seeding the initial PROPOSE. */
     private awaitingInitial = false,
+    readonly delivery?: WireDelivery,
   ) {
     if (!this.awaitingInitial) { this.startPump(); void this.dispatch(); }
   }
@@ -224,7 +234,21 @@ export class SessionWire {
   private async nextEnvelope(): Promise<SignedEnvelope> {
     const ready = this.stashed.shift();
     if (ready) return ready;
-    return this.check(await this.shift());
+    for (;;) {
+      const sealed = await this.shift();
+      const receipt = this.delivery?.service.store.read('receipts', sealed.payload.envelopeId);
+      if (receipt) {
+        if (!verifyEnvelope(sealed, this.owner.did) || sealed.payload.senderDid !== this.peerDid || receipt.senderDid !== sealed.payload.senderDid ||
+          receipt.taskId !== this.taskId || receipt.envelopeDigest !== digest(sealed)) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+        if (receipt.state !== 'persisted') {
+          const ack = this.receiptAcks.get(sealed.payload.envelopeId);
+          if (ack) { try { await this.relay.send(ack); } catch { /* Admission may already be recorded. */ } }
+          await acknowledgeRelay(this.relay, sealed, this.signal);
+          continue;
+        }
+      }
+      return this.check(sealed);
+    }
   }
   private rejectWaiters(error: Error): void {
     for (const waiter of this.waiters.splice(0)) waiter.reject(error);
@@ -313,13 +337,55 @@ export class SessionWire {
       for (const wake of this.inboxWaiters.splice(0)) wake();
     }
   }
-  async rawSend(eventType: string, payload: unknown): Promise<void> {
+  private prepare(eventType: string, payload: unknown): SignedEnvelope {
+    return signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
+      seq: this.outgoing++, eventType, payload: asJson(payload) }, this.owner, { encrypt: true });
+  }
+  private dispatchPrepared(envelopes: SignedEnvelope[]): Promise<void> {
+    if (!this.delivery) return this.dispatchBatch(envelopes);
+    // Preserve this wire's sequence while independent tasks flush and send concurrently.
+    const run = this.deliveryTail.then(() => this.dispatchBatch(envelopes));
+    this.deliveryTail = run.catch(() => {});
+    return run;
+  }
+  private async dispatchBatch(envelopes: SignedEnvelope[]): Promise<void> {
     const signal = this.detached ? this.readController.signal : this.signal;
     signal.throwIfAborted();
-    const envelope = signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
-      seq: this.outgoing++, eventType, payload: asJson(payload) }, this.owner, { encrypt: true });
-    await relayDeadline(Promise.resolve(this.relay.send(envelope)), 2_147_483_647, signal);
-    if (this.relay.deliveryStatus) void this.watchDelivery(envelope);
+    if (this.delivery) {
+      const { service, context } = this.delivery;
+      await service.prepare(signal);
+      const first = envelopes[0];
+      if (first.payload.eventType === 'PROPOSE') context.messageId = first.payload.envelopeId;
+      await service.enqueuePrepared(envelopes, { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) }, signal);
+      const batchId = service.store.read('outbox', first.payload.envelopeId)!.batchId;
+      this.hasCommittedSend = true;
+      for (const envelope of envelopes) {
+        try { await service.sendPrepared(envelope.payload.envelopeId, signal); }
+        catch (error) {
+          if (error instanceof Error && error.message === 'OUTBOX_DEADLINE_EXPIRED') throw new Error('TASK_TIMEOUT');
+          throw error;
+        }
+        const pin = service.store.read('outbox', envelope.payload.envelopeId)?.relayDid;
+        if (pin) this.relay.restoreDeliveryStatusPin?.(envelope.payload.envelopeId, pin);
+        if (this.relay.deliveryStatus) void this.watchDelivery(envelope);
+      }
+      // All members' admission results and identity pins have been consumed by this wire.
+      // Remove the completed batch now so subsequent frames do not scan its ciphertext.
+      service.finishBatch(batchId);
+    } else for (const envelope of envelopes) {
+      this.hasCommittedSend = true;
+      await relayDeadline(Promise.resolve(this.relay.send(envelope)), 2_147_483_647, signal);
+      if (this.relay.deliveryStatus) void this.watchDelivery(envelope);
+    }
+  }
+  async rawSend(eventType: string, payload: unknown): Promise<void> {
+    await this.dispatchPrepared([this.prepare(eventType, payload)]);
+  }
+  private async complete(envelope: SignedEnvelope): Promise<void> {
+    const sealed = this.sealed(envelope);
+    if (this.delivery) await this.delivery.service.store.receiptPrepared(sealed, this.delivery.context.deliveryDeadline,
+      'processed', this.detached ? this.readController.signal : this.signal);
+    await acknowledgeRelay(this.relay, sealed, this.detached ? this.readController.signal : this.signal);
   }
   /** Ciphertext that still matches the outer signature, when `view` was opened for the session. */
   sealed(view: SignedEnvelope): SignedEnvelope {
@@ -394,8 +460,7 @@ export class SessionWire {
       this.waiterAdded.shift()?.();
       void this.dispatch();
     });
-    if (['AUDIT_ACK', 'CHECKPOINT', 'CHECKPOINT_ACK', 'ATTEST'].includes(envelope.payload.eventType))
-      await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
+    if (envelope.payload.eventType === 'ATTEST') await this.complete(envelope);
     return envelope;
   }
   private append(entry: AuditEntry): void {
@@ -450,9 +515,12 @@ export class SessionWire {
       actorSignature: signed.signature,
       counterSignature: ack,
     });
-    await acknowledgeRelay(this.relay, this.sealed(audit), this.detached ? this.readController.signal : this.signal);
-    if (event.payload.eventType !== 'PROPOSE') await acknowledgeRelay(this.relay, this.sealed(event), this.detached ? this.readController.signal : this.signal);
-    await this.rawSend('AUDIT_ACK', ack);
+    const frame = this.prepare('AUDIT_ACK', ack);
+    this.receiptAcks.set(event.payload.envelopeId, frame);
+    this.receiptAcks.set(audit.payload.envelopeId, frame);
+    await this.complete(audit);
+    if (event.payload.eventType !== 'PROPOSE') await this.complete(event);
+    await this.dispatchPrepared([frame]);
   }
   async sendEvent(eventType: string, payload: unknown): Promise<void> {
     const run = this.sendTail.then(() => this.transmit(eventType, payload));
@@ -466,9 +534,9 @@ export class SessionWire {
     const data = asJson(payload),
       body = this.body(eventType, data, this.owner.did, this.peerDid),
       draft = signPayload(body, this.owner);
-    await this.rawSend(eventType, data);
-    await this.rawSend('AUDIT_ENTRY', draft);
-    const ack = (await this.rawReceive('AUDIT_ACK')).payload.payload as unknown as AckReceipt;
+    await this.dispatchPrepared([this.prepare(eventType, data), this.prepare('AUDIT_ENTRY', draft)]);
+    const ackFrame = await this.rawReceive('AUDIT_ACK');
+    const ack = ackFrame.payload.payload as unknown as AckReceipt;
     if (
       !verifySigned(ack, this.peerDid) ||
       ack.payload.type !== 'AckReceipt' ||
@@ -484,6 +552,7 @@ export class SessionWire {
       actorSignature: draft.signature,
       counterSignature: ack,
     });
+    await this.complete(ackFrame);
   }
   async receiveEvent(
     eventType: string | string[],
@@ -517,19 +586,23 @@ export class SessionWire {
   async finishRequester(): Promise<AuditBundle> {
     const actor = signPayload(this.checkpoint(), this.owner);
     await this.rawSend('CHECKPOINT', actor);
-    const receiver = (await this.rawReceive('CHECKPOINT_ACK')).payload.payload as unknown as Signed<
+    const frame = await this.rawReceive('CHECKPOINT_ACK');
+    const receiver = frame.payload.payload as unknown as Signed<
       Signed<Checkpoint>
     >;
-    return this.seal({ actor, receiver });
+    const bundle = this.seal({ actor, receiver });
+    await this.complete(frame);
+    return bundle;
   }
   async finishWorker(onSealed?: (bundle: AuditBundle) => void): Promise<AuditBundle> {
-    const actor = (await this.rawReceive('CHECKPOINT')).payload
-      .payload as unknown as Signed<Checkpoint>;
+    const frame = await this.rawReceive('CHECKPOINT');
+    const actor = frame.payload.payload as unknown as Signed<Checkpoint>;
     if (!verifySigned(actor, this.peerDid) || digest(actor.payload) !== digest(this.checkpoint()))
       throw new Error('INVALID_AUDIT_CHECKPOINT');
     const receiver = signPayload(actor, this.owner),
       bundle = this.seal({ actor, receiver });
     onSealed?.(bundle);
+    await this.complete(frame);
     await this.rawSend('CHECKPOINT_ACK', receiver);
     return bundle;
   }

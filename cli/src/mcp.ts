@@ -113,5 +113,7 @@ export async function mcpServerCommand(args: string[], identityOptions: Identity
   const parsed = parseMcpServerArgs(args);
   const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, parsed.keyFile
     ? await resolveStoredIdentity('requester', { ...identityOptions, explicitKeyPath: parsed.keyFile }) : undefined, identityOptions));
-  await server.serve(process.stdin, process.stdout);
+  await server.startDelivery();
+  try { await server.serve(process.stdin, process.stdout); }
+  finally { server.stopDelivery(); }
 }

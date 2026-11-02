@@ -19,6 +19,9 @@ export {
   parseAndVerifyInviteToken,
 } from '@acp/core';
 export * from './session.js';
+export * from './delivery-records.js';
+export * from './delivery-store.js';
+export * from './outbox.js';
 export { PeerRejectedError } from './session-audit.js';
 export * from './local-identity.js';
 export * from './key-store.js';

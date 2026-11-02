@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createServer } from 'node:http';
+import { decodeAdmissionError } from './admission.js';
+export { RelayAdmissionError, RelayDuplicateEnvelopeError, decodeAdmissionError } from './admission.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   verifyEnvelope,
@@ -301,6 +303,8 @@ export interface RelayTransport {
   withRecipient?(key: KeyPair): RelayTransport;
   setRecipientKey?(key: KeyPair): unknown;
   send(envelope: SignedEnvelope): void | Promise<void>;
+  getDeliveryStatusPin?(envelopeId: string): string | undefined;
+  restoreDeliveryStatusPin?(envelopeId: string, relayDid: string): void;
   deliveryStatus?(envelope: SignedEnvelope, signal?: AbortSignal): SignedRelayDeliveryStatus | undefined | Promise<SignedRelayDeliveryStatus | undefined>;
   acknowledgeDelivery?(recipientDid: string, envelopeId: string, signal?: AbortSignal): void | Promise<void>;
   receive(
@@ -356,6 +360,12 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
   // never a response. Unrelated successful requests cannot clear an active episode.
   private authRecoveries = new Map<string, { started: number; attempts: number; users: number }>();
   private statusPins = new Map<string, string>();
+  getDeliveryStatusPin(envelopeId: string): string | undefined { return this.statusPins.get(envelopeId); }
+  restoreDeliveryStatusPin(envelopeId: string, relayDid: string): void {
+    resolveDid(relayDid);
+    if (this.statusPins.size >= 16384) this.statusPins.delete(this.statusPins.keys().next().value!);
+    this.statusPins.set(envelopeId, relayDid);
+  }
   private buffered = new Map<string, SignedEnvelope[]>();
   private delivered = new Map<string, { expires: number; acknowledged: boolean }>();
   private readonly baseFetcher: typeof fetch;
@@ -476,8 +486,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
       headers: { 'content-type': 'application/json' },
     });
     if (!result.ok) {
-      await result.body?.cancel();
-      throw new Error('RELAY_REJECTED: ' + result.status);
+      throw await decodeAdmissionError(result);
     }
     const relayDid = result.headers.get('x-acp-relay-did');
     if (relayDid) {

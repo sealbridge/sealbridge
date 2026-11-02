@@ -4,6 +4,9 @@ import {
   ftruncateSync, openSync, readFileSync, writeSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { checkPath, checkStat, readPrivateFile, writePrivateFile } from './local-identity.js';
 import { signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
 import type { SessionResult } from './session.js';
@@ -26,12 +29,136 @@ export interface TaskCheckpoint {
   notificationPending?: boolean;
 }
 
-/** Private, fsynced snapshots. A torn final append never erases the preceding checkpoint. */
+/** Private signed checkpoints. A torn final append retains the preceding checkpoint. */
 export class TaskJournal {
   readonly tasks = new Map<string, TaskCheckpoint>();
   private loaded = false;
   private validBytes = 0;
-  constructor(readonly path: string, private readonly owner: KeyPair) {}
+  private stamp?: string;
+  private writer?: number;
+  close(): void { if (this.writer !== undefined) { closeSync(this.writer); this.writer = undefined; } }
+  constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity,
+    private readonly durability: 'file-sync' | 'process' = 'file-sync') {}
+  private fingerprint(stat: fs.BigIntStats): string {
+    return [stat.dev, stat.ino, stat.size, stat.mode, stat.uid, stat.mtimeNs, stat.ctimeNs].join(':');
+  }
+  reload(): void {
+    // Gateway callers hold the signer lock. Reuse only the unchanged journal, including permissions.
+    if (this.durability === 'process' && this.loaded && this.stamp) {
+      try { if (this.fingerprint(fs.lstatSync(this.path, { bigint: true })) === this.stamp) return; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    this.close();
+    this.loaded = false; this.stamp = undefined; this.tasks.clear(); this.validBytes = 0; this.load();
+  }
+  /** Used only by the gateway's default journal, under its signer lock. */
+  compact(retainedTasks: ReadonlySet<string>): void {
+    this.reload();
+    if (!this.validBytes) return;
+    const retained = [...this.tasks.values()].filter(r => r.phase !== 'terminal' || r.notificationPending || retainedTasks.has(r.taskId));
+    const bytes = Buffer.from(retained.map(r => JSON.stringify(signPayload(r, this.owner)) + '\n').join(''));
+    const temporary = this.path + '.' + randomUUID() + '.tmp';
+    let created = false;
+    try {
+      if (this.durability === 'file-sync') { writePrivateFile(temporary, bytes, fs); created = true; }
+      else {
+        checkPath(temporary, fs);
+        const fd = fs.openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+          (constants.O_NOFOLLOW ?? 0), 0o600);
+        created = true;
+        try { checkStat(fs.fstatSync(fd)); fs.writeFileSync(fd, bytes); } finally { fs.closeSync(fd); }
+      }
+      checkPath(this.path, fs); readPrivateFile(this.path, fs, fs.statSync(this.path).size + 1);
+      this.close();
+      fs.renameSync(temporary, this.path); created = false;
+      if (this.durability === 'file-sync' && process.platform !== 'win32') { const fd = fs.openSync(dirname(this.path), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+      this.loaded = false; this.reload();
+    } finally { if (created) fs.unlinkSync(temporary); }
+  }
+
+  /** Default gateway maintenance prepares snapshots without blocking relay polling. */
+  async compactInBackground(retainedTasks: ReadonlySet<string>, commit: (change: () => void) => void, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const stamp = (s: fs.BigIntStats) => [s.dev, s.ino, s.size, s.mode, s.uid, s.mtimeNs, s.ctimeNs].join(':');
+    checkPath(this.path, fs);
+    const before = await fs.promises.lstat(this.path, { bigint: true });
+    if (!before.isFile()) throw new Error('INVALID_TASK_JOURNAL');
+    const handle = await fs.promises.open(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+    const tasks = new Map<string, TaskCheckpoint>();
+    let validBytes = 0;
+    try {
+      checkStat(await handle.stat());
+      if (stamp(await handle.stat({ bigint: true })) !== stamp(before)) return;
+      const chunk = Buffer.alloc(64 * 1024);
+      let tail = Buffer.alloc(0);
+      for (;;) {
+        signal.throwIfAborted();
+        const { bytesRead } = await handle.read(chunk);
+        if (!bytesRead) break;
+        const block = Buffer.concat([tail, chunk.subarray(0, bytesRead)]);
+        let start = 0, end: number;
+        while ((end = block.indexOf(10, start)) !== -1) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          signal.throwIfAborted();
+          const line = block.subarray(start, end).toString('utf8');
+          if (line) { const record = this.decode(line); tasks.set(record.taskId, record); }
+          validBytes += end - start + 1;
+          start = end + 1;
+        }
+        tail = Buffer.from(block.subarray(start));
+        if (tail.length > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
+      }
+      if (stamp(await handle.stat({ bigint: true })) !== stamp(before)) return;
+    } finally { await handle.close(); }
+    if (!validBytes) return;
+    const temporary = this.path + '.' + randomUUID() + '.tmp';
+    let created = false;
+    try {
+      checkPath(temporary, fs);
+      const target = await fs.promises.open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+        (constants.O_NOFOLLOW ?? 0), 0o600);
+      created = true;
+      let compactedBytes = 0;
+      try {
+        checkStat(await target.stat());
+        for (const [id, record] of tasks) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          signal.throwIfAborted();
+          if (record.phase === 'terminal' && !record.notificationPending && !retainedTasks.has(id)) { tasks.delete(id); continue; }
+          const line = JSON.stringify(signPayload(record, this.owner)) + '\n';
+          await target.writeFile(line);
+          compactedBytes += Buffer.byteLength(line);
+        }
+        if (this.durability === 'file-sync') await target.sync();
+      } finally { await target.close(); }
+      signal.throwIfAborted();
+      commit(() => {
+        checkPath(this.path, fs);
+        // A checkpoint appended during preparation takes precedence over this maintenance snapshot.
+        if (stamp(fs.lstatSync(this.path, { bigint: true })) !== stamp(before)) return;
+        this.close();
+        fs.renameSync(temporary, this.path); created = false;
+        this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
+        this.validBytes = compactedBytes; this.loaded = true;
+        this.stamp = this.fingerprint(fs.lstatSync(this.path, { bigint: true }));
+      });
+      if (!created && this.durability === 'file-sync' && process.platform !== 'win32') {
+        const directory = await fs.promises.open(dirname(this.path), constants.O_RDONLY);
+        try { await directory.sync(); } finally { await directory.close(); }
+      }
+    } finally { if (created) await fs.promises.unlink(temporary); }
+  }
+  private decode(line: string): TaskCheckpoint {
+    if (Buffer.byteLength(line) + 1 > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
+    const signed = JSON.parse(line) as Signed<TaskCheckpoint>, record = signed.payload;
+    if (!verifySigned(signed, this.owner.did) || record.version !== 1 ||
+        typeof record.taskId !== 'string' || typeof record.requesterDid !== 'string' ||
+        typeof record.envelopeId !== 'string' || typeof record.proposalDigest !== 'string' ||
+        !['received', 'accepted', 'running', 'delivered', 'terminal'].includes(record.phase) ||
+        !Array.isArray(record.invocations) || (record.phase === 'terminal' && !record.outcome))
+      throw new Error('INVALID_TASK_JOURNAL');
+    return record;
+  }
 
   private open(flags: number): number {
     const platformFlags = process.platform === 'win32' ? 0
@@ -56,16 +183,10 @@ export class TaskJournal {
       const bytes = readFileSync(fd);
       const end = bytes.lastIndexOf(10) + 1;
       for (const line of bytes.subarray(0, end).toString('utf8').split('\n').filter(Boolean)) {
-        const signed = JSON.parse(line) as Signed<TaskCheckpoint>;
-        const record = signed.payload;
-        if (!verifySigned(signed, this.owner.did) || record.version !== 1 ||
-            typeof record.taskId !== 'string' || typeof record.requesterDid !== 'string' ||
-            typeof record.envelopeId !== 'string' || typeof record.proposalDigest !== 'string' ||
-            !['received', 'accepted', 'running', 'delivered', 'terminal'].includes(record.phase) ||
-            !Array.isArray(record.invocations) || (record.phase === 'terminal' && !record.outcome))
-          throw new Error('INVALID_TASK_JOURNAL');
+        const record = this.decode(line);
         this.tasks.set(record.taskId, record);
       }
+      this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
       this.validBytes = end;
       this.loaded = true;
     } finally { closeSync(fd); }
@@ -74,9 +195,11 @@ export class TaskJournal {
     this.load();
     const snapshot = JSON.parse(JSON.stringify(record)) as TaskCheckpoint;
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
-    const fd = this.open(constants.O_WRONLY | constants.O_CREAT);
+    if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
+    const fd = this.writer ?? this.open(constants.O_WRONLY | constants.O_CREAT);
+    if (this.durability === 'process') this.writer = fd;
     try {
-      // Only one worker may own these persistence paths at a time.
+      // Explicit paths have one writer; gateway journals use the signer lock.
       const size = fstatSync(fd).size;
       if (size < this.validBytes) throw new Error('INVALID_TASK_JOURNAL');
       // Windows cannot truncate append-mode handles. Write explicitly after the valid prefix.
@@ -87,13 +210,15 @@ export class TaskJournal {
         if (written === 0) throw new Error('TASK_JOURNAL_WRITE_FAILED');
         offset += written;
       }
-      fsyncSync(fd);
-      if (process.platform !== 'win32') {
+      if (this.durability === 'file-sync') fsyncSync(fd);
+      if (this.durability === 'file-sync' && process.platform !== 'win32') {
         const directory = openSync(dirname(this.path), constants.O_RDONLY);
         try { fsyncSync(directory); } finally { closeSync(directory); }
       }
+      this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
       this.validBytes += line.length;
       this.tasks.set(record.taskId, snapshot);
-    } finally { closeSync(fd); }
+    } catch (error) { this.close(); throw error; }
+    finally { if (this.durability === 'file-sync') closeSync(fd); }
   }
 }

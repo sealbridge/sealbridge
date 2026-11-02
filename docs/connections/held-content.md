@@ -25,3 +25,10 @@ record; live records are not evicted. POSIX paths use 0700/0600; Windows inherit
 the parent DACL without ACL verification. Supply `workspaceDir` when known to
 reject storage within an adapter workspace. A real provider is a separate host
 integration. Application transport and UI are deferred.
+
+Gateway task sends use a signer-scoped persistent envelope outbox and worker receipt/default
+checkpoint records under `<data-root>/delivery/<sha256-local-signer-DID>/`. A repeated
+proposal does not authorize another adapter invocation. Inspection and owner opening
+remain required on their existing paths. Pending review terminates the delegation call;
+outbox retries do not resubmit it. Ciphertext retry ends at relay admission or the original
+deadline, and a stopped gateway waits for restart. See [relay reliability](../relay-reliability.md).
