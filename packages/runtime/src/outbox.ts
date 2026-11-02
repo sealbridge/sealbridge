@@ -140,7 +140,7 @@ class GatewayDeliveryServiceImplementation {
   enqueue(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
     return this.publishBatch(this.buildBatch(prepared, context));
   }
-  /** Independent batches flush concurrently without holding the signer lock or blocking relay readers. */
+  /** Independent batches write concurrently without holding the signer lock or blocking relay readers. */
   async enqueuePrepared(frames: readonly SignedEnvelope[], context: DeliveryContext, signal?: AbortSignal): Promise<string[]> {
     const batch = this.buildBatch(frames, context);
     const writes: DeliveryWrite[] = batch.records.map(record => ({ kind: 'outbox', id: record.envelopeId, record }));
@@ -219,7 +219,7 @@ class GatewayDeliveryServiceImplementation {
       if (this.store.pending(r.messageId).some(other => (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
       const next = { ...r, lease: { holderId, until: now + 60_000 }, attemptCount: r.attemptCount + 1 };
       // A lost lease or attempt counter only repeats the same immutable envelope.
-      this.store.write('outbox', id, next, false); return next;
+      this.store.write('outbox', id, next); return next;
     });
     if (!claimed) return;
     let error: unknown, admitted = false, relayDid: string | undefined;
@@ -255,7 +255,7 @@ class GatewayDeliveryServiceImplementation {
         r.state = 'admitted'; r.admittedAt = now; delete r.lastError;
         if (relayDid) r.relayDid = relayDid;
         const m = r.kind === 'task' && this.store.read('messages', r.messageId);
-        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now }, false);
+        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now });
       } else if (now >= r.deliveryDeadline || !isTransientRelayError(error)) {
         if (error instanceof Error && now < r.deliveryDeadline) this.terminalErrors.set(id, error);
         const code = now >= r.deliveryDeadline ? 'OUTBOX_DEADLINE_EXPIRED' : errorCode(error);
@@ -270,8 +270,8 @@ class GatewayDeliveryServiceImplementation {
           detail.retryAfterMs! > 0 && detail.retryAfterMs! <= 3_600_000 ? detail.retryAfterMs! : 0;
         r.nextAttemptAt = Math.min(r.deliveryDeadline, now + Math.max(outboxRetryDelay(r.attemptCount), hint));
       }
-      // Admission and retry scheduling may be replayed after interruption; enqueue remains flushed.
-      this.store.write('outbox', id, r, false);
+      // Admission and retry scheduling may be replayed after interruption; enqueue remains published.
+      this.store.write('outbox', id, r);
     });
     if (signal.aborted) signal.throwIfAborted();
   }
@@ -295,7 +295,7 @@ class GatewayDeliveryServiceImplementation {
       const r = this.store.read('outbox', messageId);
       if (r?.state === 'pending') {
         const next = { ...r, state: 'admitted' as const, admittedAt: this.store.now() }; delete next.lease;
-        this.store.write('outbox', r.envelopeId, next, false);
+        this.store.write('outbox', r.envelopeId, next);
       }
       if (m && (['queued', 'relayed'].includes(m.status) || observation.status === 'replied'))
         this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now() });

@@ -211,7 +211,7 @@ class DeliveryStoreImplementation {
     } finally { if (acquired) { this.transactionReads = undefined; this.transactionDirectories = undefined; this.io.unlinkSync(lock); } }
   }
   /** Caller holds the signer lock. */
-  write<K extends Kind>(kind: K, id: string, record: DeliveryRecords[K], durable = true): void {
+  write<K extends Kind>(kind: K, id: string, record: DeliveryRecords[K]): void {
     validateDeliveryRecord(kind, record, this.owner.did);
     recordIdentity(kind, id, record);
     const listingId = kind === 'receipts' ? receiptFileId(id) : id;
@@ -239,7 +239,6 @@ class DeliveryStoreImplementation {
           if (!written) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
           offset += written;
         }
-        if (durable) this.io.fsyncSync(fd);
       } finally { this.io.closeSync(fd); }
       const previous = this.read(kind, id);
       if (kind === 'outbox' && previous && 'envelopeDigest' in previous &&
@@ -266,27 +265,28 @@ class DeliveryStoreImplementation {
       if (listing?.stamp === before) listing.stamp = stamp;
     }
   }
-  /** Flush unique temporary files outside the signer lock; close every handle before publication. */
+  /** Complete unique temporary writes outside the signer lock; close handles before publication. */
   async prepareWrites(writes: DeliveryWrite[]): Promise<PreparedDeliveryWrite[]> {
     const prepared: PreparedDeliveryWrite[] = [], descriptors: number[] = [];
     try {
-      this.transaction(() => {
-        for (const { kind, id, record: input } of writes) {
-          const record = structuredClone(input);
-          validateDeliveryRecord(kind, record, this.owner.did); recordIdentity(kind, id, record);
-          const path = this.path(kind, id), temporary = join(dirname(path), '.' + randomUUID() + '.tmp');
-          const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
-          if (bytes.length > this.limits.recordBytes) throw deliveryError('OUTBOX_FULL');
-          // Make absent directory inventories available before local temporary creation changes them.
-          const absentIndex = kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
-          this.inspectPath(dirname(path), true);
-          if (absentIndex) absentIndex.stamp = this.listingStamp(kind);
-          const fd = this.temporaryChange(kind, () => this.io.openSync(temporary,
-            fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600));
-          descriptors.push(fd); prepared.push({ kind, id, record, temporary, bytes });
-          checkStat(this.io.fstatSync(fd));
-        }
-      });
+      // Unique unpublished files need no writer lock. Publication alone changes visible records.
+      checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
+      for (const dir of this.directories()) this.inspectPath(dir, true);
+      for (const { kind, id, record: input } of writes) {
+        const record = structuredClone(input);
+        validateDeliveryRecord(kind, record, this.owner.did); recordIdentity(kind, id, record);
+        const path = this.path(kind, id), temporary = join(dirname(path), '.' + randomUUID() + '.tmp');
+        const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
+        if (bytes.length > this.limits.recordBytes) throw deliveryError('OUTBOX_FULL');
+        // Make absent directory inventories available before local temporary creation changes them.
+        const absentIndex = kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
+        this.inspectPath(dirname(path), true);
+        if (absentIndex) absentIndex.stamp = this.listingStamp(kind);
+        const fd = this.temporaryChange(kind, () => this.io.openSync(temporary,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600));
+        descriptors.push(fd); prepared.push({ kind, id, record, temporary, bytes });
+        checkStat(this.io.fstatSync(fd));
+      }
       const results = await Promise.allSettled(prepared.map(async ({ bytes }, i) => {
         const fd = descriptors[i];
         let offset = 0;
@@ -296,7 +296,6 @@ class DeliveryStoreImplementation {
           if (!written) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
           offset += written;
         }
-        await new Promise<void>((resolve, reject) => this.io.fsync(fd, error => error ? reject(error) : resolve()));
       }));
       const failed = results.find(r => r.status === 'rejected');
       if (failed?.status === 'rejected') throw failed.reason;
@@ -310,7 +309,7 @@ class DeliveryStoreImplementation {
       for (const fd of descriptors) this.io.closeSync(fd);
     }
   }
-  /** Caller holds the signer lock. Prepared bytes have already been flushed and closed. */
+  /** Caller holds the signer lock. Prepared writes have completed and their handles are closed. */
   publishWrite(write: PreparedDeliveryWrite): void {
     const { kind, id, record, temporary, bytes } = write, path = this.path(kind, id);
     this.inspectPath(dirname(path));

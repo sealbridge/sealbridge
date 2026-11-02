@@ -593,7 +593,7 @@ export class WorkerNode {
         } }) : undefined) : undefined;
     if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
     if (!persistencePath && this.deliveryService) {
-      this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes);
+      this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes, 'process');
       this.deliveryService.onMaintenance(async signal => {
         if (!existsSync(this.taskJournal!.path)) return;
         const store = this.deliveryService!.store, retained = new Set<string>();
@@ -642,6 +642,7 @@ export class WorkerNode {
   stop(): void {
     this.stopDelivery();
     this.controller.abort('WORKER_STOPPED');
+    this.taskJournal?.close();
     this.listenerStatus('stopped');
   }
   async startDelivery(): Promise<void> { await this.deliveryService?.start(); }
@@ -765,6 +766,7 @@ export class WorkerNode {
       if (this.status !== 'unavailable') this.listenerStatus('stopped');
       unregister();
       await Promise.allSettled([...jobs]);
+      this.taskJournal?.close();
     }
     return this.lastResult;
   }
@@ -1001,18 +1003,21 @@ export class WorkerNode {
     if (failure !== undefined) throw failure;
   }
   async runOnce(signal?: AbortSignal): Promise<SessionResult> {
-    await this.reconcileTasks();
-    const idleSignal = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
-    // One or more leading REVOKE envelopes are consumed before the task PROPOSE.
-    const first = await receiveRelay(this.relay, this.options.owner.did, idleSignal, {
-      role: 'worker',
-    });
-    if (await this.recoverProposal(first)) {
-      if (this.lastResult?.taskId === first.payload.taskId) return this.lastResult;
-      throw new Error(this.taskJournal?.tasks.get(first.payload.taskId)?.outcome?.code ?? 'TASK_INTERRUPTED');
-    }
-    return this.executeTask(first, idleSignal, this.relay);
+    try {
+      await this.reconcileTasks();
+      const idleSignal = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
+      // One or more leading REVOKE envelopes are consumed before the task PROPOSE.
+      const first = await receiveRelay(this.relay, this.options.owner.did, idleSignal, {
+        role: 'worker',
+      });
+      if (await this.recoverProposal(first)) {
+        if (this.lastResult?.taskId === first.payload.taskId) return this.lastResult;
+        throw new Error(this.taskJournal?.tasks.get(first.payload.taskId)?.outcome?.code ?? 'TASK_INTERRUPTED');
+      }
+      return await this.executeTask(first, idleSignal, this.relay);
+    } finally { this.taskJournal?.close(); }
   }
+
   private async holdTask(first: SignedEnvelope, manifest: TaskManifest, input: Json): Promise<HeldSummary> {
     const contentDigest = digest({ manifest, input });
     this.connectionStore.consumeAdmission(manifest.requester.ownerDid, manifest.taskId);

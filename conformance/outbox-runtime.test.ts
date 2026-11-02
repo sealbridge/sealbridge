@@ -20,15 +20,23 @@ const cleanups: Array<() => void> = [];
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); });
 afterEach(() => { cleanups.splice(0).forEach(f => f()); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 function fixture(...args: Parameters<typeof outboxFixture>) { const f = outboxFixture(...args); cleanups.push(f.cleanup); return f; }
+// Pause actual writes to model Windows scheduling without requiring a disk flush.
+function interceptWrite(io: typeof import('node:fs'), intercept: (fd: number, resume: () => void,
+  fail: (error: NodeJS.ErrnoException) => void) => void): typeof io.write {
+  return Object.assign((fd: number, buffer: Buffer, offset: number, length: number, position: number | null,
+    done: (error: NodeJS.ErrnoException | null, written: number, buffer: Buffer) => void) => {
+    intercept(fd, () => io.write(fd, buffer, offset, length, position, done), error => done(error, 0, buffer));
+  }, io.write) as typeof io.write;
+}
 const reset = () => Object.assign(new Error('fixture transport reset'), { code: 'ECONNRESET' });
 
 describe('gateway envelope retry', () => {
-  it('flushes concurrent same-URL sends independently with closed handles and no signer lock at flush time', async () => {
+  it('writes concurrent same-URL sends independently with closed handles and no file flushes', async () => {
     const f = fixture(), io = f.service.store.io, sleep = vi.fn(async () => { throw new Error('UNEXPECTED_RETRY_SLEEP'); });
     const handles = new Map<number, string>(), staged = new Map<number, number>();
-    const flushes: Array<{ fd: number; batch: number; done: (error: NodeJS.ErrnoException | null) => void }> = [];
+    const writes: Array<{ batch: number; resume: () => void; fail: (error: NodeJS.ErrnoException) => void }> = [];
     let opened = 0, ready!: () => void;
-    const bothFlushing = new Promise<void>(resolve => { ready = resolve; });
+    const bothWriting = new Promise<void>(resolve => { ready = resolve; });
     const windowsError = (code: string) => Object.assign(new Error(code), { code });
     const service = f.restart(f.owner, { sleep, identityOptions: { ...f.identityOptions, fs: { ...io,
       openSync: (path: PathLike, flags: string | number, mode?: Parameters<typeof io.openSync>[2]) => {
@@ -38,16 +46,15 @@ describe('gateway envelope retry', () => {
         return fd;
       },
       closeSync: fd => { io.closeSync(fd); handles.delete(fd); },
-      fsyncSync: fd => {
-        // Model a flush that cannot finish while another writer needs the signer lock.
-        if (existsSync(join(service.store.root, '.lock'))) throw windowsError('EBUSY');
-        io.fsyncSync(fd);
-      },
-      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+      fsyncSync: () => { throw new Error('UNEXPECTED_FILE_SYNC'); },
+      fsync: Object.assign(() => { throw new Error('UNEXPECTED_FILE_SYNC'); }, io.fsync),
+      write: interceptWrite(io, (fd, resume, fail) => {
         expect(existsSync(join(service.store.root, '.lock'))).toBe(false);
-        flushes.push({ fd, batch: staged.get(fd)!, done });
-        if (flushes.length === 4) ready();
-      }, { __promisify__: io.fsync.__promisify__ }),
+        let completed = false;
+        writes.push({ batch: staged.get(fd)!, resume: () => { if (!completed) { completed = true; resume(); } },
+          fail: error => { if (!completed) { completed = true; fail(error); } } });
+        if (writes.length === 4) ready();
+      }),
       renameSync: (from, to) => {
         // Windows replacement fails if either pathname still has an open handle.
         if ([...handles.values()].some(path => path === String(from) || path === String(to))) throw windowsError('EPERM');
@@ -60,27 +67,23 @@ describe('gateway envelope retry', () => {
     const sending = wires.map(wire => wire.rawSend('ERROR', { code: 'FIXTURE' }));
     // Observe rejection immediately as well as awaiting the sends below.
     const settled = Promise.allSettled(sending);
-    const release = async (batch: number) => {
-      await Promise.all(flushes.filter(f => f.batch === batch).map(flush => new Promise<void>(resolve => {
-        const done = flush.done; flush.done = () => {};
-        io.fsync(flush.fd, error => { done(error); resolve(); });
-      })));
-    };
+    const release = (batch: number) => { writes.filter(w => w.batch === batch).forEach(w => w.resume()); };
     try {
-      await Promise.race([bothFlushing, settled.then(() => { throw new Error('SENDS_FINISHED_BEFORE_CONCURRENT_FLUSH'); })]);
+      await Promise.race([bothWriting, settled.then(() => { throw new Error('SENDS_FINISHED_BEFORE_CONCURRENT_WRITE'); })]);
       expect(f.posted).toEqual([]);
       expect(service.store.ids('batches')).toEqual([]);
       await release(1);
       await sending[1];
       expect(f.posted.map(e => (e as SignedEnvelope).payload.taskId)).toEqual(['task_concurrent_1']);
-      // The first flush is still held; its independent peer has already completed.
+      // The first write is still held; its independent peer has already completed.
       await release(0); await sending[0];
       expect(f.posted.map(e => (e as SignedEnvelope).payload.taskId)).toEqual(['task_concurrent_1', 'task_concurrent_0']);
       expect(sleep).not.toHaveBeenCalled();
       expect(service.store.ids('outbox')).toEqual([]);
       expect(handles.size).toBe(0);
     } finally {
-      for (const flush of flushes) flush.done(windowsError('EBUSY'));
+      for (const write of writes) write.fail(windowsError('EBUSY'));
+      // Callbacks already completed by a released write ignore this final cleanup.
       await settled;
       wires.forEach(wire => wire.close());
     }
@@ -110,18 +113,18 @@ describe('gateway envelope retry', () => {
     const f = fixture(), io = f.service.store.io, sleep = vi.fn();
     const held: Array<() => void> = [];
     let opened = 0, released = false, ready!: () => void;
-    const flushing = new Promise<void>(resolve => { ready = resolve; });
+    const writing = new Promise<void>(resolve => { ready = resolve; });
     const service = f.restart(f.owner, { sleep, identityOptions: { ...f.identityOptions, fs: { ...io,
       openSync: (path: PathLike, flags: string | number, mode?: Parameters<typeof io.openSync>[2]) => {
         if (String(path).endsWith('.tmp')) opened++;
         return io.openSync(path, flags, mode);
       },
-      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+      write: interceptWrite(io, (_fd, resume) => {
         if (!released && held.length < 2) {
-          held.push(() => io.fsync(fd, done));
+          held.push(resume);
           if (held.length === 2) ready();
-        } else io.fsync(fd, done);
-      }, { __promisify__: io.fsync.__promisify__ }),
+        } else resume();
+      }),
     } } });
     const wire = new SessionWire(f.relay, f.owner, f.peer.did, 'task_ordered', [f.owner.did, f.peer.did],
       new AbortController().signal, undefined, false, false,
@@ -129,7 +132,7 @@ describe('gateway envelope retry', () => {
     const sending = Promise.all([wire.rawSend('ERROR', { code: 'FIRST' }), wire.rawSend('ERROR', { code: 'SECOND' })]);
     const release = () => { if (!released) { released = true; held.forEach(resume => resume()); } };
     try {
-      await flushing;
+      await writing;
       expect(opened).toBe(2);
       expect(f.posted).toEqual([]);
       release();
@@ -138,12 +141,10 @@ describe('gateway envelope retry', () => {
       expect(sleep).not.toHaveBeenCalled();
     } finally { release(); await Promise.allSettled([sending]); wire.close(); }
   });
-  it('publishes neither a batch nor a receipt after an asynchronous flush failure', async () => {
+  it('publishes neither a batch nor a receipt after an asynchronous write failure', async () => {
     const f = fixture(), p = f.prepare(true), io = f.service.store.io;
     const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
-      fsync: Object.assign((_fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
-        done(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
-      }, { __promisify__: io.fsync.__promisify__ }),
+      write: interceptWrite(io, (_fd, _resume, fail) => { fail(Object.assign(new Error('EBUSY'), { code: 'EBUSY' })); }),
     } } });
     await expect(service.enqueuePrepared(p.frames, p.context)).rejects.toThrow('OUTBOX_STORE_UNWRITABLE');
     await expect(service.store.receiptPrepared(p.first, p.context.deliveryDeadline, 'processed')).rejects.toThrow('OUTBOX_STORE_UNWRITABLE');
@@ -154,23 +155,23 @@ describe('gateway envelope retry', () => {
     expect(io.readdirSync(service.store.root, { recursive: true }).map(String).filter(path => path.endsWith('.tmp'))).toEqual([]);
     expect(existsSync(join(service.store.root, '.lock'))).toBe(false);
   });
-  it('rechecks a receipt after its flush without replacing a concurrent terminal checkpoint', async () => {
+  it('rechecks a receipt after its write without replacing a concurrent terminal checkpoint', async () => {
     const f = fixture(), p = f.prepare(), io = f.service.store.io;
     let concurrent = false;
     const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
-      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+      write: interceptWrite(io, (_fd, resume) => {
         if (!concurrent) {
           concurrent = true;
           f.service.store.receipt(p.first, p.context.deliveryDeadline, 'terminal');
         }
-        io.fsync(fd, done);
-      }, { __promisify__: io.fsync.__promisify__ }),
+        resume();
+      }),
     } } });
     await service.store.receiptPrepared(p.first, p.context.deliveryDeadline, 'processed');
     expect(service.store.read('receipts', p.first.payload.envelopeId)?.state).toBe('terminal');
     expect(io.readdirSync(service.store.root, { recursive: true }).map(String).filter(path => path.endsWith('.tmp'))).toEqual([]);
   });
-  it('rechecks capacity when concurrently flushed batches publish', async () => {
+  it('rechecks capacity when concurrently prepared batches publish', async () => {
     const f = fixture({ limits: { activeEnvelopes: 2 } });
     const batches = [f.prepare(true), f.prepare(true)];
     const results = await Promise.allSettled(batches.map(p => f.service.enqueuePrepared(p.frames, p.context)));
@@ -180,13 +181,11 @@ describe('gateway envelope retry', () => {
     expect(f.service.store.ids('batches')).toHaveLength(1);
     expect(f.posted).toEqual([]);
   });
-  it('discards flushed preparation after cancellation without publication or transmission', async () => {
+  it('discards completed preparation after cancellation without publication or transmission', async () => {
     const f = fixture(), p = f.prepare(), io = f.service.store.io;
     let controller = new AbortController();
     const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
-      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
-        io.fsync(fd, error => { controller.abort(new Error('FIXTURE_CANCEL')); done(error); });
-      }, { __promisify__: io.fsync.__promisify__ }),
+      write: interceptWrite(io, (_fd, resume) => { controller.abort(new Error('FIXTURE_CANCEL')); resume(); }),
     } } });
     await expect(service.enqueuePrepared(p.frames, p.context, controller.signal)).rejects.toThrow('FIXTURE_CANCEL');
     controller = new AbortController();
@@ -206,7 +205,7 @@ describe('gateway envelope retry', () => {
     counted.reset();
     const ids = service.enqueue(p.frames, p.context);
     expect(counted.total()).toBeLessThanOrEqual(24);
-    expect(counted.counts.fsyncSync).toBe(4); // two envelopes, message and publication marker
+    expect(counted.counts.fsyncSync).toBe(0);
     expect(counted.counts.readdirSync).toBe(0);
     const batchId = service.store.read('outbox', ids[0])!.batchId;
     for (const id of ids) {
@@ -222,7 +221,7 @@ describe('gateway envelope retry', () => {
     counted.reset();
     service.store.receipt(p.first, p.context.deliveryDeadline, 'processed');
     expect(counted.total()).toBeLessThanOrEqual(10);
-    expect(counted.counts.fsyncSync).toBe(1);
+    expect(counted.counts.fsyncSync).toBe(0);
     // An already recorded acknowledgement does not rewrite or flush its receipt.
     counted.reset();
     service.store.receipt(p.first, p.context.deliveryDeadline, 'processed');
@@ -588,9 +587,11 @@ describe('durable session integration', () => {
       description: 'Synthetic relay fixture', input: { index } });
     try {
       const assertWork = (delegations: number) => {
-        expect(counted.total()).toBeLessThanOrEqual(850 * delegations);
-        expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBeLessThanOrEqual(60 * delegations);
-        expect(counted.asyncCounts.fsync).toBe(54 * delegations);
+        expect(counted.total() + counted.asyncCounts.write + counted.asyncCounts.fsync).toBeLessThanOrEqual(750 * delegations);
+        expect(counted.counts.openSync).toBeLessThanOrEqual(425 * delegations);
+        // One pre-existing worker intake write per delegation still flushes.
+        expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBeLessThanOrEqual(delegations);
+        expect(counted.asyncCounts.write).toBe(54 * delegations);
         expect(counted.counts.readdirSync).toBeLessThanOrEqual(12 * delegations);
         // Ancestor checks include the platform-specific temporary-directory depth.
         expect(counted.counts.lstatSync).toBeLessThanOrEqual(12000 * delegations);
