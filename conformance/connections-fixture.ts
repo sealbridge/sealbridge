@@ -23,9 +23,9 @@ export function admissionFixture(options: Partial<WorkerNodeOptions> = {}, inspe
   const automatic = new PolicyAutoApprovalProvider(owner), approve = vi.spyOn(automatic, 'approve');
   const human = { approve: vi.fn(automatic.approve.bind(automatic)) };
   const worker = new WorkerNode({ owner, relay, relayUrl: 'https://relay.example', intakeStore: store, heldReview: review,
-    timeoutMs: 1000, approvalProvider: automatic, ownerApprovalProvider: human,
+    approvalProvider: automatic, ownerApprovalProvider: human,
     adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }], executeTask: execute }, ...options });
-  const client = new RequesterClient({ owner: requester, relay, timeoutMs: 1000,
+  const client = new RequesterClient({ owner: requester, relay,
     approvalProvider: new PolicyAutoApprovalProvider(requester) });
   const task = { title: 'Review task', description: 'Review description', input: { content: 'held content' } };
   async function attempt(to = owner.did, extra = {}) {
