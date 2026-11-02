@@ -572,6 +572,34 @@ C1 の永続化はゲートウェイのプロセス再起動を対象とし、�
 セッションの送信と処理済み受信記録は、準備時に署名者ロックを取得せず、一意の一時ファイルへ非同期に書き込みます。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して書き込めます。公開時に署名者ロックの下で容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。既定のタスクジャーナルは追記ハンドルと変更のない検証済みチェックポイントを再利用し、圧縮時とワーカー停止時にハンドルを閉じます。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
+
+The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
+`acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
+string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
+The same signer/tool/key and content return the first stored result across restarts,
+without another send or approval; changed content returns `IDEMPOTENCY_CONFLICT`
+and requires a new key. Keys/results expire seven days after the original deadline
+(latest child deadline for multi). Cached holds never resubmit or increment attempts.
+Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
+`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` without repeating a prompt
+or execution. Final verification stays separate, and calls without keys are unchanged.
+See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
+No relay deployment is needed.
+
+
+MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
+`acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。
+Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
+（例: `"idempotencyKey":"review-2026-11-02"`）。同じ署名者・道具・キー・内容なら
+再起動後も最初の結果を返し、送信と承認を繰り返しません。内容が違えば
+`IDEMPOTENCY_CONFLICT` となり、新しいキーが必要です。キーと結果は元の期限
+（複数では最も遅い子の期限）の7日後まで保持します。保留の再参照では再依頼せず、
+試行回数も増やしません。別サーバーは `IDEMPOTENCY_IN_PROGRESS`、中断後は
+`APPROVAL_INTERRUPTED` または `IDEMPOTENCY_RESULT_UNAVAILABLE` を返し、承認や実行を
+やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
+保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
+relay のデプロイは不要です。
+
 ### Delivery observations / 配達の状態
 
 Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free

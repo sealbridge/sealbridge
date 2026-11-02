@@ -3,15 +3,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { deliveryStatusRoutingId, digest, generateKeyPair, signEnvelope, signPayload } from '../packages/core/src/index.js';
-import type { Json } from '../packages/core/src/index.js';
+import { deliveryStatusRoutingId, digest, generateKeyPair, openEnvelope, signApproval, signEnvelope, signPayload } from '../packages/core/src/index.js';
+import type { Json, SignedDeliveryStatus } from '../packages/core/src/index.js';
 import { classifyEnvelopeRole, RelayDuplicateEnvelopeError } from '../packages/relay/src/index.js';
-import { GatewayDeliveryService, RecipientDeliveryCoordinator, HeldRequestReview, DELIVERY_RETENTION_MS } from '../packages/runtime/src/index.js';
+import { GatewayDeliveryService, RecipientDeliveryCoordinator, HeldRequestReview, DELIVERY_RETENTION_MS, IdempotencyStore, RequesterClient, idempotencyFailure } from '../packages/runtime/src/index.js';
+import type { BeforeProposeContext } from '../packages/runtime/src/index.js';
 import { countDeliveryFs } from './outbox-fixture.js';
 import { statusFixture, statusRelayUrl } from './delivery-status-fixture.js';
 const cleanups: Array<() => void> = [];
 beforeEach(() => vi.useFakeTimers({ toFake: ['Date'] }));
-afterEach(() => { vi.restoreAllMocks(); cleanups.splice(0).forEach(f => f()); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); cleanups.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.useRealTimers(); });
 function fixture(inspect = true) { const f = statusFixture(inspect); cleanups.push(f.cleanup); return f; }
 function interceptSyncWrite(io: typeof import('node:fs'), before: () => void): typeof io.writeSync {
   return ((fd: number, bytes: NodeJS.ArrayBufferView, offset?: number | null, length?: number | null, position?: number | null) => {
@@ -340,4 +341,83 @@ it('routes and sends status without reopening an unrelated backlog beyond the ve
     message: { taskId: frame.payload.taskId, peerAgentDid: f.sender.did, protocolVersion: '0.2.0' } });
   await service.prepare(); counted.reset();
   expect(service.statusRouter.ids(statusRelayUrl)).toHaveLength(131); expect(counted.counts.readSync).toBe(0);
+});
+
+it.each(['settled', 'held'] as const)('keeps %s keyed retries on the original envelope and delivery observations across restart', async outcome => {
+  vi.setSystemTime(Date.UTC(2030, 0, 1));
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('OFFLINE_TEST_NETWORK'); }));
+  const f = statusFixture(outcome === 'settled');
+  cleanups.push(f.cleanup);
+  const beforePropose = vi.fn(async ({ manifest, input, relay }: BeforeProposeContext) => {
+    const target = { manifest, input, relay, fanOut: 1, description: manifest.task.description };
+    return { targetDigest: digest(target), approvedAt: f.now(),
+      receipt: signApproval(manifest.taskId, 'external_side_effect', target, f.sender) };
+  });
+  const args = { to: f.worker.invite(), title: 'Keyed delivery', description: 'Return JSON', input: { n: 1 },
+    idempotencyKey: 'delivery-observation', beforePropose };
+  const call = async (client: RequesterClient) => {
+    try { return { isError: false, value: await client.delegate(args) }; }
+    catch (error) { return idempotencyFailure(error); }
+  };
+  const [first, concurrent] = await Promise.all([call(f.client), call(f.client), f.worker.start({ once: true }).catch(error => {
+    expect(outcome).toBe('held'); expect(error.message).toBe('PENDING_OWNER_APPROVAL');
+  })]);
+  expect(concurrent).toEqual(first);
+  expect(first).toMatchObject(outcome === 'settled'
+    ? { isError: false, value: { state: 'SETTLED' } }
+    : { isError: true, value: { error: 'PENDING_OWNER_APPROVAL', retryable: false } });
+  expect(await call(f.client)).toEqual(first);
+  expect(beforePropose).toHaveBeenCalledOnce();
+  const proposals = () => f.frames.filter(e => e.payload.eventType === 'PROPOSE');
+  expect(proposals()).toHaveLength(1);
+  const original = proposals()[0], messageId = original.payload.envelopeId;
+  const records = new IdempotencyStore(f.sender, { ...f.identityOptions, now: f.now }).records;
+  const operation = records.snapshot('operations')[0];
+  expect(operation).toMatchObject({ version: 1, phase: 'finished', messageIds: [messageId],
+    preparedActions: [{ messageId, manifest: { taskId: original.payload.taskId, protocolVersion: '0.2.0' } }] });
+  expect(records.snapshot('messages')).toHaveLength(1);
+  expect(records.read('messages', messageId)).toMatchObject({ version: 1, operationId: operation.operationId,
+    proposalEnvelopeDigest: digest(original) });
+  const observation = f.incoming.store.read('observations', messageId)!;
+  const expectedStates = outcome === 'settled' ? ['received_held', 'opened', 'handed_to_agent'] : ['received_held'];
+  expect(observation).toMatchObject({ version: 1, messageId, originalEnvelopeDigest: digest(original) });
+  expect(observation.facts.map(fact => fact.state)).toEqual(expectedStates);
+
+  f.client.stopDelivery();
+  const restarted = new GatewayDeliveryService(f.sender, f.outgoing.options);
+  const client = new RequesterClient({ ...f.client.options, deliveryService: restarted });
+  cleanups.push(() => client.stopDelivery());
+  expect(await call(client)).toEqual(first);
+  expect(restarted.store.read('operations', operation.operationId)).toEqual(operation);
+  if (outcome === 'held') {
+    f.review.discard(f.review.list()[0].id);
+    expectedStates.push('closed');
+  }
+  await f.incoming.drainDue();
+  // Route retained frames directly: no socket or polling clock is required.
+  const statuses = f.frames.filter(e => e.payload.eventType === 'DELIVERY_STATUS');
+  expect(statuses.map(e => openEnvelope<SignedDeliveryStatus>(e, f.sender).payload.state)).toEqual(expectedStates);
+  for (const envelope of statuses) {
+    await restarted.statusRouter.route(envelope);
+    await restarted.statusRouter.route(envelope);
+  }
+  expect(restarted.store.getMessage(messageId)).toMatchObject({ operationId: operation.operationId,
+    status: outcome === 'settled' ? 'replied' : 'closed', remoteStatus: { payload: {
+      messageId, taskId: original.payload.taskId, state: expectedStates.at(-1), revision: expectedStates.length,
+    } } });
+  const receipts = restarted.store.snapshot('receipts');
+  expect(receipts.filter(r => r.envelopeId.startsWith('ds_'))).toHaveLength(expectedStates.length);
+  const message = restarted.store.read('messages', messageId);
+  const facts = f.incoming.store.read('observations', messageId);
+  expect(await call(client)).toEqual(first);
+  expect(restarted.store.read('messages', messageId)).toEqual(message);
+  expect(restarted.store.snapshot('receipts')).toEqual(receipts);
+  expect(restarted.store.read('operations', operation.operationId)).toEqual(operation);
+  expect(f.incoming.store.snapshot('observations')).toEqual([facts]);
+  expect(f.incoming.store.read('observations', messageId)?.facts.map(fact => fact.state)).toEqual(expectedStates);
+  expect(proposals()).toEqual([original]);
+  expect(beforePropose).toHaveBeenCalledOnce();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(f.execute).toHaveBeenCalledTimes(outcome === 'settled' ? 1 : 0);
+  expect(f.human.approve).toHaveBeenCalledTimes(outcome === 'settled' ? 1 : 0);
 });

@@ -898,6 +898,20 @@ Direct transport `send()` remains a single attempt. No relay deployment is neede
 for this gateway behavior; existing relay retention still governs admitted frames.
 See [relay reliability](docs/relay-reliability.md).
 
+
+The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
+`acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
+string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
+The same signer/tool/key and content return the first stored result across restarts,
+without another send or approval; changed content returns `IDEMPOTENCY_CONFLICT`
+and requires a new key. Keys/results expire seven days after the original deadline
+(latest child deadline for multi). Cached holds never resubmit or increment attempts.
+Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
+`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` without repeating a prompt
+or execution. Final verification stays separate, and calls without keys are unchanged.
+See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
+No relay deployment is needed.
+
 ### Recipient delivery status
 
 Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free

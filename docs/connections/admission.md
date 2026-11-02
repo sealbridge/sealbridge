@@ -108,6 +108,15 @@ One-time task tickets and a separate application queue are deferred.
 
 The release clock is documented in [protocol versions](protocol-versions.md).
 
+
+The optional send-tool `idempotencyKey` caches the first result for the local signer,
+tool and exact request. A cached `PENDING_OWNER_APPROVAL` stays `retryable:false`
+with its original pendingId and never resubmits. Explicit resubmission can use its
+own key to identify one fresh attempt, with current policy and approval checked
+before its first transmission. Duplicate cached calls do not resolve invitations
+again or change connections, inspection or owner opening. See
+[relay reliability](../relay-reliability.md) for key scope, expiry and interruption.
+
 ### Recipient delivery status
 
 Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
