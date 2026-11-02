@@ -20,6 +20,8 @@
     "sealbridge": "tsx cli/src/index.ts",
     "package:cli": "pnpm build && node scripts/package-cli.mjs",
     "prepack": "pnpm run package:cli",
+    "check:protocol-release": "pnpm build && node scripts/check-protocol-release.mjs",
+    "prepublishOnly": "pnpm run check:protocol-release",
     "publish:dry-run": "npm publish --dry-run"
   },
   "devDependencies": {

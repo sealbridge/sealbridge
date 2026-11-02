@@ -4,11 +4,11 @@ import { generateKeyPair, discoverAgentCards, signPayload, verifySignedAgentCard
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { WorkerNode, RequesterClient, PolicyAutoApprovalProvider, buildTaskManifest } from '../packages/runtime/src/index.js';
 
-function setup(accessMode: 'open' | 'invite-only', allowed = false) {
+function setup(allowed = false) {
   const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
   let calls = 0;
-  const worker = new WorkerNode({ owner, relay, accessMode, timeoutMs: 3000,
-    ...(allowed ? { allowedRequesterDids: [requester.did] } : {}),
+  const worker = new WorkerNode({ owner, relay, timeoutMs: 3000,
+    ...(allowed ? { checkPeer: () => 'trusted' as const } : {}),
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'echo', skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }],
       executeTask: async (ctx) => { calls++; return ctx.input; } } });
@@ -16,10 +16,10 @@ function setup(accessMode: 'open' | 'invite-only', allowed = false) {
     approvalProvider: new PolicyAutoApprovalProvider(requester) });
   return { owner, requester, relay, worker, client, calls: () => calls };
 }
-const task = { title: 'open task', description: 'single encrypted task', input: { hello: 'world' } };
-describe('Open task collaboration', () => {
-  it.each(['did', 'skill', 'taskType'] as const)('settles encrypted invite-less delegation by %s', async (kind) => {
-    const { owner, worker, client, relay, calls } = setup('open', true);
+const task = { title: 'Published task', description: 'single encrypted task', input: { hello: 'world' } };
+describe('Published task collaboration', () => {
+  it.each(['did', 'skill', 'taskType'] as const)('settles encrypted invite-less delegation by %s with explicit contact permission', async (kind) => {
+    const { owner, worker, client, relay, calls } = setup(true);
     await worker.register();
     const send = relay.send.bind(relay);
     let encrypted = 0;
@@ -41,45 +41,43 @@ describe('Open task collaboration', () => {
       expect(encrypted).toBeGreaterThan(5);
     } finally { worker.stop(); }
   });
-  it('rejects uninvited direct delegation to an invite-only worker', async () => {
-    const { owner, worker, client, calls } = setup('invite-only');
+  it('holds unconnected direct delegation', async () => {
+    const { owner, worker, client, calls } = setup();
     await worker.register();
     const done = worker.start({ once: true }).catch((error: Error) => error);
     try {
       await expect(client.delegate({ ...task, to: owner.did })).rejects.toThrow('PEER_REJECTED');
-      expect(await done).toMatchObject({ message: 'INVITE_REQUIRED' });
+      expect(await done).toMatchObject({ message: 'PENDING_OWNER_APPROVAL' });
       expect(calls()).toBe(0);
     } finally { worker.stop(); }
   });
-  it.each(['invite', 'allowlist'] as const)('preserves invite-only %s admission', async (kind) => {
-    const { owner, worker, client } = setup('invite-only', kind === 'allowlist');
-    const done = worker.start({ once: true });
-    try {
-      const [result] = await Promise.all([client.delegate({ ...task,
-        to: kind === 'invite' ? worker.invite() : owner.did }), done]);
-      expect(result.state).toBe('SETTLED');
-    } finally { worker.stop(); }
+  it.each(['invite', 'allowlist'] as const)('holds %s admission until inspection and owner opening', async kind => {
+    const { owner, worker, client } = setup();
+    if (kind === 'allowlist') worker.acceptance.allowedRequesterDids = [client.options.owner.did];
+    const results = await Promise.allSettled([client.delegate({ ...task, to: kind === 'invite' ? worker.invite() : owner.did }), worker.start({ once: true })]);
+    expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+    worker.stop();
   });
-  it('requires explicit open advertisement for skill discovery', async () => {
-    const { worker, client, relay } = setup('invite-only');
+  it('allows skill discovery on every published verified card', async () => {
+    const { worker, client, owner } = setup();
     await worker.register();
-    await expect(client.delegate({ ...task, to: '', discover: { skillId: 'echo' } }))
-      .rejects.toThrow('OPEN_WORKER_NOT_FOUND');
-    expect(relay.snapshot().queues).toEqual([]);
+    const results = await Promise.allSettled([client.delegate({ ...task, to: '', discover: { skillId: 'echo' } }), worker.start({ once: true })]);
+    expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+    worker.stop();
   });
-  it('authenticates access mode and task types and ignores expired cards', () => {
-    const { worker, owner } = setup('open');
+  it('authenticates original card fields and task types and ignores expired cards', () => {
+    const { worker, owner } = setup();
     const card = worker.agentCard;
-    expect(discoverAgentCards([card], { taskType: 'json', accessMode: 'open' })).toEqual([card]);
-    expect(verifySignedAgentCard({ ...card, payload: { ...card.payload, accessMode: 'invite-only' } })).toBe(false);
+    expect(discoverAgentCards([card], { taskType: 'json' })).toEqual([card]);
+    expect(verifySignedAgentCard({ ...card, payload: { ...card.payload, name: 'changed' } })).toBe(false);
     expect(verifySignedAgentCard({ ...card, payload: { ...card.payload, skills: [{ id: 'other', name: 'other' }] } })).toBe(false);
     expect(discoverAgentCards([card], {}, Date.parse(card.payload.expiresAt))).toEqual([]);
     const newer = signPayload({ ...card.payload, accessMode: 'invite-only' as const }, owner,
       new Date(Date.parse(card.signature.signedAt) + 1).toISOString());
-    expect(discoverAgentCards([card, newer], { accessMode: 'open' }, Date.now() + 2)).toEqual([]);
+    expect(discoverAgentCards([card, newer], {}, Date.now() + 2)).toEqual([newer]);
   });
   it.each(['scope', 'expiry', 'task'] as const)('keeps cryptographic capability %s enforcement', (kind) => {
-    const { owner, requester } = setup('open');
+    const { owner, requester } = setup();
     const token = createCapability({ audience: owner.did, taskId: 'task_open', resource: 'data://allowed',
       allowedTools: ['read'], argConstraints: { read: {} }, maxCalls: 1, maxDepth: 0,
       notBefore: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 10000).toISOString() }, requester);
@@ -93,9 +91,9 @@ describe('Open task collaboration', () => {
   });
 });
 
-describe('Open worker capability admission', () => {
+describe('Worker capability admission', () => {
   it.each(['scope', 'expiry', 'task'] as const)('rejects a %s violation before executing', async (kind) => {
-    const { owner, requester, worker, client, calls } = setup('open');
+    const { owner, requester, worker, client, calls } = setup();
     await worker.register();
     const expiresAt = new Date(Date.now() + 60000).toISOString();
     const manifest = buildTaskManifest({ ownerDid: requester.did, workerDid: owner.did,

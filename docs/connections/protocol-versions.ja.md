@@ -13,7 +13,7 @@
 `spec/task-manifest.0.2.0.schema.json` は別のv0.2 IDと厳密な0.2.0の版を持ち、他の欄は同じです。
 `spec/task-manifest.schema.json` は独自のIDで両者を参照し、従来の `task-manifest` 検索名を維持します。
 `spec/examples/protocol-versions/` は署名付きカードの `protocolVersions` とスキルの
-`taskTypes` の例です。公開カードスキーマには、既存の出力にある `accessMode` と `openPolicy` も含めます。
+`taskTypes` の例です。新しいカードは運用モードを出力せず、旧カードの署名済み原本は検証用に保持します。
 
 純粋関数 `supportedSendVersions`・`supportedReceiveVersions`・`selectProtocolVersion`・
 `assertInboundProtocolVersion` は `ProtocolCompatibilityPolicy` とミリ秒の時計を受け取ります。
@@ -38,5 +38,20 @@
 `PROTOCOL_STORE_UNWRITABLE` で返します。POSIX はディレクトリ0700・ファイル0600、
 Windows は親ACLを継承し、その内容は検証しません。
 
-これは独立した4本のつながり基盤の1本です。運用の既定・既存ファイル・CLIフラグ・MCPツール・
-board・既定の0.1.0送信は変わりません。4本のマージ後のPR5でリリース時刻とライブ方針を結び付けます。
+ライブ経路は `LiveProtocol` を使い、CLI/MCP は相手の版の観測を保存します。
+`buildTaskManifest` の既定は0.2.0で、送信は署名前に相互の対応版を選びます。
+カードのない DID は0.1.0のみと判断し、対応しない指定済みマニフェストは書き換えず拒否します。
+明示的な保留再送は版を選び直します。0.1.0の依頼は接続があっても接続由来の入場を認めません。
+過去の監査検証にリリース時計は適用しません。
+
+`packages/runtime/src/protocol-release.ts` の `PROTOCOL_020_RELEASED_AT` は現在 `null` です。
+これは公開前の状態を表し、両版を受け付け、相互に対応する最新の版で送ります。今日を起点にはしません。
+`npm pack` を含むパッケージ作成は、公開前の未設定状態でも実行できます。
+保守者は0.2.0の公開を有効にする実際のUTC時刻を設定し、公開前に `pnpm run check:protocol-release` を実行します。
+このコマンドはビルド後に `assertProtocolReleaseConfigured` を呼び、未設定・不正な時刻を拒否します。
+`npm publish`（`--dry-run` を含む）でも `prepublishOnly` により同じ確認を実行します。
+ホスト・テストは `protocolPolicy` と `now` を
+注入できます。CLI/MCP の利用者ごとに起点を変えるフラグはありません。保存済み起点の変更は明示的な移行が必要です。
+登録時に受信対応版を計算し、期間が変わればカードを署名し直します。古いカードで現在の方針は変わりません。
+
+[接続の受付と移行](admission.ja.md)も参照してください。

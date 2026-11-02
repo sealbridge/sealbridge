@@ -36,10 +36,10 @@ function fixture(relayUrl?: string, expiresInSeconds?: number) {
   const registry = new RevocationRegistry();
   const calls: Json[] = [];
   const events: string[] = [];
-  const worker = new WorkerNode({
+  const worker = new WorkerNode({ checkPeer: () => 'trusted',
     owner,
     relay,
-    relayUrl,
+    relayUrl, allowPrivateRelay: relayUrl?.startsWith('http://127.'),
     revocation: registry,
     adapter: {
       id: 'normalization-echo',

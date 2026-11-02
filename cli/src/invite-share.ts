@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import QRCode from 'qrcode';
 import { createInviteToken, createSignedAgentCard, generateKeyPair, inviteTokenFromUri, parseAndVerifyInviteToken, signPayload, verifySigned } from '@acp/core';
 import type { Invite, KeyPair, Signed } from '@acp/core';
+import { LiveProtocol } from '@acp/runtime';
 import { inspectStoredIdentity } from '@acp/runtime/key-store';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 import { commandIdentity } from './command-identity.js';
@@ -45,7 +46,11 @@ export function verifiedExpiredInvite(value: string): Invite {
 export function reissueInvite(value: string, key: KeyPair, seconds = 86400, agentKey?: KeyPair): string {
   const old = verifiedExpiredInvite(value);
   if (old.ownerDid !== key.did) throw new Error('INVITE_ISSUER_KEY_REQUIRED');
-  const { type: _type, ownerDid: _owner, agentDelegation: _delegation, ...card } = old.agentCard.payload;
+  const original = old.agentCard.payload;
+  // Reissue verifies historical bytes first, then signs a new mode-free card.
+  const card = { name: original.name, description: original.description, agentDid: original.agentDid,
+    relayEndpoint: original.relayEndpoint, skills: original.skills, costModes: original.costModes,
+    version: original.version, protocolVersions: new LiveProtocol().receiveVersions() };
   return createInviteToken({ agentCard: createSignedAgentCard({ ...card,
     expiresAt: new Date(Date.now() + seconds * 1000).toISOString() }, key, agentKey), expiresInSeconds: seconds }, key);
 }
@@ -78,7 +83,7 @@ function saveReciprocalInvite(value: string, invite: Invite, key: KeyPair, conta
   if (!verifySigned(signPayload({ type: 'IdentityCheck' }, key), key.did)) throw new Error('INVALID_IDENTITY_KEY');
   if (key.did === invite.ownerDid) throw new Error('SELF_INVITE');
   const card = createSignedAgentCard({ name: 'Sealbridge contact', agentDid: key.did, relayEndpoint: invite.relayUrl,
-    skills: [{ id: 'json-task', name: 'JSON task' }], accessMode: 'invite-only',
+    skills: [{ id: 'json-task', name: 'JSON task' }], protocolVersions: new LiveProtocol().receiveVersions(),
     expiresAt: new Date(Date.now() + 86400000).toISOString() }, key);
   const reciprocal = createInviteToken({ agentCard: card, expiresInSeconds: 86400 }, key);
   writeFileSync(out, reciprocal, { flag: 'wx', mode: 0o600 });

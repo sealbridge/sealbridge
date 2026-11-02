@@ -127,7 +127,7 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
       jsonrpc: '2.0',
       id: 1,
       method: 'tools/call',
-      params: { name: 'acp_discover_workers', arguments: { accessMode: 'all' } },
+      params: { name: 'acp_discover_workers', arguments: {} },
     })) as { result?: { structuredContent?: { count: number; workers: Array<{ name: string }> } } };
     expect(mcpResponse.result?.structuredContent?.count).toBe(1);
     expect(mcpResponse.result?.structuredContent?.workers.map((w) => w.name)).toEqual([
@@ -241,8 +241,8 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
       discover: async () => [expiredCard, olderValidCard, newerValidCard],
     };
 
-    const worker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: workerOwner,
       agentDid: workerAgent.did,
       agentKey: workerAgent,
@@ -349,8 +349,8 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const grokKey = generateKeyPair();
     const dotsKey = generateKeyPair();
 
-    const grokWorker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const grokWorker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: grokKey,
       relay: server.url,
       allowPrivateRelay: true,
@@ -367,8 +367,8 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
       },
     });
 
-    const dotsWorker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const dotsWorker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: dotsKey,
       relay: server.url,
       allowPrivateRelay: true,
@@ -449,8 +449,8 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const relay = new InMemoryRelay();
     const sameKey = generateKeyPair();
 
-    const worker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: sameKey,
       relay,
       publishToRegistry: true,

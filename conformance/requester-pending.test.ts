@@ -30,7 +30,7 @@ function fixture() {
   const frames: SignedEnvelope[] = [], send = relay.send.bind(relay);
   relay.send = e => { frames.push(e); return send(e); };
   const execute = vi.fn(async context => context.input);
-  const worker = new WorkerNode({ owner, relay, relayUrl: url, accessMode: 'open', intakeStore: intake,
+  const worker = new WorkerNode({ owner, relay, relayUrl: url,  intakeStore: intake,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, timeoutMs: 2000 });
   const pending = new RequesterPendingStore(requester);
@@ -63,7 +63,7 @@ it('retains held tasks across restart and explicitly resubmits fresh task ids af
   expect(restarted.list()).toMatchObject([{ id: original.id, state: 'pending', attempts: 2 }]);
   expect(restarted.list()[0].lastTaskId).not.toBe(original.originalTaskId);
   expect(f.intake.list()).toHaveLength(1);
-  f.intake.decide(f.intake.list()[0].id, 'approve');
+  f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   expect(f.execute).not.toHaveBeenCalled();
   const result = await f.run(() => restarted.resubmit(original.id, request => f.client.delegate(request)));
   expect(result).toMatchObject({ state: 'SETTLED', deliverable: task.input });
@@ -87,7 +87,7 @@ it('MCP lists local observations and resubmits through current outbound and form
   const initialCount = f.frames.length;
   expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [{ id, state: 'pending' }] });
   expect(f.frames).toHaveLength(initialCount);
-  f.intake.decide(f.intake.list()[0].id, 'approve');
+  f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   factory.mockClear();
   const blockedWorker = new AcpMcpServer({ ...opts, allowedWorkerDids: [] });
   expect(await call(blockedWorker, 'acp_resubmit_pending_request', { pendingId: id })).toMatchObject({ error: 'MCP_WORKER_NOT_ALLOWED' });
@@ -111,7 +111,7 @@ it('CLI records and resubmits with the same requester identity and fresh output 
   expect(held).toMatchObject({ code: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
   await pendingCommand(['list'], application);
   expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toMatchObject({ requests: [{ id: held.pendingId }] });
-  f.intake.decide(f.intake.list()[0].id, 'approve');
+  f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   const out = join(root, 'result.json'), audit = join(root, 'resubmitted.jsonl');
   await f.run(() => pendingCommand(['resubmit', held.pendingId, '--auto-approve', '--out', out, '--audit', audit], application));
   expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(task.input);
@@ -204,7 +204,7 @@ it('preserves default data-root precedence, legacy keys and opt-in library persi
 it('MCP resubmission requires new outbound and final host forms for the fresh task', async () => {
   const f = fixture();
   await f.run(() => f.client.delegate({ ...task, to: f.owner.did })).catch(() => undefined);
-  const record = f.pending.list()[0]; f.intake.decide(f.intake.list()[0].id, 'approve');
+  const record = f.pending.list()[0]; f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   const h = harness({ owner: f.requester, relay: url, transportFactory: () => f.relay, requireInteractiveApproval: true });
   try {
     await initialize(h, { elicitation: { form: {} } });
@@ -257,7 +257,7 @@ it('keeps a completed CLI resubmission resolved when its requested output file a
   vi.spyOn(console, 'log').mockImplementation(() => {});
   await f.run(() => networkCommand('delegate', ['--to', f.owner.did, '--title', task.title,
     '--description', task.description, '--input', JSON.stringify(task.input), '--auto-approve'], application)).catch(() => undefined);
-  const id = f.pending.list()[0].id; f.intake.decide(f.intake.list()[0].id, 'approve');
+  const id = f.pending.list()[0].id; f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   const out = join(root, 'existing.json'); fs.writeFileSync(out, 'previous');
   await expect(f.run(() => pendingCommand(['resubmit', id, '--auto-approve', '--out', out], application))).rejects.toMatchObject({ code: 'EEXIST' });
   expect(fs.readFileSync(out, 'utf8')).toBe('previous');
@@ -285,7 +285,7 @@ it('uses an explicitly selected requester key without changing the default ident
   const manifest = buildTaskManifest({ ownerDid: explicit.did, workerDid: f.owner.did, ...task });
   const selected = new RequesterPendingStore(explicit);
   const id = selected.save({ to: f.owner.did, relayUrl: url, manifest, input: task.input, timeouts: {} });
-  f.intake.enqueue(manifest, task.input); f.intake.decide(f.intake.list()[0].id, 'approve');
+  f.intake.enqueue(manifest, task.input); f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   const output = vi.spyOn(console, 'log').mockImplementation(() => {});
   await pendingCommand(['list', '--key', keyFile]);
   expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toMatchObject({ requests: [{ id }] });
@@ -306,6 +306,7 @@ async function heldAlias(useAlias = false) {
     ...task, workerRef: useAlias ? 'reviewer' : saved.workerRef,
   }));
   gate.mockRestore();
+  f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
   expect(held).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
   return { ...f, invites, token, saved, opts, server, held };
 }

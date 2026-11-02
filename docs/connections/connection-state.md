@@ -1,4 +1,4 @@
-# Connection state persistence (preparatory)
+# Connection state persistence
 
 `@acp/runtime` exports connection record types, lifecycle validation and
 `connectionPersistencePort(WorkerTrustStore)`. The store adds `connectionState`,
@@ -12,11 +12,7 @@ canonical parsed invite digest and authenticated requester owner DID and remain
 through the invite's effective expiry after disconnect/block. Binding, local
 consent and acceptance outbox publication are atomic.
 
-These are owner-local persistence APIs. Callers provide owner authorization,
-verified request/acceptance data and parsed, verified, unrevoked invitations;
-transport, review and live admission integration arrive separately. `level`,
-`decide` and the existing CLI/MCP/board behavior remain unchanged. Operational
-defaults do not change until the cutover PR, after the four independent foundations.
+These owner-local APIs are attached to live admission, control exchange and the human CLI. `StoredConnectionExchange` commits lifecycle and control outbox metadata under the same store lock. Legacy finite grants are retained as evidence and do not skip holding.
 
 Reads create no identities/files and do not rewrite or migrate stores. Only an
 explicit new connection mutation upgrades the existing signed `intake.json` from

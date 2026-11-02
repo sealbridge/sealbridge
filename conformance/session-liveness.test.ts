@@ -41,7 +41,7 @@ function fixture(options: { sse?: boolean; fetcher?: (base: typeof fetch) => typ
     await (workerRelay as SseRelayClient).close();
     await (requesterRelay as SseRelayClient).close();
   });
-  const worker = new WorkerNode({ owner: workerKey, relay: workerRelay, relayUrl: origin,
+  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerKey, relay: workerRelay, relayUrl: origin,
     adapter: adapter(options.execute), approvalProvider: new PolicyAutoApprovalProvider(workerKey),
     ...options.worker });
   cleanup.push(() => worker.stop());
@@ -178,7 +178,7 @@ describe('session liveness and recovery', () => {
     let rejected = false, executions = 0, publications = 0;
     const f = fixture({ fetcher: base => async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname === '/agents') publications++;
+      if (url.pathname === '/agents' && init?.method === 'POST') publications++;
       const workerPoll = url.pathname === '/envelopes' && !init?.method && url.searchParams.get('role') === 'worker';
       const reject = phase === 'acknowledgement'
         ? init?.method === 'DELETE' && executions > 0
@@ -212,7 +212,7 @@ describe('session liveness and recovery', () => {
     const fetcher = vi.fn(async () => new Response('ignored response', { status: 401 }));
     const execute = vi.fn();
     const statuses: string[] = [];
-    const worker = new WorkerNode({ owner, relay: new HttpRelayClient(origin, fetcher, owner),
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(origin, fetcher, owner),
       adapter: adapter(execute), connectTimeoutMs: 50, onStatus: status => statuses.push(status) });
     cleanup.push(() => worker.stop());
     const checked = expect(worker.start()).rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED',
@@ -228,7 +228,7 @@ describe('session liveness and recovery', () => {
     const owner = generateKeyPair();
     const receive = vi.fn().mockRejectedValue(new Error('RELAY_REJECTED: ' + status + ' private response text'));
     const statuses: string[] = [];
-    const worker = new WorkerNode({ owner, relay: { send() {}, receive }, adapter: adapter(),
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: { send() {}, receive }, adapter: adapter(),
       onStatus: value => statuses.push(value) });
     await expect(worker.start()).rejects.toThrow('RELAY_REJECTED: ' + status);
     expect(receive).toHaveBeenCalledTimes(1);

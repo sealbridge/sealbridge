@@ -44,7 +44,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
 > **ステータス**: Sealbridge の最新リリース `v0.2.2` は npm パッケージ `sealbridge` として公開済みです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
-> **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。  
+> **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
 - CI では、967件の自動単体・統合・適合性テスト（`pnpm test`）と、敵対的セキュリティテストスイート（`pnpm test:security-proof`）を実行します。
@@ -359,16 +359,101 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 
 `--max-input-tokens`、`--max-output-tokens`、`--max-tool-invocations`、`--max-wall-clock-seconds` は、ワーカーが受ける契約の上限です。どれかを超える提案は、`--auto-accept` でも `ACCEPT` の前に拒否されます。マニフェストの `timeoutSeconds` は `--max-wall-clock-seconds` と比較します。`--max-concurrent-tasks` は同時実行数の上限です（既定は 8）。`--max-requests-per-minute` は、依頼者 DID ごとの提案回数の上限です。
 
-`--allow-requester <did>` は繰り返し・カンマ区切りに対応します。空でないリストは依頼者を制限し、`--allow-any-requester` の優先順位は従来どおりです。LLM の自動承認には、これらのフラグか有効な trusted 許可が必要です。招待は limited として扱い、LLM 実行前には別の所有者による契約承認が必要です。招待済み sandbox/command の明示的な自動承認は維持します。
+`--allow-requester <did>` は対象を制限するだけで、信頼を付けません。すべての limited の依頼に検査と所有者が開く操作が必要です。CLI contacts の明示的な信頼は独立して維持します。
 
-### ワーカーの依頼者審査
+### つながりによる受付
 
-open ワーカーは未知の依頼者を保留します。sandbox の `--yes` / `--auto-accept` でも、受諾・実行・アプリケーション返信を行いません。依頼者には終了コード `PENDING_OWNER_APPROVAL`（CLI 終了値 3、MCP は `retryable:false`）を返します。自動再試行はしません。
+[English](docs/connections/admission.md)
 
-ワーカー所有者は `sealbridge requests list` でメタデータを確認し、`sealbridge requests approve ID` または `sealbridge requests deny ID` を人間の TTY で確認して実行します。既存のワーカー鍵には `--key FILE` を指定できます。既定の承認は limited で、LLM 実行には別の所有者契約承認が必要です。`approve ID --trust trusted` は明示的な昇格で、所有者が自動承認も有効にした場合に後続の自動実行を認めます。許可は24時間で失効します。deny は許可を取り消し、再起動後も拒否を維持します。
+状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
+connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
+検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
+既定の検査器は `unavailable` を返すため、内容は保留のままです。公開リリース前に
+検査プロバイダーが必要です。
 
-審査はピアの入場許可だけです。元のタスクの再開・再送・実行・通知は行いません。審査後に依頼者所有者が新しいタスクを明示的に開始します。保留は元の期限または15分で失効します。保存するのは署名付きのプレビューとダイジェストで、入力本文やトークンは含みません。contacts の allow/revoked と既存の依頼者制限は引き続き適用します。
+未接続の相手からの有効な依頼は、暗号化済み封筒として最大24時間または依頼の期限まで
+保存し、終端の `PENDING_OWNER_APPROVAL`・`retryable:false`・CLI 終了値3を返します。
+自動再試行はしません。署名・スキーマ・能力・申告予算・公開スキル・運用者の制限は
+保存や招待の結び付けより前に確認します。新しい受付情報には題名・説明のプレビューを
+保存しません。未検査の `requests show` は `INSPECTION_INCOMPLETE` です。
+平文の受信箱と受信フックは、検査と所有者が開く操作の後だけ使います。
 
+```sh
+sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
+sealbridge discover --skill json-task
+sealbridge requests list
+sealbridge requests show REQUEST_ID
+sealbridge requests approve REQUEST_ID
+sealbridge requests discard REQUEST_ID
+sealbridge requests deny REQUEST_ID
+```
+
+`--publish` はディレクトリへの掲載だけを行います。未掲載のワーカーも同じ受付規則です。
+`--allow-requester` は対象を制限するだけで信頼を付けません。予算は
+`--max-input-tokens`・`--max-output-tokens`・`--max-tool-invocations`・
+`--max-wall-clock-seconds`、頻度は `--max-requests-per-minute` で設定します。
+公開設定の `public` は掲載だけを制御し、`alwaysAsk:false` は
+`CONNECTION_OPENING_REQUIRED` を返します。
+
+招待は発行者だけが同意済みの接続申し込みで、最初に使った所有者 DID に結び付きます。
+別の所有者が同じ有効な招待を使うと保留です。接続解除後も招待の期限まで結び付けを保持します。
+期限切れ・相手の不一致・失効した招待は保存前に拒否します。成立済みの接続は招待の期限や
+失効では消えません。後続の依頼は古いトークンを添付せず、確認済みの相手 DID を使います。
+保存済み `workerRef` は引き続き招待を選び、使うたびに期限を確認します。
+取り込みやプレビューだけでは、どちらの役割にも接続同意を付けません。
+
+```sh
+sealbridge accept --paste --alias reviewer
+sealbridge connections confirm-invite reviewer --role requester
+sealbridge connections request --to PEER_DID --relay https://relay.sealbridge.dev --role worker
+sealbridge connections list --role worker
+sealbridge connections approve REQUEST_ID --role worker
+sealbridge connections reject REQUEST_ID
+sealbridge connections withdraw REQUEST_ID
+sealbridge connections disconnect PEER_DID
+sealbridge connections block PEER_DID
+sealbridge connections unblock PEER_DID
+sealbridge connections prior-approved
+sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
+sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+```
+
+判断には人間の TTY または注入された人間用審査プロバイダーが必要で、`--yes` はありません。
+ローカルの役割・DID と相手の所有者 DID を確認してください。requester と worker の既定鍵は別です。
+送信側の同意は送信前に保存し、申し込みは14日で失効します。reject は申し込みだけを7日間
+受け付けなくし、その間も依頼は保留できます。discard は内容だけを削除し、deny はブロックです。
+ブロックは片方向で、相手に応答しません。解除・ブロックは次の受付から効き、受諾済みの仕事は
+明示的な CANCEL で止めます。同時の申し込みは2つの DID を昇順にして同じ接続 ID を導きます。
+承認・ACK の状態を保存してからリレー受信確認を返します。sync は依頼を再送しません。
+内容の24時間と送信済み同意の14日は別の期限です。
+
+依頼の承認と接続への同意は別の判断です。CLI や MCP フォームで順に確認でき、明示的な
+接続同意がなければ申し込みを添付しません。相手の署名付き同意がない保留依頼を承認した場合、
+こちらから申し込みます。こちらの判断だけで相手の同意は作りません。接続の確認後は依頼者の
+所有者が新しい依頼を明示的に開始します。`pending resubmit` も未使用の監査・出力パスを使い、
+新しい依頼として改めて検査し、所有者が開きます。
+
+既存の署名付き受付・招待ファイルは読み取れ、一覧・読み取りで書き換えません。従来の有限の
+許可は保留を省略せず、接続へ自動変換しません。残っている承認履歴は `prior-approved` から
+所有者の操作で申し込みます。相手の同意も必要です。従来の拒否はブロックとして残ります。
+CLI の明示的な contacts 設定は独立して維持します。`requests approve ID --trust trusted` は
+別系統の従来の24時間許可です。接続の操作から trusted は作りません。最初の変更で v2 に進むため、
+旧版へ戻す必要があれば事前に v1 を保存してください。新旧の書き込み処理は併用しません。
+接続・版の記録は1,000件・1 MiBの境界を維持し、成立済みの記録を自動削除しません。
+
+廃止した CLI の `--open`・`--access-mode`・`--open-*`・`--allow-any-requester` と JS の
+`accessMode`・`openPolicy`・`allowAnyRequester` は移行案内付きの `ACCESS_MODE_REMOVED` です。
+MCP 検索の旧 `accessMode` 引数は JSON-RPC -32602 です。検索は署名と期限を確認した
+最新の掲載カードすべてを返し、運用モードの欄は返しません。旧カードの署名済み原本は保持します。
+`acp_list_connections {}`・`acp_list_connection_requests {}` は鍵を作らず、サーバーの署名者の
+ローカル情報だけを返します。所有者の判断は人間用 CLI で行います。
+
+board の claim と dispatch は、選択した投稿者の現在の接続が必要です。
+未接続なら `CONNECTION_REQUIRED` で、接続だけでは依頼・リースを承認しません。
+接続と版を確認してからリースを消費し、送信開始後の結果が不明でも自動再試行しません。
+一度だけの入場券と別の応募キューは後続の検討です。
+
+[プロトコル版とリリース時計](docs/connections/protocol-versions.ja.md)も参照してください。
 
 依頼側は CLI/MCP の保留依頼を既存のデータルート内の
 `requesters/<requester-did-hash>/pending.private.json` に24時間保存します（POSIX 0600）。
@@ -392,11 +477,16 @@ MCP は `acp_list_pending_requests {}` と `acp_resubmit_pending_request {pendin
 現在の送信先確認と必須のホスト承認を適用します。再送は新しいタスク ID を作り、
 再度の保留は同じレコードを更新、完了は resolved、その他のエラーは failed として記録します。
 保存期限は延長せず、期限切れのレコードは次の保存更新時に削除します。一覧は最後に観測したローカル状態で、遠隔の承認状態は取得せず、
-自動再送もしません。ワーカーの審査・許可の動作は変更しません。状態照会・通知は今後の検討事項です。
+自動再送もしません。再送時に対応版を選び直し、新しい検査と所有者が開く操作を行います。状態照会・通知は今後の検討事項です。
 
 `--allowed-peer DID` は繰り返し・カンマ区切りで、全信頼レベルの受信とセッション送信（進捗・復旧を含む）を制限します。対象外には応答しないため、別の手段で伝えてください。公開登録は引き続き `--publish` の指定が必要です。
 
 **ターミナル 3 — 依頼側 Alice**
+
+既定の検査プロバイダーは利用不可のため、この例は終端の `PENDING_OWNER_APPROVAL`
+（終了値3）を返し、成果物や検収済み監査は作りません。自動再試行はしません。
+完了には検査プロバイダーを設定し、接続の審査後に新しい依頼を所有者が開く必要があります。
+`--auto-accept` ではこれらの操作を省略できません。
 
 ```sh
 pnpm sealbridge keygen /tmp/alice.private.json
@@ -411,7 +501,7 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
 pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
 ```
 
-期待する結果は、双方の `SETTLED`、JSON の成果物、`"valid":true` と `"status":"VALID"` です。トラストアンカーファイルも `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count` も無いとき、`statusLabel` は `VALID (no trust anchor: truncation not checked)` です。ハッシュ鎖は検証できていますが、より古い妥当な接頭辞は排除していません。Alice は署名・ダイジェスト・予算、JSON Schema、登録済みの隔離チェックを検証し、最後に署名付きの最終承認を取ります。`--auto-approve` は最終検収をポリシー承認にする明示的な選択です。人間が確認するときは外してください。`acp://invite?token=...` も受け付けます。招待の代わりに `--to <Bob の DID> --relay <URL>` も使えます。Bob は手元の `/tmp/bob-audit.jsonl` を自分で検証できます。
+受付と所有者が開く操作を経た後の結果は、双方の `SETTLED`、JSON の成果物、`"valid":true` と `"status":"VALID"` です。トラストアンカーファイルも `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count` も無いとき、`statusLabel` は `VALID (no trust anchor: truncation not checked)` です。ハッシュ鎖は検証できていますが、より古い妥当な接頭辞は排除していません。Alice は署名・ダイジェスト・予算、JSON Schema、登録済みの隔離チェックを検証し、最後に署名付きの最終承認を取ります。`--auto-approve` は最終検収をポリシー承認にする明示的な選択です。人間が確認するときは外してください。`acp://invite?token=...` も受け付けます。招待の代わりに `--to <Bob の DID> --relay <URL>` も使えます。Bob は手元の `/tmp/bob-audit.jsonl` を自分で検証できます。
 
 **アダプタを選ぶ**
 
@@ -484,7 +574,7 @@ pnpm sealbridge mcp-server
 
 `initialize` は、この手順を示したサーバー `instructions` を返します。同じ実装が `@acp/runtime` の `AcpMcpServer` です。サーバー鍵は、ツールが行う依頼側の承認に署名します。`acp_discover_workers` はディレクトリの読み取り専用です。`GET /agents` の前に、委任と同じリレー許可リストと `validateRelayEndpointUrl` を使い、タスク入力は送りません。`acp_inspect_revocations` はメモリ上のレジストリを読むだけで、ワーカーには接続しません。
 
-フラグなしの `sealbridge mcp-server` で `acp_discover_workers {}` を呼ぶと、既定の `https://relay.sealbridge.dev` に公開された open ワーカーを列挙します。結果を選び、その `workerDid` と `relayUrl` をそのまま `acp_delegate_task` に渡します。
+フラグなしの `sealbridge mcp-server` で `acp_discover_workers {}` を呼ぶと、既定の `https://relay.sealbridge.dev` に公開されたワーカーを列挙します。結果を選び、その `workerDid` と `relayUrl` をそのまま `acp_delegate_task` に渡します。
 
 ```json
 {
@@ -498,9 +588,9 @@ pnpm sealbridge mcp-server
 
 単一ワーカーへの委任で `description` を省略すると、タイトルを使います。既定ではワーカー許可リストの設定は不要ですが、明示された許可リストは引き続き適用されます。
 
-MCP 検索の既定値は `accessMode: "open"` になりました。運用向けの全件表示は `accessMode: "all"`、非公開モードの表示は `"invite-only"` です。モードを持たない従来カードは invite-only として扱います。任意の `skillId` と `taskType` は同じスキル内で一致する必要があります。CLI の `sealbridge discover` は従来どおり全モードを表示します。最新の有効なカードを解決してから絞り込み、期限切れ・無効・検索した中継器と異なるエンドポイントのカードを除外します。結果には既存の公開フィールドに加え、署名済みカード全体、スキルのスキーマ、アクセスモード、`acceptance: "worker_decides"` が含まれます。該当なしの場合は、検索した `relayUrl` と `count: 0, workers: []` を返します。
+MCP 検索は最新の署名と期限を確認した掲載カードすべてを返します。`skillId` と `taskType` で絞り込み、旧 `accessMode` は JSON-RPC -32602 です。元の署名付きカード・スキル・`protocolVersions`・`workerDid`・`relayUrl`・`acceptance: "worker_decides"` を返し、運用モードは返しません。
 
-ワーカーのオーナーは `--open` と `--publish` を個別に選択します。open は招待なしの提案を認め、publish はカードをディレクトリに掲載します。掲載はタスクの承認を意味しません。招待も信頼付与もない未知の依頼者には、終端の `PENDING_OWNER_APPROVAL`（`retryable: false`）を返し、ワーカーの承認プロバイダーもアダプターも呼びません。オーナーの受付審査は依頼者を許可するだけで、保留タスクを再実行しません。依頼者のオーナーが明示的に新しい委任を開始すると、通常の承認・実行経路に進みます。ワーカーの受付方針とオーナーの承認は独立しており、検索後にカードが変わる場合もあります。invite-only ワーカーへの DID 委任は、依頼者が明示的に許可されていなければ `INVITE_REQUIRED` を返します。拒否時に別ワーカーを自動選択したり再試行したりしません。名前・説明・スキーマは公開者から提供されたデータです。
+掲載は `--publish` で選び、接続や依頼の承認を意味しません。未接続の依頼は終端の `PENDING_OWNER_APPROVAL` です。拒否時に別の相手へ切り替えたり自動再試行したりしません。
 
 `acp_delegate_task` と `acp_delegate_multi` は、タスク入力を中継器経由で対象ワーカーへ送ります。ホストが引数を組み立てるときは、送信先を制限します。
 
@@ -544,7 +634,7 @@ node examples/network-collab/run.mjs
 ## マニフェストのプロトコル版
 
 ライブラリはマニフェスト0.1.0と0.2.0を検証し、明示的な互換方針を提供します。
-既定の送信は0.1.0を維持し、ライブ方針への接続は後続の変更で行います。
+送信は相互に対応する最新の版を選び、0.2.0 を優先します。リリース時計と未設定時の扱いは [版の説明](docs/connections/protocol-versions.ja.md)を参照してください。
 スキーマ・方針・相手の観測については[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
 
 ## 5つの設計原則
@@ -558,7 +648,7 @@ node examples/network-collab/run.mjs
 ### つながりの状態と永続化
 
 `@acp/runtime` は、所有者のローカル操作用のつながり状態・永続化APIを提供します。
-connected は期限なしの limited に対応し、準備段階のAPIでは運用上の既定値を変更しません。
+connected は期限なしの limited に対応し、ライブ経路の受付に使います。
 APIとストアの互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
 
 ## ドキュメント
@@ -566,7 +656,7 @@ APIとストアの互換性は[つながりの状態と永続化](docs/connectio
 | ファイル                                                                               | 内容                                                                                                |
 | :------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------- |
 | [`SECURITY_PROOF.ja.md`](./SECURITY_PROOF.ja.md)                                       | 敵対的セキュリティテストスイート（形式的証明ではない）と `pnpm test:security-proof`                 |
-| [`ARCHITECTURE.ja.md`](./ARCHITECTURE.ja.md)                                           | 全体像、信頼境界、タスク状態機械、5つの安全機構、既存プロトコルとの比較、脅威モデル                 |
+| [`ARCHITECTURE.ja.md`](./ARCHITECTURE.ja.md)                                           | 全体像、信頼境界、タスク状態機械、5つの制御、既存プロトコルとの比較、信頼の前提                 |
 | [`REPO_STRUCTURE.ja.md`](./REPO_STRUCTURE.ja.md)                                       | モノレポ構成、技術選定、MVP の範囲、マイルストーン M0〜M3、実装タスクの分割                         |
 | [`spec/README.ja.md`](./spec/README.ja.md)                                             | プロトコル概要、メッセージエンベロープ、正規化と署名                                                |
 | [`spec/task-manifest.schema.json`](./spec/task-manifest.schema.json)                   | `TaskManifest` の JSON Schema（Draft 2020-12）                                                      |
@@ -575,10 +665,10 @@ APIとストアの互換性は[つながりの状態と永続化](docs/connectio
 | [`AGENTS.md`](AGENTS.md)                                                               | 自律 Worker / Requester の運用手順                                                                  |
 | [`SKILL.md`](SKILL.md)                                                                 | 持ち運び用エージェントスキル                                                                        |
 
-### つながり交換ライブラリ（準備段階）
+### つながり交換ライブラリ
 
 署名付きの申し込み・承認・ACK と、永続化・検査・所有者確認・通信を注入する
-`ConnectionService` を公開します。既存の CLI/MCP の動作は PR5 の切替まで変わりません。
+`ConnectionService` を公開します。runtime・CLI・MCP・board に所有者ごとの永続化と保留内容の審査を接続します。
 詳細は[つながり交換](docs/connections/connection-exchange.ja.md)を参照してください。
 
 ## ローカルの M0–M1 実装

@@ -390,14 +390,14 @@ describe('P1-5 agent card squatting', () => {
     };
     expect(
       () =>
-        new WorkerNode({
+        new WorkerNode({ checkPeer: () => 'trusted',
           owner,
           agentDid: agent.did,
           relay,
           adapter,
         }),
     ).toThrow('AGENT_DELEGATION_REQUIRED');
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner,
       agentDid: agent.did,
       agentKey: agent,

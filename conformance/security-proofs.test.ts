@@ -803,7 +803,7 @@ describe('Proof 9: end-to-end payload encryption', () => {
       traffic.push(structuredClone(envelope));
       snapshots.push(JSON.stringify(relay.snapshot()));
     };
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -896,7 +896,7 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const mallory = generateKeyPair();
     const relay = new InMemoryRelay();
     const registry = new RevocationRegistry();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -985,7 +985,7 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     const abort = new AbortController();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: new SandboxAgentAdapter('while (true) {}'),
@@ -1044,7 +1044,7 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
       send(envelope);
       traffic.push(structuredClone(envelope));
     };
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -1210,7 +1210,7 @@ async function quorumWithBarrier(
       send(signEnvelope({ ...heldCheckpoint.payload, payload: {} }, minority, { encrypt: true }));
     } else send(heldCheckpoint);
   });
-  const workers = keys.map((owner, index) => new WorkerNode({
+  const workers = keys.map((owner, index) => new WorkerNode({ checkPeer: () => 'trusted',
     owner, relay, timeoutMs: 10000,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     onEvent: (event) => {

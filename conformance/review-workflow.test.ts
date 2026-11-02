@@ -47,7 +47,7 @@ it('an HTTPS invitation completes an in-process diff review with unchanged signe
       return receipt;
     } };
   }
-  const worker = new WorkerNode({ owner, relay, relayUrl: 'https://relay.example',
+  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example',
     approvalProvider: approval(owner), adapter: { id: 'review', name: 'Reviewer', skills: [],
       async executeTask(context) { expect(context.input).toEqual({ diff }); return { review: 'Looks good. Add an edge-case check.' }; } } });
   const invite = parseAndVerifyInviteToken(worker.invite());

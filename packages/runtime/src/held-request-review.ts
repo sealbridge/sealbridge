@@ -24,9 +24,12 @@ export const unavailableHeldContentReviewProvider: HeldContentReviewProvider = O
 /** Task digests match proposal digests. Other kinds bind the entire decrypted body without interpreting its fields. */
 export function heldContentDigest(kind: HeldContentKind, content: Json): string {
   if (kind !== 'task') return digest(content);
-  if (!content || typeof content !== 'object' || Array.isArray(content) ||
-      !Object.hasOwn(content, 'manifest') || !Object.hasOwn(content, 'input')) throw new Error('QUARANTINE_INVALID');
-  return digest({ manifest: content.manifest, input: content.input });
+  if (!content || typeof content !== 'object' || Array.isArray(content) || !Object.hasOwn(content, 'input'))
+    throw new Error('QUARANTINE_INVALID');
+  const proposal = content.proposal as { payload?: Json } | undefined;
+  const manifest = content.manifest ?? proposal?.payload;
+  if (!manifest) throw new Error('QUARANTINE_INVALID');
+  return digest({ manifest, input: content.input });
 }
 export interface HeldRequestReviewOptions extends HeldRequestStoreOptions {
   provider?: HeldContentReviewProvider;

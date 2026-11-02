@@ -123,8 +123,8 @@ describe('application relay provenance', () => {
       approvalProvider: approving(() => resolveOrCreateIdentity('requester', identityOptions)) });
     const owner = resolveOrCreateIdentity('worker', identityOptions);
     expect(selected).toEqual([]);
-    const worker = new WorkerNode({ owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
-      relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: target.startsWith('did') ? 'open' : 'invite-only',
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
+      relayUrl: DEFAULT_PUBLIC_RELAY,
       allowedRequesterDids: [resolveOrCreateIdentity('requester', identityOptions).did],
       approvalProvider: approving(() => owner), timeoutMs: 3000,
       adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo' }], executeTask: async ctx => ctx.input } });
@@ -163,7 +163,7 @@ describe('application relay provenance', () => {
     expect(fetcher).not.toHaveBeenCalled();
     await networkCommand('discover', [], application);
     expect(fetcher.mock.calls[0][0]).toBe(DEFAULT_PUBLIC_RELAY + '/agents');
-    const worker = new WorkerNode({ owner, relay: new HttpRelayClient(DEFAULT_PUBLIC_RELAY, fetcher, owner),
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(DEFAULT_PUBLIC_RELAY, fetcher, owner),
       relayUrl: DEFAULT_PUBLIC_RELAY, timeoutMs: 3000, approvalProvider: approving(() => owner),
       adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'json-task', name: 'JSON task' }], executeTask: async ctx => ctx.input } });
     const done = worker.start({ once: true });
@@ -227,7 +227,7 @@ describe('multiple local candidates, one active route', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const workerAudit = join(home, 'worker.jsonl');
     const requesterAudit = join(home, 'requester.jsonl');
-    await Promise.all([
+    const attempts = await Promise.allSettled([
       networkCommand('worker', ['start', '--key', keyPath, '--relay', loopback, '--allow-private-relay',
         '--adapter', 'sandbox', '--auto-accept', '--once', '--contacts', join(home, 'contacts.json'),
         '--audit', workerAudit], application),
@@ -235,9 +235,8 @@ describe('multiple local candidates, one active route', () => {
         '--description', 'Echo JSON', '--input', '{"value":7}', '--auto-approve', '--task-timeout-ms', '5000',
         '--audit', requesterAudit], application),
     ]);
-    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({ state: 'SETTLED', deliverable: { value: 7 } });
-    for (const path of [workerAudit, requesterAudit])
-      expect(verifyAudit(parseJsonl(readFileSync(path, 'utf8')))).toMatchObject({ valid: true, status: 'VALID' });
+    for (const attempt of attempts) expect(attempt).toMatchObject({ status: 'rejected' });
+    expect(attempts.map(a => a.status === 'rejected' ? String(a.reason) : '')).toEqual([expect.stringContaining('PENDING_OWNER_APPROVAL'), expect.stringContaining('PENDING_OWNER_APPROVAL')]);
     expect(fetcher.mock.calls.every(([url]) => String(url).startsWith(loopback + '/'))).toBe(true);
   });
   it.each(['success', 'failure', '401'])('never contacts another candidate after discovery %s in CLI or MCP', async outcome => {

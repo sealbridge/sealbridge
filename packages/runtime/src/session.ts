@@ -37,7 +37,8 @@ import {
   RevocationRegistry,
   signEnvelope,
   DEFAULT_CLOCK_SKEW_MS,
-  OPEN_POLICY_FIELDS,
+  assertConnectionsOptions,
+  isConnectionEvent,
 } from '@acp/core';
 import type {
   Json,
@@ -52,7 +53,6 @@ import type {
   CapabilityToken,
   CapabilityContext,
   BudgetSpec,
-  OpenPolicy,
   RevocationList,
   Invite,
   SignedRevocationNotice,
@@ -82,8 +82,18 @@ import { asJson, receiveRelay, acknowledgeRelay, PeerRejectedError, SessionWire 
 import { SessionTimeouts, validateSessionTimeouts, resolveSessionTimeouts } from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 export type { SessionTimeoutOptions } from './session-timeouts.js';
-import { WorkerTrustStore, PENDING_MESSAGE } from './worker-trust-store.js';
+import { WorkerTrustStore, workerIntakePath, PENDING_MESSAGE } from './worker-trust-store.js';
 import type { WorkerIntakeStore } from './worker-trust-store.js';
+import { LiveProtocol } from './protocol-release.js';
+import type { ProtocolReleaseOptions } from './protocol-release.js';
+import type { HeldSummary } from './held-request-store.js';
+import { HeldRequestReview } from './held-request-review.js';
+import { ConnectionRouter } from './connection-router.js';
+import type { ConnectedEvent } from './connection-router.js';
+import type { ConnectionHumanReviewProvider } from './connection-service.js';
+import { connectionIdFor } from './connection-service.js';
+import { openConnectionFrame } from './connection-transport.js';
+import type { IdentityStoreOptions } from './key-store.js';
 import { TaskJournal } from './task-journal.js';
 import type { TaskCheckpoint, TaskOutcome } from './task-journal.js';
 export interface WorkspaceCleanupFailure {
@@ -104,7 +114,6 @@ export const DEFAULT_MAX_CONCURRENT_TASKS = 8;
 function acceptanceFrom(options: WorkerNodeOptions): WorkerAcceptancePolicy {
   return {
     allowedRequesterDids: options.allowedRequesterDids,
-    allowAnyRequester: options.allowAnyRequester,
     maxInputTokens: options.maxInputTokens,
     maxOutputTokens: options.maxOutputTokens,
     maxToolInvocations: options.maxToolInvocations,
@@ -296,6 +305,8 @@ class RecipientInbox {
   private readAbort?: AbortController;
   private started = false;
   private error?: Error;
+  private connections?: ConnectionRouter;
+  setConnections(router: ConnectionRouter): void { this.connections = router; this.readAbort?.abort(); }
   constructor(
     private readonly relay: RelayTransport,
     private readonly did: string,
@@ -354,8 +365,10 @@ class RecipientInbox {
       this.readAbort = controller;
       try {
         const envelope = await receiveRelay(this.relay, this.did, controller.signal, {
-          role: 'requester',
+          ...(this.connections ? { taskId: [...this.mailboxes.keys(), ...this.connections.options.store.controlSnapshot()
+            .filter(r => r.active).map(r => 'conn_' + r.offer.requestId)] } : { role: 'requester' as const }),
         });
+        if (isConnectionEvent(envelope.payload.eventType) && this.connections) { await this.connections.route(envelope); continue; }
         if (!this.mailboxes.has(envelope.payload.taskId) || this.isWorkerBoundFrame(envelope)) {
           if (forwardToWorkerListener(this.did, envelope)) continue;
         }
@@ -393,7 +406,7 @@ function recipientInbox(
   }
   return inbox;
 }
-export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions {
+export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
   intakeStore?: WorkerIntakeStore;
   /** Hard owner-DID perimeter. An explicit empty array denies all peers. */
   allowedPeerDids?: readonly string[];
@@ -408,9 +421,12 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   inviteTtlSeconds?: number;
   /** Shared host state, independent of requester and worker identity. */
   dailyLimit?: { path: string; maxTasks: number };
-  /** Explicit admission policy. Defaults to invite-only. */
-  accessMode?: 'invite-only' | 'open';
-  openPolicy?: OpenPolicy;
+  requireConnection?: boolean;
+  identityOptions?: IdentityStoreOptions;
+  connectionStore?: WorkerTrustStore;
+  heldReview?: HeldRequestReview;
+  connectionReview?: ConnectionHumanReviewProvider;
+  onConnectionEvent?: (event: ConnectedEvent) => void;
   owner: KeyPair;
   relay: RelayTransport | string;
   relayUrl?: string;
@@ -447,6 +463,7 @@ interface Proposal {
   input: Json;
   capabilityChains: CapabilityToken[][];
   inviteToken?: string;
+  connectionRequest?: SignedEnvelope;
   /** Optional liveness requirement, independent of the contractual execution budget. */
   peerIdleTimeoutMs?: number;
 }
@@ -487,10 +504,16 @@ function asRevocationRegistry(list: RevocationList | undefined): RevocationRegis
 }
 export class WorkerNode {
   readonly relay: RelayTransport;
-  readonly agentCard: SignedAgentCard;
+  agentCard: SignedAgentCard;
   readonly approvalProvider: ApprovalProvider;
   readonly acceptance: WorkerAcceptancePolicy;
   readonly intakeStore: WorkerIntakeStore;
+  readonly connectionStore: WorkerTrustStore;
+  readonly heldReview: HeldRequestReview;
+  readonly connections: ConnectionRouter;
+  readonly protocol: LiveProtocol;
+  private readonly acceptedPeers = new Map<string, string>();
+  private registered = false;
   private completed = 0;
   private activeTasks = 0;
   private readonly taskJournal?: TaskJournal;
@@ -510,9 +533,16 @@ export class WorkerNode {
   /** Inbox registry composed with options.revocation when the caller passed one. */
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
+    assertConnectionsOptions(options);
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
-    this.intakeStore = options.intakeStore ?? new WorkerTrustStore(options.owner);
+    this.protocol = new LiveProtocol(options);
+    this.intakeStore = options.intakeStore ?? new WorkerTrustStore(options.owner, {
+      path: options.identityOptions ? workerIntakePath(options.owner.did, options.identityOptions) : undefined,
+      fs: options.identityOptions?.fs, platform: options.identityOptions?.platform, now: options.now });
+    this.connectionStore = options.connectionStore ?? (this.intakeStore instanceof WorkerTrustStore ? this.intakeStore : new WorkerTrustStore(options.owner, { now: options.now }));
+    if (this.connectionStore.ownerDid !== options.owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
+    this.heldReview = options.heldReview ?? new HeldRequestReview(options.owner, { ...options.identityOptions, now: options.now });
     if (options.inviteTtlSeconds !== undefined && (!Number.isSafeInteger(options.inviteTtlSeconds) ||
         options.inviteTtlSeconds < 1 || options.inviteTtlSeconds > 2592000))
       throw new Error('INVALID_INVITE_TTL');
@@ -520,8 +550,6 @@ export class WorkerNode {
     if (persistencePath) this.taskJournal = new TaskJournal(persistencePath + '.tasks.jsonl', options.owner);
     if (options.dailyLimit && (!options.dailyLimit.path || !Number.isSafeInteger(options.dailyLimit.maxTasks) || options.dailyLimit.maxTasks < 1))
       throw new Error('INVALID_DAILY_LIMIT');
-    if (options.accessMode !== undefined && !['invite-only', 'open'].includes(options.accessMode))
-      throw new Error('INVALID_ACCESS_MODE');
     this.acceptance = acceptanceFrom(options);
     validateAcceptance(this.acceptance);
     this.revocation = options.revocation
@@ -543,7 +571,7 @@ export class WorkerNode {
     const agentDid = options.agentDid ?? options.agentKey?.did ?? options.owner.did;
     this.agentCard = createSignedAgentCard(
       {
-        name: options.name ?? options.adapter.name,
+        name: options.name ?? options.adapter.name, now: this.protocol.now(),
         agentDid,
         relayEndpoint:
           typeof options.relay === 'string'
@@ -551,20 +579,30 @@ export class WorkerNode {
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
         ...(options.inviteTtlSeconds !== undefined ? {
-          expiresAt: new Date(Date.now() + options.inviteTtlSeconds * 1000).toISOString(),
+          expiresAt: new Date(this.protocol.now() + options.inviteTtlSeconds * 1000).toISOString(),
         } : {}),
-        ...(options.accessMode ? { accessMode: options.accessMode } : {}),
-        ...(options.openPolicy !== undefined ? { openPolicy: options.openPolicy } : {}),
+        protocolVersions: this.protocol.receiveVersions(),
       },
       options.owner,
       agentDid === options.owner.did ? undefined : options.agentKey,
     );
+    this.connections = new ConnectionRouter({ owner: options.owner, agentCard: this.agentCard,
+      relayUrl: this.agentCard.payload.relayEndpoint, relay: this.relay, store: this.connectionStore,
+      review: this.heldReview, now: options.now, humanReview: options.connectionReview,
+      revocations: this.revocation, allowPrivateRelay: options.allowPrivateRelay,
+      assertPeer: did => { this.assertPeer(did); }, onConnectionEvent: options.onConnectionEvent });
   }
   invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400): string {
-    return createInviteToken({ agentCard: this.agentCard, expiresInSeconds }, this.options.owner);
+    return createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
   }
   async register(): Promise<void> {
+    const protocolVersions = this.protocol.receiveVersions();
+    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now())
+      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now: this.protocol.now(),
+        expiresAt: new Date(this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+    this.connections.service.setAgentCard(this.agentCard);
     await this.relay.register?.(this.agentCard);
+    this.registered = true;
   }
   stop(): void {
     this.controller.abort('WORKER_STOPPED');
@@ -692,17 +730,17 @@ export class WorkerNode {
     }
     return this.lastResult;
   }
-  private assertPeer(did: string): 'trusted' | void {
+  private assertPeer(did: string, taskId?: string): 'trusted' | void {
     if (this.options.allowedPeerDids !== undefined && !this.options.allowedPeerDids.includes(did))
       throw new Error('PEER_NOT_ALLOWED');
-    if (this.intakeStore.level(did) === 'denied') throw new Error('REQUEST_DENIED');
+    if ((this.intakeStore.level(did) === 'denied' || this.connectionStore.connectionState(did) === 'blocked') && (!taskId || this.acceptedPeers.get(taskId) !== did))
+      throw new Error('REQUEST_DENIED');
     return this.options.checkPeer?.(did);
   }
-  private trust(did: string, invited: boolean): 'unknown' | 'limited' | 'trusted' {
+  private trust(did: string, protocolVersion: string): 'unknown' | 'limited' | 'trusted' {
     const contactTrust = this.assertPeer(did);
-    if (contactTrust === 'trusted' || this.acceptance.allowAnyRequester || this.acceptance.allowedRequesterDids?.includes(did)) return 'trusted';
-    const grant = this.intakeStore.level(did);
-    return grant === 'limited' || grant === 'trusted' ? grant : invited ? 'limited' : 'unknown';
+    if (contactTrust === 'trusted' || this.connectionStore.hasExplicitLegacyGrant(did)) return 'trusted';
+    return protocolVersion === '0.2.0' && this.connectionStore.connectionState(did) === 'connected' ? 'limited' : 'unknown';
   }
   private async notifyOutcome(record: TaskCheckpoint, outcome = record.outcome!): Promise<void> {
     const send = (recovery: unknown) => this.relay.send(signEnvelope({ taskId: record.taskId,
@@ -921,6 +959,15 @@ export class WorkerNode {
     }
     return this.executeTask(first, idleSignal, this.relay);
   }
+  private async holdTask(first: SignedEnvelope, manifest: TaskManifest, input: Json): Promise<HeldSummary> {
+    const contentDigest = digest({ manifest, input });
+    this.connectionStore.consumeAdmission(manifest.requester.ownerDid, manifest.taskId);
+    const previous = this.heldReview.list().find(r => r.taskId === manifest.taskId && r.senderOwnerDid === manifest.requester.ownerDid);
+    const held = previous ?? this.heldReview.hold({ kind: 'task', senderOwnerDid: manifest.requester.ownerDid,
+      taskId: manifest.taskId, contentDigest, deadline: Date.parse(manifest.deadline), envelope: first });
+    if (held.contentDigest !== contentDigest) throw new Error('INVALID_PROPOSAL');
+    return this.heldReview.inspect(held.id);
+  }
   private async executeTask(
     first: SignedEnvelope,
     idleSignal: AbortSignal,
@@ -965,11 +1012,12 @@ export class WorkerNode {
         !verifySigned(data.proposal, manifest.requester.ownerDid) ||
         manifest.worker?.ownerDid !== this.options.owner.did ||
         manifest.worker.agentDid !== this.agentCard.payload.agentDid ||
-        Date.parse(manifest.deadline) <= Date.now() ||
-        Date.parse(manifest.createdAt) > Date.now() + DEFAULT_CLOCK_SKEW_MS
+        Date.parse(manifest.deadline) <= this.protocol.now() ||
+        Date.parse(manifest.createdAt) > this.protocol.now() + DEFAULT_CLOCK_SKEW_MS
       )
         throw new Error('INVALID_PROPOSAL');
       this.assertPeer(first.payload.senderDid);
+      validateManifest(manifest);
       m = manifest;
       auditPath = this.options.auditPath
         ? this.completed++ === 0 && !existsSync(this.options.auditPath)
@@ -1015,6 +1063,7 @@ export class WorkerNode {
       activeSignal,
       auditPath,
       this.options.allowUnencryptedEnvelopes === true,
+      true,
     );
     const cancelController = new AbortController();
     wire.earlyCancel = () => cancelController.abort('CANCELLED');
@@ -1035,20 +1084,20 @@ export class WorkerNode {
     let progressFailure: unknown;
     let wireFailureSent = false;
     try {
-      const invited = this.assertInviteActive(data);
-      if (this.options.accessMode === 'open') {
-        for (const field of OPEN_POLICY_FIELDS) {
-          const limit = this.agentCard.payload.openPolicy?.[field];
-          if (limit !== undefined && m.budget[field] > limit)
-            throw diagnosticError('TASK_SCOPE_REJECTED', 'budget.' + field, limit, m.budget[field], 'Use a budget within the advertised policy.');
-        }
-        const skills = this.agentCard.payload.skills;
-        const selected = m.task.skillId ? skills.filter((skill) => skill.id === m.task.skillId) : skills;
-        if ((m.task.skillId && selected.length === 0) ||
-            (m.task.taskType && !selected.some((skill) => skill.taskTypes?.includes(m.task.taskType!))) ||
-            (m.task.skillId && !m.task.taskType && selected.some((skill) => skill.taskTypes?.length)))
-          throw diagnosticError('TASK_SCOPE_REJECTED', 'task.scope', skills, m.task, 'Select an advertised skill and task type, or omit both for direct delegation.');
+      this.assertInviteActive(data);
+      if (this.relay.discover) {
+        const cards = await this.relay.discover();
+        const sender = findDiscoveredAgentCard(cards, m.requester.agentDid, this.protocol.now());
+        if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint)
+          this.protocol.observe(sender, cards);
       }
+      this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid);
+      const skills = this.agentCard.payload.skills;
+      const selected = m.task.skillId ? skills.filter(skill => skill.id === m.task.skillId) : skills;
+      if ((m.task.skillId && selected.length === 0) ||
+          (m.task.taskType && !selected.some(skill => skill.taskTypes?.includes(m.task.taskType!))) ||
+          (m.task.skillId && !m.task.taskType && selected.some(skill => skill.taskTypes?.length)))
+        throw diagnosticError('TASK_SCOPE_REJECTED', 'task.scope', skills, m.task, 'Select an advertised skill and task type, or omit both for direct delegation.');
       const capabilityContext: CapabilityContext = {
         rootDid: m.requester.ownerDid,
         audience: this.options.owner.did,
@@ -1094,18 +1143,56 @@ export class WorkerNode {
           throw new Error('CAPABILITY_VIOLATION');
         leaf.allowedTools.forEach(t => scopedTools.add(t));
       }
-      const peerTrust = this.trust(m.requester.ownerDid, invited);
-      if (peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId,
-          digest({ manifest: m, input: data.input }))) {
-        if (peerTrust === 'unknown') this.intakeStore.enqueue(m, data.input);
-        throw new Error('PENDING_OWNER_APPROVAL');
+      if (this.options.requireConnection && (m.protocolVersion !== '0.2.0' || this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected'))
+        throw new Error('CONNECTION_REQUIRED');
+      const proposalDigest = digest({ manifest: m, input: data.input });
+      if (data.connectionRequest) {
+        if (m.protocolVersion !== '0.2.0') throw new Error('INVALID_CONNECTION_REQUEST');
+        this.connections.service.validateRequest(data.connectionRequest);
+        const frame = openConnectionFrame(data.connectionRequest, this.options.owner);
+        if (frame.event.payload.type !== 'ConnectionRequest' || frame.event.payload.fromOwnerDid !== m.requester.ownerDid ||
+            frame.event.payload.originProposalDigest !== proposalDigest) throw new Error('INVALID_CONNECTION_REQUEST');
       }
-      const llm = this.options.adapterKind === 'llm' ||
-        ['claude', 'codex', 'openai'].includes(this.options.adapter.id);
-      // An explicit non-LLM automatic policy retains invited sandbox/command behavior.
-      const contractProvider = peerTrust === 'limited' && (llm || this.options.automaticApproval === false)
-        ? this.options.ownerApprovalProvider : this.approvalProvider;
-      if (!contractProvider) throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      const previouslyPending = this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest);
+      let inspection: HeldSummary | undefined;
+      // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
+      if (this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
+        inspection = await this.holdTask(first, m, data.input);
+        if (inspection.inspectionStatus !== 'complete' || m.protocolVersion === '0.1.0') this.intakeStore.enqueue(m, data.input);
+      }
+      // All identity, schema, scope, capability and host checks precede durable consent.
+      let inviteIneligible = false;
+      if (data.inviteToken) {
+        const invite = parseAndVerifyInviteToken(data.inviteToken, this.protocol.now(), { allowPrivateRelay: true });
+        const outcome = this.connectionStore.redeemTaskInvite(invite, { peerOwnerDid: m.requester.ownerDid,
+          peerAgentDid: m.requester.agentDid, relayUrl: this.agentCard.payload.relayEndpoint },
+          connectionIdFor(this.options.owner.did, m.requester.ownerDid));
+        inviteIneligible = outcome === 'other' || outcome === 'inactive';
+        if (outcome === 'first') this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: m.requester.ownerDid,
+          peerAgentDid: m.requester.agentDid, connectionId: connectionIdFor(this.options.owner.did, m.requester.ownerDid),
+          source: 'invite', connectedAt: this.protocol.now() });
+      }
+      if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
+      const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
+      if (previouslyPending && peerTrust === 'trusted') throw new Error('PENDING_OWNER_APPROVAL');
+      if (peerTrust !== 'trusted') {
+        inspection ??= await this.holdTask(first, m, data.input);
+        if (previouslyPending || peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
+            inspection.inspectionStatus !== 'complete') {
+          this.intakeStore.enqueue(m, data.input);
+          if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
+            try { this.connectionStore.recordIncoming({ peerOwnerDid: m.requester.ownerDid, peerAgentDid: m.requester.agentDid,
+              relayUrl: this.agentCard.payload.relayEndpoint, incoming: { requestId: m.taskId, requestDigest: proposalDigest,
+                receivedAt: this.protocol.now(), expiresAt: this.protocol.now() + 14 * 86400000 } }); }
+            catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
+          }
+          throw new Error('PENDING_OWNER_APPROVAL');
+        }
+      }
+      const contractProvider = peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider;
+      if (!contractProvider || peerTrust === 'limited' && (contractProvider.kind === 'policy' ||
+          contractProvider === this.approvalProvider && contractProvider.kind !== 'human'))
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       await wire.receiveEvent('PROPOSE', first);
       const contract = createContract(m, data.proposal, this.options.owner);
       const approval = await abortable(contractProvider.approve({
@@ -1116,18 +1203,20 @@ export class WorkerNode {
           manifest: m,
           input: data.input,
           capabilities: data.capabilityChains,
+          ...(inspection ? { inspection } : {}),
           from: first.payload.senderDid,
         },
         signal: activeSignal,
       }), activeSignal);
-      if (this.trust(m.requester.ownerDid, this.assertInviteActive(data)) === 'unknown')
+      if (this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       this.assertPeer(m.requester.ownerDid);
-      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, invited) !== 'trusted')
+      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
+      this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
       saveCheckpoint({ phase: 'accepted' });
       if (this.options.dailyLimit)
         consumeDailyTask(this.options.dailyLimit.path, this.options.dailyLimit.maxTasks, m.taskId);
@@ -1226,7 +1315,7 @@ export class WorkerNode {
           isActive: () => gateway!.machine.state === 'IN_PROGRESS',
         });
       });
-      this.assertPeer(m.requester.ownerDid);
+      this.assertPeer(m.requester.ownerDid, m.taskId);
       workspace = await mkdtemp(join(tmpdir(), 'acp-adapter-'));
       saveCheckpoint({ phase: 'running', workspace });
       let invocationCount = 0;
@@ -1324,7 +1413,7 @@ export class WorkerNode {
           sandboxBoundary = boundary;
         },
         callTool: async (tool, args) => {
-          this.assertPeer(m.requester.ownerDid);
+          this.assertPeer(m.requester.ownerDid, m.taskId);
           executionSignal.throwIfAborted();
           if (!args || typeof args !== 'object' || Array.isArray(args))
             throw new Error('CAPABILITY_VIOLATION: arguments');
@@ -1354,12 +1443,8 @@ export class WorkerNode {
           return result;
         },
       };
-      this.assertPeer(m.requester.ownerDid);
-      if (this.trust(m.requester.ownerDid, this.assertInviteActive(data)) === 'unknown')
-        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
-      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, invited) !== 'trusted')
-        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
       if (!this.options.inboxPath) await acknowledgeRelay(relay, first, executionSignal);
       // A task may return while a queued progress update is still waiting for its ACK.
@@ -1453,6 +1538,9 @@ export class WorkerNode {
       clearTimeout(heartbeat);
       timeouts.close();
       wire.close();
+      this.acceptedPeers.delete(m.taskId);
+      const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
+      if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id);
       if (trackedTaskId) this.liveChains.delete(trackedTaskId);
       gateway?.close();
       if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
@@ -1488,9 +1576,11 @@ export class WorkerNode {
   private revocationAwareRelay(relay: RelayTransport): RelayTransport {
     const receive: RelayTransport['receive'] = async (recipientDid, waitMs, signal, filter) => {
       for (;;) {
+        if (this.registered && JSON.stringify(this.protocol.receiveVersions()) !== JSON.stringify(this.agentCard.payload.protocolVersions)) await this.register();
         const forwarded = this.forwardedQueue.shift();
         if (forwarded) {
           if (this.consumeRevocation(forwarded)) continue;
+          if (isConnectionEvent(forwarded.payload.eventType)) { await this.connections.route(forwarded); continue; }
           return forwarded;
         }
         const envelope = await relay.receive(
@@ -1500,11 +1590,13 @@ export class WorkerNode {
           const afterWait = this.forwardedQueue.shift();
           if (afterWait) {
             if (this.consumeRevocation(afterWait)) continue;
+            if (isConnectionEvent(afterWait.payload.eventType)) { await this.connections.route(afterWait); continue; }
             return afterWait;
           }
           return undefined;
         }
         if (this.consumeRevocation(envelope)) { await acknowledgeRelay(relay, envelope); continue; }
+        if (isConnectionEvent(envelope.payload.eventType)) { await this.connections.route(envelope); continue; }
         if (
           this.isRequesterBoundFrame(envelope) &&
           forwardToRequesterInbox(this.options.owner.did, envelope)
@@ -1516,7 +1608,7 @@ export class WorkerNode {
     return {
       get connectionStatus() { return relay.connectionStatus; },
       send: (envelope) => {
-        this.assertPeer(envelope.payload.recipientDid);
+        this.assertPeer(envelope.payload.recipientDid, envelope.payload.taskId);
         return relay.send(envelope);
       },
       ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])])) } : {}),
@@ -1584,22 +1676,16 @@ export class WorkerNode {
   }
   private assertInviteActive(data: Proposal): boolean {
     const token = data.inviteToken;
-    if (typeof token !== 'string' || token.length === 0) {
-      if (this.options.accessMode !== 'open' &&
-          !this.options.allowedRequesterDids?.includes(data.proposal.payload.requester.ownerDid) &&
-          !['limited', 'trusted'].includes(this.intakeStore.level(data.proposal.payload.requester.ownerDid)))
-        throw new Error('INVITE_REQUIRED');
-      return false;
-    }
-    const invite = parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true, allowExpired: true });
+    if (token === undefined) return false;
+    if (typeof token !== 'string' || !token) throw new Error('INVALID_OR_EXPIRED_INVITE');
+    const invite = parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true, allowExpired: true });
     if (invite.ownerDid !== this.options.owner.did ||
         invite.agentDid !== this.agentCard.payload.agentDid ||
         invite.relayUrl !== this.agentCard.payload.relayEndpoint)
       throw new Error('INVITE_WORKER_MISMATCH');
     this.revocation.assertNotRevoked('invite', digest(invite));
     this.revocation.assertNotRevoked('invite', token);
-    if (Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)) <= Date.now()) {
-      if (this.options.accessMode === 'open') return false;
+    if (Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)) <= this.protocol.now()) {
       throw new Error('INVITE_EXPIRED');
     }
     return true;
@@ -1781,6 +1867,8 @@ function rejectionBody(error: unknown): ErrorDiagnostic & { reason?: string } {
 }
 function safeError(e: unknown): string {
   const s = String(e);
+  const exact = e instanceof Error ? e.message.split(':')[0] : '';
+  if (/^(PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
   if (s.includes('TOKEN_REVOKED')) return 'TOKEN_REVOKED';
@@ -1808,7 +1896,11 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
     signal.removeEventListener('abort', listener);
   }
 }
-export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions {
+export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+  connectionStore?: WorkerTrustStore;
+  identityOptions?: IdentityStoreOptions;
+  connectionReview?: ConnectionHumanReviewProvider;
+  onConnectionEvent?: (event: ConnectedEvent) => void;
   /** Application-owned local records; omitted by library callers unless requested. */
   pendingStore?: RequesterPendingStore;
   /** Selected endpoint when the application injects a transport. */
@@ -1848,7 +1940,11 @@ export interface DelegateOptions extends SessionTimeoutOptions {
   pendingId?: string;
   /** Selected endpoint when an application replaces a per-task transport. */
   pendingRelayUrl?: string;
+  /** Explicit resubmission renegotiates the stored manifest version before signing. */
+  renegotiateProtocol?: boolean;
   beforePropose?: (action: BeforeProposeContext) => Promise<void>;
+  /** Local synchronous reservation after final protocol preflight and before transmission. */
+  beforeTransmit?: () => void;
   to: string;
   discover?: { skillId?: string; taskType?: string };
   relay?: RelayTransport | string;
@@ -1997,7 +2093,10 @@ export async function deliverRevocation(
 }
 export class RequesterClient {
   readonly approvalProvider: ApprovalProvider;
+  readonly protocol: LiveProtocol;
   constructor(readonly options: RequesterClientOptions) {
+    assertConnectionsOptions(options);
+    this.protocol = new LiveProtocol(options);
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     this.approvalProvider =
@@ -2054,6 +2153,7 @@ export class RequesterClient {
       onDelivered?: () => void;
     },
   ): Promise<SessionResult> {
+    assertConnectionsOptions(this.options);
     // Retain the reviewed values even if the caller changes its objects while awaiting consent.
     if (options.beforePropose) options = { ...options,
       input: structuredClone(options.input), manifest: options.manifest && structuredClone(options.manifest),
@@ -2071,7 +2171,8 @@ export class RequesterClient {
           allowPrivateRelay: this.options.allowPrivateRelay,
         })
       : undefined;
-    if (options.workerRef && !invite) throw new Error('INVITE_REQUIRED');
+    assertConnectionsOptions(options);
+    if (options.workerRef && !invite) throw new Error('INVITE_REFERENCE_UNAVAILABLE');
     const relayOption = options.relay ?? this.options.relay ?? invite?.relayUrl;
     if (!relayOption) throw new Error('RELAY_REQUIRED');
     if (typeof relayOption === 'string')
@@ -2096,15 +2197,20 @@ export class RequesterClient {
     if (!Array.isArray(rawCards)) throw new Error('INVALID_AGENT_CARD');
     if (invite && options.discover) throw new Error('CONFLICTING_DISCOVERY_TARGET');
     const card = options.discover
-      ? discoverAgentCards(rawCards, { ...options.discover, accessMode: 'open',
+      ? discoverAgentCards(rawCards, { ...options.discover,
           ...(options.to ? { did: options.to } : {}) })[0]
       : findDiscoveredAgentCard(rawCards, options.to);
-    if (options.discover && !card) throw new Error('OPEN_WORKER_NOT_FOUND');
+    if (options.discover && !card) throw new Error('WORKER_NOT_FOUND');
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
+    const protocolVersion = this.protocol.outbound(invite?.agentCard ?? card,
+      options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
+      invite?.agentDid ?? card?.payload.agentDid ?? peer);
+    if (options.manifest && options.renegotiateProtocol) options = { ...options, manifest: { ...options.manifest, protocolVersion } };
     const manifest =
       options.manifest ??
       buildTaskManifest({
         ...options,
+        protocolVersion,
         taskTimeoutMs: timeoutOptions.taskTimeoutMs ?? timeoutOptions.timeoutMs,
         budget: { ...options.budget, ...(timeoutOptions.executionTimeoutMs !== undefined
           ? { maxWallClockSeconds: options.budget?.maxWallClockSeconds ?? Math.floor(timeoutOptions.executionTimeoutMs / 1000) } : {}) },
@@ -2115,14 +2221,6 @@ export class RequesterClient {
         taskType: options.discover?.taskType ?? (card?.payload.skills.length === 1 &&
           card.payload.skills[0].taskTypes?.length === 1 ? card.payload.skills[0].taskTypes[0] : undefined),
       });
-    // Cap only implicit defaults; explicit budgets remain subject to worker admission.
-    if (!options.manifest && card?.payload.accessMode === 'open') {
-      for (const field of OPEN_POLICY_FIELDS) {
-        const limit = card.payload.openPolicy?.[field];
-        if (limit !== undefined && options.budget?.[field] === undefined)
-          manifest.budget[field] = Math.min(manifest.budget[field], limit);
-      }
-    }
     if (options.manifest && timeoutOptions.executionTimeoutMs !== undefined &&
         manifest.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs)
       throw new Error('INCOMPATIBLE_TIMEOUTS: manifest budget exceeds executionTimeoutMs');
@@ -2249,12 +2347,39 @@ export class RequesterClient {
           );
           return [root, leaf];
         });
+      let connectionRequest: SignedEnvelope | undefined;
+      let connectionRouter: ConnectionRouter | undefined;
+      if (this.options.connectionReview && protocolVersion === '0.2.0') {
+        const relayUrl = invite?.relayUrl ?? card?.payload.relayEndpoint ?? this.options.pendingRelayUrl;
+        if (!relayUrl) throw new Error('RELAY_REQUIRED');
+        const store = this.options.connectionStore ?? new WorkerTrustStore(owner, { path: this.options.identityOptions
+          ? workerIntakePath(owner.did, this.options.identityOptions) : undefined, now: this.options.now });
+        if (store.ownerDid !== owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
+        if (store.connectionState(peer) !== 'connected') {
+          connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store,
+            agentCard: createSignedAgentCard({ name: 'Sealbridge requester', agentDid: owner.did,
+              relayEndpoint: relayUrl, skills: [], protocolVersions: this.protocol.receiveVersions() }, owner),
+            review: new HeldRequestReview(owner, { ...this.options.identityOptions, now: this.options.now }),
+            humanReview: this.options.connectionReview, now: this.options.now, allowPrivateRelay: this.options.allowPrivateRelay,
+            onConnectionEvent: this.options.onConnectionEvent });
+          try {
+            const request = await connectionRouter.service.request({ toOwnerDid: peer,
+              ...(invite ? { inviteToken: options.to } : {}), originProposalDigest: digest({ manifest, input: options.input }), deferDelivery: true });
+            connectionRequest = store.controlSnapshot().find(r => r.offer.requestId === request.requestId)?.outbox[0]?.envelope;
+          } catch (error) { if (!(error instanceof Error) || error.message !== 'APPROVAL_REJECTED') throw error; }
+        }
+      }
+      if (connectionRouter) inbox.setConnections(connectionRouter);
+      // Recheck the live phase immediately before transmission; owner review may cross a boundary.
+      this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid);
+      options.beforeTransmit?.();
       await wire.sendEvent('PROPOSE', {
         proposal: signPayload(manifest, owner),
         input: options.input,
         capabilityChains,
         peerIdleTimeoutMs: timeoutOptions.transportIdleTimeoutMs ?? 90_000,
         ...(invite ? { inviteToken: options.to } : {}),
+        ...(connectionRequest ? { connectionRequest } : {}),
       });
       const accept = (await wire.receiveEvent('ACCEPT')).payload.payload as unknown as {
         contract: TaskContract;
@@ -2668,13 +2793,16 @@ export function buildTaskManifest(options: {
   description: string;
   outputSchema?: Schema;
   budget?: Partial<BudgetSpec>;
+  protocolVersion?: import('@acp/core').ManifestProtocolVersion;
+  now?: () => number;
   taskTimeoutMs?: number;
   capabilities?: TaskManifest['permissions']['grantedCapabilities'];
 }): TaskManifest {
-  const createdAt = new Date().toISOString(),
-    deadline = new Date(Date.now() + (options.taskTimeoutMs ?? 600000)).toISOString();
+  const now = (options.now ?? Date.now)();
+  const createdAt = new Date(now).toISOString(),
+    deadline = new Date(now + (options.taskTimeoutMs ?? 600000)).toISOString();
   return {
-    protocolVersion: '0.1.0',
+    protocolVersion: options.protocolVersion ?? '0.2.0',
     taskId: 'task_' + randomUUID().replaceAll('-', ''),
     createdAt,
     deadline,

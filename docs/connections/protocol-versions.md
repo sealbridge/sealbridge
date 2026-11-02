@@ -13,8 +13,7 @@ have no retirement clock. Unknown explicit manifest versions return
 the remaining fields match 0.1.0. `spec/task-manifest.schema.json` references both
 with a distinct ID and retains the `task-manifest` registry lookup name.
 Examples in `spec/examples/protocol-versions/` exercise signed card `protocolVersions`
-and skill `taskTypes`; the published card schema also covers the existing emitted
-`accessMode` and `openPolicy` fields.
+and skill `taskTypes`. New cards omit retired operational mode fields; historical signed payloads remain intact for verification.
 
 The pure helpers `supportedSendVersions`, `supportedReceiveVersions`,
 `selectProtocolVersion` and `assertInboundProtocolVersion` take an explicit
@@ -42,6 +41,24 @@ implicit removal of established floors; persistence errors are reported as
 `PROTOCOL_STORE_INVALID`, `PROTOCOL_STORE_BUSY` or `PROTOCOL_STORE_UNWRITABLE`.
 POSIX directories/files use 0700/0600; Windows inherits parent ACLs without verification.
 
-This is one of four independent connections foundations. Operational defaults, existing
-files, CLI flags, MCP tools, board behavior and default 0.1.0 sending remain unchanged.
-PR5 follows after those foundations merge and binds the release epoch and live policy.
+Live paths use `LiveProtocol` and persist CLI/MCP peer observations. `buildTaskManifest`
+defaults to 0.2.0; requester sending negotiates before signing. A raw DID without a
+verified card implies legacy capability only. Supplied manifests are refused when
+incompatible, never silently rewritten. Explicit pending resubmission negotiates anew.
+All 0.1.0 requests are held without connection-derived admission, including requests
+from peers with a current connection. Offline audit verification remains timeless.
+
+`PROTOCOL_020_RELEASED_AT` in `packages/runtime/src/protocol-release.ts` is currently
+`null`: a pre-release build accepts both versions and selects the newest common
+version without starting a retirement clock. It never interprets unset as today.
+Maintainers must set the exact UTC release instant when enabling public 0.2.0 semantics.
+Packaging, including `npm pack`, permits the unset pre-release state. Before publishing,
+run `pnpm run check:protocol-release`; it builds the runtime and calls
+`assertProtocolReleaseConfigured`, rejecting unset or invalid instants. npm also runs
+this check through `prepublishOnly` for `npm publish` (including `--dry-run`).
+Host/tests may inject `protocolPolicy` and `now`; CLI/MCP installations
+have no per-install epoch flag. Changing a persisted epoch requires an explicit
+migration. Receive capability is recomputed at registration and the card is re-signed
+when a phase changes; a stale remote card never overrides live local policy.
+
+See [connections admission](admission.md) for owner workflows and migration.

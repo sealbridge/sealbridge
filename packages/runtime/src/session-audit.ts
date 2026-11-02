@@ -143,9 +143,10 @@ export class SessionWire {
     readonly auditPath?: string,
     /** Legacy in-memory fixtures may open cleartext. Network sessions leave this false. */
     readonly allowUnencryptedEnvelopes = false,
+    /** Worker admission may await inspection before seeding the initial PROPOSE. */
+    private awaitingInitial = false,
   ) {
-    this.startPump();
-    void this.dispatch();
+    if (!this.awaitingInitial) { this.startPump(); void this.dispatch(); }
   }
   get cancellationStarted(): boolean {
     return this.cancellation !== undefined;
@@ -380,7 +381,11 @@ export class SessionWire {
     return envelope;
   }
   async rawReceive(expected: string | string[], initial?: SignedEnvelope): Promise<SignedEnvelope> {
-    if (initial) return this.acceptInitial(expected, initial);
+    if (initial) {
+      const envelope = this.acceptInitial(expected, initial);
+      if (this.awaitingInitial) { this.awaitingInitial = false; this.startPump(); void this.dispatch(); }
+      return envelope;
+    }
     if (this.pumpError && this.inbox.length === 0 && this.stashed.length === 0)
       return Promise.reject(this.pumpError);
     const allowed = Array.isArray(expected) ? expected : [expected];

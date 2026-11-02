@@ -16,8 +16,8 @@
     "relayEndpoint": "wss://relay.example.org/v1"
   },
   "task": {
-    "title": "Summarize and extract structured CVE findings from architecture docs",
-    "description": "Read the provided markdown documents via the scoped MCP capability and output a structured JSON security summary matching outputSchema.",
+    "title": "Summarize architecture documents after owner opening",
+    "description": "After connection admission, inspection and owner opening, read the provided documents through the scoped capability and return the agreed structured summary.",
     "acceptanceCriteria": [
       {
         "id": "ac_schema_valid",

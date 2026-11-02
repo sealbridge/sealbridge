@@ -11,7 +11,7 @@ import { SessionWire } from '../packages/runtime/src/session-audit.js';
 function fixture(options: Partial<WorkerNodeOptions> = {}) {
   const owner = generateKeyPair(), attacker = generateKeyPair(), relay = new InMemoryRelay();
   let calls = 0;
-  const worker = new WorkerNode({ owner, relay, timeoutMs: 1000, accessMode: 'open',
+  const worker = new WorkerNode({ owner, relay, timeoutMs: 1000,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'summary', name: 'Summary', skills: [{ id: 'summary', name: 'Summary', taskTypes: ['summarize'] }],
       executeTask: async () => { calls++; return {}; } }, ...options });
@@ -60,17 +60,17 @@ async function rejected(f: Fixture, mutate: (body: any) => void, expected: RegEx
   } finally { f.worker.stop(); controller.abort(); await sent; }
 }
 
-describe('Open task adversarial security', () => {
-  it.each([undefined, 'invite-only'] as const)('rejects self-signed capability admission in mode %s', async (accessMode) => {
-    const f = fixture({ accessMode });
+describe('Task admission boundaries', () => {
+  it('rejects capability admission without a matching manifest grant', async () => {
+    const f = fixture();
     await rejected(f, (body) => {
       body.capabilityChains = [[createCapability({ audience: f.owner.did, taskId: f.manifest.taskId,
         resource: 'data://summary', allowedTools: ['read'], argConstraints: { read: {} }, maxCalls: 1,
         maxDepth: 0, notBefore: new Date(Date.now() - 1000).toISOString(),
         expiresAt: f.manifest.deadline }, f.attacker)]];
-    }, /INVITE_REQUIRED/);
+    }, /CAPABILITY/);
   });
-  it('does not let open mode bypass a requester allowlist', async () => {
+  it('retains the requester allowlist', async () => {
     const f = fixture({ allowedRequesterDids: [generateKeyPair().did] });
     await rejected(f, () => {}, /not allowed|allowlist/);
   });
@@ -84,7 +84,7 @@ describe('Open task adversarial security', () => {
     const card = structuredClone(f.worker.agentCard);
     Object.assign(card.payload, { [field]: field === 'accessMode' ? 'invite-only' : generateKeyPair().did });
     expect(verifySignedAgentCard(card)).toBe(false);
-    expect(discoverAgentCards([card], { accessMode: 'open' })).toEqual([]);
+    expect(discoverAgentCards([card])).toEqual([]);
   });
   it.each(['skill', 'type', 'omitted'] as const)('rejects task scope escalation: %s', async (kind) => {
     const f = fixture();

@@ -410,9 +410,8 @@ const discoveredWorkerSchema = objectSchema(
     agentDid: described('Agent did:key that will receive delegated tasks.', { type: 'string' }),
     workerDid: described('Agent DID to pass unchanged to acp_delegate_task.', { type: 'string' }),
     relayUrl: described('Queried relay to pass unchanged to acp_delegate_task; null for an injected transport without a URL.', { type: ['string', 'null'] }),
-    accessMode: described('Effective access mode; legacy cards without a mode are invite-only.', { type: 'string', enum: ['open', 'invite-only'] }),
+    protocolVersions: described('Accepted manifest versions; omission denotes a legacy peer.', { type: 'array', items: { type: 'string' } }),
     acceptance: described('The worker independently decides whether to accept each task.', { type: 'string', const: 'worker_decides' }),
-    openPolicy: described('Signed open policy when the publisher includes one.', { type: 'object', additionalProperties: { type: 'integer', minimum: 1 } }),
     signedAgentCard: described('Complete signed card as published, including the original payload and signature.', { type: 'object', additionalProperties: true }),
     relayEndpoint: described('Relay URL embedded in the card.', { type: 'string' }),
     expiresAt: described('ISO-8601 expiry after which the card must be rejected.', { type: 'string' }),
@@ -440,7 +439,6 @@ const discoveredWorkerSchema = objectSchema(
     'relayEndpoint',
     'workerDid',
     'relayUrl',
-    'accessMode',
     'acceptance',
     'signedAgentCard',
     'expiresAt',
@@ -730,11 +728,21 @@ export const mcpTools: Json = [
       ['notice'],
     ),
   }),
+  ...['acp_list_connections', 'acp_list_connection_requests'].map(name => tool({
+    name, title: name === 'acp_list_connections' ? 'List local connections' : 'List pending connection requests',
+    description: 'Read local connection metadata for this server signer DID without creating an identity or contacting peers. Decisions require a separate human CLI action. No content or invitation material is returned. Empty arguments only; invalid arguments return JSON-RPC -32602.',
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    inputSchema: objectSchema('No arguments.', {}),
+    outputSchema: objectSchema('Local connection metadata.', {
+      count: described('Number of connection records.', { type: 'integer', minimum: 0 }),
+      connections: described('Local peer states and lifecycle metadata.', { type: 'array', items: { type: 'object', additionalProperties: true } }),
+    }, ['count', 'connections']),
+  })),
   tool({
     name: 'acp_discover_workers',
     title: 'Discover registered workers',
     description:
-      'List current signed worker cards on the server relay or https://relay.sealbridge.dev, defaulting to accessMode open. Use accessMode all for the operator view, or filter by skillId and taskType; legacy cards without a mode are invite-only. Pass a selected workerDid and relayUrl unchanged to acp_delegate_task with title and input; unknown tokenless peers receive terminal PENDING_OWNER_APPROVAL without worker approval or execution, requiring owner intake review and an explicitly started fresh delegation. This read-only directory fetch verifies signatures and expiry, drops invalid cards and mismatched endpoints, sends no task input, and requires no delegation approval. Explicit relay policies apply, bad arguments are JSON-RPC -32602, and operational failures return isError true with { error: CODE }.',
+      'List current signed worker cards on the server relay or https://relay.sealbridge.dev, including every verified current published card. Filter by skillId and taskType; publication conveys no connection consent. Pass a selected workerDid and relayUrl unchanged to acp_delegate_task with title and input; unknown tokenless peers receive terminal PENDING_OWNER_APPROVAL without worker approval or execution, requiring owner intake review and an explicitly started fresh delegation. This read-only directory fetch verifies signatures and expiry, drops invalid cards and mismatched endpoints, sends no task input, and requires no delegation approval. Explicit relay policies apply, bad arguments are JSON-RPC -32602, and operational failures return isError true with { error: CODE }.',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -742,7 +750,6 @@ export const mcpTools: Json = [
     inputSchema: objectSchema(
       'Arguments for reading one relay agent directory.',
       {
-        accessMode: described('Access mode to list; open is the MCP default, all includes invite-only and legacy cards.', { type: 'string', enum: ['open', 'invite-only', 'all'], default: 'open' }),
         skillId: described('Return workers advertising this exact skill identifier.', { type: 'string', minLength: 1 }),
         taskType: described('Return workers advertising this task type in a matching skill.', { type: 'string', minLength: 1 }),
         relayUrl: described(

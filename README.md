@@ -44,7 +44,7 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
 > **Status**: Sealbridge `v0.2.2` is the latest release, published on npm as `sealbridge`. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
-> **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.  
+> **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
 
 - CI runs 967 automated unit/integration/conformance tests (`pnpm test`) plus the adversarial security test suite (`pnpm test:security-proof`).
@@ -340,9 +340,15 @@ Worker listeners recover dropped relay connections with jittered backoff and rep
 
 `--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and `--max-wall-clock-seconds` cap the contract a worker will accept. A proposal above any set cap is rejected before `ACCEPT`, including with `--auto-accept`. `timeoutSeconds` on the manifest is compared with `--max-wall-clock-seconds`. `--max-concurrent-tasks` limits in-flight tasks (default 8). `--max-requests-per-minute` limits proposals from one requester DID.
 
-`--allow-requester <did>` is repeatable and accepts comma-separated DIDs. A nonempty list restricts requesters; `--allow-any-requester` retains precedence. LLM automatic approval (`--auto-accept`, `--auto-approve`, `--yes`) requires one of these flags or a current owner-created trusted grant. Invitations provide limited admission and require a separate interactive owner contract approval before LLM execution. An invited sandbox/command worker can still use explicit automatic approval.
+`--allow-requester <did>` is repeatable and constrains peers without granting trust. Connections require inspection and owner opening for every adapter. Explicit CLI contact trust remains independent. See [connections admission](docs/connections/admission.md).
 
 **Terminal 3 — Alice, the requester**
+
+With the default unavailable inspection provider, this example returns terminal
+`PENDING_OWNER_APPROVAL` (exit 3). It produces no deliverable or settled audit.
+Do not retry automatically. Completion requires a configured inspection provider
+and owner opening on a fresh task after connection review. `--auto-accept` does
+not replace those steps.
 
 ```sh
 pnpm sealbridge keygen /tmp/alice.private.json
@@ -357,7 +363,7 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
 pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
 ```
 
-Expected: `SETTLED`, a JSON deliverable, and `"valid":true` with `"status":"VALID"` on both owners. Without a trust-anchor file or `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count`, `statusLabel` is `VALID (no trust anchor: truncation not checked)`: the chain is intact, and an older valid prefix was not ruled out. Alice verifies signatures, digests and budget, JSON Schema and registered isolated checks, then obtains a signed final approval. `--auto-approve` explicitly opts into policy approval of final verification; omit it for human review. `acp://invite?token=...` is also accepted. Alternatively, use `--to <Bob DID> --relay <URL>`. Bob can verify his own `/tmp/bob-audit.jsonl` locally.
+After those admission and opening steps: `SETTLED`, a JSON deliverable, and `"valid":true` with `"status":"VALID"` on both owners. Without a trust-anchor file or `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count`, `statusLabel` is `VALID (no trust anchor: truncation not checked)`: the chain is intact, and an older valid prefix was not ruled out. Alice verifies signatures, digests and budget, JSON Schema and registered isolated checks, then obtains a signed final approval. `--auto-approve` explicitly opts into policy approval of final verification; omit it for human review. `acp://invite?token=...` is also accepted. Alternatively, use `--to <Bob DID> --relay <URL>`. Bob can verify his own `/tmp/bob-audit.jsonl` locally.
 
 **Ask another person’s AI to review a diff**
 
@@ -551,7 +557,7 @@ pnpm sealbridge mcp-server
 
 `initialize` returns server `instructions` that name this workflow. `AcpMcpServer` in `@acp/runtime` is the same server for tests and embedded hosts. The server key signs requester approvals for the tools it runs. `acp_discover_workers` is a read-only directory fetch: it uses the same relay allowlist and `validateRelayEndpointUrl` before `GET /agents`, and it does not send task input. `acp_inspect_revocations` reads the in-memory registry and does not contact a worker.
 
-With an unflagged `sealbridge mcp-server`, call `acp_discover_workers {}` to list published open workers on `https://relay.sealbridge.dev`. Select a result and pass its `workerDid` and `relayUrl` unchanged:
+With an unflagged `sealbridge mcp-server`, call `acp_discover_workers {}` to list published workers on `https://relay.sealbridge.dev`. Select a result and pass its `workerDid` and `relayUrl` unchanged:
 
 ```json
 {
@@ -565,9 +571,9 @@ With an unflagged `sealbridge mcp-server`, call `acp_discover_workers {}` to lis
 
 Call `acp_delegate_task` with those arguments. An omitted single-worker description defaults to the title. No worker allowlist is required by default; an explicitly configured allowlist still restricts delegation.
 
-MCP discovery now defaults to `accessMode: "open"`. Use `accessMode: "all"` for the operator view, or `"invite-only"` for private advertisements, including legacy cards without a mode. Optional `skillId` and `taskType` filters must match the same advertised skill. CLI `sealbridge discover` retains its historical all-mode default. Discovery resolves the newest valid card before filtering and omits expired, invalid, or mismatched-relay cards. Results retain the public card fields and include the complete signed card, skill schemas, access mode, and `acceptance: "worker_decides"`. An empty result is `{ "count": 0, "workers": [] }` with the queried `relayUrl`.
+MCP discovery lists every current verified published card. Filter by `skillId` or `taskType`; the removed `accessMode` argument returns JSON-RPC -32602. Results preserve the complete signed card, accepted `protocolVersions`, skills, routing and `acceptance: "worker_decides"`, without operational mode fields. An empty result has `count: 0, workers: []` and the queried `relayUrl`.
 
-Worker owners choose `--open` and `--publish` separately: open permits proposals without an invite, while publish lists the card in the directory. Publication does not approve a task. Unknown tokenless requesters receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`); the worker invokes neither its approval provider nor its adapter. Owner intake review admits the peer without replaying the held task; the requester owner must explicitly start a fresh delegation, which follows the normal approval and execution path. Worker admission and owner approval remain independent, and a card may change between discovery and delegation. Invite-only workers addressed by DID still return `INVITE_REQUIRED` unless that requester is explicitly allowed. A refusal is returned without selecting another worker or retrying the task. Names, descriptions, and schemas are publisher-provided data.
+Publication is controlled by `--publish` and conveys no admission consent. Unconnected requests are held with `PENDING_OWNER_APPROVAL` and `retryable:false`; do not retry automatically or switch workers on refusal. See [owner workflows](docs/connections/admission.md).
 
 `acp_delegate_task` and `acp_delegate_multi` transmit task input to the target worker over the relay. Restrict that path when the host might supply the arguments:
 
@@ -617,7 +623,7 @@ node examples/network-collab/run.mjs
 ## Manifest protocol versions
 
 Library APIs validate manifest protocols 0.1.0 and 0.2.0 and provide explicit compatibility policy.
-Default sending remains 0.1.0; live policy integration is deferred.
+Live sending selects the newest common version, preferring 0.2.0. The release clock and pre-release placeholder are described in [protocol versions](docs/connections/protocol-versions.md).
 See [protocol versions](docs/connections/protocol-versions.md) for schemas, policy and peer observations.
 
 ## Five design principles
@@ -631,7 +637,7 @@ See [protocol versions](docs/connections/protocol-versions.md) for schemas, poli
 ### Connection state persistence
 
 `@acp/runtime` provides owner-local connection lifecycle and persistence APIs.
-Connected state projects to limited without expiry; operational defaults remain unchanged.
+Connected state projects to limited without expiry and is used by live admission.
 See [connection state persistence](docs/connections/connection-state.md) for API and store compatibility details.
 
 ## Documents
@@ -648,10 +654,10 @@ See [connection state persistence](docs/connections/connection-state.md) for API
 | [`AGENTS.md`](AGENTS.md)                                                               | Autonomous Worker/Requester playbook                                                                          |
 | [`SKILL.md`](SKILL.md)                                                                 | Portable agent skill                                                                                          |
 
-### Connection exchange library (preparatory)
+### Connection exchange library
 
 The library exports signed request, acceptance and ACK helpers plus an injected `ConnectionService`.
-Existing CLI/MCP behavior remains unchanged until the cutover PR (PR5).
+Runtime, CLI, MCP and board now attach this exchange through owner-local persistence and held-content review.
 See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
 
 ## Local M0–M1 implementation
@@ -707,151 +713,110 @@ See the [held-content library contract](docs/connections/held-content.md) for AP
 - **Repository**: [sealbridge/sealbridge](https://github.com/sealbridge/sealbridge)
 - **Public Blind Relay**: `https://relay.sealbridge.dev`
 
-### Invite-less open task collaboration
+### Connections admission
 
-Workers started through the CLI default to `--access-mode invite-only`. They
-require a valid worker invite or a requester owner DID listed with
-`--allow-requester`, or a current local peer grant. An invite remains a bearer invitation; an explicit
-allowlist still restricts its use. `--allow-any-requester` does not bypass the
-invite requirement in this mode.
+[日本語](docs/connections/admission.ja.md)
 
-To advertise availability for invite-less tasks:
+Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
+Connected means limited consent with no expiry. Every limited task requires a
+completed inspection and a separate human opening before acceptance, for every
+adapter. Automatic contract policy does not replace that opening. The default
+inspection provider reports `unavailable`, so content remains held. An inspection
+provider is required before public release.
 
-```sh
-sealbridge worker start --key worker.private.json --relay https://relay.sealbridge.dev --adapter sandbox --access-mode open --publish --skill json-task --task-type json
-sealbridge discover --relay https://relay.sealbridge.dev --skill json-task
-sealbridge delegate --key requester.private.json --relay https://relay.sealbridge.dev --discover json-task --title Echo --description Echo --input '{"hello":"world"}'
-```
-
-`--open` aliases `--access-mode open`. Publishing still requires `--publish`.
-`--open-allow-task-type <types>` accepts comma-separated or repeated task types,
-trims whitespace, removes duplicates, and advertises the list on every worker
-skill. Empty entries are invalid. An explicit `--task-type` must belong to this
-list. Non-matching proposal task types receive `TASK_SCOPE_REJECTED` with
-structured `detail`; direct delegation omitting both skill and task type retains
-its existing compatibility behavior.
-`--open-rate-limit-per-did <count/window>` accepts a positive safe integer alone
-(per minute), or `/m`, `/min`, or `/60s`, for example `10/min`. Other windows and
-invalid counts fail with `INVALID_OPEN_RATE_LIMIT_PER_DID`. It configures
-`maxTasksPerRequesterPerMinute`; when `--max-requests-per-minute` is also set,
-the stricter limit wins. Both new options require open mode.
-Open workers can advertise signed budget ceilings with `--open-max-input-tokens`,
-`--open-max-output-tokens`, `--open-max-tool-calls`, and `--open-max-wall-seconds`.
-Each accepts a positive safe integer and requires open mode. The corresponding
-optional `WorkerNodeOptions.openPolicy` / `AgentCard.openPolicy` fields are
-`maxInputTokens`, `maxOutputTokens`, `maxToolInvocations`, and `maxWallClockSeconds`.
-Workers reject proposals exceeding these ceilings before contract acceptance;
-stricter existing acceptance limits still apply. When discovering an open card,
-requesters cap only unspecified default budget fields, never increase defaults,
-and preserve explicit budgets and custom manifests for worker validation.
-Omitted policy fields impose no additional ceiling.
-
-### Worker peer review
-
-Open workers now quarantine unknown requesters by default, including sandbox workers
-started with `--yes` or `--auto-accept`. No task is accepted, executed, or answered by
-an application. The requester receives terminal `PENDING_OWNER_APPROVAL` (CLI exit 3;
-MCP `{error:"PENDING_OWNER_APPROVAL",retryable:false}`). Do not retry automatically.
-Invite-only workers still require an invite, a matching explicit requester allow,
-or a current peer grant. Publishing remains explicit.
-
-The worker owner reviews local metadata using the same worker identity and data root:
+Valid requests from unconnected peers are held as encrypted envelopes for at most
+24 hours or the task deadline. They return terminal `PENDING_OWNER_APPROVAL`,
+`retryable:false`, CLI exit 3. Do not retry automatically. Schema, signature,
+capability, declared budget, advertised skill and operator perimeter checks precede
+holding or invite redemption. New intake metadata has no title or description
+preview. `requests show` returns `INSPECTION_INCOMPLETE` until inspection completes.
+Plaintext inbox files and receive hooks run only after inspection and opening.
 
 ```sh
+sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
+sealbridge discover --skill json-task
 sealbridge requests list
+sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
-sealbridge requests approve REQUEST_ID --trust trusted
+sealbridge requests discard REQUEST_ID
 sealbridge requests deny REQUEST_ID
 ```
 
-Add `--key FILE` to select an existing worker identity. Decisions require a human
-TTY confirmation; there is no unattended approval flag. Approval defaults to
-`limited`: LLM execution still needs a separate owner contract approval channel.
-Explicit `trusted` approval permits later automatic execution only when the owner
-also enables automatic policy. Grants expire after 24 hours. Denial removes the
-peer grant and persists across restarts, including after an earlier approval.
-Contacts allow/revoked decisions and explicit requester restrictions still apply.
+Publication only adds the signed card to the directory. Unpublished workers use the
+same admission rules. `--allow-requester` constrains peers; it grants no trust.
+General budgets use `--max-input-tokens`, `--max-output-tokens`,
+`--max-tool-invocations`, `--max-wall-clock-seconds`; rate uses
+`--max-requests-per-minute`. Settings `public` controls publication only and
+`alwaysAsk:false` returns `CONNECTION_OPENING_REQUIRED`.
 
-Approval admits the peer; it sends nothing, executes nothing, and never replays the
-original task. After review, the requester owner must explicitly submit a fresh task.
-Pending metadata expires after at most 15 minutes or the original deadline.
-The signed metadata store is under `<data-root>/workers/<worker-owner-hash>/intake.json`;
-it contains previews and digests, without task input or invitation/capability tokens.
-
-
-The requester retains held CLI/MCP delegations for 24 hours under
-`<data-root>/requesters/<requester-did-hash>/pending.private.json` (POSIX 0600).
-The private record includes the task and input and, when used, its invite reference;
-list/error results omit invitation material and task content. The pending response
-adds `pendingId`, `originalTaskId` and a next-step hint; quote the original task ID
-or requester DID to the worker owner to locate the review entry.
+An invitation records inviter consent and binds to the first authenticated owner DID
+that uses it. A different owner using the same valid token is held. Binding is
+retained through token expiry after disconnect. Expired, mismatched or revoked
+tokens remain errors before mutation. Established connections survive invitation
+expiry/revocation; use verified peer DID routing without the retired token for
+subsequent tasks. A saved `workerRef` still selects its saved invitation and checks
+that invitation on every use. Importing or previewing never connects either role.
 
 ```sh
-sealbridge pending list
-sealbridge pending resubmit PENDING_ID --audit ./fresh-audit.jsonl --out ./fresh-result.json
-sealbridge pending remove PENDING_ID
+sealbridge accept --paste --alias reviewer
+sealbridge connections confirm-invite reviewer --role requester
+sealbridge connections request --to PEER_DID --relay https://relay.sealbridge.dev --role worker
+sealbridge connections list --role worker
+sealbridge connections approve REQUEST_ID --role worker
+sealbridge connections reject REQUEST_ID
+sealbridge connections withdraw REQUEST_ID
+sealbridge connections disconnect PEER_DID
+sealbridge connections block PEER_DID
+sealbridge connections unblock PEER_DID
+sealbridge connections prior-approved
+sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
+sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
 ```
 
-Use the same requester identity/data root, with `--key FILE` for an explicit key.
-Resubmission uses the current approval policy (interactive by default in the CLI);
-pass `--auto-approve` only when the owner explicitly authorizes it. Use fresh audit
-and output paths. Relay and approval options are checked again; a retained invite
-is still subject to expiry and revocation. Saved workerRef targets retain only the
-reference, without copying the invitation token, and resolve it again on resubmission. MCP exposes `acp_list_pending_requests {}`
-and `acp_resubmit_pending_request {pendingId}` with the current outbound checks and
-required host elicitation. Each resubmission creates a new task ID; another hold
-updates the same record, completion marks it resolved, and other errors mark it
-failed. Retention is not renewed; expired entries are pruned on the next store update. Listing shows the last local observation, not
-remote approval status; it never polls or resubmits. Worker review and grants are
-unchanged. Remote status probes and notifications are deferred.
+All decisions require a human TTY or an injected human review provider. There is no
+`--yes` connection decision. Confirm the exact local role/DID and peer owner DID;
+requester and worker default identities are separate. An outgoing offer persists
+sender consent before transmission and expires after 14 days. Reject starts a
+seven-day offer cooldown; tasks can still be held. Discard removes content only;
+`requests deny` retains its block meaning. Block is one-sided and silent. Disconnect
+and block affect subsequent admission; accepted work continues unless cancelled.
+Mutual requests derive one connection ID from the two DIDs in ascending order.
+Control acceptance and ACK state commit before relay acknowledgement. Sync never
+resubmits tasks. Held content expires independently of outgoing consent.
 
-`--allowed-peer DID` (repeatable or comma-separated) restricts both incoming requests
-and all worker session output, including progress and recovery. It intersects every
-trust level and allow flag. Excluded peers receive no worker response and may time
-out; communicate the restriction out of band. Runtime `allowedPeerDids: []` denies all.
-Custom LLM integrations must set `adapterKind: 'llm'` and supply a distinct human
-`ownerApprovalProvider` for limited peers; automatic providers cannot replace it.
-Programmatic workers use an in-memory intake store unless a store is supplied.
-Local CLI workers and `requests` share P1 default identity/data-root selection.
+Task approval and connection consent are separate decisions. An interactive CLI or
+MCP form may ask sequentially; without explicit connection consent no request is
+attached. A held task without sender connection consent can initiate an outgoing
+offer when reviewed; local approval cannot infer the remote owner's consent.
+After connection review the requester owner explicitly starts a fresh task (or
+`pending resubmit` with fresh audit/output paths), with new inspection and opening.
 
-Discovery also supports `--task-type <type>` and `--did <did>`; delegation
-supports `--task-type <type>` or the existing `--to <did>`. Skill selection
-uses only current, verified cards explicitly advertising `open`, with stable
-agent-DID ordering. A DID plus a discovery filter restricts selection to that
-identity. Skills and task types describe advertised abilities, not permissions.
+Legacy signed intake and invite files remain readable. Reads/listing do not rewrite
+or migrate bytes. Finite grants from earlier releases do not skip holding or become
+connections. Retained approval evidence appears under `prior-approved` and needs a
+new owner action and remote consent. Historical denials remain blocks. Explicit CLI
+contacts stay independent. `requests approve ID --trust trusted` is a separate
+legacy 24-hour grant command; connection commands never create trusted authority.
+Back up v1 intake before the first mutation if rollback is needed; old binaries do
+not read v2. Do not run old and new writers concurrently. Connection and protocol
+stores retain the 1,000-record / 1 MiB bounds and do not evict established records.
 
-Open admission does not automatically approve contracts or grant tools. Existing
-approval gates, requester allowlists, quotas, encrypted transport, task-bound
-capabilities, expiry, and revocation checks continue to apply. CLI LLM automatic
-acceptance still requires its existing explicit requester policy.
+Retired CLI `--open`, `--access-mode`, `--open-*`, `--allow-any-requester` and JS
+`accessMode`, `openPolicy`, `allowAnyRequester` options return `ACCESS_MODE_REMOVED`
+with migration guidance. Use host budget/type/rate flags above. MCP discovery's
+removed `accessMode` argument returns JSON-RPC -32602. Discovery returns all current
+verified published cards, including legacy cards, without operational mode fields;
+original signed cards remain intact. `acp_list_connections {}` and
+`acp_list_connection_requests {}` read local metadata for the server signer without
+creating an identity. Owner decisions stay in the human CLI.
 
-Programmatic callers can set `WorkerNodeOptions.accessMode` and
-`RequesterClient.delegate({ to: '', discover: { skillId, taskType }, ... })`.
-Omitting `accessMode` in the runtime API defaults to invite-only protection.
-Direct DID callers need an open worker or an explicit requester allowlist. Older signed
-AgentCards remain valid but are not selected for open skill discovery.
+Board claims and dispatch require the selected poster identity's current local
+connection (`CONNECTION_REQUIRED` otherwise). A connection does not approve a task
+or lease. Dispatch checks connection and protocol before lease consumption, then
+consumes before transmission; ambiguous transmission never causes automatic retry.
+One-time task tickets and a separate application queue are deferred.
 
-Open workers enforce signed manifest `task.skillId` and `task.taskType` against
-their advertised skills before acceptance. Selecting a skill that advertises task
-types requires a matching type; discovery binds the selected type into the manifest.
-Direct proposals may omit both fields. Open workers ignore cryptographically valid
-expired invites (`INVITE_EXPIRED`); malformed invites and live invites for a different
-worker still fail. Invite-only workers continue to require an active invite or allowlist.
-
-Signed, encrypted ERROR frames may include `detail: { field, expected, actual, hint }`.
-Scope and advertised-budget diagnostics use fixed field names and hints; `expected`
-and `actual` contain SHA-256 digests, never the compared payload values.
-Requester failures expose `PeerRejectedError.code` and optional `.detail` while
-preserving the `PEER_REJECTED` message prefix. Worker `onEvent(event, taskId, error)`
-receives the same code and detail, and CLI event lines include both. When an audit
-path is configured, local rejection records are owner-signed and appended to
-`<auditPath>.errors.jsonl`. This diagnostic sidecar is separate from the bilateral
-hash-chain ledger and is not a settled or countersigned audit bundle. Verified
-rejections retain their task IDs; trailing ERROR frames do not create empty-ID events.
-
-Capability signatures and task bindings are also verified before `ACCEPT`.
-`conformance/open-task-adversarial-security.test.ts` covers admission bypass,
-card spoofing, scope and budget escalation, cross-task replay, and envelope tampering.
+The release clock is documented in [protocol versions](docs/connections/protocol-versions.md).
 
 ## Official sites and relay URL
 

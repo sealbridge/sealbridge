@@ -4,11 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair } from '../packages/core/src/index.js';
+import { generateKeyPair, createSignedAgentCard, createInviteToken } from '../packages/core/src/index.js';
 import { InMemoryRelay, startLocalRelay } from '../packages/relay/src/index.js';
 import { PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
 import type { AgentAdapter } from '../packages/runtime/src/index.js';
 import { networkCommand } from '../cli/src/network.js';
+import { addContact, updateContacts } from '../cli/src/contacts.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -33,7 +34,7 @@ async function fixture(inboxPath?: string, reject = false, onInboxRecord?: (reco
     },
   };
   const acceptance = reject ? { allowedRequesterDids: [generateKeyPair().did] } : {};
-  const worker = new WorkerNode({ owner, relay, adapter, inboxPath, onInboxRecord, ...acceptance,
+  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, adapter, inboxPath, onInboxRecord, ...acceptance,
     approvalProvider: new PolicyAutoApprovalProvider(owner, undefined, { acceptance }), timeoutMs: 3000 });
   const client = new RequesterClient({ owner: requester, relay,
     approvalProvider: new PolicyAutoApprovalProvider(requester), timeoutMs: 3000 });
@@ -89,7 +90,7 @@ describe('Sprint 1 accepted task inbox', () => {
     f.worker.stop();
   });
 
-  it('secures an existing inbox and preserves its previous lines', async () => {
+  it('sets owner-only permissions on an existing inbox and preserves its previous lines', async () => {
     const inbox = join(await directory(), 'inbox.jsonl');
     await writeFile(inbox, '{"previous":true}\n', { mode: 0o644 });
     const f = await fixture(inbox);
@@ -146,11 +147,17 @@ describe('Sprint 1 accepted task inbox', () => {
     const key = join(dir, 'worker.private.json');
     await writeFile(key, JSON.stringify(owner), { mode: 0o600 });
     const relay = await startLocalRelay();
+    // Inbox delivery is exercised after admission through an explicit allowed contact.
+    const contacts = join(dir, 'contacts.json');
+    const card = createSignedAgentCard({ name: 'Requester', agentDid: requester.did,
+      relayEndpoint: relay.url, skills: [] }, requester);
+    addContact(contacts, owner, createInviteToken({ agentCard: card }, requester), undefined, true);
+    updateContacts(contacts, owner, items => { items[0].allow = true; });
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line) => { lines.push(String(line)); });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const pending = networkCommand('worker', ['start', '--key', key, '--relay', relay.url,
-      '--allow-private-relay', '--yes', '--once', '--inbox', inbox,
+      '--allow-private-relay', '--contacts', contacts, '--yes', '--once', '--inbox', inbox,
       '--on-receive', [process.execPath, hook, received, release, finished].map((p) => '"' + p + '"').join(' ')]);
     // Attach a rejection handler immediately, including on test failure.
     const done = pending.catch((error: unknown) => error);
@@ -168,9 +175,9 @@ describe('Sprint 1 accepted task inbox', () => {
         title: 'CLI inbox', description: 'CLI regression', input: { message: 'from CLI' } });
     } finally {
       await writeFile(release, 'release');
-      await vi.waitFor(async () => expect(await readFile(finished, 'utf8')).toBe('done'), { timeout: 5000 });
       await relay.close();
       await done;
     }
+    await vi.waitFor(async () => expect(await readFile(finished, 'utf8')).toBe('done'), { timeout: 5000 });
   });
 });

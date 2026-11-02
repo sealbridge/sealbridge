@@ -80,7 +80,7 @@ describe('imported invitation string storage', () => {
     const local = await resolveStoredIdentity('requester', options);
     const approve = (owner: typeof local) => ({ approve: vi.fn(async r =>
       signApproval(r.taskId, r.gate, r.target, owner, 'APPROVED')) });
-    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl: 'https://relay.example',
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
       approvalProvider: approve(workerOwner) });
     const token = worker.invite(), log = vi.spyOn(console, 'log').mockImplementation(() => {});

@@ -47,10 +47,10 @@ import/open discovery require releases exposing those commands and tools.
 
 ## Manifest protocol versions / マニフェストのプロトコル版
 
-Library APIs validate manifests 0.1.0/0.2.0 and track peer versions; default sending remains 0.1.0.
+Live paths negotiate manifest 0.1.0/0.2.0 and prefer 0.2.0 when advertised. The release clock is unset for pre-release builds. Packaging permits this state; public publishing requires a configured instant and `pnpm run check:protocol-release`.
 See [protocol versions](docs/connections/protocol-versions.md) for explicit policy and storage behavior.
 
-ライブラリはマニフェスト0.1.0/0.2.0の検証と相手の版の記録を提供し、既定の送信は0.1.0を維持します。
+ライブ経路は対応版を選び、相手が対応すれば0.2.0を優先します。公開前は時刻未設定でもパッケージを作成できます。公開時はリリース時刻を設定し、`pnpm run check:protocol-release` を実行します。
 明示的な方針と保存動作は[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
 
 ## Role determination / 役割の判断
@@ -159,7 +159,7 @@ For the optional audit paths below, create the audit directory first:
    to the human owner so they can share it with the requester's owner:
 
    ```text
-   pnpm sealbridge worker start [--relay <URL>] --adapter <sandbox|command|claude|codex|openai> [--cmd "..."] [--name "..."] [--once] [--auto-accept] [--allow-requester <did>] [--allow-any-requester] [--publish] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-tool-invocations <n>] [--max-wall-clock-seconds <n>] [--max-concurrent-tasks <n>] [--max-requests-per-minute <n>] [--audit ~/.acp/worker-audit.jsonl] [--allow-private-relay]
+   pnpm sealbridge worker start [--relay <URL>] --adapter <sandbox|command|claude|codex|openai> [--cmd "..."] [--name "..."] [--once] [--auto-accept] [--allow-requester <did>] [--publish] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-tool-invocations <n>] [--max-wall-clock-seconds <n>] [--max-concurrent-tasks <n>] [--max-requests-per-minute <n>] [--audit ~/.acp/worker-audit.jsonl] [--allow-private-relay]
    ```
 
    For a JSON echo worker on the public relay, a runnable starting point is:
@@ -236,8 +236,7 @@ For the optional audit paths below, create the audit directory first:
    `--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and
    `--max-wall-clock-seconds` reject larger proposals before `ACCEPT`.
    `--max-concurrent-tasks` defaults to 8. `--max-requests-per-minute` limits
-   one requester DID. With `--adapter claude`, `codex`, or `openai`,
-   `--auto-accept` requires `--allow-requester <did>`, `--allow-any-requester`, or a current trusted peer grant.
+   one requester DID. With LLM adapters, automatic policy remains limited by host settings; connection-derived tasks always require inspection and human opening.
    公開ディレクトリへの登録は `--publish` だけです。LLM アダプタの
    `--auto-accept` には依頼者の許可が必要です。予算・同時実行・レートの
    上限を超える提案は受諾しません。
@@ -309,51 +308,28 @@ text is echoed. The existing token-free JSON result includes `alias`, `workerRef
 端末では `--paste` を使います。位置引数・`--paste`・`--stdin` は併用できません。
 入力リンクや読み取りエラーの内容は出力せず、既存のトークンを含まない JSON 形式で結果を返します。
 
-## Worker peer review / ワーカーの依頼者審査
+## Connections and held review / つながりと保留の審査
 
-Open workers quarantine unknown peers and return terminal `PENDING_OWNER_APPROVAL`;
-do not retry automatically. No task is accepted or executed while pending.
-Only the human worker owner runs `sealbridge requests list`, `requests approve ID`
-(default limited), `requests approve ID --trust trusted`, or `requests deny ID`.
-Decisions require a human TTY; agents must not answer that confirmation for the owner.
-Use the same worker identity/data root, with `--key FILE` when explicitly selected.
-Review admits a peer and never resumes or replays the original task. A requester
-owner must explicitly start a fresh delegation after review. Limited peers require
-separate owner approval before LLM execution; trusted grants still require an enabled
-automatic policy for automatic execution. `--allowed-peer DID` intersects all trust
-and allow flags for worker session receives/sends; excluded peers get no response.
+Follow [connections admission](docs/connections/admission.md) and the [Japanese workflow](docs/connections/admission.ja.md).
+Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
+Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.
+Task approval and durable connection consent are separate; without explicit consent, attach no connection request.
+Connected is indefinite limited, with inspection and owner opening for every task. The default inspection provider is unavailable.
+`requests approve --trust trusted` is a separate legacy 24-hour grant path. Connections never create trusted authority.
 
+未接続の依頼は終端の保留で、自動再試行しません。人間の接続確認には所有者本人が答えます。
+取り込み・プレビューは同意ではありません。接続の確認時はローカルの役割・DID と相手の所有者 DID を表示します。
+依頼の承認と接続への同意を別に確認し、接続に同意がなければ申し込みを添付しません。
+接続は期限なしの limited で、毎回の検査と所有者が開く操作が必要です。既定の検査は利用不可です。
 
-Requester CLI/MCP holds are retained locally for 24 hours with task/input in
-`<data-root>/requesters/<requester-did-hash>/pending.private.json` (POSIX 0600).
-`sealbridge pending list` shows local observations; after owner review, explicitly
-run `sealbridge pending resubmit ID` with fresh audit/output paths, or
-`sealbridge pending remove ID`. Use the same requester key/data root (`--key FILE`
-when explicit). MCP adds `acp_list_pending_requests {}` and
-`acp_resubmit_pending_request {pendingId}`. A fresh task ID is generated and current
-relay/worker checks and approval policy, including required MCP elicitation, apply.
-Another hold updates the same record; completion resolves it; other errors mark it
-failed. Retention is not renewed; expired entries are pruned on the next store update. Results include a local pending ID and original
-task ID for out-of-band review, without invitation material or stored task content.
-Saved workerRef targets retain only their reference, not a copied invitation token,
-and resolve it again on explicit resubmission.
-Listing never learns remote approval status or retries; remote probes/notifications
-are deferred. CLI exit 3 and `retryable:false` remain unchanged.
-依頼側の保留はタスク・入力とともに既存データルートへ24時間保存します。
-`pending list` は最後のローカル観測を表示し、所有者の審査後に `pending resubmit ID`
-で明示的に新しいタスクを送るか、`pending remove ID` で削除します。
-同じ依頼者鍵を使い、監査・出力には未使用パスを指定します。MCP は上記2ツールを追加し、
-現在の送信先確認・承認を適用します。再保留は更新、完了は resolved、その他のエラーは failed
-として記録し、保存期限は延長せず、期限切れは次の保存更新時に削除します。一覧・エラーに招待情報・保存済み本文は含めません。
-遠隔の承認状態の取得・通知は今後の検討事項で、自動再送はしません。
-
-### Connection state persistence / つながりの状態と永続化
-
-Preparatory connection APIs persist owner-local consent and lifecycle decisions; connected means indefinite limited.
-See [connection state persistence](docs/connections/connection-state.md) for caller requirements and v1/v2 compatibility.
-
-準備段階のつながりAPIは所有者のローカルな同意・状態を保存し、connected は期限なしの limited に対応します。
-呼び出し側の要件とv1/v2の互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
+```sh
+sealbridge connections list --role worker
+sealbridge requests list --role worker
+sealbridge requests show REQUEST_ID
+sealbridge requests approve REQUEST_ID
+sealbridge connections confirm-invite reviewer --role requester
+sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+```
 
 ## Requester flow / 発注側
 
@@ -401,9 +377,9 @@ See [connection state persistence](docs/connections/connection-state.md) for cal
    do not claim settlement or silently retry paid work.
 
 The preparatory connection exchange library uses injected persistence, inspection, owner review and transport.
-Existing CLI/MCP workflows remain unchanged until PR5; see [connection exchange](docs/connections/connection-exchange.md).
+CLI/MCP and worker listeners attach the signed control exchange; see [connection exchange](docs/connections/connection-exchange.md).
 つながり交換ライブラリは永続化・検査・所有者確認・通信を注入します。
-既存の CLI/MCP は PR5 の切替まで変わりません。[つながり交換の説明](docs/connections/connection-exchange.ja.md)を参照してください。
+CLI/MCP とワーカーの待受は署名付きの制御交換を使います。[つながり交換の説明](docs/connections/connection-exchange.ja.md)を参照してください。
 
 ## Discovery and invite utilities / 検索・招待ユーティリティ
 
@@ -438,26 +414,16 @@ allowlist. `acp_inspect_revocations` reads this process's revocation registry.
 
 For no-invite discovery with an unflagged MCP server:
 
-1. Call `acp_discover_workers {}` (default relay, open workers only).
+1. Call `acp_discover_workers {}` (default relay, all verified published cards).
 2. Select a result and pass its `workerDid` and `relayUrl` unchanged to
    `acp_delegate_task {workerDid,relayUrl,title,description,input}`.
    An omitted single-worker description defaults to the title.
 
-Optional discovery filters are `accessMode: "open" | "invite-only" | "all"`,
-`skillId`, and `taskType`. MCP defaults to open; CLI `discover` still lists all
-modes. Missing legacy modes mean invite-only. Current cards are resolved before
-filtering; invalid, expired, and mismatched-relay cards are omitted. Worker owners
-choose `--open` and `--publish` independently. Publication does not approve work;
-`acceptance: "worker_decides"` records that the worker still decides. Unknown
-tokenless peers receive terminal `PENDING_OWNER_APPROVAL` (`retryable: false`),
-without worker approval-provider or adapter invocation. Owner intake review admits
-the peer without replaying the task; the requester owner must explicitly start a
-fresh delegation through the normal approval and execution path. An invite-only
-DID requires an invite unless that requester is explicitly allowed. Explicit
-operator allowlists still apply. Return refusals without switching workers or
-retrying. Names, descriptions, and schemas are publisher-provided data.
-MCP では検索結果の DID・中継器をそのまま委任に渡します。公開と open 設定、
-タスクの承認はそれぞれ独立しています。
+Optional discovery filters are `skillId` and `taskType`. The removed `accessMode` parameter returns JSON-RPC -32602.
+Directory publication is explicit with `--publish`; it does not approve a connection or task. Legacy signed cards are verified intact.
+Use `acp_list_connections {}` and `acp_list_connection_requests {}` for the server signer's local metadata. Owner decisions stay in the human CLI.
+Unconnected requests return terminal `PENDING_OWNER_APPROVAL` (`retryable:false`). Report a refusal without switching workers or retrying.
+MCP 検索は掲載済みのカード全件が対象です。掲載は同意ではなく、判断は人間用 CLI で行います。保留は自動再送しません。
 
 ```sh
 pnpm sealbridge mcp-server [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]
@@ -498,7 +464,7 @@ Hosts authorize review and manage acknowledgements and cleanup; see the [library
 保留内容の API は暗号化済みの封筒を保存し、内容表示に検査完了の受領書を要求します。
 ホストが審査の承認・受信確認・削除を管理します。[ライブラリ契約](docs/connections/held-content.ja.md)を参照してください。
 
-## Strict security and safety rules / 安全上の鉄則
+## Owner operation rules / 所有者の操作規則
 
 - Never print, log, commit, or transmit the contents of `*.private.json`, API
   keys, or `.env` in chat history, logs, or Git commits. Only `did:key:...`

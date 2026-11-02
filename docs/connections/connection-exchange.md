@@ -1,10 +1,10 @@
-# Connection exchange (preparatory)
+# Connection exchange
 
 `@acp/core` exports `ConnectionRequest`, `ConnectionAccepted`, `ConnectionAck`
 and their bounded validators and signing/verification helpers. `@acp/runtime`
 exports `ConnectionService` and encrypted control frame helpers. Embedders supply
 atomic persistence, held-content inspection, human review and transport ports;
-there is no default connection store or human-review provider. Outgoing consent
+`StoredConnectionExchange` attaches the owner-local store, while human review remains host supplied. Outgoing consent
 is recorded before sending, and invite first use binds the verified owner DID
 atomically with limited consent and an acceptance outbox. Importing an invite
 does not connect its recipient. Control delivery is independent of task execution.
@@ -45,7 +45,4 @@ because the current relay rejects repeated envelope IDs. ACKs are persisted with
 acceptance application before relay acknowledgement; repeated acceptance requeues
 the original ACK. A send failure reports `CONNECTION_DELIVERY_PENDING`.
 
-PR3 is one of four independent foundations. Operational defaults, existing files,
-CLI/MCP names and flags remain unchanged until the cutover PR (PR5). That PR supplies
-storage/review adapters, new commands and task-independent WorkerNode listeners.
-Deploy relay routing before activating that cutover.
+See [connections admission](admission.md) for the live CLI/MCP, explicit consent and migration workflows.

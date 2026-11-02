@@ -960,7 +960,7 @@ describe('M3.1 invite SSRF guard', () => {
 
 it('auto-signs WorkerNode and RequesterClient receives against a strict in-memory relay', async () => {
   const relay = new InMemoryRelay({ requireAuth: true });
-  const worker = new WorkerNode({
+  const worker = new WorkerNode({ checkPeer: () => 'trusted',
     owner: bob,
     relay,
     adapter: new SandboxAgentAdapter(),

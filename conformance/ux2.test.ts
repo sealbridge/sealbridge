@@ -21,7 +21,7 @@ function fixture() {
   const owner = generateKeyPair(), worker = generateKeyPair();
   const budget = { maxInputTokens: 100, maxOutputTokens: 100, maxToolInvocations: 2, maxWallClockSeconds: 30 };
   const card = createSignedAgentCard({ name: 'Worker', agentDid: worker.did, relayEndpoint: relayUrl,
-    accessMode: 'open', openPolicy: budget, skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }] }, worker);
+     skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }] }, worker);
   const input = { privateTask: 'not on the board' };
   const post = createPost(owner, { what: 'JSON task', skillId: 'echo', taskType: 'json', relay: relayUrl,
     budget, deadline: new Date(Date.now() + 3600000).toISOString() }, input);
@@ -88,44 +88,44 @@ describe('UX-2 board', () => {
     expect(() => verifyPost(signPayload({ ...post.payload, input: 'secret' }, owner))).toThrow();
     expect(() => verifyPost(post, Date.parse(post.payload.deadline))).toThrow();
   });
-  it('pre-validates signed policies and hides forged discovery cards', () => {
-    const { post, card, worker } = fixture();
+  it('checks signed skills and connection eligibility without retired policy fields', () => {
+    const { post, card } = fixture();
     expect(candidateFit(post, card)).toEqual([]);
-    const small = createSignedAgentCard({ ...card.payload, openPolicy: { maxInputTokens: 1 } }, worker);
-    expect(candidateFit(post, small)).toContain('maxInputTokens: job asks for 100, worker allows 1');
-    const bad = structuredClone(card); bad.payload.openPolicy = {};
+    expect(boardCandidates(post, [card])[0].reasons).toContain('CONNECTION_REQUIRED');
+    expect(boardCandidates(post, [card], () => true)[0].reasons).toEqual([]);
+    const bad = structuredClone(card); bad.payload.name = 'changed';
     expect(boardCandidates(post, [bad])).toEqual([]);
   });
   it('binds claims to authenticated owner, post and candidate policy', () => {
     const { path, owner, worker, post, card } = fixture();
     expect(() => claimPost(path, owner, post, card, owner.did, 'claim')).toThrow();
-    const lease = claimPost(path, owner, post, card, worker.did, 'claim');
+    const lease = claimPost(path, owner, post, card, worker.did, 'claim', Date.now(), () => true);
     expect(lease.accepted).toBe(false);
-    expect(() => claimPost(path, owner, post, card, worker.did, 'second')).toThrow('CLAIM_LOST');
+    expect(() => claimPost(path, owner, post, card, worker.did, 'second', Date.now(), () => true)).toThrow('CLAIM_LOST');
   });
   it('does not release input before approval or permit wrong input / replay', () => {
     const { path, owner, worker, post, card, input } = fixture();
-    const lease = claimPost(path, owner, post, card, worker.did, 'claim');
-    expect(() => consumeLease(path, owner, post, input)).toThrow('CLAIM_LOST');
+    const lease = claimPost(path, owner, post, card, worker.did, 'claim', Date.now(), () => true);
+    expect(() => consumeLease(path, owner, post, input, Date.now(), () => true)).toThrow('CLAIM_LOST');
     writeFileSync(path, JSON.stringify(signPayload({ ...lease, accepted: true }, owner)));
     expect(() => consumeLease(path, owner, post, { different: true })).toThrow('INVALID_BOARD_INPUT');
-    expect(consumeLease(path, owner, post, input).consumed).toBe(true);
-    expect(() => consumeLease(path, owner, post, input)).toThrow('CLAIM_LOST');
-    expect(() => claimPost(path, owner, post, card, worker.did, 'again', Date.now() + 400000)).toThrow('CLAIM_LOST');
+    expect(consumeLease(path, owner, post, input, Date.now(), () => true).consumed).toBe(true);
+    expect(() => consumeLease(path, owner, post, input, Date.now(), () => true)).toThrow('CLAIM_LOST');
+    expect(() => claimPost(path, owner, post, card, worker.did, 'again', Date.now() + 400000, () => true)).toThrow('CLAIM_LOST');
   });
   it('allows a new lease after expiry but rejects stale dispatch', () => {
     const { path, owner, worker, post, card, input } = fixture();
-    const lease = claimPost(path, owner, post, card, worker.did, 'claim');
+    const lease = claimPost(path, owner, post, card, worker.did, 'claim', Date.now(), () => true);
     expect(() => consumeLease(path, owner, post, input, Date.now() + 400000)).toThrow('CLAIM_LOST');
-    expect(claimPost(path, owner, post, card, worker.did, 'new', Date.now() + 400000).nonce).not.toBe(lease.nonce);
+    expect(claimPost(path, owner, post, card, worker.did, 'new', Date.now() + 400000, () => true).nonce).not.toBe(lease.nonce);
   });
   it.each(['--yes', '--auto-approve'])('refuses board auto approval %s', flag =>
     expect(boardCommand(['claim', flag, 'true'])).rejects.toThrow('INVALID_BOARD_OPTION'));
   it('settles a normal encrypted metadata claim before permitting dispatch', async () => {
     const { owner, worker, post, card, path, input } = fixture();
     const relay = new InMemoryRelay();
-    const host = boardHost(post, owner, path, new PolicyAutoApprovalProvider(owner));
-    const node = new WorkerNode({ owner, relay, relayUrl, accessMode: 'open', allowAnyRequester: true, ...host, timeoutMs: 4000 });
+    const host = boardHost(post, owner, path, new PolicyAutoApprovalProvider(owner), () => true);
+    const node = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl,   ...host, timeoutMs: 4000 });
     await node.register();
     const client = new RequesterClient({ owner: worker, relay, timeoutMs: 4000, approvalProvider: new PolicyAutoApprovalProvider(worker) });
     const done = node.start({ once: true });
@@ -135,7 +135,7 @@ describe('UX-2 board', () => {
         description: JSON.stringify({ postId: post.payload.id, card }), input: { postId: post.payload.id } }), done]);
       expect(result.state).toBe('SETTLED');
       expect(JSON.stringify(result.deliverable)).not.toContain(input.privateTask);
-      expect(consumeLease(path, owner, post, input).workerDid).toBe(worker.did);
+      expect(consumeLease(path, owner, post, input, Date.now(), () => true).workerDid).toBe(worker.did);
     } finally { node.stop(); }
   });
 });
@@ -149,7 +149,7 @@ describe('UX-2 persistent daily limit', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
       let calls = 0;
-      const worker = new WorkerNode({ owner, relay, accessMode: 'open', allowAnyRequester: true, timeoutMs: 3000,
+      const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay,   timeoutMs: 3000,
         dailyLimit: { path, maxTasks: 1 }, approvalProvider: new PolicyAutoApprovalProvider(owner),
         adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo' }],
           async executeTask(ctx) { calls++; return ctx.input; } } });
@@ -200,7 +200,7 @@ describe('UX-2 persistent daily limit', () => {
     const outcomes = await Promise.all(Array.from({ length: 8 }, (_, i) => child(
       `import {readFileSync} from 'node:fs'; import {claimPost} from ${JSON.stringify(url)};
        const f = JSON.parse(readFileSync(${JSON.stringify(dataPath)},'utf8'));
-       try { claimPost(${JSON.stringify(path)}, f.owner, f.post, f.card, f.worker.did, 'claim-${i}'); } catch { process.exitCode=2; }`)));
+       try { claimPost(${JSON.stringify(path)}, f.owner, f.post, f.card, f.worker.did, 'claim-${i}', Date.now(), () => true); } catch { process.exitCode=2; }`)));
     expect(outcomes.filter(n => n === 0)).toHaveLength(1);
   });
 });
@@ -210,10 +210,10 @@ describe('UX-2 public settings', () => {
     maxToolCalls: 2, maxWallSeconds: 30, maxJobsPerPersonPerMinute: 4, maxJobsPerDay: 20, alwaysAsk: true };
   it('maps settings to existing flags without implicit automatic acceptance', () => {
     const flags = publicSettingsFlags(settings);
-    expect(flags).toContain('--open-rate-limit-per-did');
+    expect(flags).toContain('--max-requests-per-minute');
     expect(flags).toContain('--max-tasks-per-day');
     expect(flags).not.toContain('--auto-accept');
-    expect(publicSettingsFlags({ ...settings, alwaysAsk: false })).toContain('--allow-any-requester');
+    expect(() => publicSettingsFlags({ ...settings, alwaysAsk: false })).toThrow('CONNECTION_OPENING_REQUIRED');
     expect(publicSettingsFlags({ ...settings, public: false })).not.toContain('--publish');
   });
   it('previews actual signed policy without registering', async () => {
@@ -226,6 +226,6 @@ describe('UX-2 public settings', () => {
     const profile = JSON.parse(String(log.mock.calls[0][0]));
     expect(profile.perJob.maxInputTokens).toBe(50);
     expect(profile.hostLimits).toMatchObject({ perPersonPerMinute: 4, perDay: 20, dayReset: '00:00 UTC' });
-    expect(profile.approval).toBe('Owner approval required');
+    expect(profile.approval).toBe('Inspection and owner opening required for limited peers');
   });
 });

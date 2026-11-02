@@ -10,6 +10,8 @@ import { WorkerNode, RequesterClient, PolicyAutoApprovalProvider, WorkerTrustSto
   AcpMcpServer } from '../packages/runtime/src/index.js';
 import type { WorkerNodeOptions } from '../packages/runtime/src/index.js';
 import type { SignedEnvelope } from '../packages/core/src/index.js';
+import { HeldRequestReview } from '../packages/runtime/src/held-request-review.js';
+import { completeInspection } from './connections-fixture.js';
 let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-intake-'));
@@ -17,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 const task = { title: 'Review\u001b[31m', description: 'Review request', input: { privateTaskText: 'do not store in intake' } };
-function fixture(options: Partial<WorkerNodeOptions> = {}) {
+function fixture(options: Partial<WorkerNodeOptions> = {}, inspect = false) {
   const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
   const frames: SignedEnvelope[] = [], send = relay.send.bind(relay);
   relay.send = e => { frames.push(e); return send(e); };
@@ -25,8 +27,9 @@ function fixture(options: Partial<WorkerNodeOptions> = {}) {
   const provider = new PolicyAutoApprovalProvider(owner);
   const approve = vi.spyOn(provider, 'approve');
   const store = new WorkerTrustStore(owner);
-  const worker = new WorkerNode({ owner, relay, adapter, accessMode: 'open', timeoutMs: 1000,
-    approvalProvider: provider, intakeStore: store, ...options });
+  const worker = new WorkerNode({ owner, relay, adapter,  timeoutMs: 1000,
+    approvalProvider: provider, intakeStore: store,
+    heldReview: new HeldRequestReview(owner, { env: { SEALBRIDGE_DATA_DIR: root }, provider: inspect ? completeInspection : undefined }), ...options });
   const client = new RequesterClient({ owner: requester, relay, timeoutMs: 1000,
     approvalProvider: new PolicyAutoApprovalProvider(requester) });
   async function attempt(to = owner.did) {
@@ -44,7 +47,7 @@ it('quarantines validated unknown input without ACCEPT, adapter, inbox, or recei
   expect(hook).not.toHaveBeenCalled(); expect(existsSync(inbox)).toBe(false);
   expect(f.store.list()).toHaveLength(1);
   expect(JSON.stringify(f.store.list())).not.toContain('privateTaskText');
-  expect(f.store.list()[0].title).toContain('\\u001b');
+  expect(f.store.list()[0]).not.toHaveProperty('title');
   const outgoing = f.frames.filter(e => e.payload.senderDid === f.owner.did);
   expect(outgoing.map(e => e.payload.eventType)).toEqual(['ERROR']);
   expect(openEnvelope(outgoing[0], f.requester)).toMatchObject({ code: 'PENDING_OWNER_APPROVAL',
@@ -55,23 +58,23 @@ it('quarantines validated unknown input without ACCEPT, adapter, inbox, or recei
   await f.attempt(); expect(f.store.list()).toHaveLength(1);
 });
 it('requires a separate owner channel for limited LLM peers, even with automatic policy', async () => {
-  const f = fixture({ adapterKind: 'llm', automaticApproval: true });
+  const f = fixture({ adapterKind: 'llm', automaticApproval: true }, true);
   const results = await f.attempt(f.worker.invite());
   expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'APPROVAL_CHANNEL_UNAVAILABLE' } });
   expect(f.approve).not.toHaveBeenCalled(); expect(f.adapter.executeTask).not.toHaveBeenCalled();
   const ownerDecision = new PolicyAutoApprovalProvider(f.owner), reviewed = vi.spyOn(ownerDecision, 'approve');
-  f.worker.options.ownerApprovalProvider = ownerDecision;
+  f.worker.options.ownerApprovalProvider = { kind: 'human', approve: ownerDecision.approve.bind(ownerDecision) };
   expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
   expect(reviewed).toHaveBeenCalledOnce(); expect(f.approve).not.toHaveBeenCalled();
 });
-it.each(['limited', 'trusted'] as const)('admits a fresh tokenless task with a %s grant; never replays the queued task', async trust => {
+it.each(['limited', 'trusted'] as const)('uses only the explicit legacy trusted path for a fresh task (%s)', async trust => {
   const f = fixture({ adapterKind: 'llm', automaticApproval: true });
   await f.attempt(); const request = f.store.list()[0];
   f.store.decide(request.id, 'approve', trust);
   if (trust === 'limited') f.worker.options.ownerApprovalProvider = new PolicyAutoApprovalProvider(f.owner);
   expect(f.adapter.executeTask).not.toHaveBeenCalled();
-  expect((await f.attempt())[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
-  expect(f.adapter.executeTask).toHaveBeenCalledOnce();
+  expect((await f.attempt())[0]).toMatchObject(trust === 'trusted' ? { status: 'fulfilled', value: { state: 'SETTLED' } } : { status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  expect(f.adapter.executeTask).toHaveBeenCalledTimes(trust === 'trusted' ? 1 : 0);
   expect(f.approve).toHaveBeenCalledTimes(trust === 'trusted' ? 1 : 0);
   f.store.decide(request.id, 'deny');
   const count = f.frames.filter(e => e.payload.senderDid === f.owner.did).length;
@@ -81,22 +84,19 @@ it.each(['limited', 'trusted'] as const)('admits a fresh tokenless task with a %
   await f.worker.runOnce().catch(() => undefined);
   expect(f.frames.filter(e => e.payload.senderDid === f.owner.did)).toHaveLength(count);
 });
-it.each(['allow', 'any'] as const)('preserves explicit %s elevation and automatic acceptance', async kind => {
+it.each(['allow', 'any'] as const)('does not elevate the %s admission option to trusted', async kind => {
   const f = fixture({ adapterKind: 'llm', automaticApproval: true });
-  if (kind === 'any') f.worker.acceptance.allowAnyRequester = true;
+  if (kind === 'any') Object.assign(f.worker.acceptance, { allowAnyRequester: true });
   else f.worker.acceptance.allowedRequesterDids = [f.requester.did];
-  expect((await f.attempt())[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: kind === 'any' ? 'ACCESS_MODE_REMOVED' : 'PENDING_OWNER_APPROVAL' } });
+  expect(f.store.list()).toHaveLength(kind === 'any' ? 0 : 1);
+});
+it('keeps explicit requester exclusions outside the pending queue', async () => {
+  const f = fixture({ allowedRequesterDids: ['did:key:other'] });
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'PROPOSAL_REJECTED' } });
   expect(f.store.list()).toEqual([]);
 });
-it('keeps invite-only and explicit requester exclusions outside the pending queue', async () => {
-  for (const options of [{ accessMode: 'invite-only' as const }, { allowedRequesterDids: ['did:key:other'] }]) {
-    const f = fixture(options);
-    const results = await f.attempt();
-    expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: options.accessMode ? 'INVITE_REQUIRED' : 'PROPOSAL_REJECTED' } });
-    expect(f.store.list()).toEqual([]);
-  }
-});
-it('checks expired invite revocations before open fallback', async () => {
+it('checks expired invite revocations before expiry rejection', async () => {
   const registry = new RevocationRegistry(), f = fixture({ revocation: registry });
   const token = f.worker.invite(1), realNow = Date.now();
   registry.revoke(createRevocationNotice({ targetType: 'invite', targetId: token, reason: 'owner decision' }, f.owner));
@@ -108,7 +108,7 @@ it('checks expired invite revocations before open fallback', async () => {
   await expect(f.worker.runOnce()).rejects.toThrow('TOKEN_REVOKED'); expect(f.store.list()).toEqual([]);
 });
 it('drops excluded peers without any outgoing worker frame, including recovery', async () => {
-  const f = fixture({ allowedPeerDids: [], allowAnyRequester: true, inboxPath: join(root, 'inbox') });
+  const f = fixture({ allowedPeerDids: [], inboxPath: join(root, 'inbox') });
   const m = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Excluded', description: 'Excluded' });
   f.relay.send(signEnvelope({ taskId: m.taskId, recipientDid: f.owner.did, seq: 0, eventType: 'PROPOSE',
     payload: { proposal: signPayload(m, f.requester), input: {}, capabilityChains: [] } as never }, f.requester, { encrypt: true }));
@@ -129,7 +129,7 @@ it('reports exact terminal pending status through MCP without retrying', async (
   expect(JSON.parse(response.result.content[0].text)).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', retryable: false, pendingId: expect.any(String), nextStep: expect.stringContaining('pending resubmit') });
   expect(f.frames.filter(e => e.payload.eventType === 'PROPOSE')).toHaveLength(1);
 });
-it('rereads a denial before progress or delivery from an already running adapter', async () => {
+it('keeps accepted work running after a peer is blocked', async () => {
   const f = fixture(); await f.attempt(); const id = f.store.list()[0].id;
   f.store.decide(id, 'approve', 'trusted');
   f.adapter.executeTask.mockImplementationOnce(async ctx => {
@@ -139,9 +139,10 @@ it('rereads a denial before progress or delivery from an already running adapter
   });
   const prior = f.frames.length;
   const results = await f.attempt();
-  expect(results[0].status).toBe('rejected');
+  expect(results[0].status).toBe('fulfilled');
   const sent = f.frames.slice(prior).filter(e => e.payload.senderDid === f.owner.did);
-  expect(sent.some(e => ['PROGRESS', 'DELIVER', 'ERROR'].includes(e.payload.eventType))).toBe(false);
+  expect(sent.some(e => e.payload.eventType === 'PROGRESS')).toBe(true);
+  expect(sent.some(e => e.payload.eventType === 'DELIVER')).toBe(true);
 });
 it('reconciles a queue-backed received checkpoint to terminal pending after restart', async () => {
   const f = fixture({ inboxPath: join(root, 'recovery') }); await f.attempt();
@@ -170,6 +171,7 @@ it('does not acknowledge a proposal or execute when durable intake publication f
 it('requires fresh task IDs after admission, including when input or digest changes', async () => {
   const f = fixture();
   const manifest = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Original', description: 'Original' });
+  await f.worker.register();
   const attempt = () => Promise.allSettled([f.client.delegate({ ...task, to: f.owner.did, manifest }), f.worker.start({ once: true })]);
   await attempt(); f.store.decide(f.store.list()[0].id, 'approve', 'trusted');
   manifest.task.description = 'Changed proposal with the same task ID';

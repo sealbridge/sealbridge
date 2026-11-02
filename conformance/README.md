@@ -91,3 +91,7 @@ TCP binding denied with EPERM/EACCES automatically selects a Web fetch bridge.
 Force that path with `ACP_TEST_FETCH_BRIDGE=1 pnpm exec vitest run
 conformance/network-collab.test.ts`. Real keys/provider billing are unnecessary;
 provider responses and credentials in the tests are synthetic fixtures.
+
+Connections cutover coverage uses temporary owner-local roots, injected clocks, InMemoryRelay and fake human/inspection ports. `connections-admission`, `connections-cli`, `connections-mcp`, `connections-board` and `connections-migration` cover live admission and compatibility. Run `pnpm test --exclude conformance/codex-proxy-real.test.ts` for the offline suite; listener tests require localhost binding. No provider credentials or real keychain are used.
+
+接続の切替テストは一時データルート・注入した時計・メモリ内リレーを使います。既定の検査は利用不可のままで、検査完了はテスト専用のプロバイダーで確認します。localhost の待受が必要な既存テストがあります。

@@ -309,7 +309,7 @@ describe('queued envelope expiry notices', () => {
   it('surfaces queued task expiry to the requester as a task error rather than a generic timeout', async () => {
     const relay = new InMemoryRelay({ envelopeTtlMs: 50 });
     const handler = createRelayFetchHandler({ relay });
-    const worker = new WorkerNode({ owner: recipient, relay: client(handler, recipient), relayUrl: origin,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: recipient, relay: client(handler, recipient), relayUrl: origin,
       adapter: { id: 'offline', name: 'offline', skills: [], async executeTask() { return {}; } },
       approvalProvider: new PolicyAutoApprovalProvider(recipient) });
     const requester = new RequesterClient({ owner: sender, relay: client(handler), timeoutMs: 5000,
@@ -324,9 +324,9 @@ it('keeps a shared requester inbox usable after another task expires', async () 
   const relay = new InMemoryRelay({ envelopeTtlMs: 500 });
   const handler = createRelayFetchHandler({ relay });
   const adapter = { id: 'echo', name: 'echo', skills: [], async executeTask() { return { ok: true }; } };
-  const offline = new WorkerNode({ owner: recipient, relay: client(handler, recipient), relayUrl: origin,
+  const offline = new WorkerNode({ checkPeer: () => 'trusted', owner: recipient, relay: client(handler, recipient), relayUrl: origin,
     adapter, approvalProvider: new PolicyAutoApprovalProvider(recipient) });
-  const online = new WorkerNode({ owner: other, relay: client(handler, other), relayUrl: origin,
+  const online = new WorkerNode({ checkPeer: () => 'trusted', owner: other, relay: client(handler, other), relayUrl: origin,
     adapter, approvalProvider: new PolicyAutoApprovalProvider(other) });
   const requester = new RequesterClient({ owner: sender, relay: client(handler), timeoutMs: 5000,
     approvalProvider: new PolicyAutoApprovalProvider(sender) });

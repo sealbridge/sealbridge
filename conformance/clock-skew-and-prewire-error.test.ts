@@ -87,7 +87,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -97,7 +97,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
         executeTask: async (ctx) => ({ echoed: ctx.input }),
       },
       approvalProvider: new PolicyAutoApprovalProvider(bob),
-      allowAnyRequester: true,
+
       timeoutMs: 10_000,
     });
     const requester = new RequesterClient({
@@ -148,7 +148,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -158,7 +158,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
         executeTask: async (ctx) => ({ echoed: ctx.input }),
       },
       approvalProvider: new PolicyAutoApprovalProvider(bob),
-      allowAnyRequester: true,
+
       timeoutMs: 30_000,
     });
     const requester = new RequesterClient({

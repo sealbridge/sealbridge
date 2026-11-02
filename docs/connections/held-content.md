@@ -3,9 +3,7 @@
 [日本語](held-content.ja.md)
 
 `@acp/runtime` exports `HeldRequestStore`, `HeldRequestReview`, and the injected
-`HeldContentReviewProvider`. This is PR4 of four independent connections
-foundations. Operational defaults, live admission, CLI, MCP, board, data roots and
-identity files do not change until the cutover PR (PR5), after all four merge.
+`HeldContentReviewProvider`. Runtime, CLI and board attach these interfaces to live admission. Inspection is unavailable by default; see [connections admission](admission.md).
 
 The store retains original encrypted signed envelopes with owner-signed metadata
 under `<dataRoot>/quarantine/<sha256-local-owner-DID>/<id>.json`; summaries omit

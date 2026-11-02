@@ -13,19 +13,22 @@ import type { ConnectionData, ConnectionState, ConnectionTrust, ConnectionRecord
   PriorApprovedPeer, RecordIncomingConnection, RecordOutgoingConnection, ApproveConnectionInput,
   ApplyConnectionAcceptedInput, BindInviteFirstUseInput, ConnectionOutboxRecord, ConnectionPersistence } from './connection-records.js';
 
+import { validStoredControls } from './connection-persistence.js';
+import type { StoredControlRecord } from './connection-persistence.js';
+
 export type PeerTrust = 'unknown' | 'limited' | 'trusted' | 'denied';
 export interface IntakeRequest {
   id: string; requesterOwnerDid: string; requesterAgentDid: string; taskId: string; digest: string;
-  title: string; description: string; scope: { skillId?: string; taskType?: string }; budget: TaskManifest['budget']; capabilities: number;
+  title?: string; description?: string; scope: { skillId?: string; taskType?: string }; budget: TaskManifest['budget']; capabilities: number;
   receivedAt: number; expiresAt: number; state: 'pending' | 'approved' | 'denied' | 'expired';
   trust?: 'limited' | 'trusted';
 }
 interface LegacyTrustState {
   version: 1; workerOwnerDid: string; requests: IntakeRequest[];
-  grants: Array<{ did: string; trust: 'limited' | 'trusted'; expiresAt: number }>;
+  grants: Array<{ did: string; trust: 'limited' | 'trusted'; expiresAt: number; origin?: 'explicit-legacy' }>;
   denials: string[];
 }
-type ConnectionTrustState = Omit<LegacyTrustState, 'version'> & ConnectionData & { version: 2 };
+export type ConnectionTrustState = Omit<LegacyTrustState, 'version'> & ConnectionData & { version: 2; controls?: StoredControlRecord[] };
 type TrustState = LegacyTrustState | ConnectionTrustState;
 
 // A finite grant is evidence of a past decision, never a connection.
@@ -46,6 +49,7 @@ function priorApprovedPeers(state: TrustState): PriorApprovedPeer[] {
 }
 export interface WorkerIntakeStore {
   level(did: string): PeerTrust;
+  connectionState?(did: string): ConnectionState;
   enqueue(manifest: TaskManifest, input: Json): void;
   pendingTask(did: string, taskId: string, proposalDigest: string): boolean;
 }
@@ -60,7 +64,7 @@ function preview(value: string, length: number): string {
 }
 export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistence {
   private state: TrustState;
-  private times: Array<{ did: string; at: number }> = [];
+  private times: Array<{ did: string; at: number; id: string }> = [];
   private readonly io: typeof fs;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
@@ -107,7 +111,8 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
           s.grants.some(g => !g || !['limited', 'trusted'].includes(g.trust) ||
             typeof g.did !== 'string' || !Number.isFinite(g.expiresAt)) ||
           s.denials.some(d => typeof d !== 'string') ||
-          (s.version === 2 && (!validConnectionData(s, this.owner.did) ||
+          (s.version === 2 && ((!validConnectionData(s, this.owner.did) ||
+            (s.controls !== undefined && !validStoredControls(s.controls, this.owner.did))) ||
             s.connections.some(c => s.denials.includes(c.peerOwnerDid)) ||
             s.outbox.some(e => s.denials.includes(e.peerOwnerDid))))) throw new Error();
       return s;
@@ -142,9 +147,14 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       state.requests = [...state.requests.filter(r => r.state !== 'pending').slice(-100),
         ...state.requests.filter(r => r.state === 'pending')];
       if (state.version === 2) {
+        if (state.controls) state.controls = state.controls.filter(r => Date.parse(r.offer.expiresAt) > now);
+        if (state.controls && !validStoredControls(state.controls, this.owner.did)) throw new Error('INTAKE_STORE_INVALID');
         state.priorApprovedPeers = priorApprovedPeers(state);
         pruneConnectionData(state, now);
         assertConnectionCapacity(state);
+        if (new Set([...state.requests.filter(r => r.state === 'pending').map(r => r.requesterOwnerDid),
+          ...state.connections.filter(c => c.state === 'pending').map(c => c.peerOwnerDid)]).size > 100)
+          throw new Error('CONNECTION_STORE_FULL');
         if (!validConnectionData(state, this.owner.did)) throw new Error('INTAKE_STORE_INVALID');
       }
       const bytes = JSON.stringify(signPayload(state, this.owner, new Date(now).toISOString())) + '\n';
@@ -167,14 +177,23 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (locked) io.unlinkSync(path + '.lock');
     }
   }
+  get ownerDid(): string { return this.owner.did; }
+  controlSnapshot(): StoredControlRecord[] {
+    const s = this.read(); return s.version === 2 ? s.controls ?? [] : [];
+  }
+  updateControls<T>(change: (state: ConnectionTrustState) => T): T { return this.mutateConnections(change); }
   level(did: string): PeerTrust {
     const state = this.read();
     if (state.denials.includes(did)) return 'denied';
     return state.grants.find(g => g.did === did && g.expiresAt > this.now())?.trust ?? 'unknown';
   }
+  hasExplicitLegacyGrant(did: string): boolean {
+    const s = this.read();
+    return !s.denials.includes(did) && s.grants.some(g => g.did === did && g.trust === 'trusted' && g.origin === 'explicit-legacy' && g.expiresAt > this.now());
+  }
   hasTrustedGrant(): boolean {
     const s = this.read();
-    return s.grants.some(g => g.trust === 'trusted' && g.expiresAt > this.now() && !s.denials.includes(g.did));
+    return s.grants.some(g => g.trust === 'trusted' && g.origin === 'explicit-legacy' && g.expiresAt > this.now() && !s.denials.includes(g.did));
   }
   list(): IntakeRequest[] {
     return this.read().requests.map(r => r.state === 'pending' && r.expiresAt <= this.now() ? { ...r, state: 'expired' } : r);
@@ -231,7 +250,8 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (input.peerAgentDid) c.peerAgentDid = input.peerAgentDid;
       if ('outgoing' in input) c.outgoing = structuredClone(input.outgoing);
       else c.incoming = structuredClone(input.incoming);
-      if (s.requests.filter(r => r.state === 'pending').length + s.connections.filter(c => c.state === 'pending').length > 100)
+      if (new Set([...s.requests.filter(r => r.state === 'pending').map(r => r.requesterOwnerDid),
+        ...s.connections.filter(c => c.state === 'pending').map(c => c.peerOwnerDid)]).size > 100)
         throw new Error('CONNECTION_STORE_FULL');
     }, true);
   }
@@ -298,8 +318,29 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   private removeConnection(s: ConnectionTrustState, peerOwnerDid: string, removeLegacyGrants = true): void {
     assertConnectionOwnerDid(peerOwnerDid);
     s.connections = s.connections.filter(c => c.peerOwnerDid !== peerOwnerDid);
+    for (const r of s.controls ?? []) if (r.offer.fromOwnerDid === peerOwnerDid || r.offer.toOwnerDid === peerOwnerDid) {
+      r.active = false; r.outbox = [];
+    }
     if (removeLegacyGrants) s.grants = s.grants.filter(g => g.did !== peerOwnerDid);
     s.outbox = s.outbox.filter(e => e.peerOwnerDid !== peerOwnerDid);
+  }
+  withdrawConnection(peerOwnerDid: string, requestId: string): void {
+    this.mutateConnections(s => {
+      const c = s.connections.find(c => c.peerOwnerDid === peerOwnerDid);
+      if (!c?.outgoing || c.outgoing.requestId !== requestId || c.state !== 'pending') throw new Error('CONNECTION_NOT_FOUND');
+      for (const r of s.controls ?? []) if (r.offer.requestId === requestId) { r.active = false; r.outbox = []; }
+      delete c.outgoing;
+      if (!c.incoming) s.connections = s.connections.filter(r => r !== c);
+    });
+  }
+  finishRequestReview(id: string, discard = false): void {
+    this.mutate(s => {
+      const r = s.requests.find(r => r.id === id);
+      if (!r) throw new Error('REQUEST_NOT_FOUND');
+      if (r.state !== 'pending') throw new Error('REQUEST_ALREADY_DECIDED');
+      r.state = discard ? 'expired' : 'approved';
+      if (!discard) r.trust = 'limited';
+    });
   }
   disconnect(peerOwnerDid: string): void { this.mutateConnections(s => this.removeConnection(s, peerOwnerDid)); }
   block(peerOwnerDid: string): void {
@@ -312,6 +353,23 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
     this.mutateConnections(s => {
       this.removeConnection(s, peerOwnerDid);
       s.denials = s.denials.filter(d => d !== peerOwnerDid);
+    });
+  }
+  /** A validated task can redeem inviter consent without granting execution or recipient consent. */
+  redeemTaskInvite(invite: import('@acp/core').Invite, peer: ConnectionPeer, connectionId: string): 'first' | 'same' | 'other' | 'inactive' {
+    return this.mutateConnections(s => {
+      const inviteDigest = connectionInviteDigest(invite), deadline = Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt));
+      if (invite.ownerDid !== this.owner.did || deadline <= this.now() || !validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
+      const binding = s.inviteBindings.find(b => b.inviteDigest === inviteDigest);
+      if (binding) return binding.requesterOwnerDid !== peer.peerOwnerDid ? 'other' :
+        s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected') ? 'same' : 'inactive';
+      this.assertAvailable(s, peer.peerOwnerDid);
+      s.inviteBindings.push({ inviteDigest, requesterOwnerDid: peer.peerOwnerDid, boundAt: this.now(), tokenExpiresAt: deadline, connectionId });
+      if (!s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected')) {
+        s.connections = s.connections.filter(c => c.peerOwnerDid !== peer.peerOwnerDid);
+        s.connections.push({ ...peer, state: 'connected', connectionId, connectedAt: this.now(), source: 'invite', localConsentDigest: inviteDigest });
+      }
+      return 'first';
     });
   }
   bindInviteFirstUse(input: BindInviteFirstUseInput): 'first' | 'same' | 'other' {
@@ -351,11 +409,17 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       e.state = 'delivered';
     });
   }
+  /** One process-local limiter shared by task and connection intake on this store. */
+  consumeAdmission(did: string, id: string): void {
+    const now = this.now();
+    this.times = this.times.filter(t => now - t.at < 60_000);
+    if (this.times.some(t => t.did === did && t.id === id)) return;
+    if (this.times.length >= 60 || this.times.filter(t => t.did === did).length >= 5) throw new Error('INTAKE_RATE_LIMITED');
+    this.times.push({ did, at: now, id });
+  }
   enqueue(manifest: TaskManifest, input: Json): void {
     const now = this.now(), did = manifest.requester.ownerDid;
-    this.times = this.times.filter(t => now - t.at < 60_000);
-    if (this.times.length >= 60 || this.times.filter(t => t.did === did).length >= 5) throw new Error('INTAKE_RATE_LIMITED');
-    this.times.push({ did, at: now });
+    this.consumeAdmission(did, manifest.taskId);
     this.mutate(s => {
       if (s.denials.includes(did)) throw new Error('REQUEST_DENIED');
       if (s.requests.some(r => r.requesterOwnerDid === did &&
@@ -364,12 +428,11 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
           Buffer.byteLength(JSON.stringify(s)) > ceiling - 32 * 1024) throw new Error('INTAKE_QUEUE_FULL');
       const entry: IntakeRequest = { id: randomUUID(), requesterOwnerDid: did,
         requesterAgentDid: manifest.requester.agentDid, taskId: manifest.taskId,
-        digest: digest({ manifest, input }), title: preview(manifest.task.title, 100),
-        description: preview(manifest.task.description, 150),
+        digest: digest({ manifest, input }),
         scope: { ...(manifest.task.skillId ? { skillId: preview(manifest.task.skillId, 64) } : {}),
           ...(manifest.task.taskType ? { taskType: preview(manifest.task.taskType, 64) } : {}) }, budget: manifest.budget,
         capabilities: manifest.permissions.grantedCapabilities.length, receivedAt: now,
-        expiresAt: Math.min(Date.parse(manifest.deadline), now + 15 * 60_000), state: 'pending' };
+        expiresAt: Math.min(Date.parse(manifest.deadline), now + 24 * 60 * 60_000), state: 'pending' };
       if (Buffer.byteLength(JSON.stringify(entry)) > 4096) throw new Error('INTAKE_QUEUE_FULL');
       s.requests.push(entry);
     });
@@ -387,7 +450,7 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (r.state === 'expired') throw new Error('REQUEST_EXPIRED');
       if (r.state !== 'pending' || s.denials.includes(r.requesterOwnerDid)) throw new Error('REQUEST_ALREADY_DECIDED');
       s.grants = s.grants.filter(g => g.did !== r.requesterOwnerDid);
-      s.grants.push({ did: r.requesterOwnerDid, trust, expiresAt: this.now() + 24 * 60 * 60_000 });
+      s.grants.push({ did: r.requesterOwnerDid, trust, origin: 'explicit-legacy', expiresAt: this.now() + 24 * 60 * 60_000 });
       r.state = 'approved'; r.trust = trust;
     });
   }

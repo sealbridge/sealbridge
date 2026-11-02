@@ -135,7 +135,7 @@ describe('P1-8 require encrypted envelopes', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     let executed = 0;
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -165,7 +165,7 @@ describe('P1-8 require encrypted envelopes', () => {
       const alice = generateKeyPair();
       const bob = generateKeyPair();
       const relay = new InMemoryRelay();
-      const worker = new WorkerNode({
+      const worker = new WorkerNode({ checkPeer: () => 'trusted',
         owner: bob,
         relay,
         adapter: {
@@ -230,7 +230,7 @@ describe('P1-8 require encrypted envelopes', () => {
       send(envelope);
     };
     const input = { marker: 'p1-8-session-secret' };
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {

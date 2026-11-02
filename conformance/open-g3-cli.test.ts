@@ -27,33 +27,19 @@ async function run(args: string[]) {
   } finally { log.mockRestore(); await rm(dir, { recursive: true, force: true }); }
 }
 
-it.each(['3', '3/m', '3/min', '3/60s'])('maps rate %s to the per-DID minute limiter', async (rate) => {
-  expect((await run(['--open', '--open-rate-limit-per-did', rate])).maxTasksPerRequesterPerMinute).toBe(3);
+it('maps general host rate without access mode', async () => {
+  expect((await run(['--max-requests-per-minute', '3'])).maxTasksPerRequesterPerMinute).toBe(3);
 });
-it.each(['0', '-1', '1.5', '01', 'Infinity', '9007199254740992', '2/s', '2/120s', '2/minute', '2/', ''])
-  ('rejects invalid rate %s', async (rate) => {
-    await expect(run(['--open', '--open-rate-limit-per-did', rate])).rejects.toThrow('INVALID_OPEN_RATE_LIMIT_PER_DID');
-  });
-it('rejects a missing rate', async () => {
-  await expect(run(['--open', '--open-rate-limit-per-did'])).rejects.toThrow('INVALID_OPEN_RATE_LIMIT_PER_DID');
+it.each(['0', '-1', '1.5', 'Infinity', '9007199254740992'])('rejects invalid general rate %s', async rate => {
+  await expect(run(['--max-requests-per-minute', rate])).rejects.toThrow('INVALID_MAX_REQUESTS_PER_MINUTE');
 });
-it.each([1, 5])('retains the stricter existing rate (%s)', async (limit) => {
-  expect((await run(['--open', '--open-rate-limit-per-did', '3', '--max-requests-per-minute', String(limit)]))
-    .maxTasksPerRequesterPerMinute).toBe(Math.min(3, limit));
-});
-it('normalizes repeated task types on advertised skills', async () => {
-  const options = await run(['--access-mode', 'open', '--open-allow-task-type', 'json, text',
-    '--open-allow-task-type', 'json']);
+it('normalizes repeatable task types independently of publication', async () => {
+  const options = await run(['--allow-task-type', 'json, text', '--allow-task-type', 'json']);
   expect(options.adapter.skills.every((skill: any) => JSON.stringify(skill.taskTypes) === '["json","text"]')).toBe(true);
 });
-it.each(['json,', ',json', ' , '])('rejects empty task type entries (%s)', async (types) => {
-  await expect(run(['--open', '--open-allow-task-type', types])).rejects.toThrow('INVALID_OPEN_ALLOW_TASK_TYPE');
+it.each(['json,', ',json', ' , '])('rejects empty task type entries (%s)', async types => {
+  await expect(run(['--allow-task-type', types])).rejects.toThrow('INVALID_ALLOW_TASK_TYPE');
 });
 it('rejects conflicting task type flags', async () => {
-  await expect(run(['--open', '--open-allow-task-type', 'json', '--task-type', 'text']))
-    .rejects.toThrow('CONFLICTING_OPEN_TASK_TYPE');
+  await expect(run(['--allow-task-type', 'json', '--task-type', 'text'])).rejects.toThrow('CONFLICTING_TASK_TYPE');
 });
-it.each([['--open-allow-task-type', 'json'], ['--open-rate-limit-per-did', '1']])
-  ('requires open mode for %s', async (flag, value) => {
-    await expect(run([flag, value])).rejects.toThrow('OPEN_POLICY_REQUIRES_OPEN_MODE');
-  });

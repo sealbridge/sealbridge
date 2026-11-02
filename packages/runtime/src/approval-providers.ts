@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
-import { signApproval, signPayload, verifyApproval, digest } from '@acp/core';
+import { signApproval, signPayload, verifyApproval, digest, assertConnectionsOptions } from '@acp/core';
 import type { ApprovalReceipt, Gate, KeyPair } from '@acp/core';
 import type { OwnerPolicy } from './policy.js';
 /** Caps a worker applies before it accepts a contract or spends owner credentials. */
 export interface WorkerAcceptancePolicy {
   /** When non-empty, only these requester owner DIDs may be accepted. */
   allowedRequesterDids?: readonly string[];
-  /** Explicit opt-in to accept every requester. Takes precedence over the allowlist. */
-  allowAnyRequester?: boolean;
   maxInputTokens?: number;
   maxOutputTokens?: number;
   maxToolInvocations?: number;
@@ -66,6 +64,7 @@ export function evaluateContractAcceptance(
   from?: string,
 ): { approved: true } | { approved: false; reason: string } {
   if (!policy) return { approved: true };
+  assertConnectionsOptions(policy);
   const manifest = proposedManifest(details);
   const limited = budgetFields.some((field) => policy[field] !== undefined);
   if (limited && !manifest) return { approved: false, reason: 'manifest is missing' };
@@ -100,7 +99,6 @@ export function evaluateContractAcceptance(
           policy.maxWallClockSeconds,
       };
   }
-  if (policy.allowAnyRequester) return { approved: true };
   const allow = (policy.allowedRequesterDids ?? []).map((did) => did.trim()).filter(Boolean);
   if (allow.length === 0) return { approved: true };
   const ownerDid = manifest?.requester?.ownerDid;
@@ -127,9 +125,11 @@ export interface ApprovalRequest {
   deadline?: string;
 }
 export interface ApprovalProvider {
+  readonly kind?: 'human' | 'policy';
   approve(request: ApprovalRequest): Promise<ApprovalReceipt>;
 }
 export class InteractiveCliApprovalProvider implements ApprovalProvider {
+  readonly kind = 'human' as const;
   constructor(
     readonly owner: KeyPair,
     readonly options: { input?: Readable; output?: Writable; formatRequest?: (request: ApprovalRequest) => string } = {},
@@ -185,6 +185,7 @@ export class InteractiveCliApprovalProvider implements ApprovalProvider {
   }
 }
 export class PolicyAutoApprovalProvider implements ApprovalProvider {
+  readonly kind = 'policy' as const;
   constructor(
     readonly owner: KeyPair,
     readonly policy: OwnerPolicy = {
@@ -196,7 +197,7 @@ export class PolicyAutoApprovalProvider implements ApprovalProvider {
       confirmedGates?: Gate[];
       acceptance?: WorkerAcceptancePolicy;
     } = {},
-  ) {}
+  ) { if (options.acceptance) assertConnectionsOptions(options.acceptance); }
   async approve(r: ApprovalRequest): Promise<ApprovalReceipt> {
     if (r.gate === 'contract_acceptance') {
       const decision = evaluateContractAcceptance(this.options.acceptance, r.details);
