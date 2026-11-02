@@ -296,16 +296,16 @@ pnpm build
 
 公開中継器は非信頼の転送路です。セッションのペイロードは受信者の `did:key` へ暗号化され、中継器が保存するのは暗号文です。経路のメタデータは見えたままです。`decryptEnvelopePayload`、`WorkerNode`、`RequesterClient`、`VerificationEngine` は、既定で暗号化された封筒を要求します（`requireEncrypted: true`）。平文のセッション封筒は `UNENCRYPTED_ENVELOPE_REJECTED` で拒否されます。`{ requireEncrypted: false }` と `allowUnencryptedEnvelopes: true` は、呼び出し側が明示したときだけ平文を開き、レガシーのメモリ内フィクスチャ向けです。自前で動かす場合は `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。ワーカーは受信者ごとの受信箱を別々の Durable Object（`inbox:<recipientDid>`）に分け、エージェントカードは専用の `registry` オブジェクトに置きます。
 
-キューに入ったエンベロープは10分で期限切れになります。再生キャッシュとエージェントカードは1時間で期限切れになります。受信箱の上限は256件、1件256 KiB、合計4 MiBです。`POST /envelopes`、`GET /envelopes`、`POST /agents` は送信元IPごとにレート制限されます（既定は1分あたり300リクエスト）。バイト予算またはレート制限を超えると HTTP 429 を返します。既存の中継器へ新しいビルドを載せる前に、下のデプロイ手順を読んでください。
+新しく受理する封筒の保持期間は既定24時間です（`ACP_ENVELOPE_TTL_MS` またはローカルの `--envelope-ttl-ms`）。更新前に保存した期限は維持します。再送記録とエージェントカードは1時間で期限切れになります。再送記録の期限切れ・入替後も、キュー内に同じ ID があれば拒否します。両方の記録がなくなった後の再送履歴は保持しません。受信箱の上限はリース中も含め256件、1件256 KiB、合計4 MiBです。送信者ごとの上限は宛先ごとに既定256件です。キュー・全体容量や送信者の件数による一時拒否は HTTP 429、`{"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}`、`Retry-After: 60` を返し、その封筒を保存しません。1件または宛先のバイト上限に単体でも収まらない封筒は恒久エラーの HTTP 400 です。既存クライアントは送信を自動再試行せず `RELAY_REJECTED: 429` を返します。[保持と受理の設定](docs/relay-reliability.ja.md#保持と受理)を参照してください。`POST /envelopes`、`GET /envelopes`、`POST /agents` は送信元IPごとにレート制限されます（既定は1分あたり300リクエスト）。レート制限は従来の HTTP 429 を維持します。既存の中継器へ新しいビルドを載せる前に、下のデプロイ手順を読んでください。
 
 **自前中継器のデプロイ**
 
-進行中の通信が空になるまで、この変更を稼働中の中継器へデプロイしないでください。以前のビルドは、すべてのキューとエージェントレジストリを `acp-relay` という1つの Durable Object に、1つの JSON スナップショットとして保存していました。このビルドはそのオブジェクトを読みません。
+公開中継器で既定値・受理応答を変えるには、運用者による Worker のデプロイ・設定更新が必要です。この変更ではデプロイしません。ローカル・組み込みの中継器は更新後に新しい既定値を使います。現在の宛先別受信箱は保存済み期限・クラス名・マイグレーションタグを維持します。宛先別に分ける前の版を置き換える場合は、先に通信を排出してください。その版の単一 `acp-relay` オブジェクトは現在のワーカーから読みません。
 
-1. 送信を止めるか、少なくとも15分待って、キュー内のエンベロープを期限切れにし、受信側に再送させてください。
+1. 宛先別に分ける前の版では送信を止め、キューを排出するか、設定した保持期間を待ちます。配置を変える前に古いキューが空であることを確認してください。
 2. `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。`pnpm --filter @acp/relay exec wrangler deploy`
-3. エージェントは次の起動時に再登録します。古いオブジェクトに残った未配送のエンベロープは移行されないので、クライアントが再送します。
-4. Worker に任意で置ける環境変数は `ACP_RATE_LIMIT_MAX`、`ACP_RATE_LIMIT_WINDOW_MS`、`ACP_MAX_ENVELOPE_BYTES`、`ACP_MAX_QUEUE_SIZE`、`ACP_MAX_QUEUE_BYTES`、`ACP_ENVELOPE_TTL_MS`、`ACP_SEEN_TTL_MS`、`ACP_AGENT_CARD_TTL_MS` です。任意の `RATE_LIMITER` バインディングは、アイソレート内のウィンドウに加えて検査されます。
+3. エージェントは次の起動時に再登録します。古いオブジェクトの未配送の封筒は移行されません。必要な再試行は呼び出し側が明示的に行います。
+4. Worker に任意で置ける環境変数は `ACP_RATE_LIMIT_MAX`、`ACP_RATE_LIMIT_WINDOW_MS`、`ACP_MAX_ENVELOPE_BYTES`、`ACP_MAX_QUEUE_SIZE`、`ACP_MAX_QUEUE_BYTES`、`ACP_MAX_ENVELOPES_PER_SENDER`、`ACP_ENVELOPE_TTL_MS`、`ACP_SEEN_TTL_MS`、`ACP_AGENT_CARD_TTL_MS` です。任意の `RATE_LIMITER` バインディングは、アイソレート内のウィンドウに加えて検査されます。
 
 Durable Object のクラス名は変わらないので、例にある `v1` マイグレーションはそのまま使えます。新しいオブジェクト名は、同じクラスの別インスタンスです。古い `acp-relay` インスタンスは、参照が残っていないことを確認してから Wrangler で削除できます。
 

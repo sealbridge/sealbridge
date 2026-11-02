@@ -64,6 +64,25 @@ See [protocol versions](docs/connections/protocol-versions.md) for explicit poli
 ライブ経路は対応版を選び、相手が対応すれば0.2.0を優先します。公開前は時刻未設定でもパッケージを作成できます。公開時はリリース時刻を設定し、`pnpm run check:protocol-release` を実行します。
 明示的な方針と保存動作は[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
 
+## Relay retention / 中継器の保持
+
+New admissions remain queued for 24 hours by default; existing stored expiries
+are unchanged. Local `relay start` accepts `--envelope-ttl-ms`, `--max-queue-size`,
+`--max-queue-bytes`, `--max-envelope-bytes`, and `--max-envelopes-per-sender`.
+Leased envelopes count toward the recipient caps. Temporary capacity refusal is
+HTTP 429 `RELAY_RETRY_LATER` with `retryable:true`, `retryAfterMs:60000` and
+`Retry-After: 60`; no envelope is admitted. Current send clients report the
+error without automatic retry. Retention does not extend task deadlines or
+approve held work. Hosted changes require an operator-controlled relay update.
+See [relay reliability](docs/relay-reliability.md#retention-and-admission).
+
+新規受理の保持期間は既定24時間で、保存済みの期限は維持します。
+ローカル設定は上のフラグを使い、リース中も宛先の上限に含めます。
+容量の一時拒否は上記の HTTP 429 を返し、封筒を保存しません。
+既存クライアントは送信を自動再試行しません。保持期間で依頼の期限や
+保留内容の承認は変わりません。公開中継器への反映は運用者による更新が必要です。
+[中継器の信頼性](docs/relay-reliability.ja.md#保持と受理)を参照してください。
+
 ## Role determination / 役割の判断
 
 - Worker / 受託側: 「ワーカーとして待機して」「招待トークンを出して」 /
