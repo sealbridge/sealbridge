@@ -120,6 +120,8 @@ explicit inbox/audit journal paths retain precedence. Heartbeats and the separat
 connection-consent outbox retain their existing behavior. Concurrent delegations keep
 their own task and relay bindings while sharing the signer’s delivery store.
 
+Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
 POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
 Live sends remove completed batch ciphertext after consuming admission results.
 Maintenance closes expired pending batches before pruning message metadata, and
@@ -145,3 +147,28 @@ The wire schema also accepts non-UUID IDs from other producers. Such incoming ID
 `OUTBOX_STORE_BUSY` leaves an existing writer lock intact. Local lock recovery requires first checking that no writer is active; runtime attempt leases do not replace filesystem locks.
 
 If completed-batch cleanup fails, the gateway reports a fixed storage error and retries cleanup during maintenance. The relay admission outcome is retained.
+
+
+Optional `idempotencyKey` on `acp_delegate_task`, `acp_delegate_multi` and
+`acp_resubmit_pending_request` is an exact Unicode string of 1–200 UTF-8 bytes.
+For example, add `"idempotencyKey":"review-2026-11-02"` to a send call.
+It is scoped to the local signer and tool across MCP sessions and restarts;
+matching content returns the first stored result, including a held/error result,
+without another proposal or pre-send approval (one approval per recipient for multi).
+Changed content returns `IDEMPOTENCY_CONFLICT`; choose a new key for a new action.
+A duplicate in the same server joins the active call. Another server returns
+`IDEMPOTENCY_IN_PROGRESS` while its lease is active. After interruption it returns
+`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` with the original IDs;
+it never repeats the owner prompt or reconstructs an adapter execution.
+Final verification remains separate. Key bindings and owner-only cached results
+expire seven days after the original task deadline (latest child deadline for multi;
+creation time if later). Reads do not renew retention; inactive stores may keep
+expired bytes until maintenance. Reusing an expired key follows current policy.
+Cached lookup does not resolve an expired invitation or a rebound alias, contact
+a relay, or increment pending attempts. Pending resubmission remains explicit;
+a new resubmission key identifies one fresh attempt under current policy.
+Keys are optional; calls without them retain existing behavior. No relay deployment
+is needed. The runtime single/multi options also accept `idempotencyKey`;
+a keyed `beforePropose` hook must return verified authorization evidence.
+
+The local cache permits 10,000 retained operations and 16 MiB aggregate cached-result JSON per signer, with a 4 MiB operation-record bound. Active calls reserve their result space before approval; capacity and persistence failures return fixed `IDEMPOTENCY_STORE_*` codes without evicting live work.

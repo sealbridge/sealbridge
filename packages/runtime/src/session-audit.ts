@@ -345,6 +345,7 @@ export class SessionWire {
     signal.throwIfAborted();
     if (this.delivery) {
       const { service, context } = this.delivery;
+      await service.prepare(signal);
       const first = envelopes[0];
       if (first.payload.eventType === 'PROPOSE') context.messageId = first.payload.envelopeId;
       service.enqueue(envelopes, { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) });

@@ -499,6 +499,8 @@ repeat owner decisions. Live sends remove completed batch ciphertext after consu
 admission results; maintenance closes expired pending batches before pruning metadata.
 See [relay reliability](docs/relay-reliability.md).
 
+Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
 承認済みのタスク封筒を上記パスへ署名済み暗号文で保存し、同じ ID で
 1分・5分・15分・1時間、その後は1時間ごとに relay の受理または元の期限まで再試行します。
 同じ署名者・データルートで再起動すると送信待ちを再開し、停止中は送信しません。
@@ -509,4 +511,34 @@ POSIX は 0600/0700 を使い、メッセージ情報と受信重複処理の記
 セッションや所有者の判断は outbox から復元しません。
 稼働中の送信は受理の結果を取得した後に完了済み暗号文を削除し、
 保守処理は期限切れの送信待ちを閉じてからメッセージ情報を削除します。
+
+送信前に準備済みレコードを flush します。lease・再試行・relay 受理の管理情報は追加の flush なしでアトミックに更新し、中断後は同じ封筒 ID で再送する場合があります。変更のないレコードとディレクトリ一覧の検証を再利用し、ゲートウェイの索引更新・復元時の走査・定期削除はバッチまたはレコードごとにイベントループへ制御を返します。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
+
+
+The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
+`acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
+string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
+The same signer/tool/key and content return the first stored result across restarts,
+without another send or approval; changed content returns `IDEMPOTENCY_CONFLICT`
+and requires a new key. Keys/results expire seven days after the original deadline
+(latest child deadline for multi). Cached holds never resubmit or increment attempts.
+Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
+`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` without repeating a prompt
+or execution. Final verification stays separate, and calls without keys are unchanged.
+See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
+No relay deployment is needed.
+
+
+MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
+`acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。
+Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
+（例: `"idempotencyKey":"review-2026-11-02"`）。同じ署名者・道具・キー・内容なら
+再起動後も最初の結果を返し、送信と承認を繰り返しません。内容が違えば
+`IDEMPOTENCY_CONFLICT` となり、新しいキーが必要です。キーと結果は元の期限
+（複数では最も遅い子の期限）の7日後まで保持します。保留の再参照では再依頼せず、
+試行回数も増やしません。別サーバーは `IDEMPOTENCY_IN_PROGRESS`、中断後は
+`APPROVAL_INTERRUPTED` または `IDEMPOTENCY_RESULT_UNAVAILABLE` を返し、承認や実行を
+やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
+保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
+relay のデプロイは不要です。
