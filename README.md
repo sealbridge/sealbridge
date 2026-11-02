@@ -844,7 +844,9 @@ explicit inbox/audit journal paths retain precedence. Heartbeats and the separat
 connection-consent outbox retain their existing behavior. Concurrent delegations keep
 their own task and relay bindings while sharing the signer’s delivery store.
 
-Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+C1 persistence covers gateway process restart: completed writes and atomic replacement precede transmission or acknowledgement. Envelope records, receipts and the default task journal do not fsync files or directories; power-loss persistence is not guaranteed. Lease, retry and relay-admission bookkeeping may replay the same envelope ID after interruption. Explicit inbox/audit task journals retain their existing flush policy. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
+Session sends and processed receipts write unique temporary files asynchronously without acquiring the signer lock for preparation. Handles close before atomic publication; independent tasks sharing a signer and relay can write concurrently. Publication rechecks capacity and receipt state under the signer lock, without filesystem retry sleeps. The default task journal reuses its append handle and unchanged validated checkpoints; compaction and worker shutdown close the handle.
 
 POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
 Live sends remove completed batch ciphertext after consuming admission results.

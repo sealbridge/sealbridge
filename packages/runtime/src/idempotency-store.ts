@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { digest, isInviteTarget } from '@acp/core';
 import type { Json, KeyPair } from '@acp/core';
 import { DeliveryStore } from './delivery-store.js';
-import type { DeliveryStoreOptions } from './delivery-store.js';
+import type { DeliveryStoreOptions, DeliveryWrite } from './delivery-store.js';
 import { DELIVERY_RETENTION_MS, deliveryError } from './delivery-records.js';
-import type { IdempotencyAuthorization, IdempotencyOperationV1, PreparedIdempotentAction } from './delivery-records.js';
+import type { DeliveryRecords, IdempotencyAuthorization, IdempotencyOperationV1, PreparedIdempotentAction } from './delivery-records.js';
+
+type Mutation = Pick<DeliveryStore, 'read' | 'write' | 'reserveIdempotencyCapacity'>;
 
 export type IdempotencyResponse = { isError: boolean; value: Json };
 export interface IdempotencyStoreOptions extends DeliveryStoreOptions { leaseMs?: number }
@@ -56,24 +58,24 @@ export class IdempotencyOperation {
   private preparationFailure?: unknown;
   private prepared = false;
   constructor(readonly store: IdempotencyStore, readonly operationId: string, readonly holderId: string, readonly children: number, private readonly keyHash: string) {}
-  private change(change: (r: IdempotencyOperationV1) => void): void {
-    this.store.mutate(() => {
-      const r = this.store.records.read('operations', this.operationId);
+  private change(change: (r: IdempotencyOperationV1, records: Mutation) => void): Promise<void> {
+    return this.store.mutate(records => {
+      const r = records.read('operations', this.operationId);
       if (!r || r.phase === 'finished' || r.lease?.holderId !== this.holderId) throw deliveryError('IDEMPOTENCY_RESULT_UNAVAILABLE');
-      change(r); this.store.records.write('operations', r.operationId, r);
+      change(r, records); records.write('operations', r.operationId, r);
     });
   }
   async prepare(action: PreparedIdempotentAction): Promise<void> {
-    this.change(r => {
+    await this.change(r => {
       if (r.preparedActions.some(a => a.childIndex === action.childIndex)) throw deliveryError('IDEMPOTENCY_STORE_INVALID');
       r.preparedActions.push(structuredClone(action)); r.preparedActions.sort((a, b) => a.childIndex - b.childIndex);
       r.taskIds = r.preparedActions.map(a => a.manifest.taskId);
     });
     await new Promise<void>((resolve, reject) => {
-      this.waiters.push({ resolve, reject }); this.childReady(action.childIndex);
+      this.waiters.push({ resolve, reject }); void this.childReady(action.childIndex);
     });
   }
-  childReady(index: number, error?: unknown): void {
+  async childReady(index: number, error?: unknown): Promise<void> {
     if (this.prepared) return;
     if (error) this.preparationFailure ??= error;
     this.ready.add(index);
@@ -81,26 +83,26 @@ export class IdempotencyOperation {
     this.prepared = true;
     try {
       if (this.preparationFailure) throw this.preparationFailure;
-      this.change(r => {
+      await this.change((r, records) => {
         r.phase = 'awaiting_approval';
         r.retainUntil = Math.max(r.createdAt, ...r.preparedActions.map(a => Date.parse(a.manifest.deadline))) + DELIVERY_RETENTION_MS;
-        const binding = this.store.records.read('idempotency', this.keyHash);
+        const binding = records.read('idempotency', this.keyHash);
         if (!binding) throw deliveryError('IDEMPOTENCY_STORE_INVALID');
-        this.store.records.write('idempotency', binding.keyHash, { ...binding, retainUntil: r.retainUntil });
+        records.write('idempotency', binding.keyHash, { ...binding, retainUntil: r.retainUntil });
       });
       for (const waiter of this.waiters.splice(0)) waiter.resolve();
     } catch (error) { for (const waiter of this.waiters.splice(0)) waiter.reject(error); }
   }
-  authorize(childIndex: number, evidence: IdempotencyAuthorization | void): void {
+  async authorize(childIndex: number, evidence: IdempotencyAuthorization | void): Promise<void> {
     if (!evidence) throw deliveryError('IDEMPOTENCY_AUTHORIZATION_REQUIRED');
-    this.change(r => {
+    await this.change(r => {
       const a = r.preparedActions.find(a => a.childIndex === childIndex);
       if (!a || a.approvalTargetDigest !== evidence.targetDigest) throw deliveryError('IDEMPOTENCY_STORE_INVALID');
       r.approvals ??= []; r.approvals.push({ ...evidence, childIndex }); r.phase = 'approved';
     });
   }
-  sending(): void { this.change(r => { r.phase = 'sending'; }); }
-  renew(): void { this.change(r => { r.lease!.until = this.store.records.now() + this.store.leaseMs; }); }
+  sending(): Promise<void> { return this.change(r => { r.phase = 'sending'; }); }
+  renew(): Promise<void> { return this.change(r => { r.lease!.until = this.store.records.now() + this.store.leaseMs; }); }
 }
 
 /** Owner-signed operation cache sharing C1's atomic store and short signer lock. */
@@ -112,9 +114,51 @@ export class IdempotencyStore {
     this.records = new DeliveryStore(owner, options); this.leaseMs = options.leaseMs ?? 120_000;
     if (!Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1) throw deliveryError('IDEMPOTENCY_STORE_INVALID');
   }
-  mutate<T>(change: () => T): T {
-    try { return this.records.transaction(change); }
-    catch (error) { throw this.storeError(error); }
+  /** Plan under the signer lock, write outside it, then compare before publishing. */
+  async mutate<T>(change: (records: Mutation) => T): Promise<T> {
+    try {
+      for (;;) {
+        try {
+          const reads = new Map<string, { kind: keyof DeliveryRecords; id: string; value: string | undefined }>();
+          const writes = new Map<string, DeliveryWrite>();
+          let capacityNow: number | undefined;
+          const read = <K extends keyof DeliveryRecords>(kind: K, id: string): DeliveryRecords[K] | undefined => {
+            const key = kind + ':' + id;
+            const pending = writes.get(key);
+            if (pending) return structuredClone(pending.record) as DeliveryRecords[K];
+            const record = this.records.read(kind, id);
+            reads.set(key, { kind, id, value: JSON.stringify(record) });
+            return record;
+          };
+          const result = this.records.transaction(() => change({ read,
+            write: (kind, id, record) => {
+              const key = kind + ':' + id;
+              if (!reads.has(key)) read(kind, id);
+              writes.set(key, { kind, id, record: structuredClone(record) });
+            },
+            reserveIdempotencyCapacity: now => {
+              this.records.reserveIdempotencyCapacity(now); capacityNow = now;
+            },
+          }));
+          if (!writes.size) return result;
+          const prepared = await this.records.prepareWrites([...writes.values()]);
+          try {
+            if (capacityNow !== undefined) await this.records.prepareIdempotency();
+            const published = this.records.transaction(() => {
+              if ([...reads.values()].some(r => JSON.stringify(this.records.read(r.kind, r.id)) !== r.value)) return false;
+              if (capacityNow !== undefined) this.records.reserveIdempotencyCapacity(capacityNow);
+              for (const write of prepared) this.records.publishWrite(write);
+              return true;
+            });
+            if (published) return result;
+          } finally { this.records.discardWrites(prepared); }
+        } catch (error) {
+          // Another store may have changed capacity inventories while our write yielded.
+          if (!(error instanceof Error) || error.message !== 'IDEMPOTENCY_STORE_BUSY') throw error;
+          await this.records.prepareIdempotency();
+        }
+      }
+    } catch (error) { throw this.storeError(error); }
   }
   private storeError(error: unknown): unknown {
     const code = error instanceof Error ? error.message : '';
@@ -145,9 +189,9 @@ export class IdempotencyStore {
       if (!binding || binding.retainUntil <= this.records.now()) await this.records.prepareIdempotency();
     } catch (error) { throw this.storeError(error); }
     const now = this.records.now(), holderId = randomUUID();
-    const reservation = this.mutate(() => {
-      let binding = this.records.read('idempotency', keyHash);
-      const retained = binding && this.records.read('operations', binding.operationId);
+    const reservation = await this.mutate(records => {
+      let binding = records.read('idempotency', keyHash);
+      const retained = binding && records.read('operations', binding.operationId);
       if (binding && (!retained || retained.tool !== binding.tool || retained.requestDigest !== binding.requestDigest))
         throw deliveryError('IDEMPOTENCY_STORE_INVALID');
       if (binding && retained && binding.retainUntil !== retained.retainUntil) {
@@ -155,12 +199,12 @@ export class IdempotencyStore {
         const retainUntil = retained.preparedActions.length ? Math.max(retained.createdAt,
           ...retained.preparedActions.map(a => Date.parse(a.manifest.deadline))) + DELIVERY_RETENTION_MS : retained.retainUntil;
         retained.retainUntil = retainUntil;
-        this.records.write('operations', retained.operationId, retained);
-        binding = { ...binding, retainUntil }; this.records.write('idempotency', keyHash, binding);
+        records.write('operations', retained.operationId, retained);
+        binding = { ...binding, retainUntil }; records.write('idempotency', keyHash, binding);
       }
       if (binding && binding.retainUntil > now) {
         if (binding.requestDigest !== requestDigest) throw deliveryError('IDEMPOTENCY_CONFLICT');
-        const r = this.records.read('operations', binding.operationId);
+        const r = records.read('operations', binding.operationId);
         if (!r || r.requestDigest !== requestDigest || r.tool !== tool || binding.tool !== tool || r.retainUntil !== binding.retainUntil)
           throw deliveryError('IDEMPOTENCY_STORE_INVALID');
         if (r.response) return { response: r.response };
@@ -171,16 +215,16 @@ export class IdempotencyStore {
         const error = ['reserved', 'awaiting_approval'].includes(r.phase) && !r.approvals?.length
           ? 'APPROVAL_INTERRUPTED' : 'IDEMPOTENCY_RESULT_UNAVAILABLE';
         r.response = { isError: true, value: { error, operationId: r.operationId, taskIds: r.taskIds, messageIds: r.messageIds } };
-        r.phase = 'finished'; delete r.lease; this.records.write('operations', r.operationId, r);
+        r.phase = 'finished'; delete r.lease; records.write('operations', r.operationId, r);
         return { response: r.response };
       }
       // Expiry and orphan cleanup are mutations, never side effects of a read.
-      this.records.reserveIdempotencyCapacity(now);
+      records.reserveIdempotencyCapacity(now);
       const r: IdempotencyOperationV1 = { version: 1, operationId: randomUUID(), localOwnerDid: this.records.owner.did,
         tool, requestDigest, createdAt: now, retainUntil: Math.max(now, options.deadline ?? now + 600_000) + DELIVERY_RETENTION_MS,
         phase: 'reserved', messageIds: [], taskIds: [], preparedActions: [], lease: { holderId, until: now + this.leaseMs } };
-      this.records.write('operations', r.operationId, r);
-      this.records.write('idempotency', keyHash, { version: 1, localOwnerDid: r.localOwnerDid, tool, keyHash,
+      records.write('operations', r.operationId, r);
+      records.write('idempotency', keyHash, { version: 1, localOwnerDid: r.localOwnerDid, tool, keyHash,
         requestDigest, operationId: r.operationId, createdAt: now, retainUntil: r.retainUntil });
       return { operation: r };
     });
@@ -188,18 +232,22 @@ export class IdempotencyStore {
     const operation = new IdempotencyOperation(this, reservation.operation!.operationId, holderId, options.children ?? 1, keyHash);
     return Promise.resolve().then(async () => {
       let renewalError: unknown;
-      const timer = setInterval(() => { try { operation.renew(); } catch (error) { renewalError = error; } }, Math.max(1, Math.floor(this.leaseMs / 3)));
+      let renewal = Promise.resolve();
+      const timer = setInterval(() => {
+        renewal = renewal.then(() => operation.renew()).catch(error => { renewalError = error; });
+      }, Math.max(1, Math.floor(this.leaseMs / 3)));
       timer.unref();
       try {
         let response: IdempotencyResponse;
         try { response = await run(operation); } catch (error) { response = idempotencyFailure(error); }
+        clearInterval(timer); await renewal;
         if (renewalError) throw renewalError;
         response = JSON.parse(JSON.stringify(response)) as IdempotencyResponse;
-        this.mutate(() => {
-          const r = this.records.read('operations', operation.operationId);
+        await this.mutate(records => {
+          const r = records.read('operations', operation.operationId);
           if (!r || r.phase === 'finished' || r.lease?.holderId !== holderId) throw deliveryError('IDEMPOTENCY_RESULT_UNAVAILABLE');
           r.phase = 'finished'; r.response = response; delete r.lease;
-          this.records.write('operations', r.operationId, r);
+          records.write('operations', r.operationId, r);
         });
         return response;
       } finally { clearInterval(timer); }

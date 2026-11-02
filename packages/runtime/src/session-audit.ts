@@ -132,6 +132,7 @@ export class SessionWire {
   private cancellation?: Promise<void>;
   /** One bilateral send at a time so PROGRESS cannot overtake its own ACK. */
   private sendTail: Promise<void> = Promise.resolve();
+  private deliveryTail: Promise<void> = Promise.resolve();
   private readonly receiptAcks = new Map<string, SignedEnvelope>();
   hasCommittedSend = false;
   readonly entries: AuditEntry[] = [];
@@ -340,7 +341,14 @@ export class SessionWire {
     return signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
       seq: this.outgoing++, eventType, payload: asJson(payload) }, this.owner, { encrypt: true });
   }
-  private async dispatchPrepared(envelopes: SignedEnvelope[]): Promise<void> {
+  private dispatchPrepared(envelopes: SignedEnvelope[]): Promise<void> {
+    if (!this.delivery) return this.dispatchBatch(envelopes);
+    // Preserve this wire's sequence while independent tasks write and send concurrently.
+    const run = this.deliveryTail.then(() => this.dispatchBatch(envelopes));
+    this.deliveryTail = run.catch(() => {});
+    return run;
+  }
+  private async dispatchBatch(envelopes: SignedEnvelope[]): Promise<void> {
     const signal = this.detached ? this.readController.signal : this.signal;
     signal.throwIfAborted();
     if (this.delivery) {
@@ -348,7 +356,7 @@ export class SessionWire {
       await service.prepare(signal);
       const first = envelopes[0];
       if (first.payload.eventType === 'PROPOSE') context.messageId = first.payload.envelopeId;
-      service.enqueue(envelopes, { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) });
+      await service.enqueuePrepared(envelopes, { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) }, signal);
       const batchId = service.store.read('outbox', first.payload.envelopeId)!.batchId;
       this.hasCommittedSend = true;
       for (const envelope of envelopes) {
@@ -375,7 +383,8 @@ export class SessionWire {
   }
   private async complete(envelope: SignedEnvelope): Promise<void> {
     const sealed = this.sealed(envelope);
-    this.delivery?.service.store.receipt(sealed, this.delivery.context.deliveryDeadline, 'processed');
+    if (this.delivery) await this.delivery.service.store.receiptPrepared(sealed, this.delivery.context.deliveryDeadline,
+      'processed', this.detached ? this.readController.signal : this.signal);
     await acknowledgeRelay(this.relay, sealed, this.detached ? this.readController.signal : this.signal);
   }
   /** Ciphertext that still matches the outer signature, when `view` was opened for the session. */

@@ -22,8 +22,134 @@ function setup() {
   return { ...f, store, options, action, run };
 }
 const tool = 'acp_delegate_task';
+// Hold actual writes so concurrent-publication checks do not depend on file flushes.
+function interceptWrite(intercept: (fd: number, resume: () => void,
+  fail: (error: NodeJS.ErrnoException) => void) => void): typeof fs.write {
+  return Object.assign((fd: number, buffer: Buffer, offset: number, length: number, position: number | null,
+    done: (error: NodeJS.ErrnoException | null, written: number, buffer: Buffer) => void) => {
+    intercept(fd, () => fs.write(fd, buffer, offset, length, position, done), error => done(error, 0, buffer));
+  }, fs.write) as typeof fs.write;
+}
 
 describe('signer-scoped idempotency records', () => {
+  it.each(['sync', 'async'])('writes C2 preparation, authorization, results and %s enqueue without file flushes or preparation locks', async mode => {
+    const f = setup(), handles = new Map<number, string>();
+    const lock = join(f.store.records.root, '.lock');
+    const unexpectedSync = vi.fn(() => { throw new Error('UNEXPECTED_FILE_SYNC'); });
+    const io: typeof fs = { ...fs,
+      openSync: (path, flags, mode) => {
+        if (String(path).endsWith('.tmp')) expect(fs.existsSync(lock)).toBe(false);
+        const fd = fs.openSync(path, flags, mode); handles.set(fd, String(path)); return fd;
+      },
+      closeSync: fd => { fs.closeSync(fd); handles.delete(fd); },
+      fsyncSync: unexpectedSync,
+      fsync: Object.assign(unexpectedSync, fs.fsync),
+      write: interceptWrite((_fd, resume) => { expect(fs.existsSync(lock)).toBe(false); resume(); }),
+      renameSync: (from, to) => {
+        expect([...handles.values()]).not.toContain(String(from));
+        expect([...handles.values()]).not.toContain(String(to));
+        fs.renameSync(from, to);
+      },
+    };
+    const store = new IdempotencyStore(f.owner, { ...f.options, fs: io });
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: io } });
+    const manifest = buildTaskManifest({ ownerDid: f.owner.did, workerDid: f.peer.did,
+      title: 'Example', description: 'Example', now: f.now });
+    const frame = signEnvelope({ taskId: manifest.taskId, recipientDid: f.peer.did, seq: 0,
+      eventType: 'PROPOSE', payload: {} }, f.owner, { encrypt: true });
+    const context = { ...f.prepare().context, messageId: frame.payload.envelopeId,
+      deliveryDeadline: Date.parse(manifest.deadline), message: { taskId: manifest.taskId,
+        peerAgentDid: f.peer.did, protocolVersion: '0.2.0' as const } };
+    const targetDigest = digest({ manifest });
+    await store.run(tool, 'key', f.action, async operation => {
+      await operation.prepare({ childIndex: 0, manifest, input: null, relayUrl: context.relayUrl,
+        peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, approvalTargetDigest: targetDigest });
+      await operation.authorize(0, { targetDigest, policy: 'configured-auto', approvedAt: f.epoch });
+      await operation.renew(); await operation.sending();
+      const keyedContext = { ...context, message: { ...context.message, operationId: operation.operationId } };
+      if (mode === 'sync') service.enqueue([frame], keyedContext);
+      else await service.enqueuePrepared([frame], keyedContext);
+      expect(store.records.read('operations', operation.operationId)?.messageIds).toEqual([frame.payload.envelopeId]);
+      return f.run();
+    });
+    expect(await new IdempotencyStore(f.owner, f.options).run(tool, 'key', f.action, f.run)).toMatchObject({ isError: false });
+    expect(f.run).toHaveBeenCalledOnce(); expect(handles.size).toBe(0);
+    expect(unexpectedSync).not.toHaveBeenCalled();
+  });
+  it('reprepares a keyed batch operation when lease renewal publishes during its write', async () => {
+    const f = setup(), paths = new Map<number, string>();
+    let renew: (() => Promise<void>) | undefined;
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...fs,
+      openSync: (path, flags, mode) => { const fd = fs.openSync(path, flags, mode); paths.set(fd, String(path)); return fd; },
+      closeSync: fd => { fs.closeSync(fd); paths.delete(fd); },
+      write: interceptWrite((fd, resume, fail) => {
+        expect(fs.existsSync(join(f.store.records.root, '.lock'))).toBe(false);
+        const concurrent = paths.get(fd) && dirname(paths.get(fd)!) === join(f.store.records.root, 'operations') ? renew : undefined;
+        if (concurrent) renew = undefined;
+        if (concurrent) void concurrent().then(resume, fail);
+        else resume();
+      }),
+    } } });
+    const manifest = buildTaskManifest({ ownerDid: f.owner.did, workerDid: f.peer.did,
+      title: 'Example', description: 'Example', now: f.now });
+    const frame = signEnvelope({ taskId: manifest.taskId, recipientDid: f.peer.did, seq: 0,
+      eventType: 'PROPOSE', payload: {} }, f.owner, { encrypt: true });
+    const context = { ...f.prepare().context, messageId: frame.payload.envelopeId,
+      deliveryDeadline: Date.parse(manifest.deadline), message: { taskId: manifest.taskId,
+        peerAgentDid: f.peer.did, protocolVersion: '0.2.0' as const } };
+    await f.store.run(tool, 'key', f.action, async operation => {
+      const targetDigest = digest({ manifest });
+      await operation.prepare({ childIndex: 0, manifest, input: null, relayUrl: context.relayUrl,
+        peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, approvalTargetDigest: targetDigest });
+      await operation.authorize(0, { targetDigest, policy: 'configured-auto', approvedAt: f.epoch });
+      renew = async () => { f.setNow(f.epoch + 5000); await operation.renew(); };
+      await service.enqueuePrepared([frame], { ...context, message: { ...context.message, operationId: operation.operationId } });
+      expect(renew).toBeUndefined();
+      const record = f.store.records.read('operations', operation.operationId)!;
+      expect(record.lease?.until).toBe(f.now() + f.store.leaseMs);
+      expect(record.messageIds).toEqual([frame.payload.envelopeId]);
+      expect(service.store.ids('batches')).toHaveLength(1);
+      return f.run();
+    });
+  });
+  it('lets another key finish while a same-signer reservation write is held', async () => {
+    const f = setup(), writing = deferred<void>(), release = deferred<void>();
+    let hold = true, held = 0;
+    const store = new IdempotencyStore(f.owner, { ...f.options, fs: { ...fs,
+      write: interceptWrite((_fd, resume) => {
+        expect(fs.existsSync(join(f.store.records.root, '.lock'))).toBe(false);
+        if (hold) {
+          if (++held === 2) { hold = false; writing.resolve(); }
+          void release.promise.then(resume);
+        } else resume();
+      }),
+    } });
+    const pending = store.run(tool, 'held', f.action, f.run);
+    const settled = Promise.allSettled([pending]);
+    try {
+      await writing.promise;
+      expect(await store.run(tool, 'independent', f.action, f.run)).toMatchObject({ isError: false });
+      expect(f.run).toHaveBeenCalledOnce();
+      release.resolve(); await pending;
+      expect(f.run).toHaveBeenCalledTimes(2);
+    } finally { release.resolve(); await settled; }
+  });
+  it('rechecks a shared key and result capacity after concurrent reservation writes', async () => {
+    const f = setup(), entered = deferred<void>(), release = deferred<void>();
+    const options = { ...f.options, limits: { operations: 1 } };
+    const stores = [new IdempotencyStore(f.owner, options), new IdempotencyStore(f.owner, options)];
+    const run = vi.fn(async () => { entered.resolve(); await release.promise; return f.run(); });
+    const sends = stores.map(store => store.run(tool, 'key', f.action, run));
+    const settled = Promise.allSettled(sends);
+    try {
+      await entered.promise; release.resolve();
+      const responses = await Promise.all(sends);
+      expect(responses.filter(r => !r.isError).length).toBeGreaterThanOrEqual(1);
+      expect(responses.every(r => !r.isError || (r.value as { error: string }).error === 'IDEMPOTENCY_IN_PROGRESS')).toBe(true);
+      expect(run).toHaveBeenCalledOnce();
+      await expect(stores[0].run(tool, 'other', f.action, run)).rejects.toThrow('IDEMPOTENCY_STORE_FULL');
+    } finally { release.resolve(); await settled; }
+  });
   it('reserves new keys without reopening unrelated results beyond the verified cache', async () => {
     const f = setup(), counted = countDeliveryFs();
     const store = new IdempotencyStore(f.owner, { ...f.options, fs: counted.fs });
@@ -33,7 +159,10 @@ describe('signer-scoped idempotency records', () => {
       expect(await store.run(tool, 'new-' + i, f.action, f.run)).toMatchObject({ isError: false });
       expect(counted.counts.readdirSync).toBe(0);
       expect(counted.counts.readSync).toBe(0);
-      expect(counted.counts.openSync).toBeLessThanOrEqual(5);
+      // Reservation and result publication each plan and publish under short locks; staging needs no lock.
+      expect(counted.counts.openSync).toBeLessThanOrEqual(7);
+      expect(counted.counts.fsyncSync).toBe(0);
+      expect(counted.asyncCounts.fsync).toBe(0);
     }
   });
   it('joins calls during yielding index recovery and reconciles another store before capacity checks', async () => {
@@ -98,7 +227,7 @@ describe('signer-scoped idempotency records', () => {
     await f.store.run(tool, 'key', f.action, async operation => {
       await operation.prepare({ childIndex: 0, manifest, input: null, relayUrl: 'https://relay.example',
         peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, approvalTargetDigest: digest(target) });
-      operation.authorize(0, { targetDigest: digest(target), receipt: signApproval(manifest.taskId, 'external_side_effect', target, f.owner), approvedAt: f.epoch });
+      await operation.authorize(0, { targetDigest: digest(target), receipt: signApproval(manifest.taskId, 'external_side_effect', target, f.owner), approvedAt: f.epoch });
       const r = f.store.records.read('operations', operation.operationId)!;
       expect(r.phase).toBe('approved'); expect(r.preparedActions[0].manifest).toEqual(manifest);
       expect(r.retainUntil).toBe(Date.parse(manifest.deadline) + DELIVERY_RETENTION_MS);
@@ -135,7 +264,7 @@ describe('signer-scoped idempotency records', () => {
     const response = await f.store.run('acp_delegate_multi', 'key', f.action, async operation => {
       const child = operation.prepare({ childIndex: 0, manifest, input: null, relayUrl: 'https://relay.example',
         peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, approvalTargetDigest: digest({ manifest }) }).then(authorize);
-      operation.childReady(1, new Error('IDEMPOTENCY_STORE_FULL'));
+      await operation.childReady(1, new Error('IDEMPOTENCY_STORE_FULL'));
       await child; return f.run();
     }, { children: 2 });
     expect(response).toMatchObject({ isError: true, value: { error: 'IDEMPOTENCY_STORE_FULL' } });
@@ -159,8 +288,8 @@ describe('signer-scoped idempotency records', () => {
     const execute = vi.fn(async (operation: Parameters<Parameters<IdempotencyStore['run']>[3]>[0]) => {
       await operation.prepare({ childIndex: 0, manifest, input: null, relayUrl: p.context.relayUrl,
         peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, approvalTargetDigest: digest(target) });
-      operation.authorize(0, { targetDigest: digest(target), policy: 'configured-auto', approvedAt: f.epoch });
-      f.service.enqueue(p.frames, { ...p.context, message: { ...p.context.message, operationId: operation.operationId } });
+      await operation.authorize(0, { targetDigest: digest(target), policy: 'configured-auto', approvedAt: f.epoch });
+      await f.service.enqueuePrepared(p.frames, { ...p.context, message: { ...p.context.message, operationId: operation.operationId } });
       return f.run();
     });
     await expect(broken.run(tool, 'key', f.action, execute)).rejects.toThrow('IDEMPOTENCY_STORE_UNWRITABLE');
