@@ -184,10 +184,11 @@ export class ConnectionService {
     toOwnerDid: string; message?: string; expiresAt?: string; inviteToken?: string; originProposalDigest?: string; deferDelivery?: boolean;
   }): Promise<ConnectionServiceResult> {
     const invite = input.inviteToken === undefined ? undefined : this.invite(input.inviteToken, input.toOwnerDid);
+    const now = this.now();
     const request = signConnectionRequest({ type: 'ConnectionRequest', v: 1, protocolVersion: '0.2.0',
       requestId: this.id(), fromOwnerDid: this.options.owner.did, toOwnerDid: input.toOwnerDid,
-      agentCard: this.options.agentCard, message: input.message ?? '', createdAt: this.iso(),
-      expiresAt: input.expiresAt ?? new Date(this.now() + CONNECTION_OFFER_LIFETIME_MS).toISOString(),
+      agentCard: this.options.agentCard, message: input.message ?? '', createdAt: new Date(now).toISOString(),
+      expiresAt: input.expiresAt ?? new Date(now + CONNECTION_OFFER_LIFETIME_MS).toISOString(),
       ...(invite ? { inviteDigest: digest(invite) } : {}),
       ...(input.originProposalDigest === undefined ? {} : { originProposalDigest: input.originProposalDigest }),
     }, this.options.owner);
