@@ -2,6 +2,8 @@
 
 [English](admission.md)
 
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
+
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
 検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。

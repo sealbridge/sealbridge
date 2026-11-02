@@ -18,6 +18,10 @@ The installers pin the current release, sealbridge 0.2.2, which is published on 
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`doctor --offline`.
+
 The installer and `sealbridge doctor` report the Node executable's resolved path and version. On Windows, npm must be installed beside the resolved Node; on macOS/Linux, the npm launcher beside the resolved Node must point to npm's JavaScript entry point (symlinks are supported). The installer runs npm with that exact Node. Windows command and PowerShell shims pin the selected runtime; macOS/Linux shims use the selected Node first on PATH. Doctor reports its own running Node, so changing PATH later on macOS/Linux can change the reported runtime. Successful checks use short `(OK)` lines; only `(WARN)` lines include fix hints. Identity files are created on first use; installers and doctor do not generate them. Use `sealbridge doctor --offline` to inspect local configuration without a relay request.
 
 To uninstall, download the same script and run `sh install.sh --uninstall` or `& ./install.ps1 -Uninstall` (PowerShell spelling of --uninstall). Keys are retained. Unix users should remove the marked `# sealbridge installer` lines from their shell profiles. npm-only installs use `npm uninstall -g sealbridge`. Installer locations: `~/.local/share/sealbridge` and `%LOCALAPPDATA%\Sealbridge`.
@@ -43,6 +47,10 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 [![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
+[![Sealbridge demo: install, delegate a code review, receive a signed result, and inspect the audit log (English captions)](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
+
+30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
+
 > **Status**: Sealbridge `v0.2.2` is the latest release, published on npm as `sealbridge`. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
@@ -64,6 +72,10 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 ```
 
 ### Local host setup
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`setup`, `accept`.
 
 For a release containing this command, check `sealbridge setup --help`, then run
 `sealbridge setup --host cursor` or `sealbridge setup --host claude-desktop`
@@ -108,6 +120,10 @@ Identities persist at `<data-root>/identities/requester.private.json` and `worke
 POSIX application directories use 0700 and keys use 0600, with ownership/type/mode checks. Windows files inherit the per-user LOCALAPPDATA tree's DACL; Node mode bits do not establish a user-only DACL and this release does not verify ACLs. Overrides inherit their parent's access and require user management. Detectable links and non-files are rejected, except macOS’s root-owned `/var` and `/tmp` aliases to their corresponding `/private` directories. First-use publication requires same-directory hard links; unsupported filesystems return `IDENTITY_CREATION_UNSUPPORTED`.
 
 Existing role-matched `~/.acp/{requester,worker}.private.json` keys and the old contacts-root `owner.private.json` (requester only) are reused in place when the canonical key is absent. Conflicting legacy requester identities return `IDENTITY_SELECTION_REQUIRED`; select one with `--key`. Existing canonical keys take precedence. Invalid or unreadable files return an error and are never replaced. `keygen <path>` still creates only an explicit, previously unused path.
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`config key-store`, `doctor --offline`.
 
 Private-key storage defaults to files. `sealbridge config key-store` reports the effective backend and source; `sealbridge config key-store file|keychain` persists `"keyStore"` in version-1 `<data-root>/config.json` alongside relays. Precedence is programmatic option > `SEALBRIDGE_KEY_STORE` > config > default file. `--key <path>` always selects a file. Setting the backend checks availability and reports identities in the other backend without moving, creating, or deleting keys. Other config fields are retained; setting the same value preserves existing bytes. An environment override still applies after setting the config.
 
@@ -376,6 +392,10 @@ signed card uses the configured lifetime too. The runtime equivalent is
 `WorkerNodeOptions.inviteTtlSeconds` (default 86400); `worker.invite()` also defaults
 to 24 hours. Standalone `invite create --expires-in` keeps its 3600-second default.
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
+
 The requester installs Sealbridge using the invite page, then **runs the import
 personally in a terminal**, outside model execution:
 
@@ -539,6 +559,10 @@ DIDs, allowlists, and invitations.
 pnpm sealbridge mcp-server
 ```
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`.
+
 `sealbridge mcp-server` is a dependency-free JSON-RPC 2.0 MCP server on stdio. It accepts newline-delimited JSON and `Content-Length` frames. Hosts such as Claude Code, Cursor, Codex, and Grok Bot can call:
 
 | Tool                       | Result                                                                                          |
@@ -658,6 +682,7 @@ See [connection state persistence](docs/connections/connection-state.md) for API
 
 The library exports signed request, acceptance and ACK helpers plus an injected `ConnectionService`.
 Runtime, CLI, MCP and board now attach this exchange through owner-local persistence and held-content review.
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
 See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
 
 ## Local M0–M1 implementation
@@ -716,6 +741,11 @@ See the [held-content library contract](docs/connections/held-content.md) for AP
 ### Connections admission
 
 [日本語](docs/connections/admission.ja.md)
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
+`acp_list_connections`, `acp_list_connection_requests`.
 
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
 Connected means limited consent with no expiry. Every limited task requires a

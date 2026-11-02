@@ -2,6 +2,11 @@
 
 [日本語](admission.ja.md)
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
+`acp_list_connections`, `acp_list_connection_requests`.
+
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
 Connected means limited consent with no expiry. Every limited task requires a
 completed inspection and a separate human opening before acceptance, for every

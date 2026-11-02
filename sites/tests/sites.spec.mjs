@@ -163,12 +163,25 @@ test('missing, malformed and query-only invitations never enable acceptance', as
   }
 });
 
-test('both deployment bundles carry the strict headers and static configuration', async () => {
+test('deployment bundles carry the headers and media-only Worker configuration', async () => {
   for (const target of ['site', 'invite']) {
     const config = JSON.parse(await readFile(path.join(directory, `../wrangler.${target}.jsonc`), 'utf8'));
     expect(config.assets.directory).toBe(`./dist/${target}`);
     expect(config.workers_dev).toBe(false);
+    expect(config.preview_urls).toBe(false);
     expect(config.routes).toBeUndefined();
+    expect(config.account_id).toBeUndefined();
+    if (target === 'site') {
+      expect(config.main).toBe('./site-worker.mjs');
+      expect(config.assets.binding).toBe('ASSETS');
+      expect(config.assets.run_worker_first).toEqual(['/media/*']);
+      const assets = await readdir(path.join(directory, '../dist/site'));
+      expect(assets).not.toContain('site-worker.mjs');
+      expect(assets).not.toContain('media-range.mjs');
+    } else {
+      expect(config.main).toBeUndefined();
+      expect(config.assets.run_worker_first).toBeUndefined();
+    }
     const headers = await readFile(path.join(directory, `../dist/${target}/_headers`), 'utf8');
     for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "connect-src 'none'", 'Referrer-Policy: no-referrer']) expect(headers).toContain(directive);
     expect(headers).not.toContain('unsafe-inline');
@@ -187,6 +200,19 @@ test('landing pages, generated source content and language switch work on mobile
   await page.locator('header').getByRole('link', { name: '日本語', exact: true }).click();
   await expect(page).toHaveURL(site + '/ja/docs/docs/sites.ja/');
   await expect(page.locator('article')).toHaveAttribute('lang', 'ja');
+});
+
+test('README demos retain MP4 caption links without broken images on the generated site', async ({ page }) => {
+  for (const lang of ['en', 'ja']) for (const [file, caption] of [
+    ['README', 'watch the MP4'], ['README.ja', 'MP4を見る'],
+  ]) {
+    await page.goto(`${site}/${lang}/docs/${file}/`);
+    await expect(page.locator('article').getByRole('link', { name: caption, exact: true })).toHaveAttribute(
+      'href', 'https://github.com/sealbridge/sealbridge/blob/main/docs/media/sealbridge-demo.mp4',
+    );
+    await expect(page.locator('article img:not([src]), article img[src=""]')).toHaveCount(0);
+    await expect(page.locator('article img[src*="sealbridge-demo"]')).toHaveCount(0);
+  }
 });
 
 test('all local document links resolve and all scripts/styles are external local assets', async ({ request }) => {

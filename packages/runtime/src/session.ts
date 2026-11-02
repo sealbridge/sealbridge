@@ -607,9 +607,10 @@ export class WorkerNode {
     this.approvalProvider =
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
     const agentDid = options.agentDid ?? options.agentKey?.did ?? options.owner.did;
+    const now = this.protocol.now();
     this.agentCard = createSignedAgentCard(
       {
-        name: options.name ?? options.adapter.name, now: this.protocol.now(),
+        name: options.name ?? options.adapter.name, now,
         agentDid,
         relayEndpoint:
           typeof options.relay === 'string'
@@ -617,7 +618,7 @@ export class WorkerNode {
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
         ...(options.inviteTtlSeconds !== undefined ? {
-          expiresAt: new Date(this.protocol.now() + options.inviteTtlSeconds * 1000).toISOString(),
+          expiresAt: new Date(now + options.inviteTtlSeconds * 1000).toISOString(),
         } : {}),
         protocolVersions: this.protocol.receiveVersions(),
       },
@@ -635,9 +636,11 @@ export class WorkerNode {
   }
   async register(): Promise<void> {
     const protocolVersions = this.protocol.receiveVersions();
-    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now())
-      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now: this.protocol.now(),
-        expiresAt: new Date(this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now()) {
+      const now = this.protocol.now();
+      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now,
+        expiresAt: new Date(now + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+    }
     this.connections.service.setAgentCard(this.agentCard);
     await this.relay.register?.(this.agentCard);
     this.registered = true;
@@ -1261,9 +1264,10 @@ export class WorkerNode {
             inspection.inspectionStatus !== 'complete') {
           this.intakeStore.enqueue(m, data.input);
           if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
+            const receivedAt = this.protocol.now();
             try { this.connectionStore.recordIncoming({ peerOwnerDid: m.requester.ownerDid, peerAgentDid: m.requester.agentDid,
               relayUrl: this.agentCard.payload.relayEndpoint, incoming: { requestId: m.taskId, requestDigest: proposalDigest,
-                receivedAt: this.protocol.now(), expiresAt: this.protocol.now() + 14 * 86400000 } }); }
+                receivedAt, expiresAt: receivedAt + 14 * 86400000 } }); }
             catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
           }
           throw new Error('PENDING_OWNER_APPROVAL');

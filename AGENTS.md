@@ -23,6 +23,12 @@ If already cloned, use that checkout and run the install/build steps there.
 Run all subsequent commands from the repository root.
 既存のチェックアウトは再利用し、以降のコマンドはリポジトリ直下で実行します。
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`setup`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`setup`。
+
 For local MCP host registration after building, use
 `node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
 macOS/Windows). Use `--dry-run` or `--print` to review without writes.
@@ -83,6 +89,13 @@ the corresponding /private directories; first-use publication requires same-dire
 Matching-role ~/.acp keys and old contacts-root owner.private.json (requester)
 are reused in place if no canonical key exists. Conflicting legacy identities
 require explicit `--key` selection. Invalid keys are never replaced.
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`config key-store`, `doctor --offline`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`config key-store`、`doctor --offline`。
+
 `sealbridge doctor --offline` inspects default/legacy paths without creating keys
 or contacting the relay. MCP initialization and tool listing make no network
 request. Discovery reads the directory; delegation transmits encrypted payloads
@@ -243,6 +256,12 @@ For the optional audit paths below, create the audit directory first:
 
 ## User-operated invitation import / ユーザーによる招待保存
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
+
 For MCP alias delegation, have the human run the import outside model execution,
 on the MCP server's machine and OS account with the same data root/requester identity:
 
@@ -309,6 +328,15 @@ text is echoed. The existing token-free JSON result includes `alias`, `workerRef
 入力リンクや読み取りエラーの内容は出力せず、既存のトークンを含まない JSON 形式で結果を返します。
 
 ## Connections and held review / つながりと保留の審査
+
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
+接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`connections`, `requests`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`connections`、`requests`。
 
 Follow [connections admission](docs/connections/admission.md) and the [Japanese workflow](docs/connections/admission.ja.md).
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
@@ -403,6 +431,12 @@ defaults to the task-manifest schema.
 `validate` は既定でタスクマニフェストを検証します。
 
 ## MCP, progress, revocation, and quorum / MCP・進捗・失効・クォーラム
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`, `acp_list_connections`, `acp_list_connection_requests`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`、`acp_list_connections`、`acp_list_connection_requests`。
 
 For an MCP host, start a stdio server; its requester identity is created on first use. It exposes
 `acp_delegate_task`, `acp_delegate_multi`, `acp_verify_audit_bundle`,
