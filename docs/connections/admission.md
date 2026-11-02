@@ -115,3 +115,15 @@ declarations retain 0.1.0 behavior. Status records use the fixed delivery deadli
 seven days; active maintenance deletes expired bytes. A handoff does not prove reading
 or execution. Both gateways need support; no relay deployment is required.
 See [relay reliability](../relay-reliability.md) for status sources, retention and lifecycle behavior.
+
+### Local message status
+
+`acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
+`acp_message_status {"taskId":"<original task ID>"}` reads sender-local status without
+sending, refreshing, polling or cleanup. Use exactly one selector; ambiguous task IDs
+require `messageId`. Records expire seven days after the original deadline (or creation
+time if later); absent, foreign and expired IDs return `found:false`. Initially unknown
+peers disclose only `received_held`/`closed`. Recipient claims are separate from bilateral
+audit; handoff does not prove reading or execution. This read is distinct from a cached
+delegation result and explicit pending resubmission. No relay deployment is required;
+richer observations require C4 peers. See [relay reliability](../relay-reliability.md).

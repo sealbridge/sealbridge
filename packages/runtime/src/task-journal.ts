@@ -29,13 +29,28 @@ export interface TaskCheckpoint {
   notificationPending?: boolean;
 }
 
-/** Private, fsynced snapshots. A torn final append never erases the preceding checkpoint. */
+/** Private signed checkpoints. A torn final append retains the preceding checkpoint. */
 export class TaskJournal {
   readonly tasks = new Map<string, TaskCheckpoint>();
   private loaded = false;
   private validBytes = 0;
-  constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity) {}
-  reload(): void { this.loaded = false; this.tasks.clear(); this.validBytes = 0; this.load(); }
+  private stamp?: string;
+  private writer?: number;
+  close(): void { if (this.writer !== undefined) { closeSync(this.writer); this.writer = undefined; } }
+  constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity,
+    private readonly durability: 'file-sync' | 'process' = 'file-sync') {}
+  private fingerprint(stat: fs.BigIntStats): string {
+    return [stat.dev, stat.ino, stat.size, stat.mode, stat.uid, stat.mtimeNs, stat.ctimeNs].join(':');
+  }
+  reload(): void {
+    // Gateway callers hold the signer lock. Reuse only the unchanged journal, including permissions.
+    if (this.durability === 'process' && this.loaded && this.stamp) {
+      try { if (this.fingerprint(fs.lstatSync(this.path, { bigint: true })) === this.stamp) return; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    this.close();
+    this.loaded = false; this.stamp = undefined; this.tasks.clear(); this.validBytes = 0; this.load();
+  }
   /** Used only by the gateway's default journal, under its signer lock. */
   compact(retainedTasks: ReadonlySet<string>): void {
     this.reload();
@@ -45,11 +60,19 @@ export class TaskJournal {
     const temporary = this.path + '.' + randomUUID() + '.tmp';
     let created = false;
     try {
-      writePrivateFile(temporary, bytes, fs); created = true;
+      if (this.durability === 'file-sync') { writePrivateFile(temporary, bytes, fs); created = true; }
+      else {
+        checkPath(temporary, fs);
+        const fd = fs.openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+          (constants.O_NOFOLLOW ?? 0), 0o600);
+        created = true;
+        try { checkStat(fs.fstatSync(fd)); fs.writeFileSync(fd, bytes); } finally { fs.closeSync(fd); }
+      }
       checkPath(this.path, fs); readPrivateFile(this.path, fs, fs.statSync(this.path).size + 1);
+      this.close();
       fs.renameSync(temporary, this.path); created = false;
-      if (process.platform !== 'win32') { const fd = fs.openSync(dirname(this.path), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
-      this.reload();
+      if (this.durability === 'file-sync' && process.platform !== 'win32') { const fd = fs.openSync(dirname(this.path), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+      this.loaded = false; this.reload();
     } finally { if (created) fs.unlinkSync(temporary); }
   }
 
@@ -106,18 +129,20 @@ export class TaskJournal {
           await target.writeFile(line);
           compactedBytes += Buffer.byteLength(line);
         }
-        await target.sync();
+        if (this.durability === 'file-sync') await target.sync();
       } finally { await target.close(); }
       signal.throwIfAborted();
       commit(() => {
         checkPath(this.path, fs);
         // A checkpoint appended during preparation takes precedence over this maintenance snapshot.
         if (stamp(fs.lstatSync(this.path, { bigint: true })) !== stamp(before)) return;
+        this.close();
         fs.renameSync(temporary, this.path); created = false;
         this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
         this.validBytes = compactedBytes; this.loaded = true;
+        this.stamp = this.fingerprint(fs.lstatSync(this.path, { bigint: true }));
       });
-      if (!created && process.platform !== 'win32') {
+      if (!created && this.durability === 'file-sync' && process.platform !== 'win32') {
         const directory = await fs.promises.open(dirname(this.path), constants.O_RDONLY);
         try { await directory.sync(); } finally { await directory.close(); }
       }
@@ -161,6 +186,7 @@ export class TaskJournal {
         const record = this.decode(line);
         this.tasks.set(record.taskId, record);
       }
+      this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
       this.validBytes = end;
       this.loaded = true;
     } finally { closeSync(fd); }
@@ -170,9 +196,10 @@ export class TaskJournal {
     const snapshot = JSON.parse(JSON.stringify(record)) as TaskCheckpoint;
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
     if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
-    const fd = this.open(constants.O_WRONLY | constants.O_CREAT);
+    const fd = this.writer ?? this.open(constants.O_WRONLY | constants.O_CREAT);
+    if (this.durability === 'process') this.writer = fd;
     try {
-      // Only one worker may own these persistence paths at a time.
+      // Explicit paths have one writer; gateway journals use the signer lock.
       const size = fstatSync(fd).size;
       if (size < this.validBytes) throw new Error('INVALID_TASK_JOURNAL');
       // Windows cannot truncate append-mode handles. Write explicitly after the valid prefix.
@@ -183,13 +210,15 @@ export class TaskJournal {
         if (written === 0) throw new Error('TASK_JOURNAL_WRITE_FAILED');
         offset += written;
       }
-      fsyncSync(fd);
-      if (process.platform !== 'win32') {
+      if (this.durability === 'file-sync') fsyncSync(fd);
+      if (this.durability === 'file-sync' && process.platform !== 'win32') {
         const directory = openSync(dirname(this.path), constants.O_RDONLY);
         try { fsyncSync(directory); } finally { closeSync(directory); }
       }
+      this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
       this.validBytes += line.length;
       this.tasks.set(record.taskId, snapshot);
-    } finally { closeSync(fd); }
+    } catch (error) { this.close(); throw error; }
+    finally { if (this.durability === 'file-sync') closeSync(fd); }
   }
 }

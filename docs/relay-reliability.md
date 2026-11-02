@@ -120,7 +120,9 @@ explicit inbox/audit journal paths retain precedence. Heartbeats and the separat
 connection-consent outbox retain their existing behavior. Concurrent delegations keep
 their own task and relay bindings while sharing the signer’s delivery store.
 
-Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+C1 persistence covers gateway process restart: completed writes and atomic replacement precede transmission or acknowledgement. Envelope records, receipts and the default task journal do not fsync files or directories; power-loss persistence is not guaranteed. Lease, retry and relay-admission bookkeeping may replay the same envelope ID after interruption. Explicit inbox/audit task journals retain their existing flush policy. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
+Session sends and processed receipts write unique temporary files asynchronously without acquiring the signer lock for preparation. Handles close before atomic publication; independent tasks sharing a signer and relay can write concurrently. Publication rechecks capacity and receipt state under the signer lock, without filesystem retry sleeps. The default task journal reuses its append handle and unchanged validated checkpoints; compaction and worker shutdown close the handle.
 
 POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
 Live sends remove completed batch ciphertext after consuming admission results.
@@ -184,3 +186,27 @@ initialization and tool listing do not start it. This is an observation record f
 later local query, not a new MCP tool or an execution/audit guarantee.
 Both gateways need this implementation for recipient observations. No relay deployment
 is required; relay retention configuration is a separate change.
+
+### Read local message status
+
+Use `acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
+`acp_message_status {"taskId":"<original task ID>"}` with exactly one selector.
+It reads messages sent by this gateway's requester signer, including other local
+entry points using the same signer/data root. It never sends, refreshes, polls,
+acknowledges, starts delivery or cleans up records. Multiple retained task matches
+return `MESSAGE_STATUS_AMBIGUOUS`; use `messageId` to select one.
+
+Records become absent at the fixed horizon: seven days after the original delivery
+deadline (or creation time if later). Unknown IDs, foreign IDs, expired records and
+missing local identities all return `{"found":false}`. An unknown peer with a retained
+message can still have `received_held` or `closed`; absence makes no delivery claim.
+`updatedAt` is the last committed fact time. The initial proposal's retained retry
+count becomes zero after C1 removes its completed batch member. Reads preserve files;
+active gateway maintenance removes expired bytes independently.
+
+Recipient detail follows C4: initially unknown tasks disclose only `received_held`
+and `closed`, including after later connection. Recipient status is a signed gateway
+claim, separate from bilateral audit; handoff does not prove reading or execution.
+Legacy peers have null recipient status. This tool is distinct from a cached first
+delegation result and explicit pending resubmission. A gateway upgrade provides the
+tool; richer observations require C4 peers. No relay deployment is needed.

@@ -48,11 +48,19 @@ export const deliveryFsOperations = ['openSync', 'writeSync', 'fsyncSync', 'rena
   'readdirSync', 'statSync', 'unlinkSync', 'lstatSync', 'fstatSync', 'readSync', 'closeSync', 'mkdirSync'] as const;
 export function countDeliveryFs(io: typeof fs = fs) {
   const counts = Object.fromEntries(deliveryFsOperations.map(name => [name, 0])) as Record<typeof deliveryFsOperations[number], number>;
+  const asyncCounts = { write: 0, fsync: 0 };
   const wrapped: typeof fs = { ...io };
   for (const name of deliveryFsOperations) {
     const original = io[name] as (...args: unknown[]) => unknown;
     Object.assign(wrapped, { [name]: (...args: unknown[]) => { counts[name]++; return original(...args); } });
   }
-  return { fs: wrapped, counts, reset: () => { for (const name of deliveryFsOperations) counts[name] = 0; },
+  for (const name of ['write', 'fsync'] as const) {
+    const original = io[name] as (...args: unknown[]) => unknown;
+    Object.assign(wrapped, { [name]: Object.assign((...args: unknown[]) => { asyncCounts[name]++; return original(...args); }, io[name]) });
+  }
+  return { fs: wrapped, counts, asyncCounts, reset: () => {
+    for (const name of deliveryFsOperations) counts[name] = 0;
+    asyncCounts.write = 0; asyncCounts.fsync = 0;
+  },
     total: () => deliveryFsOperations.slice(0, 8).reduce((sum, name) => sum + counts[name], 0) };
 }

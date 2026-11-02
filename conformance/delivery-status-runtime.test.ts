@@ -206,6 +206,7 @@ it('routes and sends status without reopening an unrelated backlog beyond the ve
   service.recipientStatus.admit(p.envelope, p.manifest, false, true);
   service.recipientStatus.observe(p.messageId, 'closed');
   expect(counted.counts.readSync).toBe(0); expect(counted.counts.readdirSync).toBe(0);
+  expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBe(0);
   counted.reset();
   await service.drainStatuses();
   expect(f.frames.filter(e => e.payload.eventType === 'DELIVERY_STATUS')).toHaveLength(2);
