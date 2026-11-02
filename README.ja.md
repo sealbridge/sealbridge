@@ -18,6 +18,8 @@ irm https://sealbridge.dev/install.ps1 | iex
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`doctor --offline`。
+
 インストーラーと `sealbridge doctor` は、Node 実行ファイルの解決済みパスとバージョンを表示します。Windows では解決済み Node と同じ場所に npm が必要です。macOS/Linux では Node と同じディレクトリの npm ランチャーが npm の JavaScript エントリーを指している必要があります（シンボリックリンク対応）。その Node で npm を直接実行します。Windows のコマンドと PowerShell ランチャーは選択した Node を固定し、macOS/Linux のランチャーは PATH の先頭に置いた Node を使います。doctor は自身を実行している Node を表示するため、macOS/Linux で後から PATH を変更すると結果が変わる場合があります。正常な項目は短い `(OK)` 行で表示し、対処方法は `(WARN)` 行だけに表示します。鍵は初回使用時に作成します。インストーラーと doctor は鍵を生成しません。`sealbridge doctor --offline` は中継器へ接続せずローカル設定を検査します。
 
 削除はスクリプトを保存して `sh install.sh --uninstall` または `& ./install.ps1 -Uninstall`（PowerShellでの --uninstall 表記）を実行します。鍵は保持します。Unixではシェル設定の `# sealbridge installer` 行も削除してください。npmのみの導入は `npm uninstall -g sealbridge` で削除できます。保存先は `~/.local/share/sealbridge` と `%LOCALAPPDATA%\Sealbridge` です。
@@ -43,6 +45,10 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 [![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
+[![Sealbridge のデモ：インストール、コードレビューの依頼、署名付き結果の受領、監査ログの確認（英語字幕付き）](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
+
+30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
+
 > **ステータス**: Sealbridge の最新リリース `v0.2.2` は npm パッケージ `sealbridge` として公開済みです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
@@ -64,6 +70,8 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 ```
 
 ### ローカルホスト設定
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`setup`、`accept`。
 
 このコマンドを含むリリースでは `sealbridge setup --help` を確認し、
 `sealbridge setup --host cursor` または `sealbridge setup --host claude-desktop`
@@ -108,6 +116,8 @@ POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モ
 
 既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
 
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`config key-store`、`doctor --offline`。
+
 秘密鍵の既定保存先はファイルです。`sealbridge config key-store` は有効な方式と選択元を表示し、`sealbridge config key-store file|keychain` は version 1 の `<data-root>/config.json` に中継器設定とともに `"keyStore"` を保存します。優先順位はプログラム指定 > `SEALBRIDGE_KEY_STORE` > config > 既定の file です。`--key <path>` は常にファイルを指定します。設定時は利用可否を確認し、他方式に既存の鍵があれば表示します。鍵の移動・作成・削除は行いません。他の設定項目を保持し、同じ値の再設定では既存バイト列を維持します。保存後も環境変数の指定が優先されます。
 
 `--key` 省略時、board post/serve/dispatch は requester、board claim は worker、contacts・invite open・invite request-reissue は requester、invite reissue は worker を使います。既存の明示ファイル読込と MCP ツール名は維持します。board 一覧・contacts 一覧・MCP 一覧では鍵を作成しません。contacts ファイルと返信招待の既定ディレクトリは従来どおりです。invite open は旧 requester ファイルを含む役割の鍵を再利用し、初回は選択した方式に従います。ファイル方式の出力は `local.keyFile`、keychain 方式はファイルパスの代わりに `local.keyStore` と `local.role` を含みます。`invite share` は鍵ストアへアクセスしません。
@@ -122,6 +132,8 @@ keychain 方式は任意の [`@napi-rs/keyring`](https://github.com/Brooooooklyn
 
 明示した `--relay` は接続先を固定します。未指定なら検証済み招待の中継器が公開既定値より優先されます。明示の許可リスト（プログラムの空リストを含む）と注入した transport の優先順位は維持します。ループバック接続には引き続き `--allow-private-relay` が必要です。
 
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
 
 招待はモデル実行の外で、ご自身でターミナルに保存します。
 
@@ -284,16 +296,16 @@ pnpm build
 
 公開中継器は非信頼の転送路です。セッションのペイロードは受信者の `did:key` へ暗号化され、中継器が保存するのは暗号文です。経路のメタデータは見えたままです。`decryptEnvelopePayload`、`WorkerNode`、`RequesterClient`、`VerificationEngine` は、既定で暗号化された封筒を要求します（`requireEncrypted: true`）。平文のセッション封筒は `UNENCRYPTED_ENVELOPE_REJECTED` で拒否されます。`{ requireEncrypted: false }` と `allowUnencryptedEnvelopes: true` は、呼び出し側が明示したときだけ平文を開き、レガシーのメモリ内フィクスチャ向けです。自前で動かす場合は `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。ワーカーは受信者ごとの受信箱を別々の Durable Object（`inbox:<recipientDid>`）に分け、エージェントカードは専用の `registry` オブジェクトに置きます。
 
-キューに入ったエンベロープは10分で期限切れになります。再生キャッシュとエージェントカードは1時間で期限切れになります。受信箱の上限は256件、1件256 KiB、合計4 MiBです。`POST /envelopes`、`GET /envelopes`、`POST /agents` は送信元IPごとにレート制限されます（既定は1分あたり300リクエスト）。バイト予算またはレート制限を超えると HTTP 429 を返します。既存の中継器へ新しいビルドを載せる前に、下のデプロイ手順を読んでください。
+新しく受理する封筒の保持期間は既定24時間です（`ACP_ENVELOPE_TTL_MS` またはローカルの `--envelope-ttl-ms`）。更新前に保存した期限は維持します。再送記録とエージェントカードは1時間で期限切れになります。再送記録の期限切れ・入替後も、キュー内に同じ ID があれば拒否します。両方の記録がなくなった後の再送履歴は保持しません。受信箱の上限はリース中も含め256件、1件256 KiB、合計4 MiBです。送信者ごとの上限は宛先ごとに既定256件です。キュー・全体容量や送信者の件数による一時拒否は HTTP 429、`{"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}`、`Retry-After: 60` を返し、その封筒を保存しません。1件または宛先のバイト上限に単体でも収まらない封筒は恒久エラーの HTTP 400 です。既存クライアントは送信を自動再試行せず `RELAY_REJECTED: 429` を返します。[保持と受理の設定](docs/relay-reliability.ja.md#保持と受理)を参照してください。`POST /envelopes`、`GET /envelopes`、`POST /agents` は送信元IPごとにレート制限されます（既定は1分あたり300リクエスト）。レート制限は従来の HTTP 429 を維持します。既存の中継器へ新しいビルドを載せる前に、下のデプロイ手順を読んでください。
 
 **自前中継器のデプロイ**
 
-進行中の通信が空になるまで、この変更を稼働中の中継器へデプロイしないでください。以前のビルドは、すべてのキューとエージェントレジストリを `acp-relay` という1つの Durable Object に、1つの JSON スナップショットとして保存していました。このビルドはそのオブジェクトを読みません。
+公開中継器で既定値・受理応答を変えるには、運用者による Worker のデプロイ・設定更新が必要です。この変更ではデプロイしません。ローカル・組み込みの中継器は更新後に新しい既定値を使います。現在の宛先別受信箱は保存済み期限・クラス名・マイグレーションタグを維持します。宛先別に分ける前の版を置き換える場合は、先に通信を排出してください。その版の単一 `acp-relay` オブジェクトは現在のワーカーから読みません。
 
-1. 送信を止めるか、少なくとも15分待って、キュー内のエンベロープを期限切れにし、受信側に再送させてください。
+1. 宛先別に分ける前の版では送信を止め、キューを排出するか、設定した保持期間を待ちます。配置を変える前に古いキューが空であることを確認してください。
 2. `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。`pnpm --filter @acp/relay exec wrangler deploy`
-3. エージェントは次の起動時に再登録します。古いオブジェクトに残った未配送のエンベロープは移行されないので、クライアントが再送します。
-4. Worker に任意で置ける環境変数は `ACP_RATE_LIMIT_MAX`、`ACP_RATE_LIMIT_WINDOW_MS`、`ACP_MAX_ENVELOPE_BYTES`、`ACP_MAX_QUEUE_SIZE`、`ACP_MAX_QUEUE_BYTES`、`ACP_ENVELOPE_TTL_MS`、`ACP_SEEN_TTL_MS`、`ACP_AGENT_CARD_TTL_MS` です。任意の `RATE_LIMITER` バインディングは、アイソレート内のウィンドウに加えて検査されます。
+3. エージェントは次の起動時に再登録します。古いオブジェクトの未配送の封筒は移行されません。必要な再試行は呼び出し側が明示的に行います。
+4. Worker に任意で置ける環境変数は `ACP_RATE_LIMIT_MAX`、`ACP_RATE_LIMIT_WINDOW_MS`、`ACP_MAX_ENVELOPE_BYTES`、`ACP_MAX_QUEUE_SIZE`、`ACP_MAX_QUEUE_BYTES`、`ACP_MAX_ENVELOPES_PER_SENDER`、`ACP_ENVELOPE_TTL_MS`、`ACP_SEEN_TTL_MS`、`ACP_AGENT_CARD_TTL_MS` です。任意の `RATE_LIMITER` バインディングは、アイソレート内のウィンドウに加えて検査されます。
 
 Durable Object のクラス名は変わらないので、例にある `v1` マイグレーションはそのまま使えます。新しいオブジェクト名は、同じクラスの別インスタンスです。古い `acp-relay` インスタンスは、参照が残っていないことを確認してから Wrangler で削除できます。
 
@@ -364,6 +376,8 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 ### つながりによる受付
 
 [English](docs/connections/admission.md)
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
 
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
@@ -556,6 +570,8 @@ docker run --rm -i -v sealbridge-data:/data sealbridge
 pnpm sealbridge mcp-server
 ```
 
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`。
+
 `sealbridge mcp-server` は、依存ライブラリを増やさない JSON-RPC 2.0 の MCP サーバーです。標準入力に、改行区切り JSON と `Content-Length` フレームの両方を受けます。Claude Code、Cursor、Codex、Grok Bot から次のツールを呼べます。
 
 | ツール                     | 戻り値                                                                 |
@@ -669,6 +685,7 @@ APIとストアの互換性は[つながりの状態と永続化](docs/connectio
 
 署名付きの申し込み・承認・ACK と、永続化・検査・所有者確認・通信を注入する
 `ConnectionService` を公開します。runtime・CLI・MCP・board に所有者ごとの永続化と保留内容の審査を接続します。
+接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
 詳細は[つながり交換](docs/connections/connection-exchange.ja.md)を参照してください。
 
 ## ローカルの M0–M1 実装

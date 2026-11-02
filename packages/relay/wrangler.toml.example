@@ -22,7 +22,14 @@ new_sqlite_classes = ["RelayDurableObject"]
 # ACP_RATE_LIMIT_MAX (default 300) and ACP_RATE_LIMIT_WINDOW_MS (default 60000).
 # Inbox caps and TTLs can be overridden with ACP_MAX_ENVELOPE_BYTES,
 # ACP_MAX_QUEUE_SIZE, ACP_MAX_QUEUE_BYTES, ACP_ENVELOPE_TTL_MS,
-# ACP_SEEN_TTL_MS, and ACP_AGENT_CARD_TTL_MS.
+# ACP_MAX_ENVELOPES_PER_SENDER, ACP_SEEN_TTL_MS, and ACP_AGENT_CARD_TTL_MS.
+# Defaults: retention 86400000 ms (24h); recipient count 256; recipient bytes
+# 4194304; envelope bytes 262144; sender count equals the recipient count.
+# New defaults affect new admissions; stored expiry times are unchanged.
+# Capacity refusal is HTTP 429 RELAY_RETRY_LATER with a 60000 ms retry hint.
+# 既定: 保持24時間、宛先256件・4194304バイト、1件262144バイト。
+# 送信者の件数は宛先の件数と同じ。保存済み期限は維持します。
+# 容量の一時拒否は HTTP 429 RELAY_RETRY_LATER（待機60000ミリ秒）。
 # [[ratelimits]]
 # name = "RATE_LIMITER"
 # namespace_id = "1001"

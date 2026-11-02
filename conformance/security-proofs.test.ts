@@ -546,15 +546,15 @@ describe('Proof 4: resource exhaustion and SSRF', () => {
     expect(relay.maxEnvelopeBytes).toBeLessThanOrEqual(256 * 1024);
     expect(relay.maxQueueSize).toBeLessThanOrEqual(256);
     expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(relay.maxEnvelopeBytes);
-    expect(() => relay.send(oversized)).toThrow('RELAY_CAPACITY');
+    expect(() => relay.send(oversized)).toThrow('ENVELOPE_TOO_LARGE');
     expect(relay.snapshot().seen).toEqual([]);
     for (let i = 0; i < relay.maxQueueSize; i++)
       relay.send(envelopeFor(alice, bob.did, 'task_flood_' + i));
     expect(() => relay.send(envelopeFor(alice, bob.did, 'task_flood_extra'))).toThrow(
-      'RELAY_CAPACITY',
+      'RELAY_RETRY_LATER',
     );
     expect(() => relay.send(envelopeFor(alice, generateKeyPair().did, 'task_other'))).toThrow(
-      'RELAY_CAPACITY',
+      'RELAY_RETRY_LATER',
     );
   });
 

@@ -550,7 +550,7 @@ describe('M3.1 bounded relay state', () => {
     const relay = new InMemoryRelay({ maxQueues: 1 }),
       e = envelope();
     relay.send(e);
-    expect(() => relay.send(envelope(eve.did))).toThrow('RELAY_CAPACITY');
+    expect(() => relay.send(envelope(eve.did))).toThrow('RELAY_RETRY_LATER');
     expect(relay.receive(bob.did)).toEqual(e);
     expect(relay.snapshot().queues).toEqual([]);
     relay.send(envelope(eve.did));
@@ -561,7 +561,7 @@ describe('M3.1 bounded relay state', () => {
       controller = new AbortController();
     const pending = relay.wait(bob.did, 30000, controller.signal);
     await expect(relay.wait(eve.did, 1)).rejects.toThrow('RELAY_CAPACITY');
-    expect(() => relay.send(envelope(eve.did))).toThrow('RELAY_CAPACITY');
+    expect(() => relay.send(envelope(eve.did))).toThrow('RELAY_RETRY_LATER');
     controller.abort();
     await pending;
     expect(relay.snapshot().queues).toEqual([]);
@@ -580,10 +580,10 @@ describe('M3.1 bounded relay state', () => {
       },
       alice,
     );
-    expect(() => relay.send(oversized)).toThrow('RELAY_CAPACITY');
+    expect(() => relay.send(oversized)).toThrow('ENVELOPE_TOO_LARGE');
     expect(relay.snapshot().seen).toEqual([]);
     for (let i = 0; i < relay.maxQueueSize; i++) relay.send(envelope());
-    expect(() => relay.send(envelope())).toThrow('RELAY_CAPACITY');
+    expect(() => relay.send(envelope())).toThrow('RELAY_RETRY_LATER');
   });
   it.each(['ascii', 'utf8'])(
     'cancels SSE when an incomplete %s frame exceeds 2MB',

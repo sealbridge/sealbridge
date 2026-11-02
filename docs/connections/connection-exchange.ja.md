@@ -11,6 +11,8 @@ limited の同意、承認通知の送信待ちを一度の更新で保存しま
 
 ## 制御通知の形式と永続化の条件
 
+接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
+
 `packages/core/src/connection.ts` は `ConnectionRequest`・`ConnectionAccepted`
 （`v: 1`, `protocolVersion: '0.2.0'`）と `ConnectionAck`（`v: 1`）の型と検証を定義します。
 マニフェストの版は変えません。申し込みには署名を確認した AgentCard、Unicode のコード
