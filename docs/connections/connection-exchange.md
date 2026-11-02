@@ -11,6 +11,8 @@ does not connect its recipient. Control delivery is independent of task executio
 
 ## Control profile and persistence requirements
 
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
+
 `packages/core/src/connection.ts` defines closed, bounded payload validators for
 `ConnectionRequest` and `ConnectionAccepted` (`v: 1`, `protocolVersion: '0.2.0'`)
 and `ConnectionAck` (`v: 1`). These types do not change the manifest version.
