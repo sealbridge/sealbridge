@@ -39,3 +39,5 @@ export * from './protocol-release.js';
 export * from './connection-router.js';
 export * from './connection-persistence.js';
 export * from './connection-service.js';
+
+export * from './idempotency-store.js';

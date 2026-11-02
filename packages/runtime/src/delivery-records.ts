@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { digest, isEncryptedEnvelopePayload, resolveDid, validateSchema, verifyEnvelope, verifySigned } from '@acp/core';
-import type { Signed, SignedEnvelope } from '@acp/core';
+import { digest, isEncryptedEnvelopePayload, resolveDid, validateManifest, validateSchema, verifyEnvelope, verifySigned } from '@acp/core';
+import type { ApprovalReceipt, Json, TaskManifest, Signed, SignedEnvelope } from '@acp/core';
 import { createHash } from 'node:crypto';
 
 export const DELIVERY_RETENTION_MS = 7 * 86400_000;
@@ -37,13 +37,36 @@ export interface InboundReceiptV1 {
   envelopeDigest: string; receivedAt: number; retainUntil: number;
   state: 'persisted' | 'processed' | 'terminal'; outcomeCode?: string;
 }
+export interface PreparedIdempotentAction {
+  childIndex: number; manifest: TaskManifest; input: Json; relayUrl: string;
+  peerOwnerDid: string; peerAgentDid: string; messageId?: string; approvalTargetDigest: string;
+}
+export interface IdempotencyAuthorization {
+  targetDigest: string; receipt?: ApprovalReceipt; approvedAt: number; policy?: 'configured-auto';
+}
+export interface IdempotencyOperationV1 {
+  version: 1; operationId: string; localOwnerDid: string; tool: string; requestDigest: string;
+  createdAt: number; retainUntil: number;
+  phase: 'reserved' | 'awaiting_approval' | 'approved' | 'sending' | 'finished';
+  messageIds: string[]; taskIds: string[]; preparedActions: PreparedIdempotentAction[];
+  approvals?: Array<IdempotencyAuthorization & { childIndex: number }>;
+  response?: { isError: boolean; value: Json };
+  lease?: { holderId: string; until: number };
+}
+export interface IdempotencyBindingV1 {
+  version: 1; localOwnerDid: string; tool: string; keyHash: string; requestDigest: string;
+  operationId: string; createdAt: number; retainUntil: number;
+}
 export interface DeliveryRecords {
+  operations: IdempotencyOperationV1; idempotency: IdempotencyBindingV1;
   messages: MessageRecordV1; outbox: OutboxRecordV1; batches: OutboxBatchV1; receipts: InboundReceiptV1;
 }
 export interface DeliveryLimits {
+  operations: number; cachedResultBytes: number; operationBytes: number;
   activeEnvelopes: number; envelopeBytes: number; wireBytes: number; messages: number; receipts: number; recordBytes: number;
 }
 export const DEFAULT_DELIVERY_LIMITS: DeliveryLimits = {
+  operations: 10_000, cachedResultBytes: 16 * 1024 * 1024, operationBytes: 4 * 1024 * 1024,
   activeEnvelopes: 1024, envelopeBytes: 32 * 1024 * 1024, wireBytes: 256 * 1024,
   messages: 10_000, receipts: 10_000, recordBytes: 1024 * 1024,
 };
@@ -92,6 +115,8 @@ export function validateDeliveryStatus(value: unknown): asserts value is Signed<
 export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K, value: unknown, ownerDid: string): asserts value is DeliveryRecords[K] {
   const common = ['version', 'localOwnerDid'];
   const fields: Record<keyof DeliveryRecords, [string[], string[]]> = {
+    operations: [['operationId', 'tool', 'requestDigest', 'createdAt', 'retainUntil', 'phase', 'messageIds', 'taskIds', 'preparedActions'], ['approvals', 'response', 'lease']],
+    idempotency: [['tool', 'keyHash', 'requestDigest', 'operationId', 'createdAt', 'retainUntil'], []],
     messages: [['messageId', 'peerOwnerDid', 'peerAgentDid', 'taskId', 'relayUrl', 'protocolVersion', 'createdAt', 'deliveryDeadline', 'retainUntil', 'status', 'updatedAt', 'proposalEnvelopeDigest'], ['lastError', 'closedBy', 'operationId', 'remoteStatus', 'replyEnvelopeId']],
     outbox: [['envelopeId', 'messageId', 'batchId', 'kind', 'peerOwnerDid', 'relayUrl', 'envelopeDigest', 'envelope', 'createdAt', 'deliveryDeadline', 'state', 'attemptCount', 'nextAttemptAt', 'ordinal'], ['lease', 'admittedAt', 'lastError', 'relayDid']],
     batches: [['batchId', 'messageId', 'envelopeIds', 'createdAt', 'committed'], []],
@@ -111,7 +136,9 @@ export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K,
     const url = new URL(r.relayUrl as string);
     requireDelivery(['https:', 'http:'].includes(url.protocol) && !url.username && !url.password && !url.hash && !url.search);
   }
-  if (kind === 'messages') {
+  if (kind === 'operations' || kind === 'idempotency') {
+    validateIdempotencyRecord(kind, r, ownerDid);
+  } else if (kind === 'messages') {
     requireDelivery(['0.1.0', '0.2.0'].includes(String(r.protocolVersion)) &&
       ['queued', 'relayed', 'received_held', 'opened', 'handed_to_agent', 'replied', 'closed'].includes(String(r.status)) &&
       hash(r.proposalEnvelopeDigest) && r.retainUntil === Math.max(Number(r.createdAt), Number(r.deliveryDeadline)) + DELIVERY_RETENTION_MS);
@@ -140,4 +167,47 @@ export function effectiveMessage(record: MessageRecordV1, now: number): MessageR
   if (now >= record.retainUntil) return;
   return now >= record.deliveryDeadline && ['queued', 'relayed'].includes(record.status)
     ? { ...record, status: 'closed', closedBy: 'deadline' } : record;
+}
+
+export const IDEMPOTENCY_TOOLS = ['acp_delegate_task', 'acp_delegate_multi', 'acp_resubmit_pending_request'] as const;
+function validateIdempotencyRecord(kind: 'operations' | 'idempotency', r: Record<string, unknown>, owner: string): void {
+  requireDelivery(IDEMPOTENCY_TOOLS.includes(r.tool as typeof IDEMPOTENCY_TOOLS[number]) && hash(r.requestDigest) &&
+    integer(r.createdAt) && integer(r.retainUntil) && Number(r.retainUntil) >= Number(r.createdAt));
+  if (kind === 'idempotency') { requireDelivery(typeof r.keyHash === 'string' && /^[a-f0-9]{64}$/.test(r.keyHash)); return; }
+  requireDelivery(['reserved', 'awaiting_approval', 'approved', 'sending', 'finished'].includes(String(r.phase)) &&
+    Array.isArray(r.messageIds) && r.messageIds.every(uuid) && new Set(r.messageIds).size === r.messageIds.length &&
+    Array.isArray(r.taskIds) && r.taskIds.every(text) && new Set(r.taskIds).size === r.taskIds.length &&
+    Array.isArray(r.preparedActions) && r.preparedActions.length <= 1024);
+  const indices = new Set<number>();
+  for (const a of r.preparedActions) {
+    exact(a, ['childIndex', 'manifest', 'input', 'relayUrl', 'peerOwnerDid', 'peerAgentDid', 'approvalTargetDigest'], ['messageId']);
+    requireDelivery(integer(a.childIndex) && !indices.has(Number(a.childIndex)) && hash(a.approvalTargetDigest) && text(a.relayUrl));
+    indices.add(Number(a.childIndex));
+    validateManifest(a.manifest as TaskManifest);
+    const manifest = a.manifest as TaskManifest;
+    requireDelivery(manifest.requester.ownerDid === owner && manifest.worker?.ownerDid === a.peerOwnerDid &&
+      manifest.worker?.agentDid === a.peerAgentDid && r.taskIds.includes(manifest.taskId));
+    did(a.peerOwnerDid); did(a.peerAgentDid); digest(a.input);
+    if ('messageId' in a) requireDelivery(uuid(a.messageId) && r.messageIds.includes(a.messageId));
+  }
+  if ('approvals' in r) {
+    requireDelivery(Array.isArray(r.approvals) && r.approvals.length <= r.preparedActions.length);
+    const approved = new Set<number>();
+    for (const a of r.approvals) {
+      exact(a, ['childIndex', 'targetDigest', 'approvedAt'], ['receipt', 'policy']);
+      const action = r.preparedActions.find(p => p.childIndex === a.childIndex);
+      requireDelivery(action && !approved.has(Number(a.childIndex)) && a.targetDigest === action.approvalTargetDigest && integer(a.approvedAt));
+      approved.add(Number(a.childIndex));
+      requireDelivery(('receipt' in a) !== ('policy' in a));
+      if ('receipt' in a) {
+        validateSchema('approval-receipt', a.receipt);
+        const receipt = a.receipt as ApprovalReceipt;
+        requireDelivery(verifySigned(receipt, owner) && receipt.payload.taskId === (action.manifest as TaskManifest).taskId &&
+          receipt.payload.gate === 'external_side_effect' && receipt.payload.targetDigest === a.targetDigest && receipt.payload.decision === 'APPROVED');
+      } else requireDelivery(a.policy === 'configured-auto');
+    }
+  }
+  if ('response' in r) { exact(r.response, ['isError', 'value']); requireDelivery(typeof r.response.isError === 'boolean'); digest(r.response.value); }
+  requireDelivery((r.phase === 'finished') === ('response' in r));
+  if ('lease' in r) { exact(r.lease, ['holderId', 'until']); requireDelivery(uuid(r.lease.holderId) && integer(r.lease.until) && r.phase !== 'finished'); }
 }

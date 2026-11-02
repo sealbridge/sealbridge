@@ -114,12 +114,28 @@ class GatewayDeliveryServiceImplementation {
       envelopeIds: records.map(r => r.envelopeId), createdAt: now, committed: true as const };
     return { records, message, marker };
   }
-  private publishBatch({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>, prepared?: PreparedDeliveryWrite[]): string[] {
+  private batchOperation(message?: MessageRecordV1) {
+    if (!message?.operationId) return;
+    const operation = this.store.read('operations', message.operationId);
+    const action = operation?.preparedActions.find(a => a.manifest.taskId === message.taskId);
+    requireDelivery(operation && operation.phase !== 'finished' && action &&
+      operation.approvals?.some(a => a.childIndex === action.childIndex) &&
+      action.peerOwnerDid === message.peerOwnerDid && action.peerAgentDid === message.peerAgentDid &&
+      action.relayUrl === message.relayUrl &&
+      Date.parse(action.manifest.deadline) === message.deliveryDeadline);
+    const prior = JSON.stringify(operation);
+    action.messageId = message.messageId;
+    operation.messageIds = operation.preparedActions.flatMap(a => a.messageId ? [a.messageId] : []); operation.phase = 'sending';
+    return { prior, record: operation };
+  }
+  private publishBatch({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>, prepared?: PreparedDeliveryWrite[],
+    operation?: ReturnType<GatewayDeliveryServiceImplementation['batchOperation']>): string[] | undefined {
     const publish = (write: DeliveryWrite) => {
       if (prepared) this.store.publishWrite(prepared.find(p => p.kind === write.kind && p.id === write.id)!);
       else this.store.write(write.kind, write.id, write.record);
     };
-    this.store.transaction(() => {
+    return this.store.transaction(() => {
+      if (operation && JSON.stringify(this.store.read('operations', operation.record.operationId)) !== operation.prior) return;
       this.store.assertCapacity(records, message);
       for (const r of records) {
         const prior = this.store.read('outbox', r.envelopeId);
@@ -131,25 +147,47 @@ class GatewayDeliveryServiceImplementation {
         if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
         publish({ kind: 'messages', id: message.messageId, record: message });
       }
+      if (operation) publish({ kind: 'operations', id: operation.record.operationId, record: operation.record });
       publish({ kind: 'batches', id: marker.batchId, record: marker });
       this.store.committed(marker.batchId);
+      return records.map(r => r.envelopeId);
     });
-    return records.map(r => r.envelopeId);
+  }
+  private batchWrites(batch: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>): DeliveryWrite[] {
+    const writes: DeliveryWrite[] = batch.records.map(record => ({ kind: 'outbox', id: record.envelopeId, record }));
+    if (batch.message) writes.push({ kind: 'messages', id: batch.message.messageId, record: batch.message });
+    writes.push({ kind: 'batches', id: batch.marker.batchId, record: batch.marker });
+    return writes;
   }
   /** Publish all immutable members before the batch marker makes any member dispatchable. */
   enqueue(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
-    return this.publishBatch(this.buildBatch(prepared, context));
+    const batch = this.buildBatch(prepared, context);
+    if (!batch.message?.operationId) return this.publishBatch(batch)!;
+    for (;;) {
+      const operation = this.batchOperation(batch.message)!;
+      const update = this.store.prepareWritesSync([...this.batchWrites(batch),
+        { kind: 'operations', id: operation.record.operationId, record: operation.record }]);
+      try {
+        // Complete synchronous keyed writes before acquiring the publication lock.
+        const ids = this.publishBatch(batch, update, operation);
+        if (ids) return ids;
+      } finally { this.store.discardWrites(update); }
+    }
   }
   /** Independent batches write concurrently without holding the signer lock or blocking relay readers. */
   async enqueuePrepared(frames: readonly SignedEnvelope[], context: DeliveryContext, signal?: AbortSignal): Promise<string[]> {
     const batch = this.buildBatch(frames, context);
-    const writes: DeliveryWrite[] = batch.records.map(record => ({ kind: 'outbox', id: record.envelopeId, record }));
-    if (batch.message) writes.push({ kind: 'messages', id: batch.message.messageId, record: batch.message });
-    writes.push({ kind: 'batches', id: batch.marker.batchId, record: batch.marker });
-    const prepared = await this.store.prepareWrites(writes);
+    const prepared = await this.store.prepareWrites(this.batchWrites(batch));
     try {
-      await this.prepare(signal);
-      return this.publishBatch(batch, prepared);
+      for (;;) {
+        const operation = this.batchOperation(batch.message);
+        const update = operation ? await this.store.prepareWrites([{ kind: 'operations', id: operation.record.operationId, record: operation.record }]) : [];
+        try {
+          await this.prepare(signal);
+          const ids = this.publishBatch(batch, [...prepared, ...update], operation);
+          if (ids) return ids;
+        } finally { this.store.discardWrites(update); }
+      }
     } finally { this.store.discardWrites(prepared); }
   }
   private async ordered(signal: AbortSignal): Promise<OutboxRecordV1[]> {

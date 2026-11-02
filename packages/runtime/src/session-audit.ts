@@ -343,7 +343,7 @@ export class SessionWire {
   }
   private dispatchPrepared(envelopes: SignedEnvelope[]): Promise<void> {
     if (!this.delivery) return this.dispatchBatch(envelopes);
-    // Preserve this wire's sequence while independent tasks flush and send concurrently.
+    // Preserve this wire's sequence while independent tasks write and send concurrently.
     const run = this.deliveryTail.then(() => this.dispatchBatch(envelopes));
     this.deliveryTail = run.catch(() => {});
     return run;

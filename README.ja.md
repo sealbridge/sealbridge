@@ -784,3 +784,17 @@ POSIX のディレクトリ・ファイルは 0700/0600、Windows は親の DACL
 transport の `send()` 単体は1回の試行のままです。この変更に relay の配備は不要で、
 受理後の封筒には既存の relay の保持期間が適用されます。
 [relay の動作](docs/relay-reliability.ja.md)も参照してください。
+
+
+MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
+`acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。
+Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
+（例: `"idempotencyKey":"review-2026-11-02"`）。同じ署名者・道具・キー・内容なら
+再起動後も最初の結果を返し、送信と承認を繰り返しません。内容が違えば
+`IDEMPOTENCY_CONFLICT` となり、新しいキーが必要です。キーと結果は元の期限
+（複数では最も遅い子の期限）の7日後まで保持します。保留の再参照では再依頼せず、
+試行回数も増やしません。別サーバーは `IDEMPOTENCY_IN_PROGRESS`、中断後は
+`APPROVAL_INTERRUPTED` または `IDEMPOTENCY_RESULT_UNAVAILABLE` を返し、承認や実行を
+やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
+保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
+relay のデプロイは不要です。
