@@ -76,6 +76,11 @@ Capability の証明は、根から葉へ並んだ署名付きトークンの配
 
 A2A の AgentCard、Task、Message、Artifact は SDK のワイヤ形を保ち、署名付き Sealbridge エンベロープの中に載ります。ブリッジは、インストール済みの A2A SDK 0.3 のワイヤプロファイルを使います。Sealbridge の契約とレシートは、A2A を書き換えるのではなく、オーバーレイのペイロードです。MCP の `tools/call` の要求と結果は公式 SDK を使い、サンドボックスの外で物理的にプロキシされます。未知のツールと、メタデータの無い迂回は拒否します。
 
+## つながり制御通知（準備段階）
+
+署名付きの申し込み・承認・ACK、制御封筒、永続化ポートの条件は
+[つながり交換](../docs/connections/connection-exchange.ja.md)を参照してください。
+
 ## M2/M3 追加のディスカバリとセッションプロファイル
 
 M0/M1 の JSON スキーマとサンプルは変更していません。署名付き AgentCard と招待は、同じ `Signed<T>` のプレイメージを使います。`AgentCard` には ownerDid、agentDid、relayEndpoint、skills（任意の JSON 入出力スキーマを含む）、costModes、name、description、version が入ります。カードに署名するのはオーナーです。`AgentInvite` は、完全に署名されたカードを、同じ ownerDid / agentDid と relayUrl、および issuedAt / expiresAt に束縛します。パーサは、無効な署名、一致しない識別子や経路、未来の発行時刻、期限切れを拒否します。URI の符号化は `acp-invite:<base64url(JSON(Signed<AgentInvite>))>` または `acp://invite?token=<same-base64url>` です。

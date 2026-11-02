@@ -7,6 +7,8 @@ export * from './verifier.js';
 export * from './gateway.js';
 export * from './a2a.js';
 export * from './inbox.js';
+export * from './connection-service.js';
+export * from './connection-transport.js';
 export * from './adapter.js';
 export * from './approval-providers.js';
 export {

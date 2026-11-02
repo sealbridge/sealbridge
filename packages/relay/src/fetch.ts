@@ -116,7 +116,13 @@ interface NormalizedReceiveFilter {
   peek: boolean;
   lease?: boolean;
 }
+const CONNECTION_CONTROL_EVENTS: ReadonlySet<string> = new Set([
+  'CONNECTION_REQUEST',
+  'CONNECTION_ACCEPTED',
+  'CONNECTION_ACK',
+]);
 const WORKER_PRIMARY_EVENTS: ReadonlySet<string> = new Set([
+  ...CONNECTION_CONTROL_EVENTS,
   'PROPOSE',
   'REVOKE',
   'VERIFY_ACCEPT',
@@ -151,6 +157,9 @@ export function classifyEnvelopeRole(
   state?: TaskRoleState,
 ): RelayInboxRole {
   const { eventType: type, seq, senderDid, recipientDid } = envelope.payload;
+  // Control delivery does not participate in bilateral task role/sequence inference.
+  if (CONNECTION_CONTROL_EVENTS.has(type))
+    return 'worker';
   const cross = senderDid !== recipientDid;
   if (WORKER_PRIMARY_EVENTS.has(type)) {
     if (state) {
@@ -672,7 +681,8 @@ export class InMemoryRelay {
     if (this.senderCount(queue, envelope.payload.senderDid) >= this.maxEnvelopesPerSender)
       throw new Error('SENDER_QUOTA_EXCEEDED');
     this.remember(this.seen, envelope.payload.envelopeId, this.maxSeenEntries, this.seenTtlMs);
-    const role = classifyEnvelopeRole(envelope, this.stateForTask(envelope.payload.taskId));
+    const role = classifyEnvelopeRole(envelope, CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
+      ? undefined : this.stateForTask(envelope.payload.taskId));
     const wire = structuredClone(envelope);
     const stored = this.tamper ? this.tamper(wire) : wire;
     queue.push({
@@ -951,7 +961,8 @@ export class InMemoryRelay {
           bytes: Buffer.byteLength(JSON.stringify(envelope)),
           expiresAt:
             envelopeExpiry.get(envelope.payload.envelopeId) ?? this.now() + this.envelopeTtlMs,
-          role: classifyEnvelopeRole(envelope, this.stateForTask(envelope.payload.taskId)),
+          role: classifyEnvelopeRole(envelope, CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
+            ? undefined : this.stateForTask(envelope.payload.taskId)),
         })),
       );
     }
