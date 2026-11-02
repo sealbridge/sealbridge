@@ -844,6 +844,8 @@ explicit inbox/audit journal paths retain precedence. Heartbeats and the separat
 connection-consent outbox retain their existing behavior. Concurrent delegations keep
 their own task and relay bindings while sharing the signer’s delivery store.
 
+Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
 POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
 Live sends remove completed batch ciphertext after consuming admission results.
 Maintenance closes expired pending batches before pruning message metadata, and
@@ -863,3 +865,16 @@ Initialization, tool listing and local reads do not start delivery or create key
 Direct transport `send()` remains a single attempt. No relay deployment is needed
 for this gateway behavior; existing relay retention still governs admitted frames.
 See [relay reliability](docs/relay-reliability.md).
+
+### Recipient delivery status
+
+Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
+held/opened/adapter-handoff/closed observations separately from task sequences and
+bilateral audit. Unknown peers get only `received_held` and `closed`; later connection
+approval does not release that task's history. Inspection/display alone does not open
+a task, and successful result cleanup does not close it. Queued detail is suppressed
+on disconnect; blocking suppresses all queued status. Legacy peers without version
+declarations retain 0.1.0 behavior. Status records use the fixed delivery deadline plus
+seven days; active maintenance deletes expired bytes. A handoff does not prove reading
+or execution. Both gateways need support; no relay deployment is required.
+See [relay reliability](docs/relay-reliability.md) for status sources, retention and lifecycle behavior.

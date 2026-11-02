@@ -113,7 +113,7 @@ export class HeldRequestReview {
     return this.open(record);
   }
   /** Discard offers immediately after a decision, and tasks after result transmission. */
-  discard(id: string): boolean { return this.store.discard(id); }
+  discard(id: string, cause: 'closed' | 'completed' = 'closed'): boolean { return this.store.discard(id, cause); }
   discardPeer(senderOwnerDid: string): number { return this.store.discardPeer(senderOwnerDid); }
   expire(): number { return this.store.expire(); }
 }

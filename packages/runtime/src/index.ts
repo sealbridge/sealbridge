@@ -39,3 +39,6 @@ export * from './protocol-release.js';
 export * from './connection-router.js';
 export * from './connection-persistence.js';
 export * from './connection-service.js';
+
+export * from './delivery-status.js';
+export * from './delivery-status-router.js';

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { attachHeldDeliveryStatus } from '@acp/runtime';
 import { createInterface } from 'node:readline/promises';
 import { createSignedAgentCard } from '@acp/core';
 import type { KeyPair } from '@acp/core';
@@ -52,6 +53,7 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions),
     fs: identityOptions.fs, platform: identityOptions.platform, now: options.now });
   const review = new HeldRequestReview(key, { ...identityOptions, provider: options.inspectionProvider, now: options.now });
+  attachHeldDeliveryStatus(key, review, identityOptions, store, options.now);
   if (action === 'list') { output(JSON.stringify({ localOwnerDid: key.did, role, connections: store.listConnections() })); return; }
   if (action === 'prior-approved') { output(JSON.stringify({ localOwnerDid: key.did, role, priorApprovedPeers: store.listPriorApprovedPeers() })); return; }
   const connection = store.listConnections().find(c => 'incoming' in c && c.incoming?.requestId === ids[0] || 'outgoing' in c && c.outgoing?.requestId === ids[0]);

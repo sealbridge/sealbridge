@@ -499,6 +499,8 @@ repeat owner decisions. Live sends remove completed batch ciphertext after consu
 admission results; maintenance closes expired pending batches before pruning metadata.
 See [relay reliability](docs/relay-reliability.md).
 
+Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
+
 承認済みのタスク封筒を上記パスへ署名済み暗号文で保存し、同じ ID で
 1分・5分・15分・1時間、その後は1時間ごとに relay の受理または元の期限まで再試行します。
 同じ署名者・データルートで再起動すると送信待ちを再開し、停止中は送信しません。
@@ -509,4 +511,29 @@ POSIX は 0600/0700 を使い、メッセージ情報と受信重複処理の記
 セッションや所有者の判断は outbox から復元しません。
 稼働中の送信は受理の結果を取得した後に完了済み暗号文を削除し、
 保守処理は期限切れの送信待ちを閉じてからメッセージ情報を削除します。
+
+送信前に準備済みレコードを flush します。lease・再試行・relay 受理の管理情報は追加の flush なしでアトミックに更新し、中断後は同じ封筒 ID で再送する場合があります。変更のないレコードとディレクトリ一覧の検証を再利用し、ゲートウェイの索引更新・復元時の走査・定期削除はバッチまたはレコードごとにイベントループへ制御を返します。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
+
+### Delivery observations / 配達の状態
+
+Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
+held/opened/adapter-handoff/closed observations separately from task sequences and
+bilateral audit. Unknown peers get only `received_held` and `closed`; later connection
+approval does not release that task's history. Inspection/display alone does not open
+a task, and successful result cleanup does not close it. Queued detail is suppressed
+on disconnect; blocking suppresses all queued status. Legacy peers without version
+declarations retain 0.1.0 behavior. Status records use the fixed delivery deadline plus
+seven days; active maintenance deletes expired bytes. A handoff does not prove reading
+or execution. Both gateways need support; no relay deployment is required.
+See [relay reliability](docs/relay-reliability.md) for status sources, retention and lifecycle behavior.
+
+検証済みの 0.2.0 タスクでは、受信側署名付き `DeliveryStatus` で本文を含まない
+保留・開く・アダプターへの引き渡し・終了を記録します。タスク連番・双方向監査とは別です。
+未接続の相手には `received_held` と `closed` だけを返し、後の接続承認でも元の履歴を
+送りません。検査・表示だけでは開かず、結果成功時の後片付けでは閉じません。
+接続解除は待機中の詳細を、ブロックは待機中の全状態を送信対象から外します。
+版の宣言がない相手は従来の 0.1.0 の動作です。記録は元の配達期限から7日後まで保持し、
+稼働中の保守が期限切れを削除します。引き渡しは既読や実行の証明ではありません。
+両ゲートウェイの対応が必要で、relay の配備は不要です。
+状態の記録元・保持・動作は [relay の動作](docs/relay-reliability.ja.md)を参照してください。

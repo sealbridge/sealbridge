@@ -1,0 +1,21 @@
+{
+  "payload": {
+    "type": "DeliveryStatus",
+    "version": 1,
+    "messageId": "c084be20-7875-4c7a-8c9b-a449c5a34489",
+    "taskId": "task_example",
+    "senderDid": "did:key:z6MkoErheGYzc4uy6M2e9KVehBCJdUentj369hBWwGdvSxqr",
+    "recipientDid": "did:key:z6MkiibP7q92GjMh7gQSdjGiFTLm5TuUXGJAaRabHfQfPur3",
+    "state": "received_held",
+    "revision": 1,
+    "occurredAt": 1793577600000,
+    "retainUntil": 1794268800000
+  },
+  "signature": {
+    "signerDid": "did:key:z6MkiibP7q92GjMh7gQSdjGiFTLm5TuUXGJAaRabHfQfPur3",
+    "canonicalization": "RFC8785-JCS",
+    "payloadDigest": "sha256:4d3a0d647584e3afba296a551a8d05d1eb14817cc3bd6c65829b77bac408bb56",
+    "signedAt": "2026-11-02T00:00:00.000Z",
+    "signature": "ed25519:AopJqScZjX-mbZxxe_72DsvHRKE_ElgZbrDjnwA3Tz1YIi63SnClr_Sd8fXSkJXWrAU9OesLLlUmK0VUXS9LAg"
+  }
+}

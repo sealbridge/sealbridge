@@ -30,7 +30,8 @@ describe('persistent envelope store', () => {
       expect(store.read('outbox', id)?.attemptCount).toBe(1);
     });
     expect(store.read('outbox', id)?.attemptCount).toBe(1);
-    expect(open.mock.calls.filter(args => args[0] === path)).toHaveLength(2);
+    // The writer populated the verified cache; an unchanged file needs no reopen.
+    expect(open.mock.calls.filter(args => args[0] === path)).toHaveLength(1);
   });
   it('observes changed and removed files after a transaction including an interrupted callback', () => {
     const f = fixture(), p = f.prepare(), [id] = f.service.enqueue(p.frames, p.context);
@@ -99,6 +100,15 @@ describe('persistent envelope store', () => {
     expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'OUTBOX_STORE_INVALID' }));
     expect(f.posted).toEqual([]); expect(fs.readFileSync(path)).toEqual(before);
   });
+  it('publishes no batch and sends nothing when an enqueue flush fails', async () => {
+    const f = fixture(), p = f.prepare(), service = f.restart(f.owner, { identityOptions: { ...f.identityOptions,
+      fs: { ...fs, fsyncSync: () => { throw Object.assign(new Error('fixture flush'), { code: 'EIO' }); } } } });
+    expect(() => service.enqueue(p.frames, p.context)).toThrow('OUTBOX_STORE_UNWRITABLE');
+    expect(service.store.ids('batches')).toEqual([]);
+    expect(inventory(service.store.root).filter(n => /\.tmp$|\.lock$/.test(n))).toEqual([]);
+    await service.drainDue();
+    expect(f.posted).toEqual([]);
+  });
   it('validates reserved operation, reply and recipient-status fields exactly', () => {
     const f = fixture(), p = f.prepare(); f.service.enqueue(p.frames, p.context);
     const record = f.service.store.getMessage(p.context.messageId)!;
@@ -162,6 +172,12 @@ describe('persistent envelope store', () => {
     expect(f.service.store.snapshot('receipts')).toEqual([receipt]);
     expect(f.service.store.ids('receipts')).toHaveLength(1);
     expect(f.service.store.path('receipts', envelope.payload.envelopeId)).not.toContain('legacy');
+    const ids = f.service.store.ids('receipts');
+    f.service.store.receipt(envelope, f.epoch + 86400_000, 'terminal', 'TASK_INTERRUPTED');
+    expect(f.service.store.ids('receipts')).toEqual(ids);
+    expect(f.service.store.snapshot('receipts')).toHaveLength(1);
+    f.service.store.transaction(() => f.service.store.remove('receipts', envelope.payload.envelopeId));
+    expect(f.service.store.ids('receipts')).toEqual([]);
   });
   it('keeps fixed retention and read hashes/mtime unchanged at deadline and retention boundaries', () => {
     const f = fixture(), p = f.prepare(); f.service.enqueue(p.frames, p.context);

@@ -148,3 +148,7 @@ permission flag. Original M1 attestations remain valid.
 ## Live connection admission
 
 See [admission and migration](../docs/connections/admission.md) and the [release clock](../docs/connections/protocol-versions.md). A 0.1.0 request receives no connection-derived admission. Schema and historical audit verification remain timeless. A 0.2.0 PROPOSE may attach an encrypted ConnectionRequest envelope only after separate owner consent; its originProposalDigest must match the proposal digest. Public release requires an inspection provider and a configured release instant.
+
+`delivery-status.schema.json` defines the content-free recipient-signed `DeliveryStatus`.
+See `examples/sample-delivery-status.json`. Send it only for validated 0.2.0 tasks in
+a separate encrypted control envelope; it is distinct from relay-signed retention status.

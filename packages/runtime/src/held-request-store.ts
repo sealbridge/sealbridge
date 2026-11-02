@@ -32,8 +32,11 @@ export const HELD_CONTENT_BOUNDS = Object.freeze({
   retentionMs: 24 * 60 * 60_000, envelopeBytes: 256 * 1024, records: 100,
   totalEnvelopeBytes: 32 * 1024 * 1024, metadataBytes: 8 * 1024,
 });
+export type HeldTransition = 'held' | 'closed' | 'completed';
+export type HeldTransitionSink = (record: HeldRecord, transition: HeldTransition) => void;
 export interface HeldRequestStoreOptions extends LocalIdentityOptions {
   now?: () => number;
+  transitionSink?: HeldTransitionSink;
   /** When known, reject a quarantine path inside the adapter workspace. */
   workspaceDir?: string;
   /** Embedders may select smaller storage bounds. */
@@ -72,11 +75,14 @@ export function heldSummary(record: HeldRecord, now: number): HeldSummary {
 /** Owner-local ciphertext storage. Reads never create, migrate, prune or rewrite files. */
 export class HeldRequestStore {
   readonly directory: string;
+  private transitionSink?: HeldTransitionSink;
+  setTransitionSink(sink: HeldTransitionSink): void { this.transitionSink = sink; }
   private readonly io: typeof fs;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
   private readonly limits: { envelopeBytes: number; records: number; totalEnvelopeBytes: number };
   constructor(private readonly owner: KeyPair, options: HeldRequestStoreOptions = {}) {
+    this.transitionSink = options.transitionSink;
     this.directory = heldRequestDirectory(owner.did, options);
     this.io = options.fs ?? fs; this.platform = options.platform ?? process.platform; this.now = options.now ?? Date.now;
     this.limits = { ...HELD_CONTENT_BOUNDS, ...options.limits };
@@ -128,7 +134,7 @@ export class HeldRequestStore {
       return signed.payload;
     } catch { fail(); }
   }
-  private records(): HeldRecord[] {
+  records(): HeldRecord[] {
     try {
       for (const directory of this.directories()) {
         try { inspectDirectory(directory, this.io, this.platform); }
@@ -191,13 +197,13 @@ export class HeldRequestStore {
         if (previous.expiresAt <= this.now() || previous.envelopeDigest !== record.envelopeDigest || previous.contentDigest !== record.contentDigest ||
             previous.kind !== record.kind || previous.senderOwnerDid !== record.senderOwnerDid ||
             previous.requestId !== record.requestId || previous.taskId !== record.taskId) fail();
-        return heldSummary(previous, this.now());
+        this.transitionSink?.(previous, 'held'); return heldSummary(previous, this.now());
       }
       this.prune(records);
       const live = records.filter(r => r.expiresAt > this.now());
       if (live.length >= this.limits.records || live.reduce((sum, r) => sum + bytes(r.envelope), 0) + bytes(record.envelope) > this.limits.totalEnvelopeBytes)
         throw new Error('QUARANTINE_FULL');
-      this.publish(record); return heldSummary(record, this.now());
+      this.publish(record); this.transitionSink?.(record, 'held'); return heldSummary(record, this.now());
     });
   }
   /** Commits a provider completion bound to the stored ciphertext. Does not approve a task or a connection. */
@@ -213,23 +219,23 @@ export class HeldRequestStore {
   }
   private prune(records: HeldRecord[]): number {
     const expired = records.filter(r => r.expiresAt <= this.now());
-    for (const r of expired) this.io.unlinkSync(this.path(r.id));
+    for (const r of expired) { this.transitionSink?.(r, 'closed'); this.io.unlinkSync(this.path(r.id)); }
     return expired.length;
   }
   expire(): number { return this.mutate(records => this.prune(records)); }
-  discard(id: string): boolean {
+  discard(id: string, cause: 'closed' | 'completed' = 'closed'): boolean {
     this.path(id);
-    return this.mutate(records => { if (!records.some(r => r.id === id)) return false; this.io.unlinkSync(this.path(id)); return true; });
+    return this.mutate(records => { const record = records.find(r => r.id === id); if (!record) return false; this.transitionSink?.(record, cause); this.io.unlinkSync(this.path(id)); return true; });
   }
   /** Call when a peer is blocked; connection state is managed separately. */
   discardPeer(senderOwnerDid: string): number {
     return this.mutate(records => {
       const matches = records.filter(r => r.senderOwnerDid === senderOwnerDid);
-      for (const r of matches) this.io.unlinkSync(this.path(r.id));
+      for (const r of matches) { this.transitionSink?.(r, 'closed'); this.io.unlinkSync(this.path(r.id)); }
       return matches.length;
     });
   }
   clear(): number {
-    return this.mutate(records => { for (const r of records) this.io.unlinkSync(this.path(r.id)); return records.length; });
+    return this.mutate(records => { for (const r of records) { this.transitionSink?.(r, 'closed'); this.io.unlinkSync(this.path(r.id)); } return records.length; });
   }
 }

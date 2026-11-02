@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { DeliveryStatusRouter } from './delivery-status-router.js';
+import { RecipientDeliveryCoordinator } from './delivery-status.js';
 import { randomUUID } from 'node:crypto';
 import { digest } from '@acp/core';
 import type { KeyPair, SignedEnvelope } from '@acp/core';
@@ -21,6 +23,8 @@ export interface GatewayDeliveryOptions {
   limits?: Partial<DeliveryLimits>;
   resolveTransport: (relayUrl: string, owner: KeyPair) => RelayTransport | Promise<RelayTransport>;
   assertSendAllowed?: (context: OutboxRecordV1) => void | Promise<void>;
+  /** Check retained relay bindings before starting a status reader. */
+  assertReceiveAllowed?: (relayUrl: string) => void | Promise<void>;
   requestTimeoutMs?: number;
   onError?: (error: Error) => void;
   timers?: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'>;
@@ -37,32 +41,40 @@ function errorCode(error: unknown): string {
 /** Durable transport admission, independent of task execution and owner decisions. */
 class GatewayDeliveryServiceImplementation {
   readonly store: DeliveryStore;
+  readonly statusRouter: DeliveryStatusRouter;
+  recipientStatus: RecipientDeliveryCoordinator;
   private controller = new AbortController();
   private active = false;
   private timer?: ReturnType<typeof setTimeout>;
   private readonly attempts = new Map<string, Promise<void>>();
   private readonly terminalErrors = new Map<string, Error>();
-  private readonly maintenance = new Set<() => void>();
-  onMaintenance(callback: () => void): void { this.maintenance.add(callback); }
+  private readonly maintenance = new Set<(signal: AbortSignal) => void | Promise<void>>();
+  onMaintenance(callback: (signal: AbortSignal) => void | Promise<void>): void { this.maintenance.add(callback); }
   private readonly sleep: NonNullable<GatewayDeliveryOptions['sleep']>;
   private readonly timers: NonNullable<GatewayDeliveryOptions['timers']>;
   constructor(readonly owner: KeyPair, readonly options: GatewayDeliveryOptions) {
     this.store = new DeliveryStore(owner, { ...options.identityOptions, now: options.now, limits: options.limits });
+    this.statusRouter = new DeliveryStatusRouter(this);
+    this.recipientStatus = new RecipientDeliveryCoordinator(this);
     this.sleep = options.sleep ?? waitForRelayRetry; this.timers = options.timers ?? globalThis;
   }
   async start(): Promise<void> {
     if (this.active) return;
     if (this.controller.signal.aborted) this.controller = new AbortController();
     this.active = true;
+    if (this.store.ids('observations', e => this.report(e)).length) await this.prepare();
+    this.recipientStatus.reconcile();
     // Do not create an empty store during lifecycle-only startup.
-    if (this.store.ids('batches', e => this.report(e)).length || this.store.ids('receipts', e => this.report(e)).length || this.store.ids('messages', e => this.report(e)).length)
-      this.store.maintain(error => this.report(error));
-    for (const callback of this.maintenance) callback();
+    if (this.store.ids('observations', e => this.report(e)).length || this.store.ids('batches', e => this.report(e)).length || this.store.ids('receipts', e => this.report(e)).length || this.store.ids('messages', e => this.report(e)).length)
+      await this.store.maintainInBackground(error => this.report(error), this.controller.signal);
+    for (const callback of this.maintenance) { this.controller.signal.throwIfAborted(); await callback(this.controller.signal); }
     await this.drainDue(this.controller.signal);
+    await this.statusRouter.start();
     this.schedule();
   }
   stop(): void {
     this.active = false;
+    this.statusRouter.stop();
     this.timers.clearTimeout(this.timer);
     this.controller.abort(deliveryError('OUTBOX_STOPPED'));
     this.terminalErrors.clear();
@@ -75,16 +87,30 @@ class GatewayDeliveryServiceImplementation {
   private schedule(): void {
     if (!this.active) return;
     this.timer = this.timers.setTimeout(() => {
-      void this.drainDue(this.controller.signal).then(() => {
-        this.store.maintain(error => this.report(error));
-        for (const id of this.terminalErrors.keys()) if (!this.store.read('outbox', id)) this.terminalErrors.delete(id);
-        for (const callback of this.maintenance) callback();
+      void this.prepare().then(() => this.recipientStatus.reconcile()).then(() => this.drainDue(this.controller.signal)).then(async () => {
+        void this.statusRouter.refresh().catch(e => this.report(e));
+        await this.store.maintainInBackground(error => this.report(error), this.controller.signal);
+        for (const id of this.terminalErrors.keys()) {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          this.controller.signal.throwIfAborted();
+          if (!this.store.read('outbox', id)) this.terminalErrors.delete(id);
+        }
+        for (const callback of this.maintenance) { this.controller.signal.throwIfAborted(); await callback(this.controller.signal); }
       }).catch(e => this.report(e)).finally(() => this.schedule());
     }, 60_000);
     this.timer.unref?.();
   }
+  async prepare(signal?: AbortSignal): Promise<void> {
+    await this.store.prepare(AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]));
+  }
   /** Publish all immutable members before the batch marker makes any member dispatchable. */
   enqueue(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
+    const ids = this.store.transaction(() => this.enqueueLocked(prepared, context));
+    void this.statusRouter.refresh().catch(e => this.report(e));
+    return ids;
+  }
+  /** Caller holds the signer lock, including when publishing an observation reference. */
+  enqueueLocked(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
     const frames = structuredClone(prepared), c = structuredClone(context);
     const now = this.store.now(), batchId = randomUUID();
     requireDelivery(frames.length >= 1 && frames.length <= 2 && (c.kind !== 'delivery-status' || frames.length === 1));
@@ -102,7 +128,7 @@ class GatewayDeliveryServiceImplementation {
       createdAt: now, deliveryDeadline: c.deliveryDeadline, retainUntil: Math.max(now, c.deliveryDeadline) + DELIVERY_RETENTION_MS,
       status: 'queued', updatedAt: now, proposalEnvelopeDigest: digest(first),
       ...(c.message.operationId ? { operationId: c.message.operationId } : {}) } : undefined;
-    this.store.transaction(() => {
+    {
       if (message) requireDelivery(first.payload.eventType === 'PROPOSE' && first.payload.envelopeId === c.messageId && first.payload.taskId === message.taskId);
       this.store.assertCapacity(records, message);
       for (const r of records) {
@@ -119,12 +145,14 @@ class GatewayDeliveryServiceImplementation {
         envelopeIds: records.map(r => r.envelopeId), createdAt: now, committed: true as const };
       this.store.write('batches', batchId, marker);
       this.store.committed(batchId);
-    });
+    }
     return records.map(r => r.envelopeId);
   }
-  private ordered(): OutboxRecordV1[] {
+  private async ordered(signal: AbortSignal): Promise<OutboxRecordV1[]> {
     const records: OutboxRecordV1[] = [];
     for (const id of this.store.ids('batches', e => this.report(e))) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      signal.throwIfAborted();
       try { records.push(...this.store.committed(id)); }
       catch (error) { this.report(error); }
     }
@@ -137,9 +165,21 @@ class GatewayDeliveryServiceImplementation {
   }
   async drainDue(signal?: AbortSignal): Promise<void> {
     const combined = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
-    for (const r of this.ordered()) {
+    for (const r of await this.ordered(combined)) {
+      await new Promise<void>(resolve => setImmediate(resolve));
       combined.throwIfAborted();
       try { await this.attempt(r.envelopeId, combined); } catch (error) { this.report(error); }
+    }
+  }
+  /** One attempt per due control frame; background lifecycle owns subsequent retries. */
+  async drainStatuses(): Promise<void> {
+    try { await this.prepare(); } catch (error) { this.report(error); return; }
+    for (const r of this.store.statusOutbox().sort((a, b) => a.createdAt - b.createdAt || a.ordinal - b.ordinal)) {
+      if (this.controller.signal.aborted) return;
+      try {
+        await this.attempt(r.envelopeId, this.controller.signal);
+        if (!this.controller.signal.aborted) this.finishBatch(r.batchId);
+      } catch (error) { if (!this.controller.signal.aborted) this.report(error); }
     }
   }
   async sendPrepared(envelopeId: string, signal?: AbortSignal): Promise<void> {
@@ -155,7 +195,7 @@ class GatewayDeliveryServiceImplementation {
       await this.attempt(envelopeId, combined);
       const next = this.store.read('outbox', envelopeId);
       if (next?.state === 'pending') {
-        const blockers = this.ordered().filter(other => other.messageId === next.messageId && other.state === 'pending' && other.ordinal < next.ordinal);
+        const blockers = this.store.pending(next.messageId).filter(other => other.kind === next.kind && other.ordinal < next.ordinal);
         const time = Math.min(next.deliveryDeadline, Math.max(next.nextAttemptAt, next.lease?.until ?? 0,
           ...blockers.map(r => Math.max(r.nextAttemptAt, r.lease?.until ?? this.store.now() + 60_000))));
         await this.sleep(Math.max(1, time - this.store.now()), combined);
@@ -169,6 +209,7 @@ class GatewayDeliveryServiceImplementation {
     this.attempts.set(id, run); return run;
   }
   private async attemptOnce(id: string, signal: AbortSignal): Promise<void> {
+    await this.prepare(signal);
     const holderId = randomUUID();
     const claimed = this.store.transaction(() => {
       const r = this.store.read('outbox', id);
@@ -176,16 +217,19 @@ class GatewayDeliveryServiceImplementation {
       const batch = this.store.committed(r.batchId);
       if (!batch.length) return;
       const now = this.store.now();
+      if (r.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(r)) {
+        this.store.write('outbox', id, { ...r, state: 'closed', lastError: 'DELIVERY_STATUS_NOT_SUPPORTED' }); return;
+      }
       if (now >= r.deliveryDeadline) {
         if (r.kind === 'delivery-status') this.store.write('outbox', id, { ...r, state: 'closed', lastError: 'OUTBOX_DEADLINE_EXPIRED' });
         else this.closeLocked(r.messageId, 'OUTBOX_DEADLINE_EXPIRED', 'deadline');
         return;
       }
       if (r.nextAttemptAt > now || r.lease && r.lease.until > now) return;
-      if (this.ordered().some(other => other.messageId === r.messageId && other.state === 'pending' &&
-        (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
+      if (this.store.pending(r.messageId).some(other => other.kind === r.kind && (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
       const next = { ...r, lease: { holderId, until: now + 60_000 }, attemptCount: r.attemptCount + 1 };
-      this.store.write('outbox', id, next); return next;
+      // A lost lease or attempt counter only repeats the same immutable envelope.
+      this.store.write('outbox', id, next, false); return next;
     });
     if (!claimed) return;
     let error: unknown, admitted = false, relayDid: string | undefined;
@@ -196,9 +240,11 @@ class GatewayDeliveryServiceImplementation {
         attemptSignal.throwIfAborted();
         await this.options.assertSendAllowed?.(structuredClone(claimed));
         attemptSignal.throwIfAborted();
+        if (claimed.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(claimed)) throw deliveryError('DELIVERY_STATUS_NOT_SUPPORTED');
         const relay = await this.options.resolveTransport(claimed.relayUrl, this.owner);
         attemptSignal.throwIfAborted();
         if (this.store.now() >= claimed.deliveryDeadline) throw deliveryError('OUTBOX_DEADLINE_EXPIRED');
+        if (claimed.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(claimed)) throw deliveryError('DELIVERY_STATUS_NOT_SUPPORTED');
         await relay.send(structuredClone(claimed.envelope));
         relayDid = relay.getDeliveryStatusPin?.(claimed.envelopeId);
       })(), Math.max(1, ceiling), signal);
@@ -211,6 +257,7 @@ class GatewayDeliveryServiceImplementation {
     }
     // Leave an interrupted attempt's lease for bounded recovery; shutdown does not publish an outcome.
     signal.throwIfAborted();
+    await this.prepare(signal);
     this.store.transaction(() => {
       const r = this.store.read('outbox', id);
       if (!r || r.state !== 'pending' || r.lease?.holderId !== holderId) return;
@@ -220,10 +267,9 @@ class GatewayDeliveryServiceImplementation {
         r.state = 'admitted'; r.admittedAt = now; delete r.lastError;
         if (relayDid) r.relayDid = relayDid;
         const m = r.kind === 'task' && this.store.read('messages', r.messageId);
-        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now });
+        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now }, false);
       } else if (now >= r.deliveryDeadline || !isTransientRelayError(error)) {
         if (error instanceof Error && now < r.deliveryDeadline) this.terminalErrors.set(id, error);
-        this.store.write('outbox', id, r);
         const code = now >= r.deliveryDeadline ? 'OUTBOX_DEADLINE_EXPIRED' : errorCode(error);
         if (r.kind === 'delivery-status') this.store.write('outbox', id, { ...r, state: 'closed', lastError: code });
         else this.closeLocked(r.messageId, code, now >= r.deliveryDeadline ? 'deadline' : 'local');
@@ -236,13 +282,15 @@ class GatewayDeliveryServiceImplementation {
           detail.retryAfterMs! > 0 && detail.retryAfterMs! <= 3_600_000 ? detail.retryAfterMs! : 0;
         r.nextAttemptAt = Math.min(r.deliveryDeadline, now + Math.max(outboxRetryDelay(r.attemptCount), hint));
       }
-      this.store.write('outbox', id, r);
+      // Admission and retry scheduling may be replayed after interruption; enqueue remains flushed.
+      this.store.write('outbox', id, r, false);
     });
     if (signal.aborted) signal.throwIfAborted();
   }
   private closeLocked(messageId: string, code: string, closedBy: 'deadline' | 'local' | 'peer'): void {
     const now = this.store.now();
-    for (const r of this.store.snapshot('outbox', e => this.report(e))) if (r.messageId === messageId && r.kind === 'task' && r.state === 'pending') {
+    for (const summary of this.store.pending(messageId)) if (summary.kind === 'task') {
+      const r = this.store.read('outbox', summary.envelopeId)!;
       const next = { ...r, state: 'closed' as const, lastError: code }; delete next.lease;
       this.store.write('outbox', r.envelopeId, next);
     }
@@ -252,16 +300,18 @@ class GatewayDeliveryServiceImplementation {
   closeMessage(messageId: string, code = 'CANCELLED'): void {
     this.store.transaction(() => this.closeLocked(messageId, code, code === 'OUTBOX_DEADLINE_EXPIRED' ? 'deadline' : 'local'));
   }
-  markPeerObserved(messageId: string, observation: { status: MessageStatus; envelopeId: string }): void {
+  markPeerObserved(messageId: string, observation: { status: MessageStatus; envelopeId: string; replyEnvelopeId?: string }): void {
     this.store.transaction(() => {
       const m = this.store.read('messages', messageId);
       requireDelivery(observation.envelopeId === messageId);
-      for (const r of this.store.snapshot('outbox', e => this.report(e))) if (r.envelopeId === messageId && r.state === 'pending') {
+      const r = this.store.read('outbox', messageId);
+      if (r?.state === 'pending') {
         const next = { ...r, state: 'admitted' as const, admittedAt: this.store.now() }; delete next.lease;
-        this.store.write('outbox', r.envelopeId, next);
+        this.store.write('outbox', r.envelopeId, next, false);
       }
       if (m && (['queued', 'relayed'].includes(m.status) || observation.status === 'replied'))
-        this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now() });
+        this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now(),
+          ...(observation.replyEnvelopeId ? { replyEnvelopeId: observation.replyEnvelopeId } : {}) });
     });
   }
 }

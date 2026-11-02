@@ -158,6 +158,7 @@ export function classifyEnvelopeRole(
 ): RelayInboxRole {
   const { eventType: type, seq, senderDid, recipientDid } = envelope.payload;
   // Control delivery does not participate in bilateral task role/sequence inference.
+  if (type === 'DELIVERY_STATUS') return 'requester';
   if (CONNECTION_CONTROL_EVENTS.has(type))
     return 'worker';
   const cross = senderDid !== recipientDid;
