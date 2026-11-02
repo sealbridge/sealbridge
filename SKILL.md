@@ -483,3 +483,30 @@ Hosts authorize review and manage acknowledgements and cleanup; see the [library
   Routing metadata stays visible. Use HTTPS between machines and exclude
   secrets from task inputs, descriptions, and deliverables. 中継器は
   ペイロードを復号できません。タスクにも秘密情報を含めないでください。
+
+## Persistent delivery / 保存済みの送信
+
+Approved task envelopes are stored in `<data-root>/delivery/<sha256-local-signer-DID>/`
+as signed ciphertext and retried with the same ID after 1m/5m/15m/1h, then hourly,
+until relay admission or the original deadline. Restart with the same signer/data root
+resumes pending sends; a stopped gateway does nothing. Admission does not establish
+execution. Concurrent delegates keep their own task and relay bindings in the shared store.
+Pending owner review is terminal; only explicit resubmission creates a fresh task.
+POSIX files/directories use 0600/0700. Message metadata and deduplication receipts
+expire seven days after the original deadline (or creation time if later); active
+maintenance removes expired bytes. Outbox recovery does not reconstruct a session or
+repeat owner decisions. Live sends remove completed batch ciphertext after consuming
+admission results; maintenance closes expired pending batches before pruning metadata.
+See [relay reliability](docs/relay-reliability.md).
+
+承認済みのタスク封筒を上記パスへ署名済み暗号文で保存し、同じ ID で
+1分・5分・15分・1時間、その後は1時間ごとに relay の受理または元の期限まで再試行します。
+同じ署名者・データルートで再起動すると送信待ちを再開し、停止中は送信しません。
+受理は実行を示しません。並行する依頼は共有ストア内でタスクと relay の対応を維持します。
+所有者の審査待ちは終端で、再依頼は明示操作です。
+POSIX は 0600/0700 を使い、メッセージ情報と受信重複処理の記録は元の期限（作成時刻が後なら
+その時刻）の7日後まで保持します。稼働中の保守で期限切れを削除します。
+セッションや所有者の判断は outbox から復元しません。
+稼働中の送信は受理の結果を取得した後に完了済み暗号文を削除し、
+保守処理は期限切れの送信待ちを閉じてからメッセージ情報を削除します。
+[relay の動作](docs/relay-reliability.ja.md)を参照してください。

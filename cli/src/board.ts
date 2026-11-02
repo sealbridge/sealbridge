@@ -191,15 +191,18 @@ export async function boardCommand(args: string[], identityOptions: IdentityStor
     console.log('Waiting for claims. Owner approval is required; no task input is published.');
     const stop = () => worker.stop();
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    try { await worker.start(); } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
+    try { await worker.startDelivery(); await worker.start(); } finally { worker.stopDelivery(); process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
   } else if (action === 'claim') {
     const card = read<SignedAgentCard>('card');
     if (card.payload.ownerDid !== key.did || candidateFit(post, card).length) throw new Error('INVALID_BOARD_CLAIM');
     if (!connected(p.ownerDid)) throw new Error('CONNECTION_REQUIRED');
     const claim = { postId: p.id, card };
     const client = new RequesterClient({ owner: key, relay: p.relay, identityOptions, protocolPeers: new ProtocolPeerStore(key, identityOptions), approvalProvider: approval, auditPath: need('audit') });
-    const result = await client.delegate({ to: p.ownerDid, discover: { skillId: 'board-claim', taskType: 'board-claim' },
-      title: 'Claim job ' + p.id, description: JSON.stringify(claim), input: { postId: p.id } });
+    await client.startDelivery();
+    let result;
+    try { result = await client.delegate({ to: p.ownerDid, discover: { skillId: 'board-claim', taskType: 'board-claim' },
+      title: 'Claim job ' + p.id, description: JSON.stringify(claim), input: { postId: p.id } }); }
+    finally { client.stopDelivery(); }
     save('out', result.deliverable); console.log(JSON.stringify({ state: result.state, taskId: result.taskId }));
   } else if (action === 'dispatch') {
     const input = read<Json>('input-file');
@@ -212,8 +215,11 @@ export async function boardCommand(args: string[], identityOptions: IdentityStor
       title: p.what, description: 'Job board entry ' + p.id, budget: p.budget, skillId: p.skillId, taskType: p.taskType });
     manifest.deadline = p.deadline;
     const client = new RequesterClient({ owner: key, relay: p.relay, identityOptions, protocolPeers: new ProtocolPeerStore(key, identityOptions), approvalProvider: approval, auditPath: need('audit') });
-    const result = await client.delegate({ to: lease.agentDid, title: p.what, description: manifest.task.description, input, manifest,
-      beforeTransmit: () => { consumeLease(need('state'), key, post, input, Date.now(), connected); } });
+    await client.startDelivery();
+    let result;
+    try { result = await client.delegate({ to: lease.agentDid, title: p.what, description: manifest.task.description, input, manifest,
+      beforeTransmit: () => { consumeLease(need('state'), key, post, input, Date.now(), connected); } }); }
+    finally { client.stopDelivery(); }
     save('out', result.deliverable); console.log(JSON.stringify({ state: result.state, taskId: result.taskId }));
   } else throw new Error('INVALID_BOARD_ACTION');
 }

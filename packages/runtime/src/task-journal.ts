@@ -4,6 +4,9 @@ import {
   ftruncateSync, openSync, readFileSync, writeSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { checkPath, readPrivateFile, writePrivateFile } from './local-identity.js';
 import { signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
 import type { SessionResult } from './session.js';
@@ -31,7 +34,24 @@ export class TaskJournal {
   readonly tasks = new Map<string, TaskCheckpoint>();
   private loaded = false;
   private validBytes = 0;
-  constructor(readonly path: string, private readonly owner: KeyPair) {}
+  constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity) {}
+  reload(): void { this.loaded = false; this.tasks.clear(); this.validBytes = 0; this.load(); }
+  /** Used only by the gateway's default journal, under its signer lock. */
+  compact(retainedTasks: ReadonlySet<string>): void {
+    this.reload();
+    if (!this.validBytes) return;
+    const retained = [...this.tasks.values()].filter(r => r.phase !== 'terminal' || r.notificationPending || retainedTasks.has(r.taskId));
+    const bytes = Buffer.from(retained.map(r => JSON.stringify(signPayload(r, this.owner)) + '\n').join(''));
+    const temporary = this.path + '.' + randomUUID() + '.tmp';
+    let created = false;
+    try {
+      writePrivateFile(temporary, bytes, fs); created = true;
+      checkPath(this.path, fs); readPrivateFile(this.path, fs, fs.statSync(this.path).size + 1);
+      fs.renameSync(temporary, this.path); created = false;
+      if (process.platform !== 'win32') { const fd = fs.openSync(dirname(this.path), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+      this.reload();
+    } finally { if (created) fs.unlinkSync(temporary); }
+  }
 
   private open(flags: number): number {
     const platformFlags = process.platform === 'win32' ? 0
@@ -56,6 +76,7 @@ export class TaskJournal {
       const bytes = readFileSync(fd);
       const end = bytes.lastIndexOf(10) + 1;
       for (const line of bytes.subarray(0, end).toString('utf8').split('\n').filter(Boolean)) {
+        if (Buffer.byteLength(line) + 1 > this.maxRecordBytes) throw new Error('INVALID_TASK_JOURNAL');
         const signed = JSON.parse(line) as Signed<TaskCheckpoint>;
         const record = signed.payload;
         if (!verifySigned(signed, this.owner.did) || record.version !== 1 ||
@@ -74,6 +95,7 @@ export class TaskJournal {
     this.load();
     const snapshot = JSON.parse(JSON.stringify(record)) as TaskCheckpoint;
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
+    if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
     const fd = this.open(constants.O_WRONLY | constants.O_CREAT);
     try {
       // Only one worker may own these persistence paths at a time.

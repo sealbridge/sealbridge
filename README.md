@@ -813,7 +813,8 @@ creating an identity. Owner decisions stay in the human CLI.
 Board claims and dispatch require the selected poster identity's current local
 connection (`CONNECTION_REQUIRED` otherwise). A connection does not approve a task
 or lease. Dispatch checks connection and protocol before lease consumption, then
-consumes before transmission; ambiguous transmission never causes automatic retry.
+consumes before transmission. A committed task envelope retries with the same
+signed bytes and ID until admission or its original deadline, consuming no second lease.
 One-time task tickets and a separate application queue are deferred.
 
 The release clock is documented in [protocol versions](docs/connections/protocol-versions.md).
@@ -823,3 +824,42 @@ The release clock is documented in [protocol versions](docs/connections/protocol
 The official site targets https://sealbridge.dev and the invite receiver targets `https://sealbridge.app/i#<invite>`. See [site operations](docs/sites.md) for source, build and deployment instructions. Adding these files does not deploy either site.
 
 Use `https://relay.sealbridge.dev` as the recommended relay. The legacy `https://acp-relay.agent-collab.workers.dev` continues to work against the same relay. Existing signed invitations remain usable; do not edit their relay field. Update MCP relay allowlists when switching hosts.
+
+## Persistent pending sends
+
+CLI worker/delegate, board and MCP hosts persist approved task envelopes under
+`<data-root>/delivery/<sha256-local-signer-DID>/`. An event and its audit entry
+are committed together before either is sent. Transient send failures retry the
+same signed ciphertext and envelope ID after 1 minute, 5 minutes, 15 minutes,
+then 1 hour repeatedly, stopping at relay admission or the original task deadline.
+A validated relay retry hint can delay an attempt further. Relay admission means
+queue acceptance; it does not mean owner opening, agent execution or settlement.
+`PENDING_OWNER_APPROVAL` remains terminal and requires explicit fresh resubmission.
+
+Pending sends resume when the gateway next starts with the same signer and data
+root. A stopped gateway performs no retries. Transport recovery does not restore
+an arbitrary bilateral session or rerun an adapter. The default worker task journal
+and recipient receipts prevent a repeated proposal from rerunning recorded work;
+explicit inbox/audit journal paths retain precedence. Heartbeats and the separate
+connection-consent outbox retain their existing behavior. Concurrent delegations keep
+their own task and relay bindings while sharing the signer’s delivery store.
+
+POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
+Live sends remove completed batch ciphertext after consuming admission results.
+Maintenance closes expired pending batches before pruning message metadata, and
+removes remaining completed or closed batches.
+Content-free message records and receipt deduplication persist until seven days
+after `max(createdAt, original deliveryDeadline)`, without extending that horizon
+on reads or retries. Maintenance runs at startup and every minute while active;
+an inactive store may retain expired bytes until its next maintenance pass.
+Local bounds are 1,024 pending envelopes, 32 MiB of envelope JSON, 256 KiB per
+wire envelope and 10,000 retained messages/receipts per kind; a full or unwritable
+store reports a fixed error before an unrecorded send and does not evict live work.
+
+Embedders can inject `deliveryService` or `deliveryOptions` and explicitly call
+`startDelivery()`/`stopDelivery()`. A custom transport needs a stable relay URL and
+resolver for restart behavior; anonymous injected transports remain ephemeral.
+Initialization, tool listing and local reads do not start delivery or create keys.
+Direct transport `send()` remains a single attempt. No relay deployment is needed
+for this gateway behavior; existing relay retention still governs admitted frames.
+See [relay reliability](docs/relay-reliability.md).

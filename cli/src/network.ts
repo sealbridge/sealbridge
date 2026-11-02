@@ -17,6 +17,7 @@ import {
   workerIntakePath,
   resolveStoredIdentity,
   selectApplicationRelay,
+  normalizeRelayUrl,
   readApplicationConfig,
   RequesterClient,
   RequesterPendingStore,
@@ -348,6 +349,11 @@ export async function networkCommand(command: string, args: string[], applicatio
         if (contact?.allow) return 'trusted';
       },
       identityOptions: application.identityOptions ?? {},
+      deliveryOptions: { identityOptions: application.identityOptions,
+        resolveTransport: url => {
+          if (normalizeRelayUrl(url) !== normalizeRelayUrl(relayUrl)) throw new Error('RELAY_ENDPOINT_MISMATCH');
+          return workerRelay;
+        } },
       heldReview: new HeldRequestReview(key, application.identityOptions),
       protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
       connectionReview: connectionHumanReview(undefined, 'worker'),
@@ -386,8 +392,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     try {
+      await worker.startDelivery();
       await worker.start({ once: f.has('--once') });
     } finally {
+      worker.stopDelivery();
       process.removeListener('SIGINT', stop);
       process.removeListener('SIGTERM', stop);
     }
@@ -424,13 +432,19 @@ export async function networkCommand(command: string, args: string[], applicatio
       connectionReview: connectionHumanReview(),
       pendingStore: new RequesterPendingStore(key, application.identityOptions),
       pendingRelayUrl: relay,
+      deliveryOptions: { identityOptions: application.identityOptions,
+        resolveTransport: (url, owner) => application.transportFactory?.(url, owner) ??
+          new HttpRelayClient(url, application.fetch ?? fetch, owner, { allowPrivateRelay, ...authRecovery,
+            requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }) },
       relay: application.transportFactory?.(relay, key) ?? new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
         requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') }),
       approvalProvider: approval(key, automatic, undefined, f.has('--verbose')),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
       allowPrivateRelay,
     });
-    const result = await client.delegate({
+    await client.startDelivery();
+    let result;
+    try { result = await client.delegate({
       ...sessionTimeouts(f),
       ...(f.has('--discover') || f.has('--task-type') ? { discover: {
         ...(f.has('--discover') ? { skillId: text(f, 'discover') } : {}),
@@ -443,7 +457,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       ...application.pendingRequest,
       to,
       ...Object.fromEntries(Object.entries(sessionTimeouts(f)).filter(([, value]) => value !== undefined)),
-    });
+    }); } finally { client.stopDelivery(); }
     application.onDelegated?.();
     if (f.has('--out'))
       writeFileSync(text(f, 'out'), JSON.stringify(result.deliverable, null, 2) + '\n', {

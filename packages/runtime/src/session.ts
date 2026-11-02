@@ -96,6 +96,10 @@ import { openConnectionFrame } from './connection-transport.js';
 import type { IdentityStoreOptions } from './key-store.js';
 import { TaskJournal } from './task-journal.js';
 import type { TaskCheckpoint, TaskOutcome } from './task-journal.js';
+import { GatewayDeliveryService } from './outbox.js';
+import type { GatewayDeliveryOptions } from './outbox.js';
+import type { WireDelivery } from './session-audit.js';
+import { deliveryError, receiptFileId } from './delivery-records.js';
 export interface WorkspaceCleanupFailure {
   taskId: string;
   workspaceDir: string;
@@ -147,6 +151,12 @@ function validateAcceptance(acceptance: WorkerAcceptancePolicy): void {
   if (acceptance.allowedRequesterDids?.some((did) => typeof did !== 'string' || did.trim() === ''))
     throw new Error('INVALID_REQUESTER_DID');
 }
+function deliveryPins(relay: RelayTransport): Pick<RelayTransport, 'getDeliveryStatusPin' | 'restoreDeliveryStatusPin'> {
+  return {
+    ...(relay.getDeliveryStatusPin ? { getDeliveryStatusPin: (id: string) => relay.getDeliveryStatusPin!(id) } : {}),
+    ...(relay.restoreDeliveryStatusPin ? { restoreDeliveryStatusPin: (id: string, did: string) => relay.restoreDeliveryStatusPin!(id, did) } : {}),
+  };
+}
 function transport(
   relay: RelayTransport | string,
   owner: KeyPair,
@@ -159,6 +169,7 @@ function transport(
   client.setRecipientKey?.(owner);
   const bound = client.withRecipient?.(owner) ?? client;
   return {
+    ...deliveryPins(bound),
     get connectionStatus() { return bound.connectionStatus; },
     send: (envelope) => relayDeadline(Promise.resolve(bound.send(envelope)), security?.requestTimeoutMs ?? 45_000),
     receive: async (did, waitMs, signal, filter) => {
@@ -229,6 +240,7 @@ class TaskMailbox {
 }
 function mailboxRelay(relay: RelayTransport, mailbox: TaskMailbox): RelayTransport {
   return {
+    ...deliveryPins(relay),
     send: (envelope) => relay.send(envelope),
     ...(relay.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => relay.deliveryStatus!(envelope, signal) } : {}),
     ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, signal) } : {}),
@@ -407,6 +419,8 @@ function recipientInbox(
   return inbox;
 }
 export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+  deliveryService?: GatewayDeliveryService;
+  deliveryOptions?: GatewayDeliveryOptions;
   intakeStore?: WorkerIntakeStore;
   /** Hard owner-DID perimeter. An explicit empty array denies all peers. */
   allowedPeerDids?: readonly string[];
@@ -503,6 +517,7 @@ function asRevocationRegistry(list: RevocationList | undefined): RevocationRegis
   return candidate;
 }
 export class WorkerNode {
+  readonly deliveryService?: GatewayDeliveryService;
   readonly relay: RelayTransport;
   agentCard: SignedAgentCard;
   readonly approvalProvider: ApprovalProvider;
@@ -566,6 +581,25 @@ export class WorkerNode {
         authRecoveryTimeoutMs: options.authRecoveryTimeoutMs,
       }),
     );
+    this.deliveryService = (typeof options.relay === 'string' || options.relayUrl)
+      ? options.deliveryService ?? (typeof options.relay === 'string' || options.deliveryOptions
+      ? new GatewayDeliveryService(options.owner, { ...options.deliveryOptions,
+        identityOptions: options.deliveryOptions?.identityOptions ?? options.identityOptions,
+        now: options.deliveryOptions?.now ?? options.now, requestTimeoutMs: options.connectTimeoutMs,
+        resolveTransport: options.deliveryOptions?.resolveTransport ?? ((url, owner) => transport(url, owner, options)),
+        assertSendAllowed: async context => {
+          this.assertPeer(context.peerOwnerDid, context.envelope.payload.taskId);
+          await options.deliveryOptions?.assertSendAllowed?.(context);
+        } }) : undefined) : undefined;
+    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
+    if (!persistencePath && this.deliveryService) {
+      this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes);
+      this.deliveryService.onMaintenance(() => {
+        if (!existsSync(this.taskJournal!.path)) return;
+        this.deliveryService!.store.transaction(() => this.taskJournal!.compact(new Set(
+          this.deliveryService!.store.snapshot('receipts').filter(r => r.retainUntil > this.deliveryService!.store.now()).map(r => r.taskId))));
+      });
+    }
     this.approvalProvider =
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
     const agentDid = options.agentDid ?? options.agentKey?.did ?? options.owner.did;
@@ -605,9 +639,12 @@ export class WorkerNode {
     this.registered = true;
   }
   stop(): void {
+    this.stopDelivery();
     this.controller.abort('WORKER_STOPPED');
     this.listenerStatus('stopped');
   }
+  async startDelivery(): Promise<void> { await this.deliveryService?.start(); }
+  stopDelivery(): void { this.deliveryService?.stop(); }
   /** Public registration is opt-in, including for PolicyAutoApprovalProvider. */
   private publishes(): boolean {
     return this.options.publishToRegistry === true;
@@ -761,10 +798,16 @@ export class WorkerNode {
       await send({ proposalDigest: record.proposalDigest, ...(outcome.result ? { result: outcome.result } : {}) });
     }
   }
+  private saveTaskCheckpoint(record: TaskCheckpoint): void {
+    if (!this.taskJournal) return;
+    if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) {
+      this.deliveryService.store.transaction(() => { this.taskJournal!.reload(); this.taskJournal!.save(record); });
+    } else this.taskJournal.save(record);
+  }
   private async reconcileTasks(): Promise<void> {
     if (this.reconciled || !this.taskJournal) return;
     this.taskJournal.load();
-    for (const saved of this.taskJournal.tasks.values()) {
+    for (const saved of [...this.taskJournal.tasks.values()]) {
       let record = saved;
       const pending = this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
       if (record.phase !== 'terminal') {
@@ -773,17 +816,17 @@ export class WorkerNode {
         record = { ...record, phase: 'terminal', outcome: pending ? { code: 'PENDING_OWNER_APPROVAL' } : result
           ? { code: result.state === 'SETTLED' ? 'TASK_SETTLED' : 'TASK_CANCELLED', result }
           : { code: 'TASK_INTERRUPTED' }, notificationPending: true };
-        this.taskJournal.save(record);
+        this.saveTaskCheckpoint(record);
         if (!result && !pending) this.options.onEvent?.('INTERRUPTED', record.taskId, { code: 'TASK_INTERRUPTED' });
       }
       if (record.notificationPending) {
         try { this.assertPeer(record.requesterDid); } catch { continue; }
         if (pending) {
           record = { ...record, phase: 'terminal', outcome: { code: 'PENDING_OWNER_APPROVAL' } };
-          this.taskJournal.save(record);
+          this.saveTaskCheckpoint(record);
         }
         await this.notifyOutcome(record);
-        this.taskJournal.save({ ...record, notificationPending: false });
+        this.saveTaskCheckpoint({ ...record, notificationPending: false });
       }
     }
     this.reconciled = true;
@@ -822,7 +865,17 @@ export class WorkerNode {
         manifest.taskId !== envelope.payload.taskId || manifest.requester?.ownerDid !== envelope.payload.senderDid)
       return false;
     const proposalDigest = digest({ manifest, input: data.input });
+    if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) this.taskJournal.reload();
     let record = this.taskJournal.tasks.get(manifest.taskId);
+    const exactReceipt = this.deliveryService?.store.read('receipts', envelope.payload.envelopeId);
+    const receipt = exactReceipt ?? this.deliveryService?.store.snapshot('receipts').find(r => r.taskId === manifest.taskId);
+    if (receipt && (receipt.senderDid !== envelope.payload.senderDid || exactReceipt && receipt.envelopeDigest !== digest(envelope) || receipt.taskId !== manifest.taskId))
+      throw deliveryError('DELIVERY_RECORD_CONFLICT');
+    if (!record && receipt) {
+      record = { version: 1, taskId: manifest.taskId, requesterDid: envelope.payload.senderDid,
+        envelopeId: envelope.payload.envelopeId, proposalDigest, phase: 'terminal', invocations: [], outcome: { code: 'TASK_INTERRUPTED' } };
+      this.saveTaskCheckpoint(record);
+    }
     // Older inboxes have intake evidence but no execution checkpoint. Never execute those tasks again.
     if (!record && this.options.inboxPath && existsSync(this.options.inboxPath)) {
       for (const line of readFileSync(this.options.inboxPath, 'utf8').split('\n')) {
@@ -990,10 +1043,15 @@ export class WorkerNode {
     const saveCheckpoint = (patch: Partial<TaskCheckpoint>): void => {
       if (!checkpoint || !this.taskJournal) return;
       checkpoint = { ...checkpoint, ...patch };
-      this.taskJournal.save(checkpoint);
+      this.saveTaskCheckpoint(checkpoint);
     };
     const saveOutcome = (outcome: TaskOutcome): void => {
       saveCheckpoint({ phase: 'terminal', outcome, notificationPending: true });
+      this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'terminal', outcome.code);
+    };
+    const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
+      this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
+      await acknowledgeRelay(relay, first, signal);
     };
     try {
       data = openEnvelope(
@@ -1029,7 +1087,15 @@ export class WorkerNode {
         checkpoint = { version: 1, taskId: m.taskId, requesterDid: m.requester.ownerDid,
           envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
           phase: 'received', auditPath, invocations: [] };
-        this.taskJournal.save(checkpoint);
+        if (this.deliveryService) {
+          this.deliveryService.store.transaction(() => {
+            this.taskJournal!.reload();
+            if (this.taskJournal!.tasks.has(m.taskId) || this.deliveryService!.store.snapshot('receipts').some(r => r.taskId === m.taskId))
+              throw deliveryError('DELIVERY_RECORD_CONFLICT');
+            this.deliveryService!.store.receiptLocked(first, Date.parse(m.deadline), 'persisted');
+            this.taskJournal!.save(checkpoint!);
+          });
+        } else this.taskJournal.save(checkpoint);
       }
     } catch (e) {
       this.reportRejection(first.payload.taskId, e);
@@ -1064,6 +1130,11 @@ export class WorkerNode {
       auditPath,
       this.options.allowUnencryptedEnvelopes === true,
       true,
+      this.deliveryService ? { service: this.deliveryService, context: {
+        messageId: receiptFileId(first.payload.envelopeId), peerOwnerDid: m.requester.ownerDid,
+        relayUrl: this.options.relayUrl ?? (typeof this.options.relay === 'string' ? this.options.relay : this.agentCard.payload.relayEndpoint),
+        deliveryDeadline: Date.parse(m.deadline),
+      } } : undefined,
     );
     const cancelController = new AbortController();
     wire.earlyCancel = () => cancelController.abort('CANCELLED');
@@ -1245,7 +1316,7 @@ export class WorkerNode {
         } finally {
           closeSync(fd);
         }
-        await acknowledgeRelay(relay, first, activeSignal);
+        await acknowledgeProposal(activeSignal);
         // Notification errors must not fail a persisted task.
         try {
           void Promise.resolve(this.options.onInboxRecord?.(record)).catch(() => undefined);
@@ -1446,7 +1517,7 @@ export class WorkerNode {
       this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
-      if (!this.options.inboxPath) await acknowledgeRelay(relay, first, executionSignal);
+      if (!this.options.inboxPath) await acknowledgeProposal(executionSignal);
       // A task may return while a queued progress update is still waiting for its ACK.
       // Skip the drain once the task is already aborted, cancelled, or over budget.
       if (!executionSignal.aborted && !wire.cancelHandled) {
@@ -1522,7 +1593,7 @@ export class WorkerNode {
         await wire.rawSend('ERROR', diagnostic)
           .then(async () => {
             saveCheckpoint({ notificationPending: false });
-            if (diagnostic.code === 'PENDING_OWNER_APPROVAL') await acknowledgeRelay(relay, first);
+            if (diagnostic.code === 'PENDING_OWNER_APPROVAL') await acknowledgeProposal();
           }).catch(() => {});
       }
       // A quota abort already surfaces as EXECUTION_ABORTED. Keep that error.
@@ -1606,6 +1677,7 @@ export class WorkerNode {
       }
     };
     return {
+      ...deliveryPins(relay),
       get connectionStatus() { return relay.connectionStatus; },
       send: (envelope) => {
         this.assertPeer(envelope.payload.recipientDid, envelope.payload.taskId);
@@ -1868,6 +1940,8 @@ function rejectionBody(error: unknown): ErrorDiagnostic & { reason?: string } {
 function safeError(e: unknown): string {
   const s = String(e);
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
+  if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
+    'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT'].includes(exact)) return exact;
   if (/^(PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
@@ -1897,6 +1971,8 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   }
 }
 export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+  deliveryService?: GatewayDeliveryService;
+  deliveryOptions?: GatewayDeliveryOptions;
   connectionStore?: WorkerTrustStore;
   identityOptions?: IdentityStoreOptions;
   connectionReview?: ConnectionHumanReviewProvider;
@@ -2092,6 +2168,8 @@ export async function deliverRevocation(
   return envelope;
 }
 export class RequesterClient {
+  deliveryService?: GatewayDeliveryService;
+  private deliveryStarted = false;
   readonly approvalProvider: ApprovalProvider;
   readonly protocol: LiveProtocol;
   constructor(readonly options: RequesterClientOptions) {
@@ -2101,7 +2179,26 @@ export class RequesterClient {
     validateSessionTimeouts(options);
     this.approvalProvider =
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
+    this.deliveryService = options.deliveryService;
+    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
+    if (!this.deliveryService && (typeof options.relay === 'string' || options.deliveryOptions))
+      this.deliveryService = this.createDelivery();
   }
+  private createDelivery(): GatewayDeliveryService {
+    return new GatewayDeliveryService(this.options.owner, { ...this.options.deliveryOptions,
+      identityOptions: this.options.deliveryOptions?.identityOptions ?? this.options.identityOptions,
+      now: this.options.deliveryOptions?.now ?? this.options.now, requestTimeoutMs: this.options.connectTimeoutMs,
+      resolveTransport: this.options.deliveryOptions?.resolveTransport ?? ((url, owner) => transport(url, owner, this.options)),
+      assertSendAllowed: async context => {
+        const store = this.options.connectionStore ?? new WorkerTrustStore(this.options.owner, {
+          path: workerIntakePath(this.options.owner.did, this.options.identityOptions),
+          fs: this.options.identityOptions?.fs, platform: this.options.identityOptions?.platform, now: this.options.now });
+        if (store.connectionState(context.peerOwnerDid) === 'blocked') throw new Error('REQUEST_DENIED');
+        await this.options.deliveryOptions?.assertSendAllowed?.(context);
+      } });
+  }
+  async startDelivery(): Promise<void> { this.deliveryStarted = true; await this.deliveryService?.start(); }
+  stopDelivery(): void { this.deliveryStarted = false; this.deliveryService?.stop(); }
   /**
    * Send an encrypted REVOKE for an invite or capability to a worker inbox.
    * `to` is a worker DID or an acp-invite token. The notice is signed by this client.
@@ -2243,6 +2340,11 @@ export class RequesterClient {
         manifest.verification = { ...manifest.verification, requireExecutionAttestation: true };
     }
     if (!validateOutput(manifest.io.inputSchema, options.input)) throw new Error('INPUT_SCHEMA');
+    if (!this.deliveryService && typeof relayOption === 'string') {
+      this.deliveryService = this.createDelivery();
+      if (this.deliveryStarted) await this.deliveryService.start();
+    }
+    this.deliveryService?.store.checkAvailable();
     if (options.beforePropose) {
       const approvalSignal = AbortSignal.any([
         AbortSignal.timeout(Math.max(0, Date.parse(manifest.deadline) - Date.now())),
@@ -2266,6 +2368,13 @@ export class RequesterClient {
       });
       if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('APPROVAL_TIMEOUT');
     }
+    const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
+    const wireDelivery: WireDelivery | undefined = this.deliveryService && stableRelayUrl ? {
+      service: this.deliveryService, context: { messageId: '00000000-0000-4000-8000-000000000000',
+        peerOwnerDid: peer, relayUrl: stableRelayUrl, deliveryDeadline: Date.parse(manifest.deadline),
+        message: { taskId: manifest.taskId, peerAgentDid: manifest.worker!.agentDid,
+          protocolVersion: manifest.protocolVersion as '0.1.0' | '0.2.0' } },
+    } : undefined;
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
     const bridge = new AbortController();
@@ -2281,6 +2390,8 @@ export class RequesterClient {
       signal,
       auditPath,
       this.options.allowUnencryptedEnvelopes === true,
+      false,
+      wireDelivery,
     );
     if (onProgress) {
       wire.onProgress = async (progress, envelope) => {
@@ -2313,6 +2424,7 @@ export class RequesterClient {
         .catch(() => undefined);
     };
     const onUserAbort = () => {
+      if (wireDelivery) wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED');
       const state = gateway?.machine.state;
       if (state === 'IN_PROGRESS') startCancel();
       else if (state === 'ACCEPTED') deferredCancel = true;
@@ -2431,6 +2543,8 @@ export class RequesterClient {
         await wire.sendEvent('VERIFY_REJECT', verification);
         throw new Error('VERIFICATION_REJECTED: ' + result.reason);
       }
+      if (wireDelivery) wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
+        { status: 'replied', envelopeId: wireDelivery.context.messageId });
       verifiedReceipt = {
         workerDid: manifest.worker!.agentDid,
         taskId: manifest.taskId,
@@ -2451,6 +2565,11 @@ export class RequesterClient {
         verification: result,
       };
     } catch (e) {
+      if (e instanceof PeerRejectedError && wireDelivery) {
+        if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
+          { status: 'received_held', envelopeId: wireDelivery.context.messageId });
+        wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+      }
       if (e instanceof PeerRejectedError && e.code === 'PENDING_OWNER_APPROVAL' && this.options.pendingStore) {
         let pendingId = options.pendingId, pendingStoreError: string | undefined;
         if (!pendingId) {
@@ -2491,7 +2610,7 @@ export class RequesterClient {
             return cached;
           }
         }
-        if (verifiedReceipt) throw e;
+        if (!wire.hasCommittedSend || e instanceof PeerRejectedError || verifiedReceipt) throw e;
         // A closed recipient inbox is terminal for every attached task. Do not wait
         // for another relay send (or cancellation handshake) on the failed connection.
         if (e instanceof Error && 'code' in e && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED', 'RELAY_ENVELOPE_EXPIRED'].includes(String(e.code))) throw e;

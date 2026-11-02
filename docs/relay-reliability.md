@@ -6,7 +6,7 @@
 
 The Node HTTP relay transport disables keep-alive and pins every connection to the validated DNS addresses. Requests have a 45-second overall deadline (including the response body) and a 35-second socket idle timeout. DNS resolution is also bounded. SSE keeps the idle timeout but releases the overall deadline after stream headers arrive. Library callers can set `requestTimeoutMs` and `socketTimeoutMs` in `RelayClientSecurityOptions`. A timeout has code `ETIMEDOUT`. Successful DNS pins and security failures remain cached; transient DNS failures may resolve again, with the same address validation.
 
-Worker and requester polling retry transient network errors and HTTP 429/502/503/504. Backoff starts at 125–250 ms, doubles, and caps at 15–30 seconds with jitter. Each failed attempt logs a metadata-only retry notice. Cancellation interrupts backoff. HTTP 403, validation, SSRF and other permanent failures still fail immediately. HTTP registration uses the same deadline and makes at most five attempts. Sends are not automatically retried, because an uncertain POST may already have been accepted.
+Worker and requester polling retry transient network errors and HTTP 429/502/503/504. Backoff starts at 125–250 ms, doubles, and caps at 15–30 seconds with jitter. Each failed attempt logs a metadata-only retry notice. Cancellation interrupts backoff. HTTP 403, validation, SSRF and other permanent failures still fail immediately. HTTP registration uses the same deadline and makes at most five attempts. Direct transport sends remain single attempts. Gateway task envelopes use the persistent admission retry described below.
 
 HTTP 401 on a RelayAuth request starts bounded authentication recovery. By default the client allows **three additional attempts** within **120000 ms** of the first 401. Every attempt waits with the jittered backoff above, then signs a new credential with a current timestamp and new nonce. Elapsed recovery time uses a monotonic clock. Each request is bounded by the remaining recovery window and its request timeout; earlier task deadlines and cancellation still apply. Intervening network errors or retryable HTTP statuses consume the same recovery budget. A successful protected operation resets its budget; unrelated successful operations do not reset an active failure. Concurrent failures of the same operation and recipient share the attempt bound without sharing responses.
 
@@ -100,3 +100,48 @@ When an envelope expires while still queued, both in-memory and durable relays r
 A requester retrieves the notice with `GET /delivery-status?recipient=<original-recipient>&sender=<requester>&envelopeId=<id>`, authenticated by its own fresh `receive` RelayAuth token. The route stays on the original recipient shard, so an offline requester does not require a second inbox write or cross-shard forwarding. Other identities receive no status for that envelope. Pending envelopes return signed `state: "pending"`; absent, delivered, or no-longer-retained records return signed `state: "unknown"`. Unknown does not prove delivery. Network failures remain unreachable/transport errors, distinct from an authenticated expiry.
 
 Admission responses advertise the inbox signing identity in `X-ACP-Relay-Did`. `HttpRelayClient` pins that identity for the accepted envelope and verifies status signatures and routing against it. HTTP/SSE runtime sessions check outstanding sends every second, retry transient status failures within the existing request/session deadlines, and throw `RelayEnvelopeExpiredError` with code `RELAY_ENVELOPE_EXPIRED` and the signed `notice`. Only that task fails; unrelated mailboxes remain active. Raw HTTP callers can retain the admission identity and verify notices themselves after a restart. Relays that do not advertise status support keep the previous timeout behavior. The relay cannot read an encrypted manifest deadline; the existing session deadline still enforces it independently. Configure queue TTL below the requester wait deadline if an expiry notice must arrive first.
+
+## Persistent pending sends
+
+CLI worker/delegate, board and MCP hosts persist approved task envelopes under
+`<data-root>/delivery/<sha256-local-signer-DID>/`. An event and its audit entry
+are committed together before either is sent. Transient send failures retry the
+same signed ciphertext and envelope ID after 1 minute, 5 minutes, 15 minutes,
+then 1 hour repeatedly, stopping at relay admission or the original task deadline.
+A validated relay retry hint can delay an attempt further. Relay admission means
+queue acceptance; it does not mean owner opening, agent execution or settlement.
+`PENDING_OWNER_APPROVAL` remains terminal and requires explicit fresh resubmission.
+
+Pending sends resume when the gateway next starts with the same signer and data
+root. A stopped gateway performs no retries. Transport recovery does not restore
+an arbitrary bilateral session or rerun an adapter. The default worker task journal
+and recipient receipts prevent a repeated proposal from rerunning recorded work;
+explicit inbox/audit journal paths retain precedence. Heartbeats and the separate
+connection-consent outbox retain their existing behavior. Concurrent delegations keep
+their own task and relay bindings while sharing the signer’s delivery store.
+
+POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
+Live sends remove completed batch ciphertext after consuming admission results.
+Maintenance closes expired pending batches before pruning message metadata, and
+removes remaining completed or closed batches.
+Content-free message records and receipt deduplication persist until seven days
+after `max(createdAt, original deliveryDeadline)`, without extending that horizon
+on reads or retries. Maintenance runs at startup and every minute while active;
+an inactive store may retain expired bytes until its next maintenance pass.
+Local bounds are 1,024 pending envelopes, 32 MiB of envelope JSON, 256 KiB per
+wire envelope and 10,000 retained messages/receipts per kind; a full or unwritable
+store reports a fixed error before an unrecorded send and does not evict live work.
+
+Embedders can inject `deliveryService` or `deliveryOptions` and explicitly call
+`startDelivery()`/`stopDelivery()`. A custom transport needs a stable relay URL and
+resolver for restart behavior; anonymous injected transports remain ephemeral.
+Initialization, tool listing and local reads do not start delivery or create keys.
+Direct transport `send()` remains a single attempt. No relay deployment is needed
+for this gateway behavior; existing relay retention still governs admitted frames.
+See [relay reliability](./relay-reliability.md).
+
+The wire schema also accepts non-UUID IDs from other producers. Such incoming IDs use a derived UUID receipt filename; the signed receipt keeps the original ID and envelope digest. Locally generated outgoing IDs and their paths remain UUIDs.
+
+`OUTBOX_STORE_BUSY` leaves an existing writer lock intact. Local lock recovery requires first checking that no writer is active; runtime attempt leases do not replace filesystem locks.
+
+If completed-batch cleanup fails, the gateway reports a fixed storage error and retries cleanup during maintenance. The relay admission outcome is retained.

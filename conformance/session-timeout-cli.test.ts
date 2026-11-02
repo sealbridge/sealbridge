@@ -16,6 +16,8 @@ vi.mock('../packages/runtime/dist/index.js', async original => {
       override async start() { return undefined; }
     },
     RequesterClient: class {
+      async startDelivery() {}
+      stopDelivery() {}
       constructor(options: RequesterClientOptions) { captured.requester = options; }
       async delegate(options: DelegateOptions) {
         captured.task = options;
