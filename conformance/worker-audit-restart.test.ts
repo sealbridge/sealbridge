@@ -18,7 +18,7 @@ async function fixture(filename: string) {
   const auditPath = join(dir, filename);
   const relay = new InMemoryRelay(), owner = generateKeyPair(), requester = generateKeyPair();
   let executions = 0;
-  const createWorker = () => new WorkerNode({ owner, relay, auditPath, timeoutMs: 2000,
+  const createWorker = () => new WorkerNode({ checkPeer: () => 'trusted', owner, relay, auditPath, timeoutMs: 2000,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async (ctx) => {
       executions++; return ctx.input;

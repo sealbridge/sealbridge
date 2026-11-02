@@ -41,12 +41,6 @@ export function agentCardDelegationStatement(fields: {
     expiresAt: fields.expiresAt,
   };
 }
-export type OpenPolicy = Partial<Pick<BudgetSpec,
-  'maxInputTokens' | 'maxOutputTokens' | 'maxToolInvocations' | 'maxWallClockSeconds'>>;
-export const OPEN_POLICY_FIELDS = [
-  'maxInputTokens', 'maxOutputTokens', 'maxToolInvocations', 'maxWallClockSeconds',
-] as const;
-
 /** Bounded version identifiers retain future advertisements without interpreting them. */
 function validProtocolVersions(value: unknown): boolean {
   return value === undefined || (Array.isArray(value) && value.length > 0 && value.length <= 16 &&
@@ -55,20 +49,10 @@ function validProtocolVersions(value: unknown): boolean {
     new Set(value).size === value.length);
 }
 
-function validOpenPolicy(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.entries(value).every(([key, limit]) =>
-    OPEN_POLICY_FIELDS.some((field) => field === key) &&
-    typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0);
-}
-
 export interface DiscoveryAgentCard {
   type: 'AgentCard';
   /** Accepted manifest versions; omission denotes a legacy 0.1.0 peer. */
   protocolVersions?: string[];
-  accessMode?: 'invite-only' | 'open';
-  openPolicy?: OpenPolicy;
   name: string;
   description: string;
   ownerDid: string;
@@ -92,6 +76,8 @@ export type CreateAgentCardOptions = Omit<
   Partial<Pick<DiscoveryAgentCard, 'version' | 'description' | 'costModes' | 'expiresAt'>> & {
     /** Key that controls agentDid. Required when agentDid is not owner.did. */
     agentKey?: KeyPair;
+    /** Injected signing instant for hosts and offline conformance. */
+    now?: number;
   };
 export type SignedAgentCard = Signed<DiscoveryAgentCard>;
 function relayUrl(value: string): void {
@@ -329,8 +315,9 @@ export function createSignedAgentCard(
   owner: KeyPair,
   agentKey?: KeyPair,
 ): SignedAgentCard {
+  assertConnectionsOptions(options);
   const resolvedAgentKey = resolveAgentKey(options, agentKey);
-  const signedAt = new Date().toISOString();
+  const signedAt = new Date(options.now ?? Date.now()).toISOString();
   const expiresAt =
     options.expiresAt ?? new Date(Date.parse(signedAt) + DEFAULT_AGENT_CARD_EXPIRY_MS).toISOString();
   if (options.agentDid !== owner.did) {
@@ -350,7 +337,6 @@ export function createSignedAgentCard(
       ? undefined
       : signPayload(agentCardDelegationStatement(delegationFields), resolvedAgentKey!, signedAt)
           .signature;
-  if (!validOpenPolicy(options.openPolicy)) throw new Error('INVALID_AGENT_CARD');
   const card = signPayload(
     {
       type: 'AgentCard' as const,
@@ -360,15 +346,13 @@ export function createSignedAgentCard(
       name: options.name,
       skills: options.skills,
       ...(options.protocolVersions !== undefined ? { protocolVersions: [...options.protocolVersions] } : {}),
-      ...(options.accessMode ? { accessMode: options.accessMode } : {}),
-      ...(options.openPolicy !== undefined ? { openPolicy: { ...options.openPolicy } } : {}),
       ...delegationFields,
       ...(agentDelegation ? { agentDelegation } : {}),
     },
     owner,
     signedAt,
   );
-  if (!verifySignedAgentCard(card)) throw new Error('INVALID_AGENT_CARD');
+  if (!verifySignedAgentCard(card, options.now ?? Date.now())) throw new Error('INVALID_AGENT_CARD');
   return card;
 }
 function validAgentCardExpiry(expiresAt: string, signedAt: string, now: number): boolean {
@@ -412,8 +396,6 @@ export function verifySignedAgentCard(card: SignedAgentCard, now = Date.now()): 
       verifySigned(card, p.ownerDid) &&
       p.type === 'AgentCard' &&
       validProtocolVersions(p.protocolVersions) &&
-      (p.accessMode === undefined || p.accessMode === 'invite-only' || p.accessMode === 'open') &&
-      validOpenPolicy(p.openPolicy) &&
       typeof p.name === 'string' &&
       !!p.name &&
       typeof p.description === 'string' &&
@@ -587,16 +569,23 @@ export function parseAndVerifyInviteToken(
   }
 }
 
-/** Resolve current signed cards before filtering, so stale advertisements cannot reopen access. */
+/** Resolve and verify original signed cards before projecting current advertisements. */
 export function discoverAgentCards(rawCards: unknown, query: {
-  did?: string; skillId?: string; taskType?: string; accessMode?: 'invite-only' | 'open';
+  did?: string; skillId?: string; taskType?: string;
 } = {}, now = Date.now()): SignedAgentCard[] {
+  assertConnectionsOptions(query);
   if (!Array.isArray(rawCards)) return [];
   const valid = rawCards.filter((card): card is SignedAgentCard => verifySignedAgentCard(card, now));
   const targets = query.did ? [query.did] : [...new Set(valid.map((c) => c.payload.agentDid))].sort();
   return targets.map((did) => findDiscoveredAgentCard(valid, did, now)).filter((c): c is SignedAgentCard => {
-    if (!c || (query.accessMode && c.payload.accessMode !== query.accessMode)) return false;
+    if (!c) return false;
     return (!query.skillId && !query.taskType) || c.payload.skills.some((s) =>
       (!query.skillId || s.id === query.skillId) && (!query.taskType || s.taskTypes?.includes(query.taskType)));
   });
+}
+
+/** Retired options are errors, including explicitly supplied undefined values. */
+export function assertConnectionsOptions(options: object): void {
+  if (['accessMode', 'openPolicy', 'allowAnyRequester'].some(key => Object.hasOwn(options, key)))
+    throw new Error('ACCESS_MODE_REMOVED: Use connections for owner consent and general host budgets.');
 }

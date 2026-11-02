@@ -26,7 +26,7 @@ describe('UX-2 follow-ups', () => {
     for (const file of ['UX_LAYER.md', 'UX_LAYER.ja.md']) {
       const doc = readFileSync(file, 'utf8');
       expect(doc).not.toContain('maxTasksPerRequesterPerHour');
-      expect(doc).toContain('--open-rate-limit-per-did');
+      expect(doc).toContain('--max-requests-per-minute');
       expect(doc).not.toMatch(/jobs\/hour|1人あたり1時間/);
     }
   });
@@ -36,7 +36,7 @@ describe('UX-2 follow-ups', () => {
     const reply = openInvite(readFileSync(p.out, 'utf8'));
     expect(reply.ownerDid).toBe(result.ownerDid);
     expect(reply.ownerDid).not.toBe(f.owner.did);
-    expect(reply.agentCard.payload).toMatchObject({ skills: [{ id: 'json-task', name: 'JSON task' }], accessMode: 'invite-only' });
+    expect(reply.agentCard.payload).toMatchObject({ skills: [{ id: 'json-task', name: 'JSON task' }], protocolVersions: ['0.2.0', '0.1.0'] });
     expect(loadContacts(p.contacts, result.ownerDid)).toMatchObject([{ ownerDid: f.owner.did, allow: false }]);
     const original = readFileSync(p.key, 'utf8');
     setupInvite(f.token, p.key, p.contacts, join(p.dir, 'second.txt'));
@@ -64,7 +64,7 @@ describe('UX-2 follow-ups', () => {
     const f = fixture(), p = paths();
     setupInvite(f.token, p.key, p.contacts, p.out);
     const owner = JSON.parse(readFileSync(p.key, 'utf8')), relay = new InMemoryRelay();
-    const worker = new WorkerNode({ owner, relay, relayUrl: 'https://relay.example.com', timeoutMs: 4000,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example.com', timeoutMs: 4000,
       approvalProvider: new PolicyAutoApprovalProvider(owner),
       adapter: { id: 'json-task', name: 'JSON task', skills: [{ id: 'json-task', name: 'JSON task' }],
         async executeTask(context) { return context.input; } } });

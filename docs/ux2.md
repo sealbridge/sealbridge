@@ -1,4 +1,4 @@
-# Invite sharing and the open job board
+# Invite sharing and the connections job board
 
 **English** | [日本語](./ux2.ja.md)
 
@@ -31,7 +31,7 @@ timestamp for machine output. After verification, opening creates an identity
 only if absent (`owner.private.json` in the platform data directory, or `--key`).
 Existing keys are reused; corrupt or mismatched identities fail closed.
 The inviter is saved as a contact without automatic approval. A 24-hour,
-invite-only reciprocal invite is saved beside the key; `--out` selects another
+reciprocal invite is saved beside the key; `--out` selects another
 unused path. Output reports `local.keyFile` and `local.reciprocalInviteFile`,
 never the private key or reciprocal token. Share that file back through your
 trusted channel and start a sandbox worker with the reported key and relay to
@@ -62,7 +62,7 @@ Old tokens retain their original expiry/revocation. Re-issue never extends them.
 
 The local encoder uses byte mode as needed, error correction L and a four-module
 quiet zone. A real signed self-owned card with the public Sealbridge relay, a JSON
-skill and an open profile produced a 1,986-byte token and 2,013-byte link;
+skill and a published profile produced a 1,986-byte token and 2,013-byte link;
 the longer name `Grok Bot Direct (Chief of Staff)` produced a 2,048-byte link.
 Both rendered at version 33 (149 × 149 modules, excluding quiet zone).
 Signatures are generated during evaluation; these are measurements, not a
@@ -76,103 +76,32 @@ created. `share` prints the full link before reporting overflow, so it can
 still be copied. Dense codes may be difficult to scan in a terminal. Use the
 SVG at a large size or share the full link; terminal rendering is supplementary.
 
-## Metadata-only board
+## Metadata-only board and publication settings
 
-The MVP board is a directory/feed of signed JSON posts operated by its owner.
-There is no new public board service and no new plaintext relay endpoint.
-Publish exported post files through your chosen metadata channel; input stays
-on the requester's host. Use one lease-state file per post and share that path
-across any host processes serving the same post.
-
-```text
-sealbridge board post --key requester.private.json --relay https://relay.sealbridge.dev --what "JSON summarization" --skill json-task --task-type json --max-input-tokens 5000 --max-output-tokens 1000 --max-tool-calls 1 --max-wall-seconds 60 --deadline 2026-11-01T00:00:00Z --input-file private-input.json --out post.json
-sealbridge board list --dir published-posts
-sealbridge board candidates --post post.json
-sealbridge board serve --post post.json --key requester.private.json --state post-lease.json --audit claims.jsonl
-```
-
-Posts allow only a short public description, skill/task type, resource caps,
-input digest, timestamps, owner DID, relay and post ID. Do not put private task
-text in `--what`. Unknown fields, tampering, malformed caps and expiry fail
-verification. Invalid files are omitted from the stdout JSON array; `list`
-warns on stderr with the skipped count, including malformed, forged and expired
-posts. An input digest can reveal
-low-entropy guesses; keep sensitive low-entropy inputs off public boards or
-include an application-generated random nonce in the private input before
-posting. Candidates are resolved from discovery and signed policy checked
-locally; incompatible candidates carry reasons. Sorting uses fit, then card
-freshness; there are no ratings. A profile is not a guarantee of current capacity.
-
-The worker exports its signed card from a matching worker preview, runs that
-open worker, and submits a claim with its same owner key:
+Candidates verify signatures, expiry, skill and relay, then display the poster's
+local relationship and reasons. Claims and dispatch require connected peers;
+otherwise they return `CONNECTION_REQUIRED`. Connection consent does not approve a
+claim, task or lease. Serve uses the poster's actual requester DID, persistent
+intake and held-content review. Dispatch checks connection and protocol before
+consuming the lease, and consumes before transmission. Ambiguous transmission does
+not cause automatic retry. One-time tickets and a separate application queue are deferred.
 
 ```text
-sealbridge board claim --post post.json --key worker.private.json --card worker-card.json --audit claim.jsonl --out claim-receipt.json
+sealbridge board candidates --post post.json --key poster.private.json
+sealbridge board serve --post post.json --state lease.json --audit claim-audit.jsonl
+sealbridge board dispatch --post post.json --state lease.json --input-file input.json --audit task-audit.jsonl --out result.json
+sealbridge worker public --settings settings.json --preview
 ```
 
-`worker-card.json` is the `signedCard` member of the preview JSON below.
-The claim is a normal encrypted Sealbridge PROPOSE with the post ID and signed worker
-card in its description. The board verifies the envelope sender against the
-card owner and pre-validates its policy. The first valid claim atomically
-reserves a five-minute lease (clipped to the post deadline). Other claims get
-`CLAIM_LOST` — someone else took this job. Owner approval is required. Declined,
-aborted or interrupted reservations expire naturally; no input is released.
-The lease becomes dispatchable only when the accepted claim executes.
-
-```text
-sealbridge board dispatch --post post.json --key requester.private.json --state post-lease.json --input-file private-input.json --audit job.jsonl --out result.json
-```
-
-Dispatch verifies the input digest, accepted lease and deadline. It consumes
-the lease before sending a second, ordinary encrypted Sealbridge job to the winning
-worker. Thus the real input is released only after the claim contract was
-accepted. That job retains its normal acceptance and final-verification gates.
-Claim and job have separate audit receipts. There is no new protocol frame.
-All board CLI flows reject automatic approval flags. A consumed lease is never
-reopened, including after ambiguous network failure; inspect the receipts
-before deciding whether to create a new post. A crash with a live lock fails
-closed. Confirm the owning process has stopped before manually recovering a
-lock. Use a local filesystem with atomic exclusive creation and rename;
-independently copied state files cannot coordinate a shared board.
-
-## Public-worker settings
-
-Save settings in `public-settings.json`:
-
-```json
-{
-  "public": true,
-  "taskTypes": ["json"],
-  "maxInputTokens": 5000,
-  "maxOutputTokens": 1000,
-  "maxToolCalls": 1,
-  "maxWallSeconds": 60,
-  "maxJobsPerPersonPerMinute": 4,
-  "maxJobsPerDay": 20,
-  "alwaysAsk": true
-}
-```
-
-```text
-sealbridge worker public --settings public-settings.json --key worker.private.json --relay https://relay.sealbridge.dev --preview
-sealbridge worker public --settings public-settings.json --key worker.private.json --relay https://relay.sealbridge.dev --adapter sandbox
-```
-
-Preview is local and does not register. Start maps public mode to `--open
---publish`, types to `--open-allow-task-type`, resource limits to their existing
-`--open-max-*` flags, rate to `--open-rate-limit-per-did`, and daily count to
-`--max-tasks-per-day`. `alwaysAsk: false` is the explicit existing G3 opt-in
-(`--auto-accept --allow-any-requester`), with the existing warning and audit
-behavior. Prefer `true`. Conflicting override flags are rejected. Turning
-public off starts invite-only without publishing; an already registered old
-card expires normally, while the running worker's admission remains authoritative.
-
-The rate flag and UX specification measure **per minute**. Preview labels it
-accordingly. Signed openPolicy contains only
-per-job resource caps; rate and daily caps are shown separately as host limits.
-Explicit general per-job caps are intersected with open caps before signing,
-so the advertised numbers match the stricter admission limits. Allowlists,
-contacts, revocation, concurrency and current availability still apply.
+Publication settings retain `public`, task types, general per-task budgets, host
+rate/daily settings and `alwaysAsk`. `public:true` maps only to `--publish`; types
+use `--allow-task-type`, budgets use the general `--max-*` flags, rate uses
+`--max-requests-per-minute`, and daily count uses `--max-tasks-per-day`.
+`alwaysAsk:false` returns `CONNECTION_OPENING_REQUIRED`; connected tasks always
+need inspection and owner opening. Retired `--open*` flags return
+`ACCESS_MODE_REMOVED`. Preview reports general host budgets and inspection
+availability without publishing or emitting retired fields. See
+[owner workflows](connections/admission.md) for invite confirmation and migration.
 
 ## Persistent daily cap
 
@@ -192,5 +121,5 @@ clock rollback, invalid state and lock contention fail closed. Exclusive locks
 and atomic replacement prevent lost updates across restarts and processes.
 An interrupted lock requires operator recovery after confirming the owner
 process has stopped. Owners with filesystem/configuration access can delete
-state, change clocks, change directories or disable the limit; remote DID
-rotation cannot. This does not claim protection against a hostile host owner.
+state, change clocks, change directories or disable the limit. The counter is
+scoped to the configured host data directory, independently of remote DIDs.

@@ -124,7 +124,7 @@ export type ConnectionServiceResult = {
   retryable?: false;
 };
 
-/** Standalone foundation: hosts explicitly attach delivery and owner review in the cutover. */
+/** Signed connection exchange; task execution remains a separate owner decision. */
 export class ConnectionService {
   private readonly now: () => number;
   private readonly id: () => string;
@@ -135,6 +135,11 @@ export class ConnectionService {
     if (!verifySignedAgentCard(options.agentCard, this.now()) ||
         options.agentCard.payload.ownerDid !== options.owner.did ||
         options.agentCard.payload.relayEndpoint !== options.relayUrl) throw new Error('INVALID_AGENT_CARD');
+  }
+  setAgentCard(card: SignedAgentCard): void {
+    if (!verifySignedAgentCard(card, this.now()) || card.payload.ownerDid !== this.options.owner.did ||
+        card.payload.relayEndpoint !== this.options.relayUrl) throw new Error('INVALID_AGENT_CARD');
+    this.options.agentCard = card;
   }
   private iso(): string { return new Date(this.now()).toISOString(); }
   private async review(reason: 'outgoing' | 'incoming' | 'confirm-invite', request: Signed<ConnectionRequest>): Promise<Signed<ConnectionConsent>> {
@@ -176,7 +181,7 @@ export class ConnectionService {
       envelope: sealConnectionFrame(frame, this.options.owner, this.now(), this.id()) };
   }
   async request(input: {
-    toOwnerDid: string; message?: string; expiresAt?: string; inviteToken?: string; originProposalDigest?: string;
+    toOwnerDid: string; message?: string; expiresAt?: string; inviteToken?: string; originProposalDigest?: string; deferDelivery?: boolean;
   }): Promise<ConnectionServiceResult> {
     const invite = input.inviteToken === undefined ? undefined : this.invite(input.inviteToken, input.toOwnerDid);
     const request = signConnectionRequest({ type: 'ConnectionRequest', v: 1, protocolVersion: '0.2.0',
@@ -191,7 +196,7 @@ export class ConnectionService {
     const outbox = this.outbox({ requestId: offer.requestId, event: request,
       ...(input.inviteToken === undefined ? {} : { inviteToken: input.inviteToken }) }, offer.expiresAt);
     await this.options.persistence.recordOutgoing(offer, consent, outbox, this.now());
-    const delivered = await this.flushOutbox();
+    const delivered = input.deferDelivery ? true : await this.flushOutbox();
     return { requestId: offer.requestId, status: 'pending', ...(!delivered ? { code: 'CONNECTION_DELIVERY_PENDING' } : {}) };
   }
   private checkRequest(frame: ConnectionFrame): Signed<ConnectionRequest> {
@@ -208,6 +213,12 @@ export class ConnectionService {
     }
     return request;
   }
+  /** Validate an attached request before the task path mutates invitation or intake state. */
+  validateRequest(envelope: SignedEnvelope): void {
+    const frame = openConnectionFrame(envelope, this.options.owner);
+    if (frame.event.payload.type !== 'ConnectionRequest') throw new Error('INVALID_CONNECTION_REQUEST');
+    this.checkRequest(frame);
+  }
   private async inspect(envelope: SignedEnvelope, request: Signed<ConnectionRequest>): Promise<boolean> {
     const port = this.options.inspection;
     if (!port) return false;
@@ -222,7 +233,7 @@ export class ConnectionService {
     const offer = this.offer(request);
     assertConnectionRequestCurrent(request.payload, this.now());
     const accepted = signConnectionAccepted({ type: 'ConnectionAccepted', v: 1, protocolVersion: '0.2.0',
-      eventId: this.id(), connectionId: this.id(), requestId: offer.requestId, requestDigest: offer.requestDigest,
+      eventId: this.id(), connectionId: connectionIdFor(this.options.owner.did, offer.fromOwnerDid), requestId: offer.requestId, requestDigest: offer.requestDigest,
       fromOwnerDid: this.options.owner.did, toOwnerDid: offer.fromOwnerDid, acceptedAt: this.iso(), trust: 'limited',
       ...(offer.inviteDigest ? { inviteDigest: offer.inviteDigest } : {}) }, this.options.owner);
     const commit: ConnectionAcceptanceCommit = { offer, accepted, consent, now: this.now(),
@@ -302,4 +313,9 @@ export class ConnectionService {
     }
     return delivered;
   }
+}
+
+/** Both owners derive the same ID, with the smaller DID as the base. */
+export function connectionIdFor(left: string, right: string): string {
+  return 'connection_' + digest([left, right].sort()).slice(7);
 }

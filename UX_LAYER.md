@@ -3,21 +3,20 @@
 **English** | [日本語 (UX_LAYER.ja.md)](./UX_LAYER.ja.md)
 
 **Status**: Draft proposal, Sprint 3. Baseline: `main` at `5103554`
-(PR #69 `--on-receive`, PR #70 open mode, PR #71 signed `openPolicy`,
+(PR #69 `--on-receive`, connections admission,
 PR #72 structured ERROR detail, PR #73 open task types and per-DID rate limits).
 **Author**: Muse (spec/UX role), in reply to Grok Bot Direct task
 `task_5bca7f83dccf46dba95187cf686975a4`.
 
 **Conclusion**: Sealbridge's protocol objects (DIDs, invite tokens, capabilities,
 budgets, audit chains) are the right machine layer, but they are not a user
-interface. This proposal adds a **UX layer on top of the existing protocol —
-no protocol changes are required for the MVP** — with two entry points that
+interface. This proposal adds a **UX layer on top of connections admission** with two entry points that
 converge on one flow:
 
 - **Friends**: people you know, reached through an invite QR code / link
-  (invite-only mode underneath).
+  (explicit connection consent).
 - **Strangers**: people you don't know, reached through a public job board
-  (open mode underneath).
+  (connection review before executable claims).
 
 Both end in the same three steps a non-technical user can understand:
 **Request → Approve → Result + Receipt.**
@@ -48,15 +47,15 @@ Both end in the same three steps a non-technical user can understand:
 
 | User-facing word | Protocol object (existing) |
 | :-- | :-- |
-| Friend | Allowlisted DID + latest signed AgentCard |
+| Friend | Local contact + independently confirmed connection + latest signed AgentCard |
 | Invite link / QR | `AgentInvite` token (24 h TTL) |
 | Job | Task manifest (`spec/task-manifest.schema.json`) |
-| Budget | Manifest budget caps; worker-side signed `openPolicy` (PR #71) |
-| Public profile | Signed AgentCard with `accessMode: "open"` |
+| Budget | Manifest budget caps; local general host budgets |
+| Public profile | Published signed AgentCard |
 | Receipt | Bilateral hash-chained audit log for one task |
 | Track record | Aggregates computed from a worker's settled receipts |
 
-## 3. Entry point A — Friends (invite-only)
+## 3. Entry point A — Friends (explicit connection consent)
 
 ### 3.1 The invite becomes one QR code or link
 
@@ -71,8 +70,8 @@ Both end in the same three steps a non-technical user can understand:
 - **One-tap re-issue**: an expired invite can be re-issued from the friends
   screen. Re-issuing mints a fresh token for the same DID; the old token
   dies at its own expiry or by revocation, whichever comes first.
-- Underneath: `sealbridge invite create` + worker `--allow-requester <did>`
-  (repeatable). No protocol change.
+- Import/preview saves local information only. `connections confirm-invite`
+  separately asks for the exact local role/DID and peer owner DID.
 
 ### 3.2 Friends list (persistent contacts)
 
@@ -87,7 +86,7 @@ survives worker restarts, unlike AgentCards (1 h TTL) and invites (24 h TTL).
       "displayName": "Grok Bot (Chief of Staff)",
       "addedAt": "2026-10-28T12:00:00Z",
       "source": "invite | board | manual",
-      "autoApproveLimit": { "maxInputTokens": 50000 },
+      "budgetLimit": { "maxInputTokens": 50000 },
       "blocked": false,
       "notes": ""
     }
@@ -97,12 +96,12 @@ survives worker restarts, unlike AgentCards (1 h TTL) and invites (24 h TTL).
 
 Rules:
 
-- On worker start, the friends list **is** the `--allow-requester` set;
-  starting a worker with a friends list needs no DID ever shown or typed.
+- A host may use contacts to populate `--allow-requester` as a perimeter;
+  that list grants no connection consent or task opening.
 - Display names are local and user-editable; the signed card name is shown
   under Details for verification.
-- **Block** = remove from the allowlist + revoke outstanding invites +
-  refuse future proposals from that DID, in one action.
+- **Block** = remove local connection authority and silently exclude future
+  proposals from that DID. Accepted work continues under existing task controls.
 - A friend's card going stale is normal (they are offline), not an error:
   the UI shows "last seen" instead of a failure.
 
@@ -111,8 +110,9 @@ Rules:
 Pick a friend → describe the job (per-skill plain-language templates, free
 text mapped into the manifest `input`) → the approve screen (§5) → progress
 in words → result + receipt. Repeat jobs to the same friend can save the
-template and a per-friend auto-approve limit; anything above the limit
-always asks.
+template and a per-friend budget limit. Every connection-derived task still
+requires completed inspection and human opening. Task approval and connection
+consent are separate decisions; no connection request is attached without consent.
 
 Proposed CLI surface (host-side, no protocol change):
 
@@ -122,59 +122,15 @@ sealbridge invite share [--friend <name>]        # prints link + QR in terminal
 acp ask <friend-name> --what "..." [--max-tokens <n>] [--by <deadline>]
 ```
 
-## 4. Entry point B — Strangers (open job board)
+## 4. Publication, connections and board integration contract
 
-### 4.1 Posting a job
-
-The requester fills in exactly three things: **what** (template + free
-text), **budget** (a single max figure), **deadline**. The board entry is
-**metadata only**, reusing the dual-mode design: skill, task type, budget
-cap, a digest of the input, and the deadline. Plaintext input is never
-posted; it is released over the normal E2EE channel only after a claim is
-accepted (§4.4).
-
-### 4.2 Candidate list
-
-Candidates come from `discover`, filtered by skill / task type and checked
-against each card's signed `openPolicy` **before** anything is proposed
-(requester-side pre-validation, PR #71). Each candidate is rendered as:
-
-- display name (card `name`),
-- what they accept, in words ("JSON tasks", from `taskTypes`),
-- their limits, in words ("up to 50k tokens in, 60 s per job, 30 jobs/minute"),
-- track record summary (§6.1),
-- a Details expander with the DID and the raw signed card.
-
-Sorting: policy fit first, then track record, then card freshness. A
-candidate whose policy cannot accept the job is not shown as available —
-it is shown greyed out with the reason in words, or hidden, per user setting.
-
-### 4.3 Worker side: the "Go public" screen
-
-One settings screen maps 1:1 onto existing flags from PR #71 / #73:
-
-| Plain label | Existing mechanism |
-| :-- | :-- |
-| "Let strangers send me jobs" (on/off) | `--open` (default off = invite-only) |
-| "Jobs I accept" (checkbox list) | `--open-allow-task-type` |
-| "Max budget per job" | `openPolicy.maxInputTokens` / `maxOutputTokens` |
-| "Max jobs per person per minute" | Host limit: `--open-rate-limit-per-did` (not signed `openPolicy`) |
-| "Max jobs per day" (new, host-side counter) | daily cap in the UX layer |
-| "Always ask me before accepting from strangers" | G3 HITL gate (default ON in open mode) |
-
-The screen includes a live preview: "This is how strangers see you",
-rendered from the worker's own signed card. The G3 guardrail stays: open
-mode + auto-accept requires the explicit opt-in flag and is recorded in
-the audit log.
-
-### 4.4 Claim flow
-
-1. Requester posts a metadata-only board entry (§4.1).
-2. A worker **claims** it by sending a normal PROPOSE referencing the board
-   entry id. First valid claim wins a short lease; other claimants receive
-   `CLAIM_LOST`, rendered as "Someone else took this job."
-3. On contract acceptance, the requester sends the real input over E2EE.
-4. Delivery, verification, and the receipt follow the common flow (§5).
+Publication registers a signed AgentCard independently of owner consent. Settings
+use `--publish`, `--allow-task-type` and general `--max-*` host flags.
+`alwaysAsk:false` returns a migration error. Candidates show owner-local
+relationship state; claims and dispatch require connected peers. Inspection and
+owner opening precede acceptance. The default inspector is unavailable.
+Desktop remains an external integration contract and is outside this change.
+See [implemented workflows and migration](docs/connections/admission.md).
 
 ## 5. The common flow: Request → Approve → Result + Receipt
 
@@ -192,8 +148,8 @@ The **approve screen** is the same in both entry points and shows only:
 **who** (display name), **what** (one-paragraph summary), **max cost**
 (budget cap, with the worker's policy limit if lower), **deadline**, and
 **what they can use** (capabilities in words, e.g. "can read the file you
-attach; cannot access anything else"). Auto-approve is available only for
-friends with a per-friend limit (§3.3); a stranger's first job always asks.
+attach; cannot access anything else"). A connection-derived task always requires
+completed inspection and human opening, including repeat jobs for friends (§3.3).
 
 ## 6. Trust between strangers
 
@@ -284,7 +240,7 @@ remain unchanged for compatibility.
 | Phase | Scope | Depends on |
 | :-- | :-- | :-- |
 | UX-1 | Friends list, invite link/QR + one-tap re-issue, approve screen, receipt rendering (text/CLI first) | existing invite, `--allow-requester`, audit-verify |
-| UX-2 | Job board (metadata-only), candidate rendering, "Go public" settings screen | PR #70 open mode, PR #71 openPolicy, PR #73 rates |
+| UX-2 | Job board (metadata-only), candidate rendering, "Go public" settings screen | connections admission and host budgets |
 | UX-3 | Track-record aggregates, two-way ratings as signed receipts | UX-2 |
 | UX-4 | Payments pilot (x402 for board micro-jobs), AP2 mandate reference, A2A gateway sketch | §7 decisions |
 
@@ -306,3 +262,5 @@ remain unchanged for compatibility.
 
 *End of proposal. Discussion and review happen on the pull request that
 carries this document.*
+
+Host rate / ホストの頻度: `--max-requests-per-minute`.

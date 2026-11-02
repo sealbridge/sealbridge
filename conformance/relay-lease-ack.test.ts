@@ -109,7 +109,7 @@ it('persists before ack and suppresses a proposal after a worker crash before ac
   const options = { owner: recipient, inboxPath: inbox, timeoutMs: 3000,
     adapter: { id: 'test', name: 'test', skills: [], executeTask: async () => { calls++; return { ok: true }; } },
     approvalProvider: new PolicyAutoApprovalProvider(recipient) };
-  const worker = new WorkerNode({ ...options, relay: new HttpRelayClient(origin, fetcher, recipient), relayUrl: origin });
+  const worker = new WorkerNode({ checkPeer: () => 'trusted', ...options, relay: new HttpRelayClient(origin, fetcher, recipient), relayUrl: origin });
   try {
     const client = new RequesterClient({ owner: sender, relay: new HttpRelayClient(origin, fetcher, sender), timeoutMs: 3000, approvalProvider: new PolicyAutoApprovalProvider(sender) });
     const running = worker.start({ once: true });
@@ -118,7 +118,7 @@ it('persists before ack and suppresses a proposal after a worker crash before ac
     expect(calls).toBe(1);
     worker.stop();
     now += 30_001; holdAck = false;
-    const restarted = new WorkerNode({ ...options, relay: new HttpRelayClient(origin, fetcher, recipient), relayUrl: origin });
+    const restarted = new WorkerNode({ checkPeer: () => 'trusted', ...options, relay: new HttpRelayClient(origin, fetcher, recipient), relayUrl: origin });
     await restarted.start({ signal: AbortSignal.timeout(100) });
     restarted.stop();
     expect(calls).toBe(1);

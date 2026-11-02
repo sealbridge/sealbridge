@@ -19,7 +19,7 @@ import {
 } from '../packages/runtime/src/index.js';
 
 function echoWorker(owner: KeyPair, relay: InMemoryRelay, calls: Json[], events: string[]) {
-  return new WorkerNode({
+  return new WorkerNode({ checkPeer: () => 'trusted',
     owner,
     relay,
     adapter: {
@@ -234,7 +234,7 @@ describe('issue 64: unverified capability revocation', () => {
     const registry = new RevocationRegistry();
     const calls: Json[] = [];
     const events: string[] = [];
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {

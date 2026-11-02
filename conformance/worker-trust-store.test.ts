@@ -36,9 +36,10 @@ it('persists owner-signed metadata with private paths, deduplication and restart
 });
 it('computes expiry on reads without writes, rejects expired approval, and expires trusted grants', () => {
   const f = fixture(); f.store.enqueue(f.manifest, {}); const r = f.store.list()[0];
-  const bytes = fs.readFileSync(f.path, 'utf8'); f.advance(15 * 60_000);
+  const bytes = fs.readFileSync(f.path, 'utf8'); f.advance(60 * 60_000);
   expect(f.store.list()[0].state).toBe('expired'); expect(fs.readFileSync(f.path, 'utf8')).toBe(bytes);
   expect(() => f.store.decide(r.id, 'approve')).toThrow('REQUEST_EXPIRED');
+  f.manifest.deadline = new Date(now + 2 * 3600_000).toISOString();
   f.manifest.taskId += '_new'; f.store.enqueue(f.manifest, {}); f.store.decide(f.store.list().at(-1)!.id, 'approve', 'trusted');
   expect(f.store.hasTrustedGrant()).toBe(true); f.advance(24 * 3600_000);
   expect(f.store.level(f.peer.did)).toBe('unknown'); expect(f.store.hasTrustedGrant()).toBe(false);
@@ -54,8 +55,8 @@ it('fails closed on corruption, foreign signatures, lock contention and failed p
   fs.writeFileSync(f.path, '{}'); expect(() => f.store.level(f.peer.did)).toThrow('INTAKE_STORE_INVALID');
 });
 it('bounds pending intake and per-peer rates without extending original expiry', () => {
-  const f = fixture(); for (let i = 0; i < 5; i++) f.store.enqueue(f.manifest, {});
-  expect(f.store.list()).toHaveLength(1); expect(() => f.store.enqueue(f.manifest, {})).toThrow('INTAKE_RATE_LIMITED');
+  const f = fixture(); for (let i = 0; i < 5; i++) f.store.enqueue({ ...f.manifest, taskId: f.manifest.taskId + '_' + i }, {});
+  expect(f.store.list()).toHaveLength(1); expect(() => f.store.enqueue({ ...f.manifest, taskId: f.manifest.taskId + '_six' }, {})).toThrow('INTAKE_RATE_LIMITED');
   f.advance(60_000);
   for (let i = 0; i < 60; i++) f.store.enqueue({ ...f.manifest, requester: { ...f.manifest.requester, ownerDid: 'did:key:' + i } }, {});
   expect(() => f.store.enqueue({ ...f.manifest, requester: { ...f.manifest.requester, ownerDid: 'did:key:extra' } }, {})).toThrow('INTAKE_RATE_LIMITED');
@@ -72,8 +73,10 @@ it('owner CLI reviews locally, defaults to limited, requires explicit trusted ch
   store.enqueue(m, { secretInput: 'not listed' }); const id = store.list()[0].id;
   const output = vi.fn(), review = vi.fn(async (_summary: string) => true), opts = { identityOptions, output, review };
   await requestsCommand(['list'], opts); expect(output.mock.calls[0][0]).not.toContain('secretInput');
-  await requestsCommand(['approve', id], opts); expect(store.level(peer.did)).toBe('limited');
-  expect(review.mock.calls[0][0]).toContain('LLM execution still requires owner contract approval');
+  await expect(requestsCommand(['approve', id], opts)).rejects.toThrow('INSPECTION_INCOMPLETE');
+  expect(review).not.toHaveBeenCalled();
+  await requestsCommand(['approve', id, '--trust', 'trusted'], opts); expect(store.level(peer.did)).toBe('trusted');
+  expect(review.mock.calls[0][0]).toContain('Legacy explicit trusted grant');
   await requestsCommand(['deny', id], opts); expect(store.level(peer.did)).toBe('denied');
   await expect(requestsCommand(['approve', id, '--yes'], opts)).rejects.toThrow('INVALID_REQUEST_OPTION');
   await expect(requestsCommand(['deny', id], { ...opts, review: async () => false })).rejects.toThrow('APPROVAL_REJECTED');
@@ -101,13 +104,13 @@ it('prevents concurrent owner updates from losing an earlier decision', () => {
 });
 it('does not recreate keys during empty queue inspection and refuses unattended decisions', async () => {
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root }, home: root };
-  await expect(requestsCommand(['list'], { identityOptions })).rejects.toThrow('REQUEST_REVIEW_UNAVAILABLE');
+  await requestsCommand(['list'], { identityOptions, output: () => {} });
   expect(fs.readdirSync(root)).toEqual([]);
   const owner = resolveOrCreateIdentity('worker', identityOptions), peer = generateKeyPair();
   const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did) });
   store.enqueue(buildTaskManifest({ ownerDid: peer.did, workerDid: owner.did, title: 'Review', description: 'Review' }), {});
   if (!process.stdin.isTTY || !process.stderr.isTTY)
-    await expect(requestsCommand(['approve', store.list()[0].id], { identityOptions })).rejects.toThrow('REQUEST_REVIEW_UNAVAILABLE');
+    await expect(requestsCommand(['approve', store.list()[0].id, '--trust', 'trusted'], { identityOptions })).rejects.toThrow('APPROVAL_CHANNEL_UNAVAILABLE');
   expect(store.level(peer.did)).toBe('unknown');
 });
 it('accepts CRLF signed JSON without rewriting it on list', () => {

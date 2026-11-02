@@ -76,7 +76,7 @@ Capability の証明は、根から葉へ並んだ署名付きトークンの配
 
 A2A の AgentCard、Task、Message、Artifact は SDK のワイヤ形を保ち、署名付き Sealbridge エンベロープの中に載ります。ブリッジは、インストール済みの A2A SDK 0.3 のワイヤプロファイルを使います。Sealbridge の契約とレシートは、A2A を書き換えるのではなく、オーバーレイのペイロードです。MCP の `tools/call` の要求と結果は公式 SDK を使い、サンドボックスの外で物理的にプロキシされます。未知のツールと、メタデータの無い迂回は拒否します。
 
-## つながり制御通知（準備段階）
+## つながり制御通知
 
 署名付きの申し込み・承認・ACK、制御封筒、永続化ポートの条件は
 [つながり交換](../docs/connections/connection-exchange.ja.md)を参照してください。
@@ -86,3 +86,7 @@ A2A の AgentCard、Task、Message、Artifact は SDK のワイヤ形を保ち�
 M0/M1 の JSON スキーマとサンプルは変更していません。署名付き AgentCard と招待は、同じ `Signed<T>` のプレイメージを使います。`AgentCard` には ownerDid、agentDid、relayEndpoint、skills（任意の JSON 入出力スキーマを含む）、costModes、name、description、version が入ります。カードに署名するのはオーナーです。`AgentInvite` は、完全に署名されたカードを、同じ ownerDid / agentDid と relayUrl、および issuedAt / expiresAt に束縛します。パーサは、無効な署名、一致しない識別子や経路、未来の発行時刻、期限切れを拒否します。URI の符号化は `acp-invite:<base64url(JSON(Signed<AgentInvite>))>` または `acp://invite?token=<same-base64url>` です。
 
 セッションのエンベロープは、送信者ごとに単調なシーケンス番号を持ちます。各アプリケーションイベントのあとに、署名付き監査本体を運ぶ `AUDIT_ENTRY` エンベロープが続き、受信者は署名付き AckReceipt を運ぶ `AUDIT_ACK` を返します。双方が同一の AuditEntry を追記します。`CHECKPOINT` と `CHECKPOINT_ACK` は、最終の署名付きチェックポイントと副署を交換します。DELIVER には成果物、利用量、実行証明、およびその署名付き遷移が含まれます。証明は `effectiveIsolationLevel` と `sandboxBoundary`（`nodePermissionFlag`、`permissionModelActive`、`kernelNetworkIsolated`）を追加できます。`node:vm` はセキュリティ機構ではないです。Node の `--permission` / `--experimental-permission` は `fetch`、`node:net`、`node:http`、`node:https`、`node:dns`、`node:dgram` を止めません。`kernelNetworkIsolated` が真になるのは `oci_container`（`isolationLevel: 'oci_container'`）だけで、その経路はカーネルのネットワーク境界です（`--network none`、`--read-only`、`--cap-drop ALL`、`no-new-privileges`）。`subprocess_restricted` は権限フラグと `--allow-fs-read`、`--allow-fs-write` を組にすることがあります。元の M1 証明も有効なままです。
+
+## 接続のライブ受付
+
+[受付と移行](../docs/connections/admission.ja.md)・[リリース時計](../docs/connections/protocol-versions.ja.md)を参照してください。0.1.0 は接続由来の入場を認めません。スキーマと過去の監査検証に時計は適用しません。0.2.0 の PROPOSE は、別に同意した場合だけ暗号化済み ConnectionRequest 封筒を添付できます。その originProposalDigest は提案のダイジェストに一致する必要があります。公開リリース前に検査プロバイダーとリリース時刻の設定が必要です。

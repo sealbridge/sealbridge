@@ -4,8 +4,6 @@
 
 `@acp/runtime` は `HeldRequestStore`・`HeldRequestReview`・注入用の
 `HeldContentReviewProvider` を公開します。独立した4つのつながり基盤の PR4 です。
-全基盤のマージ後の切替 PR（PR5）まで、運用の既定値、受信処理、CLI、MCP、board、
-データルート、ID ファイルの動作は変わりません。
 
 ストアは、元の暗号化済み署名付き封筒と所有者が署名したメタデータを
 `<dataRoot>/quarantine/<sha256-local-owner-DID>/<id>.json` に保存します。
@@ -27,3 +25,5 @@
 POSIX のパスには0700/0600を使い、Windows は親の DACL を継承し、ACL の検証は行いません。
 アダプターの作業ディレクトリが分かる場合は `workspaceDir` を渡し、その配下への保存を拒否します。
 実際の検査プロバイダーはホスト側で別途組み込みます。アプリケーションの通信と UI は今後の対象です。
+
+ライブ経路は[接続の受付](admission.ja.md)に統合しています。既定の検査は利用不可で、内容は保留します。

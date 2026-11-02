@@ -175,7 +175,7 @@ export class RequesterPendingStore {
         r.attempts++; r.lastChecked = now; r.lastTaskId = manifest.taskId; });
       try {
         const result = await run({ ...record.request.timeouts, to: record.request.to ?? record.request.workerRef,
-          ...(record.request.workerRef ? { workerRef: record.request.workerRef } : {}), manifest,
+          ...(record.request.workerRef ? { workerRef: record.request.workerRef } : {}), manifest, renegotiateProtocol: true,
           title: manifest.task.title, description: manifest.task.description, input: record.request.input, pendingId: id }, record.request.relayUrl);
         this.resolve(id);
         return result;

@@ -54,7 +54,7 @@ async function fixture(persistence: 'both' | 'audit' | 'inbox' = 'both', holdToo
     return ctx.input;
   } };
   function worker(executeTask = adapter.executeTask, onEvent?: WorkerNodeOptions['onEvent']) {
-    const node = new WorkerNode({ owner, relay, inboxPath, auditPath, timeoutMs: 5000,
+    const node = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, inboxPath, auditPath, timeoutMs: 5000,
       approvalProvider: new PolicyAutoApprovalProvider(owner), adapter: { ...adapter, executeTask }, onEvent,
       tools: { echo: { resource: () => 'mcp://echo', readOnly: true } },
       toolBackend: { callTool: async () => {

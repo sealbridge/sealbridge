@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 const reasons: [RegExp, string][] = [
+  [/ACCESS_MODE_REMOVED/, '旧モードの指定は廃止しました。connections と一般の --max-*、--allow-task-type を使ってください。'],
+  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, '検査が完了していません。内容は保留し、検査プロバイダーの状態を確認してください。'],
+  [/CONNECTION_REQUIRED/, 'この操作には選択した所有者 DID の接続が必要です。connections を確認してください。'],
+  [/CONNECTION_OPENING_REQUIRED/, 'limited の依頼には検査と所有者が開く操作が必要です。alwaysAsk:true にしてください。'],
+  [/PROTOCOL_VERSION_UNSUPPORTED|PROTOCOL_DOWNGRADE_REFUSED/, '相手の署名済み対応版とリリース方針を確認してください。別の版へ自動で再送しません。'],
+  [/PROTOCOL_RELEASE_UNSET/, '公開リリース前に保守者がリリース時刻を設定してください。'],
   [/SETUP_HOST_REQUIRED|SETUP_HOST_UNSUPPORTED|SETUP_INVALID_ARGUMENT/, 'setup --help を確認し、対応ホストを --host で指定してください。'],
   [/SETUP_RUNTIME_UNSTABLE/, '永続的な場所にインストールするか、ビルド済みチェックアウトから実行してください。'],
   [/SETUP_APPROVAL_MODE_CONFLICT/, '既存の Sealbridge 登録は承認モードが異なります。--update-existing --dry-run で確認し、--update-existing でバックアップ付きで置換してください。従来の自動承認は --no-require-approval で選択できます。'],

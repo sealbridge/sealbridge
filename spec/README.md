@@ -113,7 +113,7 @@ Sealbridge contract/receipt objects are overlay payloads rather than changes to 
 MCP `tools/call` requests and results use the official SDK and are physically
 proxied outside the sandbox. Unknown tools and metadata-free bypasses are denied.
 
-## Connection control profile (preparatory)
+## Connection control profile
 
 See [connection exchange](../docs/connections/connection-exchange.md) for signed
 request, acceptance and ACK payloads, control envelopes and persistence requirements.
@@ -144,3 +144,7 @@ and Node's `--permission` / `--experimental-permission` model does not block
 which is the kernel network boundary: `--network none`, `--read-only`, `--cap-drop ALL`, and `no-new-privileges`.
 `subprocess_restricted` may add `--allow-fs-read` and `--allow-fs-write` with the
 permission flag. Original M1 attestations remain valid.
+
+## Live connection admission
+
+See [admission and migration](../docs/connections/admission.md) and the [release clock](../docs/connections/protocol-versions.md). A 0.1.0 request receives no connection-derived admission. Schema and historical audit verification remain timeless. A 0.2.0 PROPOSE may attach an encrypted ConnectionRequest envelope only after separate owner consent; its originProposalDigest must match the proposal digest. Public release requires an inspection provider and a configured release instant.

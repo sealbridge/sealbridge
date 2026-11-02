@@ -361,7 +361,7 @@ describe('embedding and application entry points', () => {
     const store = memoryStore();
     const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
     const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
-    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl: 'https://relay.example',
+    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
       approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
     const approvalProvider = { approve: vi.fn(async (r: ApprovalRequest) => signApproval(r.taskId, r.gate, r.target,
@@ -435,7 +435,7 @@ describe('embedding and application entry points', () => {
     expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
 
     const intake = new WorkerTrustStore(workerOwner);
-    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl, accessMode: 'open', intakeStore: intake,
+    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl, intakeStore: intake,
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
       approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
     const task = { title: 'Echo', description: 'Return JSON', input: { retained: 'hello' } };
@@ -457,7 +457,7 @@ describe('embedding and application entry points', () => {
         .toEqual([held.pendingId, mcpHeld.pendingId]);
       const requester = await resolveStoredIdentity('requester', configured);
       expect(intake.list()[0].requesterOwnerDid).toBe(requester.did);
-      intake.decide(intake.list()[0].id, 'approve');
+      intake.decide(intake.list()[0].id, 'approve', 'trusted');
       // A new server inspects the configured store instead of using a cached owner.
       const restart = new AcpMcpServer({ ...application, relay: relayUrl });
       expect(await call(restart, 'acp_resubmit_pending_request', { pendingId: held.pendingId }))

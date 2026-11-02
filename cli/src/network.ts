@@ -2,13 +2,17 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inviteShareCommand } from './invite-share.js';
+import { connectionHumanReview } from './connections.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
-import type { KeyPair, Schema, OpenPolicy } from '@acp/core';
+import type { KeyPair, Schema } from '@acp/core';
 import { createSignedAgentCard, createInviteToken, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
+  HeldRequestReview,
+  LiveProtocol,
+  ProtocolPeerStore,
   WorkerTrustStore,
   workerIntakePath,
   resolveStoredIdentity,
@@ -37,7 +41,7 @@ import { approvalSummary } from './approval-summary.js';
 import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 import { parseInviteOutput, deliverInvite } from './invite-output.js';
 import { emitWorkerJson, inviteDigest } from './worker-json.js';
-const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--open-allow-task-type']);
+const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--allow-task-type']);
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
 function flags(args: string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();
@@ -129,7 +133,6 @@ function allowRequesterDids(parsed: Map<string, string | true>): string[] {
 function workerAcceptance(parsed: Map<string, string | true>): WorkerAcceptancePolicy {
   return {
     allowedRequesterDids: allowRequesterDids(parsed),
-    allowAnyRequester: parsed.has('--allow-any-requester'),
     maxInputTokens: optionalCount(parsed, 'max-input-tokens'),
     maxOutputTokens: optionalCount(parsed, 'max-output-tokens'),
     maxToolInvocations: optionalCount(parsed, 'max-tool-invocations'),
@@ -139,14 +142,6 @@ function workerAcceptance(parsed: Map<string, string | true>): WorkerAcceptanceP
     publishToRegistry: parsed.has('--publish'),
   };
 }
-function openRateLimit(parsed: Map<string, string | true>): number | undefined {
-  const raw = parsed.get('--open-rate-limit-per-did');
-  if (raw === undefined) return undefined;
-  const match = typeof raw === 'string' ? /^([1-9]\d*)(?:\/(?:m|min|60s))?$/.exec(raw) : null;
-  if (!match || !Number.isSafeInteger(Number(match[1])))
-    throw new Error('INVALID_OPEN_RATE_LIMIT_PER_DID');
-  return Number(match[1]);
-}
 function assertLlmAutoAccept(
   adapter: string,
   automatic: boolean,
@@ -154,12 +149,12 @@ function assertLlmAutoAccept(
   trustedGrant = false,
 ): void {
   if (!automatic || !LLM_ADAPTERS.has(adapter)) return;
-  if (trustedGrant || acceptance.allowAnyRequester || (acceptance.allowedRequesterDids?.length ?? 0) > 0) return;
+  if (trustedGrant || (acceptance.allowedRequesterDids?.length ?? 0) > 0) return;
   throw new Error(
     'LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST: --auto-accept with the ' +
       adapter +
       ' adapter can spend the worker owner API key. Pass --allow-requester <did> ' +
-      '(repeatable or comma-separated) or --allow-any-requester.',
+      '(repeatable or comma-separated). Connections remain limited and require owner opening.',
   );
 }
 export async function networkCommand(command: string, args: string[], application: {
@@ -168,6 +163,8 @@ export async function networkCommand(command: string, args: string[], applicatio
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   onDelegated?: () => void;
 } = {}): Promise<void> {
+  if (args.some(a => a === '--open' || a.startsWith('--open=') || a === '--access-mode' || a.startsWith('--open-') || a.startsWith('--access-mode=') || a === '--allow-any-requester' || a.startsWith('--allow-any-requester=')))
+    throw new Error('ACCESS_MODE_REMOVED: Use connections; replace old budget flags with --max-input-tokens, --max-output-tokens, --max-tool-invocations, --max-wall-clock-seconds, --allow-task-type and --max-requests-per-minute.');
   if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
     console.log(command === 'relay' ? `Relay notification options:
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
@@ -179,7 +176,10 @@ export async function networkCommand(command: string, args: string[], applicatio
   --notification-ttl-ms <n>      Wake registration/dedup and expiry notice retention (default: 3600000).
   --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 600000).` : TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
-  requests list|approve|deny     Local owner review; approve defaults to limited trust.
+  requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
+  connections list|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
+                                 Separate human connection consent; inspection unavailable by default.
+  --allow-task-type <type>       Repeatable/comma-separated advertised task types.
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
                                  The local relay CLI provides channel "default".`);
     return;
@@ -192,7 +192,12 @@ export async function networkCommand(command: string, args: string[], applicatio
     args.splice(index, 2);
     if (args.some(a => ['--open','--publish','--auto-accept','--auto-approve','--yes','--allow-any-requester','--access-mode'].includes(a) || a.startsWith('--open-') || a === '--max-tasks-per-day'))
       throw new Error('CONFLICTING_PUBLIC_SETTINGS');
-    return networkCommand('worker', ['start', ...args, ...publicSettingsFlags(settings)], application);
+    const generated = publicSettingsFlags(settings);
+    for (const flag of ['--max-input-tokens','--max-output-tokens','--max-tool-invocations','--max-wall-clock-seconds','--max-requests-per-minute']) {
+      const existing = args.indexOf(flag), setting = generated.indexOf(flag);
+      if (existing >= 0 && setting >= 0) { generated[setting + 1] = String(Math.min(Number(args[existing + 1]), Number(generated[setting + 1]))); args.splice(existing, 2); }
+    }
+    return networkCommand('worker', ['start', ...args, ...generated], application);
   }
   if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args, application.identityOptions);
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
@@ -250,6 +255,7 @@ export async function networkCommand(command: string, args: string[], applicatio
         agentDid: key.did,
         relayEndpoint: relayUrl,
         skills: [{ id: 'json-task', name: 'JSON task' }],
+        protocolVersions: new LiveProtocol().receiveVersions(),
       },
       key,
     );
@@ -263,9 +269,6 @@ export async function networkCommand(command: string, args: string[], applicatio
   }
   const automatic = ['yes', 'auto-accept', 'auto-approve'].some((name) => f.has('--' + name));
   if (command === 'worker') {
-    const accessMode = text(f, 'access-mode', f.has('--open') ? 'open' : 'invite-only');
-    if (!['invite-only', 'open'].includes(accessMode) || (f.has('--open') && accessMode !== 'open'))
-      throw new Error('INVALID_ACCESS_MODE');
     const onInboxRecord = f.has('--on-receive')
       ? createReceiveHook(text(f, 'on-receive')) : undefined;
     if (onInboxRecord && !f.has('--inbox')) throw new Error('--on-receive requires --inbox');
@@ -279,36 +282,11 @@ export async function networkCommand(command: string, args: string[], applicatio
       ...(acceptance.allowedRequesterDids ?? []),
       ...loadContacts(contactFile, key.did).filter(c => c.allow && !c.revoked).map(c => c.ownerDid),
     ])];
-    const rateLimit = openRateLimit(f);
-    const allowedTaskTypes = f.has('--open-allow-task-type')
-      ? [...new Set(text(f, 'open-allow-task-type').split(',').map((value) => value.trim()))]
-      : undefined;
-    if (allowedTaskTypes?.some((value) => !value))
-      throw new Error('INVALID_OPEN_ALLOW_TASK_TYPE');
-    if ((allowedTaskTypes || rateLimit !== undefined) && accessMode !== 'open')
-      throw new Error('OPEN_POLICY_REQUIRES_OPEN_MODE');
+    const allowedTaskTypes = f.has('--allow-task-type')
+      ? [...new Set(text(f, 'allow-task-type').split(',').map(value => value.trim()))] : undefined;
+    if (allowedTaskTypes?.some(value => !value)) throw new Error('INVALID_ALLOW_TASK_TYPE');
     if (allowedTaskTypes && f.has('--task-type') && !allowedTaskTypes.includes(text(f, 'task-type')))
-      throw new Error('CONFLICTING_OPEN_TASK_TYPE');
-    if (rateLimit !== undefined)
-      acceptance.maxTasksPerRequesterPerMinute = Math.min(
-        acceptance.maxTasksPerRequesterPerMinute ?? rateLimit, rateLimit);
-    const openPolicy: OpenPolicy = {};
-    const openFlags = {
-      maxInputTokens: 'open-max-input-tokens',
-      maxOutputTokens: 'open-max-output-tokens',
-      maxToolInvocations: 'open-max-tool-calls',
-      maxWallClockSeconds: 'open-max-wall-seconds',
-    } as const;
-    for (const field of Object.keys(openFlags) as (keyof OpenPolicy)[]) {
-      const limit = optionalCount(f, openFlags[field]);
-      if (limit !== undefined) openPolicy[field] = limit;
-    }
-    if (Object.keys(openPolicy).length && accessMode !== 'open')
-      throw new Error('OPEN_POLICY_REQUIRES_OPEN_MODE');
-    if (accessMode === 'open') for (const field of Object.keys(openFlags) as (keyof OpenPolicy)[]) {
-      const general = acceptance[field];
-      if (general !== undefined) openPolicy[field] = Math.min(openPolicy[field] ?? general, general);
-    }
+      throw new Error('CONFLICTING_TASK_TYPE');
     const intakeStore = new WorkerTrustStore(key, {
       path: workerIntakePath(key.did, application.identityOptions),
       fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
@@ -369,8 +347,11 @@ export async function networkCommand(command: string, args: string[], applicatio
         if (automatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
         if (contact?.allow) return 'trusted';
       },
-      accessMode: accessMode as 'invite-only' | 'open',
-      ...(Object.keys(openPolicy).length ? { openPolicy } : {}),
+      identityOptions: application.identityOptions ?? {},
+      heldReview: new HeldRequestReview(key, application.identityOptions),
+      protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
+      connectionReview: connectionHumanReview(undefined, 'worker'),
+      onConnectionEvent: event => console.error(JSON.stringify(event)),
       ...sessionTimeouts(f),
       owner: key,
       relay: workerRelay,
@@ -390,7 +371,8 @@ export async function networkCommand(command: string, args: string[], applicatio
     });
     if (f.has('--preview')) {
       console.log(JSON.stringify(publicProfileSummary(worker.agentCard, acceptance.maxTasksPerRequesterPerMinute,
-        optionalCount(f, 'max-tasks-per-day'), automatic), null, 2));
+        optionalCount(f, 'max-tasks-per-day'), automatic, { maxInputTokens: acceptance.maxInputTokens,
+          maxOutputTokens: acceptance.maxOutputTokens, maxToolInvocations: acceptance.maxToolInvocations, maxWallClockSeconds: acceptance.maxWallClockSeconds }), null, 2));
       return;
     }
     if (f.has('--wake-channel')) await workerRelay.registerWake(key.did, text(f, 'wake-channel'));
@@ -437,6 +419,9 @@ export async function networkCommand(command: string, args: string[], applicatio
       ...authRecovery,
       ...sessionTimeouts(f),
       owner: key,
+      identityOptions: application.identityOptions ?? {},
+      protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
+      connectionReview: connectionHumanReview(),
       pendingStore: new RequesterPendingStore(key, application.identityOptions),
       pendingRelayUrl: relay,
       relay: application.transportFactory?.(relay, key) ?? new HttpRelayClient(relay as string, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,

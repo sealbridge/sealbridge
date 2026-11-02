@@ -25,7 +25,7 @@ function echoWorker(
   tag: string,
   delayMs = 0,
 ) {
-  return new WorkerNode({
+  return new WorkerNode({ checkPeer: () => 'trusted',
     owner: ownerDidKey,
     relay,
     adapter: {
@@ -71,7 +71,7 @@ describe('progress streaming and multi-worker delegation', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -113,7 +113,7 @@ describe('progress streaming and multi-worker delegation', () => {
     expect(result.deliverable).toEqual({ ok: true });
     expect(result.bundle.entries.some((entry) => entry.body.eventType === 'PROGRESS')).toBe(true);
 
-    const limited = new WorkerNode({
+    const limited = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -250,6 +250,8 @@ describe('Sealbridge MCP server', () => {
       'acp_verify_audit_bundle',
       'acp_create_invite',
       'acp_revoke_token',
+      'acp_list_connections',
+      'acp_list_connection_requests',
       'acp_discover_workers',
       'acp_inspect_revocations',
       'acp_list_pending_requests',
@@ -258,7 +260,7 @@ describe('Sealbridge MCP server', () => {
       'acp_remove_invite',
     ]);
     expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual([
-      'accessMode', 'skillId', 'taskType', 'relayUrl',
+      'skillId', 'taskType', 'relayUrl',
     ]);
     for (const tool of tools) expect(tool.inputSchema.properties).not.toHaveProperty('relays');
     const created = await server.handle({

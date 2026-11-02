@@ -41,7 +41,7 @@ function workerFor(
   adapter: AgentAdapter,
   options: WorkerAcceptancePolicy = {},
 ) {
-  return new WorkerNode({
+  return new WorkerNode({ checkPeer: () => 'trusted',
     owner,
     relay,
     adapter,
@@ -375,7 +375,7 @@ describe('acp worker CLI acceptance guard', () => {
     },
   );
 
-  it('accepts repeated and comma-separated --allow-requester values', async () => {
+  it('parses repeated and comma-separated --allow-requester values without granting execution', async () => {
     const server = await relay();
     const bob = await keyFile('bob.private.json');
     const alice = await keyFile('alice.private.json');
@@ -392,6 +392,8 @@ describe('acp worker CLI acceptance guard', () => {
       'start',
       '--key',
       bob.path,
+      '--contacts',
+      join(bob.dir, 'contacts.json'),
       '--relay',
       server.url,
       '--allow-private-relay',
@@ -434,27 +436,26 @@ describe('acp worker CLI acceptance guard', () => {
         join(eve.dir, 'eve.jsonl'),
       ]),
     ).rejects.toThrow(/not allowed/);
-    const settled = await networkCommand('delegate', [
+    // The allowlist admits proposals to review; it supplies no inspection or owner opening.
+    for (const requester of [alice, carol]) await expect(networkCommand('delegate', [
       '--key',
-      carol.path,
+      requester.path,
       '--to',
       invite,
       '--allow-private-relay',
       '--title',
-      'Allowed',
+      'Review',
       '--description',
-      'Second allow-requester DID',
+      'Repeated allow-requester DID',
       '--input',
       '{"ok":true}',
       '--auto-approve',
       '--audit',
-      join(carol.dir, 'carol.jsonl'),
-      '--out',
-      join(carol.dir, 'out.json'),
-    ]);
-    expect(settled).toBeUndefined();
+      join(requester.dir, 'review.jsonl'),
+    ])).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
     const commaBob = await keyFile('comma-bob.private.json');
     const commaAlice = await keyFile('comma-alice.private.json');
+    const commaCarol = await keyFile('comma-carol.private.json');
     const commaLines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line) => {
       commaLines.push(String(line));
@@ -463,6 +464,8 @@ describe('acp worker CLI acceptance guard', () => {
       'start',
       '--key',
       commaBob.path,
+      '--contacts',
+      join(commaBob.dir, 'contacts.json'),
       '--relay',
       server.url,
       '--allow-private-relay',
@@ -470,21 +473,22 @@ describe('acp worker CLI acceptance guard', () => {
       'sandbox',
       '--auto-accept',
       '--allow-requester',
-      'did:key:not-used,' + commaAlice.key.did,
-      '--once',
+      commaAlice.key.did + ',' + commaCarol.key.did,
       '--audit',
       join(commaBob.dir, 'worker.jsonl'),
     ]);
+    void comma.catch(() => undefined);
     cleanup.push(async () => {
+      await server.close().catch(() => undefined);
       await comma.catch(() => undefined);
     });
     await vi.waitFor(() => {
       if (!commaLines.some((line) => line.startsWith('acp-invite:'))) throw new Error('waiting');
     });
     const commaInvite = commaLines.find((line) => line.startsWith('acp-invite:'))!;
-    await networkCommand('delegate', [
+    for (const requester of [commaAlice, commaCarol]) await expect(networkCommand('delegate', [
       '--key',
-      commaAlice.path,
+      requester.path,
       '--to',
       commaInvite,
       '--allow-private-relay',
@@ -496,11 +500,9 @@ describe('acp worker CLI acceptance guard', () => {
       '{"ok":true}',
       '--auto-approve',
       '--audit',
-      join(commaAlice.dir, 'alice.jsonl'),
-      '--out',
-      join(commaAlice.dir, 'out.json'),
-    ]);
-    await comma;
+      join(requester.dir, 'review.jsonl'),
+    ])).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
+    expect(workerError).toBeUndefined();
   });
 
   it('registers only when --publish is set', async () => {

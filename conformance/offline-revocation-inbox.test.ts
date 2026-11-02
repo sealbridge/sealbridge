@@ -35,7 +35,7 @@ function echoWorker(
   events: string[],
   revocation?: RevocationList,
 ) {
-  return new WorkerNode({
+  return new WorkerNode({ checkPeer: () => 'trusted',
     owner,
     relay,
     adapter: {

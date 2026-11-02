@@ -65,16 +65,8 @@
             "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$(?![\\s\\S])"
           }
         },
-        "accessMode": { "enum": ["invite-only", "open"] },
-        "openPolicy": {
-          "type": "object", "additionalProperties": false,
-          "properties": {
-            "maxInputTokens": { "type": "integer", "minimum": 1 },
-            "maxOutputTokens": { "type": "integer", "minimum": 1 },
-            "maxToolInvocations": { "type": "integer", "minimum": 1 },
-            "maxWallClockSeconds": { "type": "integer", "minimum": 1 }
-          }
-        },
+        "accessMode": { "description": "Historical signed field, ignored by live admission." },
+        "openPolicy": { "description": "Historical signed field, ignored by live admission." },
         "expiresAt": { "type": "string", "format": "date-time" },
         "agentDelegation": { "$ref": "#/$defs/signature" }
       }
