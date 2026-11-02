@@ -347,6 +347,14 @@ are deferred. CLI exit 3 and `retryable:false` remain unchanged.
 として記録し、保存期限は延長せず、期限切れは次の保存更新時に削除します。一覧・エラーに招待情報・保存済み本文は含めません。
 遠隔の承認状態の取得・通知は今後の検討事項で、自動再送はしません。
 
+### Connection state persistence / つながりの状態と永続化
+
+Preparatory connection APIs persist owner-local consent and lifecycle decisions; connected means indefinite limited.
+See [connection state persistence](docs/connections/connection-state.md) for caller requirements and v1/v2 compatibility.
+
+準備段階のつながりAPIは所有者のローカルな同意・状態を保存し、connected は期限なしの limited に対応します。
+呼び出し側の要件とv1/v2の互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
+
 ## Requester flow / 発注側
 
 1. Omit `--key` to create/reuse the persistent requester identity. It is

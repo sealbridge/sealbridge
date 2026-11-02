@@ -24,5 +24,6 @@ export * from './secret-store.js';
 export * from './relay-selection.js';
 export * from './invite-store.js';
 export * from './worker-trust-store.js';
+export * from './connection-records.js';
 export * from './application-config.js';
 export * from './requester-pending-store.js';
