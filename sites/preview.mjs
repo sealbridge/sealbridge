@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -26,7 +28,10 @@ for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
       let file = path.resolve(root, '.' + pathname);
       if (!file.startsWith(root + path.sep) && file !== root) throw new Error('OUTSIDE_ROOT');
       if (pathname.endsWith('/') || !path.extname(file)) file = path.join(file, 'index.html');
-      const body = await readFile(file);
+      // HEAD and range validation need metadata only; stream GET bodies without buffering the whole file.
+      const info = await stat(file);
+      if (!info.isFile()) throw new Error('NOT_A_FILE');
+      const size = info.size;
       const headers = { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
         'Accept-Ranges': 'bytes', ...policyFor(pathname) };
       // Single byte ranges cover browser media playback and seeking, including suffix ranges.
@@ -34,25 +39,32 @@ for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
       if (range) {
         const match = /^bytes=(\d*)-(\d*)$/.exec(range);
         let start = Number(match?.[1] || 0);
-        let end = match?.[2] ? Number(match[2]) : body.length - 1;
+        let end = match?.[2] ? Number(match[2]) : size - 1;
         if (match && !match[1] && match[2]) {
-          start = Math.max(0, body.length - Number(match[2]));
-          end = body.length - 1;
+          start = Math.max(0, size - Number(match[2]));
+          end = size - 1;
         }
         if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end)
-          || start >= body.length || start > end) {
-          res.writeHead(416, { ...headers, 'Content-Range': `bytes */${body.length}`, 'Content-Length': 0 });
+          || start >= size || start > end) {
+          res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}`, 'Content-Length': 0 });
           res.end();
           return;
         }
-        end = Math.min(end, body.length - 1);
-        res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${body.length}`, 'Content-Length': end - start + 1 });
-        res.end(req.method === 'HEAD' ? undefined : body.subarray(start, end + 1));
+        end = Math.min(end, size - 1);
+        res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+        if (req.method === 'HEAD') res.end();
+        else await pipeline(createReadStream(file, { start, end }), res);
         return;
       }
-      res.writeHead(200, { ...headers, 'Content-Length': body.length });
-      res.end(req.method === 'HEAD' ? undefined : body);
+      res.writeHead(200, { ...headers, 'Content-Length': size });
+      if (req.method === 'HEAD') res.end();
+      else await pipeline(createReadStream(file), res);
     } catch {
+      // A disconnected client or a failed stream has already started the response.
+      if (res.headersSent || res.destroyed) {
+        res.destroy();
+        return;
+      }
       res.writeHead(404, { ...policyFor(''), 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not found');
     }

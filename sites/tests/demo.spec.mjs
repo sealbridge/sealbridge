@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 const site = 'http://127.0.0.1:4173';
@@ -65,28 +66,38 @@ for (const lang of ['en', 'ja']) {
 
 test('demo assets preserve docs/media bytes in the build and preview serves MIME types and byte ranges', async ({ request }) => {
   for (const [file, type] of assets) {
-    const original = await readFile(new URL(`../../docs/media/${file}`, import.meta.url));
-    const built = await readFile(new URL(`../dist/site/media/${file}`, import.meta.url));
-    expect(built).toEqual(original);
-    const response = await request.get(`${site}/media/${file}`);
-    expect(response.status()).toBe(200);
-    expect(response.headers()['content-type']).toBe(type);
-    expect(await response.body()).toEqual(original);
+    const [original, built] = await Promise.all([
+      readFile(new URL(`../../docs/media/${file}`, import.meta.url)),
+      readFile(new URL(`../dist/site/media/${file}`, import.meta.url)),
+    ]);
+    // Compare whole assets on disk without costly per-byte assertion traversal or HTTP downloads.
+    const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+    expect(built.length, `${file} build size`).toBe(original.length);
+    expect(sha256(built), `${file} build SHA-256`).toBe(sha256(original));
     const head = await request.head(`${site}/media/${file}`);
+    expect(head.status()).toBe(200);
+    expect(head.headers()['content-type']).toBe(type);
+    expect(head.headers()['accept-ranges']).toBe('bytes');
     expect(head.headers()['content-length']).toBe(String(original.length));
     expect(await head.body()).toHaveLength(0);
     for (const [range, start, end] of [['bytes=0-127', 0, 127], ['bytes=-64', original.length - 64, original.length - 1],
-      [`bytes=${original.length - 32}-`, original.length - 32, original.length - 1]]) {
+      [`bytes=${original.length - 32}-`, original.length - 32, original.length - 1],
+      [`bytes=${original.length - 16}-${original.length + 128}`, original.length - 16, original.length - 1]]) {
       const partial = await request.get(`${site}/media/${file}`, { headers: { Range: range } });
       expect(partial.status()).toBe(206);
       expect(partial.headers()['content-type']).toBe(type);
+      expect(partial.headers()['accept-ranges']).toBe('bytes');
+      expect(partial.headers()['content-length']).toBe(String(end - start + 1));
       expect(partial.headers()['content-range']).toBe(`bytes ${start}-${end}/${original.length}`);
       expect(await partial.body()).toEqual(original.subarray(start, end + 1));
     }
     for (const range of [`bytes=${original.length}-`, 'bytes=20-10', 'bytes=-0']) {
       const invalid = await request.get(`${site}/media/${file}`, { headers: { Range: range } });
       expect(invalid.status()).toBe(416);
+      expect(invalid.headers()['accept-ranges']).toBe('bytes');
       expect(invalid.headers()['content-range']).toBe(`bytes */${original.length}`);
+      expect(invalid.headers()['content-length']).toBe('0');
+      expect(await invalid.body()).toHaveLength(0);
     }
   }
 });
