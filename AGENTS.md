@@ -45,6 +45,14 @@ import/open discovery require releases exposing those commands and tools.
 変更せず停止します。`--update-existing --dry-run` で確認し、`--update-existing` で
 バックアップ付きでその登録だけを置換します。設定後はホストを再読込してください。
 
+## Manifest protocol versions / マニフェストのプロトコル版
+
+Library APIs validate manifests 0.1.0/0.2.0 and track peer versions; default sending remains 0.1.0.
+See [protocol versions](docs/connections/protocol-versions.md) for explicit policy and storage behavior.
+
+ライブラリはマニフェスト0.1.0/0.2.0の検証と相手の版の記録を提供し、既定の送信は0.1.0を維持します。
+明示的な方針と保存動作は[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
+
 ## Role determination / 役割の判断
 
 | Owner request / オーナーの指示 | Action / 選ぶ役割 |

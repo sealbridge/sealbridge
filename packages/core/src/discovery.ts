@@ -47,6 +47,14 @@ export const OPEN_POLICY_FIELDS = [
   'maxInputTokens', 'maxOutputTokens', 'maxToolInvocations', 'maxWallClockSeconds',
 ] as const;
 
+/** Bounded version identifiers retain future advertisements without interpreting them. */
+function validProtocolVersions(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.length > 0 && value.length <= 16 &&
+    value.every(version => typeof version === 'string' && version.length <= 64 &&
+      /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$(?![\s\S])/.test(version)) &&
+    new Set(value).size === value.length);
+}
+
 function validOpenPolicy(value: unknown): boolean {
   if (value === undefined) return true;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -57,6 +65,8 @@ function validOpenPolicy(value: unknown): boolean {
 
 export interface DiscoveryAgentCard {
   type: 'AgentCard';
+  /** Accepted manifest versions; omission denotes a legacy 0.1.0 peer. */
+  protocolVersions?: string[];
   accessMode?: 'invite-only' | 'open';
   openPolicy?: OpenPolicy;
   name: string;
@@ -349,6 +359,7 @@ export function createSignedAgentCard(
       costModes: options.costModes ?? (['worker_byok'] as BudgetSpec['costBearer'][]),
       name: options.name,
       skills: options.skills,
+      ...(options.protocolVersions !== undefined ? { protocolVersions: [...options.protocolVersions] } : {}),
       ...(options.accessMode ? { accessMode: options.accessMode } : {}),
       ...(options.openPolicy !== undefined ? { openPolicy: { ...options.openPolicy } } : {}),
       ...delegationFields,
@@ -400,6 +411,7 @@ export function verifySignedAgentCard(card: SignedAgentCard, now = Date.now()): 
     return (
       verifySigned(card, p.ownerDid) &&
       p.type === 'AgentCard' &&
+      validProtocolVersions(p.protocolVersions) &&
       (p.accessMode === undefined || p.accessMode === 'invite-only' || p.accessMode === 'open') &&
       validOpenPolicy(p.openPolicy) &&
       typeof p.name === 'string' &&

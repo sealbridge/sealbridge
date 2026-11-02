@@ -1,0 +1,173 @@
+{
+  "protocolVersion": "0.1.0",
+  "taskId": "task_01J8Z9M0Q4X8K2R7V5N3P1W9",
+  "createdAt": "2026-10-25T12:00:00Z",
+  "deadline": "2026-10-25T18:00:00Z",
+  "requester": {
+    "ownerDid": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+    "agentDid": "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH",
+    "displayName": "Alice Planner Agent",
+    "relayEndpoint": "wss://relay.example.org/v1"
+  },
+  "worker": {
+    "ownerDid": "did:key:z6MkjchhfUsD6mmvni8mCdXHw216Xrm9bQe2mBH1P5RDjVJG",
+    "agentDid": "did:key:z6MknGc3ocHs3zdPiJbnaaqDi58NGb4pk1Sp9WxWufuXSdxf",
+    "displayName": "Bob Security Auditor Agent",
+    "relayEndpoint": "wss://relay.example.org/v1"
+  },
+  "task": {
+    "title": "Summarize and extract structured CVE findings from architecture docs",
+    "description": "Read the provided markdown documents via the scoped MCP capability and output a structured JSON security summary matching outputSchema.",
+    "acceptanceCriteria": [
+      {
+        "id": "ac_schema_valid",
+        "description": "Output JSON strictly conforms to io.outputSchema.",
+        "required": true
+      },
+      {
+        "id": "ac_citations_present",
+        "description": "Every finding includes a source document SHA-256 digest and line range.",
+        "required": true
+      }
+    ]
+  },
+  "io": {
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "docUris"
+      ],
+      "properties": {
+        "docUris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "summary",
+        "findings"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "severity",
+              "sourceDigest"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "LOW",
+                  "MEDIUM",
+                  "HIGH",
+                  "CRITICAL"
+                ]
+              },
+              "sourceDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "inputArtifacts": [
+      {
+        "name": "docs/spec-draft.md",
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "mediaType": "text/markdown",
+        "sizeBytes": 4096
+      }
+    ]
+  },
+  "verification": {
+    "mode": "hybrid",
+    "requireUsageReceipt": true,
+    "requireExecutionAttestation": true,
+    "maxRetries": 2,
+    "checks": [
+      {
+        "checkId": "chk_schema",
+        "kind": "json_schema",
+        "target": "artifact://report.json",
+        "expectedExitCode": 0
+      },
+      {
+        "checkId": "chk_owner_review",
+        "kind": "human_review",
+        "target": "GATE_DELIVERY_ACCEPT"
+      }
+    ]
+  },
+  "budget": {
+    "costBearer": "worker_byok",
+    "maxInputTokens": 50000,
+    "maxOutputTokens": 10000,
+    "maxToolInvocations": 10,
+    "maxWallClockSeconds": 600,
+    "onOverrun": "request_hitl_amendment"
+  },
+  "permissions": {
+    "maxDelegationDepth": 0,
+    "grantedCapabilities": [
+      {
+        "capabilityId": "cap_read_docs_01",
+        "resource": "mcp://alice-gateway/docs/spec-draft.md",
+        "allowedTools": [
+          "resources/read"
+        ],
+        "argConstraints": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "const": "mcp://alice-gateway/docs/spec-draft.md"
+            }
+          }
+        },
+        "maxInvocations": 5,
+        "expiresAt": "2026-10-25T18:00:00Z"
+      }
+    ]
+  },
+  "sandboxPolicy": {
+    "isolationLevel": "oci_container",
+    "networkAccess": "none",
+    "filesystemScope": "ephemeral_workspace_only"
+  },
+  "hitlPolicy": {
+    "requiredGates": [
+      "GATE_CONTRACT_ACCEPT",
+      "GATE_EXTERNAL_SIDE_EFFECT",
+      "GATE_BUDGET_OVERRUN",
+      "GATE_DELIVERY_ACCEPT"
+    ]
+  },
+  "signatures": {
+    "requesterSignature": {
+      "signerDid": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+      "canonicalization": "RFC8785-JCS",
+      "payloadDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "signedAt": "2026-10-25T12:00:05Z",
+      "signature": "ed25519:dGhpcyBpcyBhIHNhbXBsZSBzY2hlbWEtdmFsaWRhdGVkIGVkMjU1MTkgc2lnbmF0dXJlIGJsb2NrIGZvciBkcmFmdCB2MC4x"
+    }
+  }
+}

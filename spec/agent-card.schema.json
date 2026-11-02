@@ -45,7 +45,8 @@
               "name": { "type": "string" },
               "description": { "type": "string" },
               "inputSchema": {},
-              "outputSchema": {}
+              "outputSchema": {},
+              "taskTypes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
             }
           }
         },
@@ -57,6 +58,23 @@
           }
         },
         "version": { "type": "string", "minLength": 1 },
+        "protocolVersions": {
+          "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": {
+            "type": "string", "maxLength": 64,
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$(?![\\s\\S])"
+          }
+        },
+        "accessMode": { "enum": ["invite-only", "open"] },
+        "openPolicy": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "maxInputTokens": { "type": "integer", "minimum": 1 },
+            "maxOutputTokens": { "type": "integer", "minimum": 1 },
+            "maxToolInvocations": { "type": "integer", "minimum": 1 },
+            "maxWallClockSeconds": { "type": "integer", "minimum": 1 }
+          }
+        },
         "expiresAt": { "type": "string", "format": "date-time" },
         "agentDelegation": { "$ref": "#/$defs/signature" }
       }

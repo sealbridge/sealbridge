@@ -614,6 +614,12 @@ A fully automated **separate-process command-adapter demo** is also available:
 node examples/network-collab/run.mjs
 ```
 
+## Manifest protocol versions
+
+Library APIs validate manifest protocols 0.1.0 and 0.2.0 and provide explicit compatibility policy.
+Default sending remains 0.1.0; live policy integration is deferred.
+See [protocol versions](docs/connections/protocol-versions.md) for schemas, policy and peer observations.
+
 ## Five design principles
 
 1. **Zero shared credentials.** The requester never hands the worker an API key or raw credential. Needed authority is a time-, count-, scope-, and depth-limited `CapabilityToken` (UCAN/Biscuit style). The requester Gateway verifies it by proxy.

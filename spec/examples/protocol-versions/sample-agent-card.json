@@ -1,0 +1,35 @@
+{
+  "payload": {
+    "type": "AgentCard",
+    "version": "0.2.0",
+    "description": "Manifest receive capabilities",
+    "costModes": [
+      "worker_byok"
+    ],
+    "name": "Example Worker",
+    "skills": [
+      {
+        "id": "json-task",
+        "name": "JSON task",
+        "taskTypes": [
+          "transform"
+        ]
+      }
+    ],
+    "ownerDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",
+    "agentDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",
+    "relayEndpoint": "https://relay.example",
+    "expiresAt": "2030-01-02T00:00:00.000Z",
+    "protocolVersions": [
+      "0.2.0",
+      "0.1.0"
+    ]
+  },
+  "signature": {
+    "signerDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",
+    "canonicalization": "RFC8785-JCS",
+    "payloadDigest": "sha256:6390003b4dc25f60cc5888e5d9d5dcdd81eb8a4df253250c515ac3c1ef33151c",
+    "signedAt": "2030-01-01T00:00:00.000Z",
+    "signature": "ed25519:sJcsZpb4MUNg8LDyvj6_3OhB_iIdxFwvoUT6THP3LJxH6Vuv6nR0vv__rjkIAZgbCDm1bLt3B1V78Pt86Oq-Aw"
+  }
+}

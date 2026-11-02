@@ -10,6 +10,16 @@ for (const dir of ['spec', 'examples/two-owner-demo']) {
   if (dir === 'spec') await cp(dir, `dist/${dir}`, { recursive: true });
   else for (const name of ['alice-policy.json', 'bob-policy.json']) await cp(`${dir}/${name}`, `dist/${dir}/${name}`);
 }
+// Check the copied registry through its packaged module and relative spec path.
+const { schemaRegistry, SCHEMA_NAMES, validateManifest, validateSchema } = await import('../dist/packages/core/dist/schema.js');
+for (const name of SCHEMA_NAMES) {
+  if (!schemaRegistry().getSchema(name)) throw new Error(`Missing packaged schema: ${name}`);
+}
+for (const version of ['0.1.0', '0.2.0']) {
+  const manifest = JSON.parse(await readFile(`dist/spec/examples/sample-task-manifest.${version}.json`, 'utf8'));
+  validateManifest(manifest);
+  validateSchema('task-manifest', manifest);
+}
 async function rewrite(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);

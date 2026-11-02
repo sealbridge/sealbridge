@@ -1,5 +1,6 @@
 export * from './policy.js';
 export * from './quota.js';
+export * from './protocol-peer-store.js';
 export * from './mcp.js';
 export * from './mcp-server.js';
 export * from './verifier.js';
