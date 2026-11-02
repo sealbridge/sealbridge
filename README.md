@@ -695,6 +695,12 @@ The built CLI is also available as `node cli/dist/index.js <command>` and its wo
 
 Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spec/README.md), [conformance suite](conformance/README.md), [M1 security model](docs/security-model.md), and the [adversarial security test suite](SECURITY_PROOF.md). M1 uses signed relay envelopes and the restricted JavaScript subprocess driver. M2/M3 adds optional hardened OCI execution and end-to-end payload encryption. The root code is Apache-2.0; adapted DelegateOS portions retain MIT attribution in [NOTICE](NOTICE).
 
+## Held-content library
+
+`@acp/runtime` provides encrypted request storage and an injected inspection provider.
+Content display requires a completed inspection receipt; the default provider leaves content held.
+See the [held-content library contract](docs/connections/held-content.md) for APIs and host responsibilities.
+
 ## Author & Community
 
 - **Author**: [@takapon01234](https://x.com/takapon01234) on X (Twitter)
