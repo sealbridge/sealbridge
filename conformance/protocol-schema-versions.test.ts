@@ -23,9 +23,9 @@ it.each(['0.1.0', '0.2.0'])('validates and contracts a %s manifest through both 
   vi.setSystemTime(instant + 181 * 86_400_000);
   expect(() => validateManifest(manifest)).not.toThrow();
 });
-it('preserves the 0.1.0 schema ID and default sends while selecting explicit versions', () => {
+it('preserves the 0.1.0 schema ID while defaulting new manifests to 0.2.0', () => {
   const key = generateKeyPair();
-  expect(buildTaskManifest({ ownerDid: key.did, workerDid: key.did, title: 'Default', description: 'Default' }).protocolVersion).toBe('0.1.0');
+  expect(buildTaskManifest({ ownerDid: key.did, workerDid: key.did, title: 'Default', description: 'Default' }).protocolVersion).toBe('0.2.0');
   expect(loadSchema('task-manifest.0.1.0').$id).toBe('https://acp-spec.local/schemas/v0.1/task-manifest.schema.json');
   expect(schemaRegistry().getSchema('https://acp-spec.local/schemas/v0.1/task-manifest.schema.json')).toBe(schemaRegistry().getSchema('task-manifest.0.1.0'));
   for (const value of [{ protocolVersion: '0.3.0' }, { protocolVersion: null }, { protocolVersion: 2 }])
@@ -40,8 +40,8 @@ it.each(['../task-manifest', 'task-manifest/0.2.0', 'task-manifest.0.3.0', 'unkn
 it('covers signed receive capabilities and task types in the published card schema', () => {
   const owner = generateKeyPair(), agent = generateKeyPair();
   const options = { agentDid: agent.did, agentKey: agent, name: 'Worker', relayEndpoint: 'https://relay.example',
-    skills: [{ id: 'json', name: 'JSON', taskTypes: ['transform'] }], accessMode: 'open' as const,
-    openPolicy: { maxInputTokens: 10 }, protocolVersions: ['0.2.0', '0.1.0', '3.0.0-preview.1'] };
+    skills: [{ id: 'json', name: 'JSON', taskTypes: ['transform'] }],
+    protocolVersions: ['0.2.0', '0.1.0', '3.0.0-preview.1'] };
   const card = createSignedAgentCard(options, owner);
   expect(verifySignedAgentCard(card, instant)).toBe(true);
   expect(() => validateSchema('agent-card', card)).not.toThrow();

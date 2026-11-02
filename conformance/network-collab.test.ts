@@ -60,6 +60,7 @@ import {
   OCI_CONTAINER_BOUNDARY,
 } from '../packages/sandbox/src/index.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import { addContact, updateContacts } from '../cli/src/contacts.js';
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
@@ -111,7 +112,7 @@ async function session(
     bob = generateKeyPair(),
     { client } = await network(),
     dir = await directory();
-  const worker = new WorkerNode({
+  const worker = new WorkerNode({ checkPeer: () => 'trusted',
     owner: bob,
     relay: client,
     adapter,
@@ -305,7 +306,7 @@ describe('WP-7/10/11 real adapter sessions across owner boundaries', () => {
     const alice = generateKeyPair(),
       bob = generateKeyPair(),
       relay = new InMemoryRelay();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: new SandboxAgentAdapter(),
@@ -672,6 +673,12 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     bob = generateKeyPair();
   await writeFile(join(dir, 'alice.private.json'), JSON.stringify(alice), { mode: 0o600 });
   await writeFile(join(dir, 'bob.private.json'), JSON.stringify(bob), { mode: 0o600 });
+  // This session covers CLI transport and settlement under explicit contact permission.
+  const contacts = join(dir, 'contacts.json');
+  const aliceCard = createSignedAgentCard({ name: 'Requester', agentDid: alice.did,
+    relayEndpoint: n.url, skills: [] }, alice);
+  addContact(contacts, bob, createInviteToken({ agentCard: aliceCard }, alice), undefined, true);
+  updateContacts(contacts, bob, items => { items[0].allow = true; });
   if (!n.wsUrl) {
     // Exercise command parsing/discovery using an in-process fetch bridge below.
     const { networkCommand } = await import('../cli/src/network.js');
@@ -691,6 +698,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       await Promise.all([
         networkCommand('worker', [
           'start',
+          '--contacts',
+          contacts,
           '--key',
           join(dir, 'bob.private.json'),
           '--relay',
@@ -745,6 +754,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       [
         'worker',
         'start',
+        '--contacts',
+        contacts,
         '--key',
         join(dir, 'bob.private.json'),
         '--relay',
@@ -764,6 +775,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
         },
       },
     );
+    // Observe early worker failures even if delegation throws before awaiting settlement.
+    void worker.done.catch(() => undefined);
     cleanup.push(async () => {
       worker.child.kill('SIGKILL');
       await worker.done.catch(() => {});
@@ -812,10 +825,11 @@ it('completes a full session using persistent SSE transport', async () => {
     () => aTransport.close(),
     () => bTransport.close(),
   );
-  const worker = new WorkerNode({
+  const worker = new WorkerNode({ checkPeer: () => 'trusted',
     owner: bob,
     relay: bTransport,
     relayUrl: n.url,
+    allowPrivateRelay: true,
     adapter: new SandboxAgentAdapter(),
     approvalProvider: auto(bob),
   });

@@ -55,6 +55,8 @@ const EXPECTED_HINTS: Record<
     idempotentHint: false,
     openWorldHint: false,
   },
+  acp_list_connections: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  acp_list_connection_requests: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   acp_discover_workers: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -236,12 +238,12 @@ describe('MCP tool definition quality', () => {
     );
     const discovery = tools.find((tool) => tool.name === 'acp_discover_workers');
     const selectors = discovery?.inputSchema?.properties as Record<string, Record<string, unknown>>;
-    expect(selectors.accessMode).toMatchObject({ enum: ['open', 'invite-only', 'all'], default: 'open' });
+    expect(selectors).not.toHaveProperty('accessMode');
     expect(selectors.skillId).toMatchObject({ type: 'string', minLength: 1 });
     expect(selectors.taskType).toMatchObject({ type: 'string', minLength: 1 });
     expect(selectors.relayUrl).toMatchObject({ type: 'string' });
     assertSchema(discovery?.inputSchema, {}, 'default discovery');
-    assertSchema(discovery?.inputSchema, { accessMode: 'all', skillId: 'echo', taskType: 'json' }, 'filtered discovery');
+    assertSchema(discovery?.inputSchema, { skillId: 'echo', taskType: 'json' }, 'filtered discovery');
     expect(discovery?.description).toContain('workerDid and relayUrl unchanged');
     expect(task?.description).toContain('bare DIDs match exactly');
     expect(task?.description).toContain('post-transmission failures do not undo tasks');
@@ -273,8 +275,7 @@ describe('MCP tool definition quality', () => {
       createSignedAgentCard(
         {
           name: 'Listed Worker',
-          accessMode: 'open',
-          openPolicy: { maxInputTokens: 1000 },
+
           agentDid: worker.did,
           relayEndpoint: 'https://acp-relay.agent-collab.workers.dev',
           skills: [{ id: 'json-task', name: 'JSON task', description: 'Echo JSON', taskTypes: ['json'],
@@ -394,7 +395,7 @@ describe('MCP tool definition quality', () => {
     const relay = new InMemoryRelay();
     const server = new AcpMcpServer({ owner, relay });
     const node = (key: ReturnType<typeof generateKeyPair>, tag: string) =>
-      new WorkerNode({
+      new WorkerNode({ checkPeer: () => 'trusted',
         owner: key,
         relay,
         adapter: {

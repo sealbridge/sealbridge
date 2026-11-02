@@ -46,11 +46,11 @@ describe('UX-1 contacts', () => {
     addContact(path, key, token);
     expect(() => loadContacts(path, generateKeyPair().did)).toThrow('CONTACTS_INVALID');
   });
-  it('persists allow across restarts and propagates revoke to an existing provider, even with allow-any', async () => {
+  it('persists explicit contact permission across restarts and propagates revoke to an existing provider', async () => {
     const { key, peer, path, token } = contactFixture();
     addContact(path, key, token);
     const interactive = { approve: vi.fn() };
-    const provider = contactsApproval(path, key, true, { allowAnyRequester: true }, interactive);
+    const provider = contactsApproval(path, key, true, {}, interactive);
     const request = { taskId: 'task_ux1', gate: 'contract_acceptance' as const, target: {}, details: { manifest: { requester: { ownerDid: peer.did } }, from: peer.did } };
     await expect(provider.approve(request)).rejects.toThrow('CONTACT_NOT_ALLOWED');
     updateContacts(path, key, contacts => { contacts[0].allow = true; });

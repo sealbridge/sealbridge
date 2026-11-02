@@ -46,8 +46,9 @@ async function call(server: AcpMcpServer, name: string, args: Record<string, unk
     value: response.result ? JSON.parse(response.result.content[0].text) : undefined };
 }
 function card(mode?: 'open' | 'invite-only', owner = generateKeyPair(), endpoint = DEFAULT_PUBLIC_RELAY) {
-  return createSignedAgentCard({ name: 'Echo', agentDid: owner.did, relayEndpoint: endpoint,
-    skills: [SKILL], accessMode: mode, ...(mode === 'open' ? { openPolicy: POLICY } : {}) }, owner);
+  const current = createSignedAgentCard({ name: 'Echo', agentDid: owner.did, relayEndpoint: endpoint,
+    skills: [SKILL] }, owner);
+  return mode ? signPayload({ ...current.payload, accessMode: mode, ...(mode === 'open' ? { openPolicy: POLICY } : {}) }, owner) : current;
 }
 function harness() {
   const identityOptions = { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } };
@@ -76,7 +77,7 @@ function directory(raw: unknown, options: Partial<AcpMcpServerOptions> = {}) {
   });
 }
 
-describe('default MCP open discovery', () => {
+describe('default MCP connection discovery', () => {
   it('discovers over GET /agents, holds unknown peers, and settles a fresh owner-approved delegation', async () => {
     const h = harness();
     const owner = resolveOrCreateIdentity('worker', h.options.identityOptions);
@@ -91,7 +92,7 @@ describe('default MCP open discovery', () => {
     const workerApproval = approving(() => owner);
     const worker = new WorkerNode({ owner, agentDid: agent.did, agentKey: agent,
       relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
-      accessMode: 'open', openPolicy: POLICY, publishToRegistry: true, allowedRequesterDids: [],
+      publishToRegistry: true, allowedRequesterDids: [],
       intakeStore: store, approvalProvider: workerApproval,
       adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } });
     await h.server.handle({ jsonrpc: '2.0', id: 1, method: 'initialize' });
@@ -103,7 +104,7 @@ describe('default MCP open discovery', () => {
     expect(discovered.value).toMatchObject({ count: 1, relayUrl: DEFAULT_PUBLIC_RELAY });
     const selected = discovered.value.workers[0];
     expect(selected).toMatchObject({ workerDid: agent.did, ownerDid: owner.did,
-      relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: 'open', openPolicy: POLICY,
+      relayUrl: DEFAULT_PUBLIC_RELAY,
       acceptance: 'worker_decides', skills: [SKILL] });
     expect(verifySignedAgentCard(selected.signedAgentCard)).toBe(true);
     expect(existsSync(join(root, 'data', 'identities', 'requester.private.json'))).toBe(false);
@@ -112,7 +113,7 @@ describe('default MCP open discovery', () => {
     try {
       const args = {
         workerDid: selected.workerDid, relayUrl: selected.relayUrl,
-        title: 'Echo JSON', input: { hello: 'world' },
+        title: 'Echo JSON', input: { hello: 'world' }, budget: POLICY,
       };
       expect(await call(h.server, 'acp_delegate_task', args)).toMatchObject({ isError: true,
         value: { error: 'PENDING_OWNER_APPROVAL', retryable: false } });
@@ -122,7 +123,7 @@ describe('default MCP open discovery', () => {
       expect(store.list()).toHaveLength(1);
       const pending = store.list()[0];
       expect(pending).toMatchObject({ requesterOwnerDid: h.requester().did, state: 'pending' });
-      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
+      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(3);
       expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.eventType === 'PROPOSE')).toHaveLength(1);
       expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.senderDid === owner.did)
         .map(([envelope]) => envelope.payload.eventType)).toEqual(['ERROR']);
@@ -147,17 +148,17 @@ describe('default MCP open discovery', () => {
       ]));
       expect(h.requester().did).not.toBe(owner.did);
       expect(h.routes).toContain('POST /agents');
-      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(3);
+      expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(5);
       expect(h.transportFactory.mock.calls.every(([url]) => url === DEFAULT_PUBLIC_RELAY)).toBe(true);
     } finally { worker.stop(); await done.catch(() => undefined); }
   });
 
-  it('lists published open workers only; publication remains independent of access mode', async () => {
+  it('lists every published worker and excludes unpublished workers', async () => {
     const h = harness();
     const workers = [
-      { accessMode: 'open' as const, publishToRegistry: true },
-      { accessMode: 'open' as const, publishToRegistry: false },
-      { accessMode: 'invite-only' as const, publishToRegistry: true },
+      { publishToRegistry: true },
+      { publishToRegistry: false },
+      { publishToRegistry: true },
     ].map(options => {
       const owner = generateKeyPair();
       return new WorkerNode({ owner, ...options, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),
@@ -174,17 +175,17 @@ describe('default MCP open discovery', () => {
     try {
       await Promise.all(started.map(value => value.listening));
       const open = await call(h.server, 'acp_discover_workers');
-      expect(open.value.workers.map((w: { workerDid: string }) => w.workerDid)).toEqual([workers[0].agentCard.payload.agentDid]);
-      const all = await call(h.server, 'acp_discover_workers', { accessMode: 'all' });
+      expect(open.value.workers.map((w: { workerDid: string }) => w.workerDid).sort()).toEqual([workers[0].agentCard.payload.agentDid, workers[2].agentCard.payload.agentDid].sort());
+      const all = await call(h.server, 'acp_discover_workers');
       expect(all.value.count).toBe(2);
-      expect(all.value.workers.map((w: { accessMode: string }) => w.accessMode).sort()).toEqual(['invite-only', 'open']);
+      expect(all.value.workers.every((w: object) => !Object.hasOwn(w, 'accessMode') && !Object.hasOwn(w, 'openPolicy'))).toBe(true);
     } finally {
       workers.forEach(worker => worker.stop());
       await Promise.allSettled(started.map(value => value.done));
     }
   });
 
-  it('resolves newest cards before mode, skill, task type and endpoint filtering', async () => {
+  it('resolves newest cards before skill, task type and endpoint filtering', async () => {
     const owner = generateKeyPair();
     const olderOpen = card('open', owner);
     const expiringOwner = generateKeyPair();
@@ -202,16 +203,13 @@ describe('default MCP open discovery', () => {
     const tampered = { ...open, payload: { ...open.payload, name: 'Changed' } };
     const server = directory([olderOpen, newestPrivate, legacy, open, mismatch, normalized, expired, tampered, null, {}]);
     const result = await call(server, 'acp_discover_workers');
-    expect(result.value.count).toBe(2);
+    expect(result.value.count).toBe(4);
     expect(result.value.workers.map((w: { workerDid: string }) => w.workerDid).sort())
-      .toEqual([open.payload.agentDid, normalized.payload.agentDid].sort());
+      .toEqual([open.payload.agentDid, normalized.payload.agentDid, owner.did, legacy.payload.agentDid].sort());
     expect(result.value.workers.every((w: { relayUrl: string }) => w.relayUrl === DEFAULT_PUBLIC_RELAY)).toBe(true);
-    const all = await call(server, 'acp_discover_workers', { accessMode: 'all' });
-    expect(all.value.count).toBe(4);
-    const privateWorkers = await call(server, 'acp_discover_workers', { accessMode: 'invite-only' });
-    expect(privateWorkers.value.workers.map((w: { workerDid: string }) => w.workerDid).sort())
-      .toEqual([owner.did, legacy.payload.agentDid].sort());
-    expect((await call(server, 'acp_discover_workers', { skillId: 'echo', taskType: 'json' })).value.count).toBe(2);
+    for (const accessMode of ['all', 'open', 'invite-only'])
+      expect((await call(server, 'acp_discover_workers', { accessMode })).rpcError?.code).toBe(-32602);
+    expect((await call(server, 'acp_discover_workers', { skillId: 'echo', taskType: 'json' })).value.count).toBe(4);
     for (const args of [{ skillId: 'other' }, { taskType: 'text' }])
       expect((await call(server, 'acp_discover_workers', args)).value.count).toBe(0);
     vi.setSystemTime(new Date(NOW.getTime() + 2000));
@@ -227,14 +225,14 @@ describe('default MCP open discovery', () => {
   it('keeps ambiguous-owner errors and deterministic same-time selection', async () => {
     const owner = generateKeyPair(), other = generateKeyPair(), agent = generateKeyPair();
     const a = createSignedAgentCard({ name: 'A', agentDid: agent.did, relayEndpoint: DEFAULT_PUBLIC_RELAY,
-      accessMode: 'open', skills: [] }, owner, agent);
+      skills: [] }, owner, agent);
     const b = createSignedAgentCard({ name: 'B', agentDid: agent.did, relayEndpoint: DEFAULT_PUBLIC_RELAY,
-      accessMode: 'open', skills: [] }, owner, agent);
+      skills: [] }, owner, agent);
     const first = await call(directory([a, b]), 'acp_discover_workers');
     expect(await call(directory([b, a]), 'acp_discover_workers')).toEqual(first);
     expect(first.value.count).toBe(1);
     const conflict = createSignedAgentCard({ name: 'Other', agentDid: agent.did,
-      relayEndpoint: DEFAULT_PUBLIC_RELAY, accessMode: 'invite-only', skills: [] }, other, agent);
+      relayEndpoint: DEFAULT_PUBLIC_RELAY, skills: [] }, other, agent);
     expect(await call(directory([a, conflict]), 'acp_discover_workers'))
       .toMatchObject({ isError: true, value: { error: 'AMBIGUOUS_AGENT_CARD_OWNER' } });
   });
@@ -242,7 +240,7 @@ describe('default MCP open discovery', () => {
   it('matches skill and task type on the same skill and preserves complete schemas', async () => {
     const owner = generateKeyPair();
     const signed = createSignedAgentCard({ name: 'Mixed', agentDid: owner.did, relayEndpoint: DEFAULT_PUBLIC_RELAY,
-      accessMode: 'open', skills: [SKILL, { id: 'text', name: 'Text', taskTypes: ['text'] }] }, owner);
+      skills: [SKILL, { id: 'text', name: 'Text', taskTypes: ['text'] }] }, owner);
     const server = directory([signed]);
     expect((await call(server, 'acp_discover_workers', { skillId: 'echo', taskType: 'text' })).value.count).toBe(0);
     const result = await call(server, 'acp_discover_workers', { taskType: 'json' });
@@ -295,79 +293,24 @@ describe('default MCP open discovery', () => {
 });
 
 describe('MCP DID admission compatibility', () => {
-  it.each(['invite-only', 'allowed-requester', 'allow-any-private', 'open-default', 'open-empty', 'open-disallowed',
-    'worker-declines', 'excess-budget', 'mode-changed'] as const)
-    ('preserves worker decisions and does not retry: %s', async scenario => {
-      const h = harness();
-      const owner = generateKeyPair();
-      const store = new WorkerTrustStore(owner);
-      const executeTask = vi.fn(async (ctx: Parameters<WorkerNodeOptions['adapter']['executeTask']>[0]) => ctx.input);
-      const options: WorkerNodeOptions = { owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),
-        relayUrl: DEFAULT_PUBLIC_RELAY, accessMode: scenario.includes('private') || scenario === 'invite-only' || scenario === 'allowed-requester'
-          ? 'invite-only' : 'open', openPolicy: POLICY,
-        allowedRequesterDids: scenario === 'allowed-requester' ? [h.requester().did]
-          : scenario === 'open-disallowed' ? [generateKeyPair().did] : scenario === 'open-default' ? undefined : [],
-        allowAnyRequester: scenario === 'allow-any-private',
-        intakeStore: store,
-        approvalProvider: approving(() => owner, scenario === 'worker-declines' ? 'REJECTED' : 'APPROVED'),
-        adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } };
-      const worker = new WorkerNode(options);
-      await worker.register();
-      const view = await call(h.server, 'acp_discover_workers', { accessMode: 'all' });
-      const selected = view.value.workers[0];
-      if (scenario === 'mode-changed') {
-        options.accessMode = 'invite-only';
-        vi.setSystemTime(new Date(NOW.getTime() + 1000));
-        await h.relay.register(card('invite-only', owner));
+  it.each(['unknown','allowlisted','contact','excluded','budget'] as const)('preserves admission without retry: %s', async scenario => {
+    const h = harness(), owner = generateKeyPair(), executeTask = vi.fn(async ctx => ctx.input);
+    const worker = new WorkerNode({ owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
+      ...(scenario === 'contact' ? { checkPeer: () => 'trusted' as const } : {}),
+      allowedRequesterDids: scenario === 'excluded' ? [generateKeyPair().did] : scenario === 'allowlisted' ? [h.requester().did] : [],
+      ...(scenario === 'budget' ? { maxInputTokens: 1 } : {}),
+      approvalProvider: approving(() => owner), adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } });
+    await worker.register();
+    const done = worker.start({ once: true }).catch(error => error);
+    try {
+      const result = await call(h.server, 'acp_delegate_task', { workerDid: owner.did, title: 'Echo', input: { hello: 'world' } });
+      await done;
+      if (scenario === 'contact') expect(result).toMatchObject({ isError: false, value: { status: 'SETTLED' } });
+      else {
+        expect(result).toMatchObject({ isError: true, value: { error: ['excluded','budget'].includes(scenario) ? expect.stringContaining('PROPOSAL_REJECTED') : 'PENDING_OWNER_APPROVAL' } });
+        expect(executeTask).not.toHaveBeenCalled();
       }
-      let done = worker.start({ once: true }).catch((error: Error) => error);
-      try {
-        const args = {
-          workerDid: selected.workerDid, relayUrl: selected.relayUrl, title: 'Echo',
-          input: { hello: 'world' },
-          ...(scenario === 'excess-budget' ? { budget: { maxInputTokens: POLICY.maxInputTokens + 1 } } : {}),
-        };
-        const needsReview = ['open-default', 'open-empty', 'worker-declines'].includes(scenario);
-        let pendingTaskId: string | undefined;
-        if (needsReview) {
-          expect(await call(h.server, 'acp_delegate_task', args)).toMatchObject({ isError: true,
-            value: { error: 'PENDING_OWNER_APPROVAL', retryable: false } });
-          expect(await done).toMatchObject({ message: 'PENDING_OWNER_APPROVAL' });
-          expect(executeTask).not.toHaveBeenCalled();
-          expect(options.approvalProvider!.approve).not.toHaveBeenCalled();
-          expect(store.list()).toHaveLength(1);
-          const pending = store.list()[0];
-          expect(pending).toMatchObject({ requesterOwnerDid: h.requester().did, state: 'pending' });
-          pendingTaskId = pending.taskId;
-          expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(2);
-          expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.eventType === 'PROPOSE')).toHaveLength(1);
-          expect(h.send.mock.calls.filter(([envelope]) => envelope.payload.senderDid === owner.did)
-            .map(([envelope]) => envelope.payload.eventType)).toEqual(['ERROR']);
-          store.decide(pending.id, 'approve', 'trusted');
-          expect(executeTask).not.toHaveBeenCalled();
-          expect(options.approvalProvider!.approve).not.toHaveBeenCalled();
-          done = worker.start({ once: true }).catch((error: Error) => error);
-        }
-        const result = await call(h.server, 'acp_delegate_task', args);
-        const success = scenario === 'allowed-requester' || scenario === 'open-empty' || scenario === 'open-default';
-        if (success) {
-          expect(result).toMatchObject({ isError: false, value: { status: 'SETTLED', auditBundle: { valid: true } } });
-          expect(await done).toMatchObject({ state: 'SETTLED' });
-          expect(result.value.taskId).not.toBe(pendingTaskId);
-          expect(executeTask).toHaveBeenCalledTimes(1);
-          expect(options.approvalProvider!.approve).toHaveBeenCalledTimes(1);
-        } else {
-          const error = scenario === 'worker-declines' ? 'APPROVAL' : scenario === 'open-disallowed' ? 'PROPOSAL_REJECTED'
-            : scenario === 'excess-budget' ? 'TASK_SCOPE_REJECTED' : 'INVITE_REQUIRED';
-          expect(result).toMatchObject({ isError: true });
-          expect(result.value.error).toContain(error);
-          expect(executeTask).not.toHaveBeenCalled();
-          if (scenario === 'worker-declines') {
-            expect(result.value.error).not.toBe('PENDING_OWNER_APPROVAL');
-            expect(options.approvalProvider!.approve).toHaveBeenCalledTimes(1);
-          }
-        }
-        expect(h.routes.filter(route => route === 'GET /agents')).toHaveLength(needsReview ? 3 : 2);
-      } finally { worker.stop(); await done; }
-    });
+      expect(h.send.mock.calls.filter(([e]) => e.payload.eventType === 'PROPOSE')).toHaveLength(1);
+    } finally { worker.stop(); }
+  });
 });

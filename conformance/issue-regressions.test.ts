@@ -144,7 +144,7 @@ describe('issue 9: concurrent delegate to one worker', () => {
       executeTask: async (context: { input: Json }): Promise<Json> => context.input,
     };
     const events: string[] = [];
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner,
       relay,
       adapter,
@@ -389,7 +389,7 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const relay = new InMemoryRelay();
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner,
       relay,
       adapter: {
@@ -444,7 +444,7 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const relay = new InMemoryRelay();
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner,
       relay,
       adapter: {
@@ -785,7 +785,7 @@ describe('issue 20: requester relay URL switch', () => {
     try {
       for (const server of servers) {
         const owner = generateKeyPair();
-        const worker = new WorkerNode({
+        const worker = new WorkerNode({ checkPeer: () => 'trusted',
           owner,
           relay: server.url,
           allowPrivateRelay: true,
@@ -1022,7 +1022,7 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
       const workerKey = generateKeyPair();
       const relay = new InMemoryRelay();
       let executions = 0;
-      const worker = new WorkerNode({
+      const worker = new WorkerNode({ checkPeer: () => 'trusted',
         owner: workerKey,
         relay,
         timeoutMs: 1500,
@@ -1079,7 +1079,7 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
     const relay = new InMemoryRelay();
     const workers = [leftKey, rightKey].map(
       (key) =>
-        new WorkerNode({
+        new WorkerNode({ checkPeer: () => 'trusted',
           owner: key,
           relay,
           timeoutMs: 5000,
@@ -1127,7 +1127,7 @@ describe('issue 28: concurrent reportProgress stays ordered', () => {
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     const steps: string[] = [];
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 5000,
@@ -1202,7 +1202,7 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
     const otherKey = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: workerKey,
       relay,
       timeoutMs: 5000,
@@ -1217,7 +1217,7 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
         },
       },
     });
-    const other = new WorkerNode({
+    const other = new WorkerNode({ checkPeer: () => 'trusted',
       owner: otherKey,
       relay,
       timeoutMs: 5000,
@@ -1386,7 +1386,7 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     let backendCalls = 0;
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 1500,
@@ -1455,7 +1455,7 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     let backendCalls = 0;
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 5000,
@@ -1518,8 +1518,8 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1595,8 +1595,8 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const key = generateKeyPair();
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1647,7 +1647,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({
+    const worker = new WorkerNode({ checkPeer: () => 'trusted',
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1712,8 +1712,8 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const other = generateKeyPair();
     const relay = new InMemoryRelay();
-    const alias = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const alias = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1728,8 +1728,8 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
         executeTask: async () => ({ ok: true }),
       },
     });
-    const second = new WorkerNode({
-      accessMode: 'open', allowAnyRequester: true,
+    const second = new WorkerNode({ checkPeer: () => 'trusted',
+
       owner: other,
       relay,
       timeoutMs: 5000,
@@ -1801,7 +1801,7 @@ describe('issue 35: invalid reportProgress poisons the session', () => {
         }
         return send(envelope);
       };
-      const worker = new WorkerNode({
+      const worker = new WorkerNode({ checkPeer: () => 'trusted',
         owner: key,
         relay,
         timeoutMs: 1500,

@@ -43,7 +43,7 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   expect(existsSync(join(home, 'data'))).toBe(false);
   const workerApproval = approving(() => workerOwner);
   const execute = vi.fn(async (ctx: { input: unknown }) => ctx.input as { echo: string });
-  const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl: 'https://relay.example',
+  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, approvalProvider: workerApproval });
   const token = worker.invite();
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -139,7 +139,8 @@ it('retains worker-side invite admission and revocation checks after local impor
   const pending = worker.start();
   try {
     expect((await call(server, 'acp_delegate_task', { workerRef: saved.workerRef, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('TOKEN_REVOKED');
-    expect((await call(server, 'acp_delegate_task', { workerDid: owner.did, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('INVITE_REQUIRED');
+    await worker.register();
+    expect((await call(server, 'acp_delegate_task', { workerDid: owner.did, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('PENDING_OWNER_APPROVAL');
     expect(execute).not.toHaveBeenCalled();
   } finally { worker.stop(); await pending; }
 });

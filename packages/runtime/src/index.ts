@@ -31,3 +31,8 @@ export * from './application-config.js';
 export * from './requester-pending-store.js';
 export * from './held-request-store.js';
 export * from './held-request-review.js';
+
+export * from './protocol-release.js';
+export * from './connection-router.js';
+export * from './connection-persistence.js';
+export * from './connection-service.js';
