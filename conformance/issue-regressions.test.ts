@@ -327,7 +327,7 @@ describe('issue 11: unread SSE backpressure', () => {
     expect(queued).toBeLessThanOrEqual(relay.maxQueueSize);
     expect(queued).toBeGreaterThan(0);
     expect(limit).toBeInstanceOf(Error);
-    expect((limit as Error).message).toBe('RELAY_CAPACITY');
+    expect((limit as Error).message).toBe('RELAY_RETRY_LATER');
     expect(response.body).toBeTruthy();
   });
 });

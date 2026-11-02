@@ -174,7 +174,11 @@ export async function networkCommand(command: string, args: string[], applicatio
   --wake-timeout-ms <n>          Per-attempt timeout (default: 5000).
   --notification-key <file>      Persistent signing key (default: ephemeral local identity).
   --notification-ttl-ms <n>      Wake registration/dedup and expiry notice retention (default: 3600000).
-  --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 600000).` : TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
+  --envelope-ttl-ms <n>          Undelivered envelope TTL (default: 86400000).
+  --max-queue-size <n>           Queued envelopes per recipient (default: 256).
+  --max-queue-bytes <n>          Queued JSON bytes per recipient (default: 4194304).
+  --max-envelope-bytes <n>       Signed envelope JSON bytes (default: 262144).
+  --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` : TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   connections list|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
@@ -211,6 +215,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('INVALID_PORT');
     const relay = await startLocalRelay({ port, host: text(f, 'host', '127.0.0.1'), relayOptions: {
       envelopeTtlMs: optionalCount(f, 'envelope-ttl-ms'),
+      maxQueueSize: optionalCount(f, 'max-queue-size'),
+      maxQueueBytesPerRecipient: optionalCount(f, 'max-queue-bytes'),
+      maxEnvelopeBytes: optionalCount(f, 'max-envelope-bytes'),
+      maxEnvelopesPerSender: optionalCount(f, 'max-envelopes-per-sender'),
       notificationTtlMs: optionalCount(f, 'notification-ttl-ms'),
       notificationKey: f.has('--notification-key') ? JSON.parse(readFileSync(text(f, 'notification-key'), 'utf8')) as KeyPair : undefined,
       ...(f.has('--wake-command') ? { wake: {

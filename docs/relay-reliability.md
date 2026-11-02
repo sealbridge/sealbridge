@@ -17,9 +17,66 @@ HTTP 401 on a RelayAuth request starts bounded authentication recovery. By defau
 
 Retry counts must be nonnegative integers, at most 2147483647. Library settings are available in `RelayClientSecurityOptions`, and on worker, requester and MCP options when they construct a client from a relay URL. Configure an explicitly supplied HTTP/SSE client at construction. Recovery covers polling, peek, SSE handshakes, delivery-status reads, wake registration and acknowledgements. It does not republish agent cards, change identity, renew invites, or restart task execution. Exhaustion reports `RELAY_AUTH_RECOVERY_EXHAUSTED` and asks the operator to check system clock synchronization and the key/DID pairing. Worker startup exits non-zero on exhaustion. Diagnostics contain no credentials or response bodies.
 
+## Retention and admission
+
+Retention starts at first admission and expires at `expiresAt <= now`. Leasing,
+peek and repeated sends do not renew it. The relay cannot read encrypted task
+deadlines; the gateway task default remains 600000 ms. Task traffic stays signed
+ciphertext plus routing metadata; the relay adds no plaintext task fields.
+
+| Library option | Worker binding | Local `relay start` flag | Default |
+| --- | --- | --- | --- |
+| `envelopeTtlMs` | `ACP_ENVELOPE_TTL_MS` | `--envelope-ttl-ms` | 86400000 ms (24 hours) |
+| `maxQueueSize` | `ACP_MAX_QUEUE_SIZE` | `--max-queue-size` | 256 per recipient |
+| `maxQueueBytesPerRecipient` | `ACP_MAX_QUEUE_BYTES` | `--max-queue-bytes` | 4194304 serialized UTF-8 JSON bytes per recipient |
+| `maxEnvelopeBytes` | `ACP_MAX_ENVELOPE_BYTES` | `--max-envelope-bytes` | 262144 serialized UTF-8 JSON bytes |
+| `maxEnvelopesPerSender` | `ACP_MAX_ENVELOPES_PER_SENDER` | `--max-envelopes-per-sender` | Selected recipient count, normally 256, per sender/recipient |
+| `seenTtlMs` | `ACP_SEEN_TTL_MS` | — | 3600000 ms; bounded replay cache |
+
+Library and local flag values must be positive integers. Malformed Worker
+binding values retain the existing fallback to defaults. Explicit library/local
+settings take precedence over library defaults; Worker bindings use the existing
+environment parser. Leased envelopes remain in all occupancy counts. Equality
+with a cap is allowed; only an admission that would exceed it is refused.
+
+Recipient/global queue capacity and sender occupancy refusal return exactly:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json; charset=utf-8
+Retry-After: 60
+Cache-Control: no-store
+
+{"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}
+```
+
+The hint is a positive integer bounded by 3600000 ms; `Retry-After` is its
+ceiling in seconds (1–3600). This build uses 60000 ms. No occupancy or task
+content is included. Refusal adds no queue, replay ID, expiry extension or wake
+record. Expiry cleanup is independent. Invalid or oversized bodies remain
+permanent HTTP 400 errors, including a single envelope that cannot fit the
+recipient byte cap. `RELAY_CAPACITY` remains in the public error catalog for
+other existing paths. WebSocket refusal is
+`{"ok":false,"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}`.
+Existing HTTP clients surface `RELAY_REJECTED: 429` and do not automatically
+retry sends; receive-side transient handling remains unchanged.
+
+A live queued ID always returns `REPLAYED_ENVELOPE`, even after replay-cache
+expiry or ring turnover. It retains the original bytes and expiry. Acknowledging
+or dequeuing preserves existing replay records. Once both queued and remembered
+records are gone, relay replay history is bounded; it is not indefinite.
+
+Durable Objects retain original numeric expiries, leases, replay metadata and
+alarms across reconstruction. Upgrading changes only new admission expiries,
+without rewriting or extending existing ten-minute entries. The class and
+migration tag stay unchanged. Hosted behavior requires an operator-controlled
+Worker deployment/config update; this change performs no deployment. Local and
+embedded relays adopt the default when upgraded. Drain before replacing an old
+storage layout, using its configured retention interval rather than a fixed wait.
+
 ## HTTP lease and acknowledgement protocol
 
-`GET /envelopes?recipient=<did>&lease=true` (also `/inbox/<did>`) opts into a 30-second visibility lease. The envelope remains queued and counts against all existing limits. Unacknowledged envelopes become visible after the lease expires, until the original ten-minute TTL expires. Durable Objects persist the lease; restarting the object does not remove it. Requests without `lease=true` and WebSocket clients retain their existing destructive fetch behavior. `SseRelayClient` now requests leases; raw `/stream` requests without `lease=true` retain destructive delivery. Peek does not acquire or extend a lease.
+`GET /envelopes?recipient=<did>&lease=true` (also `/inbox/<did>`) opts into a 30-second visibility lease. The envelope remains queued and counts against all existing limits. Unacknowledged envelopes become visible after the lease expires, until the original configured TTL (default 24 hours) expires. Durable Objects persist the lease; restarting the object does not remove it. Requests without `lease=true` and WebSocket clients retain their existing destructive fetch behavior. `SseRelayClient` now requests leases; raw `/stream` requests without `lease=true` retain destructive delivery. Peek does not acquire or extend a lease.
 
 After persistence or processing, acknowledge with `DELETE /envelopes/<envelopeId>?recipient=<did>` and a fresh recipient-bound RelayAuth token for the `receive` action. The existing response is 204 when removed, or 404 when already absent. The HTTP client treats either as acknowledgement success. A different recipient cannot read or delete another inbox. Acknowledgement does not remove the envelope replay record or weaken signature, sequence, timestamp, or authentication nonce checks.
 
@@ -85,11 +142,11 @@ The recipient registration uses `POST /wake?recipient=<did>`, a fresh recipient-
 | `--wake-timeout-ms <n>` | `wake.timeoutMs` | 5000 ms per attempt; maximum 2147483647 |
 | `--notification-key <file>` | `notificationKey` | Ephemeral identity for a local relay; persist a key to keep the identity across restarts |
 | `--notification-ttl-ms <n>` | `notificationTtlMs` | 3600000 ms for registration, wake dedup/retry retention, and recorded expiry notices |
-| `--envelope-ttl-ms <n>` | `envelopeTtlMs` | 600000 ms; existing envelope TTL |
+| `--envelope-ttl-ms <n>` | `envelopeTtlMs` | 86400000 ms; new admission retention |
 
 `worker start --wake-channel <name>` defaults to off. Library hosts can configure multiple named channels. They must periodically call `evictExpired()` and `flushWakeNotifications()`; the local relay runs maintenance every second. A custom callback must honor its abort signal. Notification attempts never extend envelope TTLs, task deadlines, budgets, or approval policy. A successful wake is a request to reconcile work, not approval to execute a task.
 
-For Durable Objects, `ACP_WAKE_ENDPOINT` enables channel `default` at a fixed operator-provisioned HTTPS endpoint and requires `ACP_WAKE_RELAY` (the advertised relay URL). The endpoint receives the same signed JSON by POST; redirects are refused, non-2xx responses retry, and responses are discarded. `ACP_WAKE_MAX_ATTEMPTS`, `ACP_WAKE_RETRY_BASE_MS`, and `ACP_WAKE_TIMEOUT_MS` use the defaults above. `ACP_NOTIFICATION_TTL_MS` defaults to 3600000; the existing `ACP_ENVELOPE_TTL_MS` defaults to 600000. `ACP_NOTIFICATION_KEY` is an optional secret binding containing a dedicated relay KeyPair JSON; otherwise each inbox generates and durably retains its own signing identity. Provision the corresponding public DID at the receiver. Changing the signing key requires updating pinned identities. Embedded Durable Object hosts can instead supply `ACP_WAKE: RelayWakeOptions` with their own named callbacks.
+For Durable Objects, `ACP_WAKE_ENDPOINT` enables channel `default` at a fixed operator-provisioned HTTPS endpoint and requires `ACP_WAKE_RELAY` (the advertised relay URL). The endpoint receives the same signed JSON by POST; redirects are refused, non-2xx responses retry, and responses are discarded. `ACP_WAKE_MAX_ATTEMPTS`, `ACP_WAKE_RETRY_BASE_MS`, and `ACP_WAKE_TIMEOUT_MS` use the defaults above. `ACP_NOTIFICATION_TTL_MS` defaults to 3600000; `ACP_ENVELOPE_TTL_MS` defaults to 86400000. `ACP_NOTIFICATION_KEY` is an optional secret binding containing a dedicated relay KeyPair JSON; otherwise each inbox generates and durably retains its own signing identity. Provision the corresponding public DID at the receiver. Changing the signing key requires updating pinned identities. Embedded Durable Object hosts can instead supply `ACP_WAKE: RelayWakeOptions` with their own named callbacks.
 
 Durable relays commit the envelope/outbox before notifying, and commit each attempt before calling the channel. Alarms drive retries and TTL cleanup; a restart resumes unfinished attempts. A crash after a receiver handles a wake but before the relay records success can cause another wake. Registrations, wake records, and expiry tombstones each have a separate cap of `maxSeenEntries` (default 4096); oldest records of that kind are evicted at capacity. These bounded metadata records do not consume or relax existing envelope count/byte/sender quotas. Wake delivery does not copy or decrypt an envelope.
 

@@ -12,13 +12,12 @@ import {
 import type { SignedEnvelope, KeyPair, RelayAuthAction } from '@acp/core';
 import {
   classifyEnvelopeRole,
-  DEFAULT_MAX_ENVELOPE_BYTES,
   InMemoryRelay,
   createRelayFetchHandler,
   mapRelayError,
   normalizeReceiveFilter,
   relayHttpHeaders,
-  sanitizeRelayErrorCode,
+  relayErrorBody,
 } from './fetch.js';
 import type { InMemoryRelayOptions, RelayAuthContext, RelayInboxRole, RelayReceiveFilter } from './fetch.js';
 import type { SignedRelayDeliveryStatus } from './notifications.js';
@@ -73,7 +72,7 @@ export async function startLocalRelay(
       let size = 0;
       for await (const chunk of request) {
         size += (chunk as Buffer).length;
-        if (size > DEFAULT_MAX_ENVELOPE_BYTES) throw new Error('BODY_TOO_LARGE');
+        if (size > relay.maxEnvelopeBytes) throw new Error('BODY_TOO_LARGE');
         chunks.push(chunk as Buffer);
       }
       const result = await handler(
@@ -225,7 +224,7 @@ export async function startLocalRelay(
           disposeSubscription();
         } else throw new Error('INVALID_REQUEST');
       } catch (e) {
-        socket.send(JSON.stringify({ ok: false, error: sanitizeRelayErrorCode(e) }));
+        socket.send(JSON.stringify({ ok: false, ...relayErrorBody(e) }));
       }
     });
   });
