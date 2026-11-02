@@ -23,6 +23,178 @@ function fixture(...args: Parameters<typeof outboxFixture>) { const f = outboxFi
 const reset = () => Object.assign(new Error('fixture transport reset'), { code: 'ECONNRESET' });
 
 describe('gateway envelope retry', () => {
+  it('flushes concurrent same-URL sends independently with closed handles and no signer lock at flush time', async () => {
+    const f = fixture(), io = f.service.store.io, sleep = vi.fn(async () => { throw new Error('UNEXPECTED_RETRY_SLEEP'); });
+    const handles = new Map<number, string>(), staged = new Map<number, number>();
+    const flushes: Array<{ fd: number; batch: number; done: (error: NodeJS.ErrnoException | null) => void }> = [];
+    let opened = 0, ready!: () => void;
+    const bothFlushing = new Promise<void>(resolve => { ready = resolve; });
+    const windowsError = (code: string) => Object.assign(new Error(code), { code });
+    const service = f.restart(f.owner, { sleep, identityOptions: { ...f.identityOptions, fs: { ...io,
+      openSync: (path: PathLike, flags: string | number, mode?: Parameters<typeof io.openSync>[2]) => {
+        const fd = io.openSync(path, flags, mode), name = String(path);
+        handles.set(fd, name);
+        if (name.endsWith('.tmp')) staged.set(fd, Math.floor(opened++ / 2));
+        return fd;
+      },
+      closeSync: fd => { io.closeSync(fd); handles.delete(fd); },
+      fsyncSync: fd => {
+        // Model a flush that cannot finish while another writer needs the signer lock.
+        if (existsSync(join(service.store.root, '.lock'))) throw windowsError('EBUSY');
+        io.fsyncSync(fd);
+      },
+      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+        expect(existsSync(join(service.store.root, '.lock'))).toBe(false);
+        flushes.push({ fd, batch: staged.get(fd)!, done });
+        if (flushes.length === 4) ready();
+      }, { __promisify__: io.fsync.__promisify__ }),
+      renameSync: (from, to) => {
+        // Windows replacement fails if either pathname still has an open handle.
+        if ([...handles.values()].some(path => path === String(from) || path === String(to))) throw windowsError('EPERM');
+        io.renameSync(from, to);
+      },
+    } } });
+    const wires = [0, 1].map(index => new SessionWire(f.relay, f.owner, f.peer.did, 'task_concurrent_' + index,
+      [f.owner.did, f.peer.did], new AbortController().signal, undefined, false, false,
+      { service, context: { ...f.prepare().context, message: undefined } }));
+    const sending = wires.map(wire => wire.rawSend('ERROR', { code: 'FIXTURE' }));
+    // Observe rejection immediately as well as awaiting the sends below.
+    const settled = Promise.allSettled(sending);
+    const release = async (batch: number) => {
+      await Promise.all(flushes.filter(f => f.batch === batch).map(flush => new Promise<void>(resolve => {
+        const done = flush.done; flush.done = () => {};
+        io.fsync(flush.fd, error => { done(error); resolve(); });
+      })));
+    };
+    try {
+      await Promise.race([bothFlushing, settled.then(() => { throw new Error('SENDS_FINISHED_BEFORE_CONCURRENT_FLUSH'); })]);
+      expect(f.posted).toEqual([]);
+      expect(service.store.ids('batches')).toEqual([]);
+      await release(1);
+      await sending[1];
+      expect(f.posted.map(e => (e as SignedEnvelope).payload.taskId)).toEqual(['task_concurrent_1']);
+      // The first flush is still held; its independent peer has already completed.
+      await release(0); await sending[0];
+      expect(f.posted.map(e => (e as SignedEnvelope).payload.taskId)).toEqual(['task_concurrent_1', 'task_concurrent_0']);
+      expect(sleep).not.toHaveBeenCalled();
+      expect(service.store.ids('outbox')).toEqual([]);
+      expect(handles.size).toBe(0);
+    } finally {
+      for (const flush of flushes) flush.done(windowsError('EBUSY'));
+      await settled;
+      wires.forEach(wire => wire.close());
+    }
+  });
+  it.each(['EPERM', 'EBUSY'])('does not delay another same-URL send after a %s publication failure', async code => {
+    const f = fixture(), io = f.service.store.io, sleep = vi.fn();
+    let fail = true;
+    const service = f.restart(f.owner, { sleep, identityOptions: { ...f.identityOptions, fs: { ...io,
+      renameSync: (from, to) => {
+        if (fail && basename(dirname(String(to))) === 'batches') {
+          fail = false; throw Object.assign(new Error(code), { code });
+        }
+        io.renameSync(from, to);
+      },
+    } } });
+    const p = f.prepare(true), q = f.prepare(true);
+    await expect(service.enqueuePrepared(p.frames, p.context)).rejects.toThrow('OUTBOX_STORE_UNWRITABLE');
+    expect(service.store.ids('batches')).toEqual([]);
+    expect(f.posted).toEqual([]);
+    const ids = await service.enqueuePrepared(q.frames, q.context);
+    for (const id of ids) await service.sendPrepared(id);
+    expect(f.posted).toEqual(q.frames);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(existsSync(join(service.store.root, '.lock'))).toBe(false);
+  });
+  it('keeps one wire in sequence while its asynchronous publication yields', async () => {
+    const f = fixture(), io = f.service.store.io, sleep = vi.fn();
+    const held: Array<() => void> = [];
+    let opened = 0, released = false, ready!: () => void;
+    const flushing = new Promise<void>(resolve => { ready = resolve; });
+    const service = f.restart(f.owner, { sleep, identityOptions: { ...f.identityOptions, fs: { ...io,
+      openSync: (path: PathLike, flags: string | number, mode?: Parameters<typeof io.openSync>[2]) => {
+        if (String(path).endsWith('.tmp')) opened++;
+        return io.openSync(path, flags, mode);
+      },
+      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+        if (!released && held.length < 2) {
+          held.push(() => io.fsync(fd, done));
+          if (held.length === 2) ready();
+        } else io.fsync(fd, done);
+      }, { __promisify__: io.fsync.__promisify__ }),
+    } } });
+    const wire = new SessionWire(f.relay, f.owner, f.peer.did, 'task_ordered', [f.owner.did, f.peer.did],
+      new AbortController().signal, undefined, false, false,
+      { service, context: { ...f.prepare().context, message: undefined } });
+    const sending = Promise.all([wire.rawSend('ERROR', { code: 'FIRST' }), wire.rawSend('ERROR', { code: 'SECOND' })]);
+    const release = () => { if (!released) { released = true; held.forEach(resume => resume()); } };
+    try {
+      await flushing;
+      expect(opened).toBe(2);
+      expect(f.posted).toEqual([]);
+      release();
+      await sending;
+      expect(f.posted.map(e => (e as SignedEnvelope).payload.seq)).toEqual([0, 1]);
+      expect(sleep).not.toHaveBeenCalled();
+    } finally { release(); await Promise.allSettled([sending]); wire.close(); }
+  });
+  it('publishes neither a batch nor a receipt after an asynchronous flush failure', async () => {
+    const f = fixture(), p = f.prepare(true), io = f.service.store.io;
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
+      fsync: Object.assign((_fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+        done(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+      }, { __promisify__: io.fsync.__promisify__ }),
+    } } });
+    await expect(service.enqueuePrepared(p.frames, p.context)).rejects.toThrow('OUTBOX_STORE_UNWRITABLE');
+    await expect(service.store.receiptPrepared(p.first, p.context.deliveryDeadline, 'processed')).rejects.toThrow('OUTBOX_STORE_UNWRITABLE');
+    expect(service.store.ids('batches')).toEqual([]);
+    expect(service.store.ids('outbox')).toEqual([]);
+    expect(service.store.ids('receipts')).toEqual([]);
+    expect(f.posted).toEqual([]);
+    expect(io.readdirSync(service.store.root, { recursive: true }).map(String).filter(path => path.endsWith('.tmp'))).toEqual([]);
+    expect(existsSync(join(service.store.root, '.lock'))).toBe(false);
+  });
+  it('rechecks a receipt after its flush without replacing a concurrent terminal checkpoint', async () => {
+    const f = fixture(), p = f.prepare(), io = f.service.store.io;
+    let concurrent = false;
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
+      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+        if (!concurrent) {
+          concurrent = true;
+          f.service.store.receipt(p.first, p.context.deliveryDeadline, 'terminal');
+        }
+        io.fsync(fd, done);
+      }, { __promisify__: io.fsync.__promisify__ }),
+    } } });
+    await service.store.receiptPrepared(p.first, p.context.deliveryDeadline, 'processed');
+    expect(service.store.read('receipts', p.first.payload.envelopeId)?.state).toBe('terminal');
+    expect(io.readdirSync(service.store.root, { recursive: true }).map(String).filter(path => path.endsWith('.tmp'))).toEqual([]);
+  });
+  it('rechecks capacity when concurrently flushed batches publish', async () => {
+    const f = fixture({ limits: { activeEnvelopes: 2 } });
+    const batches = [f.prepare(true), f.prepare(true)];
+    const results = await Promise.allSettled(batches.map(p => f.service.enqueuePrepared(p.frames, p.context)));
+    expect(results.map(r => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(results.find(r => r.status === 'rejected')).toMatchObject({ reason: { message: 'OUTBOX_FULL' } });
+    expect(f.service.store.ids('outbox')).toHaveLength(2);
+    expect(f.service.store.ids('batches')).toHaveLength(1);
+    expect(f.posted).toEqual([]);
+  });
+  it('discards flushed preparation after cancellation without publication or transmission', async () => {
+    const f = fixture(), p = f.prepare(), io = f.service.store.io;
+    let controller = new AbortController();
+    const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...io,
+      fsync: Object.assign((fd: number, done: (error: NodeJS.ErrnoException | null) => void) => {
+        io.fsync(fd, error => { controller.abort(new Error('FIXTURE_CANCEL')); done(error); });
+      }, { __promisify__: io.fsync.__promisify__ }),
+    } } });
+    await expect(service.enqueuePrepared(p.frames, p.context, controller.signal)).rejects.toThrow('FIXTURE_CANCEL');
+    controller = new AbortController();
+    await expect(service.store.receiptPrepared(p.first, p.context.deliveryDeadline, 'processed', controller.signal)).rejects.toThrow('FIXTURE_CANCEL');
+    for (const kind of ['outbox', 'batches', 'messages', 'receipts'] as const) expect(service.store.ids(kind)).toEqual([]);
+    expect(f.posted).toEqual([]);
+    expect(io.readdirSync(service.store.root, { recursive: true }).map(String).filter(path => path.endsWith('.tmp'))).toEqual([]);
+  });
   it('bounds enqueue, send and receipt work independently of an unrelated pending backlog', async () => {
     const f = fixture(), counted = countDeliveryFs(f.service.store.io);
     const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: counted.fs } });
@@ -417,7 +589,8 @@ describe('durable session integration', () => {
     try {
       const assertWork = (delegations: number) => {
         expect(counted.total()).toBeLessThanOrEqual(850 * delegations);
-        expect(counted.counts.fsyncSync).toBeLessThanOrEqual(60 * delegations);
+        expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBeLessThanOrEqual(60 * delegations);
+        expect(counted.asyncCounts.fsync).toBe(54 * delegations);
         expect(counted.counts.readdirSync).toBeLessThanOrEqual(12 * delegations);
         // Ancestor checks include the platform-specific temporary-directory depth.
         expect(counted.counts.lstatSync).toBeLessThanOrEqual(12000 * delegations);

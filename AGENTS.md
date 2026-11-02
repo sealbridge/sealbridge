@@ -504,6 +504,8 @@ See [relay reliability](docs/relay-reliability.md).
 
 Enqueue flushes prepared records before transmission. Lease, retry and relay-admission bookkeeping uses atomic writes without an additional flush; interruption can replay the same envelope ID. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
 
+Session sends and processed receipts flush unique temporary files asynchronously outside the signer lock. Handles close before atomic publication; independent tasks sharing a signer and relay can flush concurrently. Capacity and receipt state are rechecked at publication, without filesystem retry sleeps.
+
 承認済みのタスク封筒を上記パスへ署名済み暗号文で保存し、同じ ID で
 1分・5分・15分・1時間、その後は1時間ごとに relay の受理または元の期限まで再試行します。
 同じ署名者・データルートで再起動すると送信待ちを再開し、停止中は送信しません。
@@ -516,4 +518,6 @@ POSIX は 0600/0700 を使い、メッセージ情報と受信重複処理の記
 保守処理は期限切れの送信待ちを閉じてからメッセージ情報を削除します。
 
 送信前に準備済みレコードを flush します。lease・再試行・relay 受理の管理情報は追加の flush なしでアトミックに更新し、中断後は同じ封筒 ID で再送する場合があります。変更のないレコードとディレクトリ一覧の検証を再利用し、ゲートウェイの索引更新・復元時の走査・定期削除はバッチまたはレコードごとにイベントループへ制御を返します。
+
+セッションの送信と処理済み受信記録は、署名者ロックの外で一意の一時ファイルを非同期に flush します。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して flush できます。公開時に容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
