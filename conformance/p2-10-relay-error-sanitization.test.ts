@@ -239,8 +239,8 @@ describe('P2-10 relay error sanitization', () => {
     const cappedHandler = createRelayFetchHandler({ relay: capped });
     expect((await postEnvelope(cappedHandler, envelope())).status).toBe(202);
     const full = await postEnvelope(cappedHandler, envelope());
-    expect(full.status).toBe(400);
-    expect(await full.json()).toEqual({ error: 'RELAY_CAPACITY' });
+    expect(full.status).toBe(429);
+    expect(await full.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
 
     const first = envelope();
     const replayRelay = new InMemoryRelay();
@@ -262,7 +262,7 @@ describe('P2-10 relay error sanitization', () => {
       envelope(),
     );
     expect(budget.status).toBe(429);
-    expect(await budget.json()).toEqual({ error: 'QUEUE_BYTES_EXCEEDED' });
+    expect(await budget.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
     expect(budget.headers.get('retry-after')).toBeTruthy();
 
     const registered = createSignedAgentCard(
