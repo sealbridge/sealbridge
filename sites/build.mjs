@@ -92,6 +92,7 @@ export async function buildSites() {
         allowedAttributes: { ...sanitize.defaults.allowedAttributes, '*': ['id'], img: ['src', 'alt', 'loading'], code: ['class'] },
         allowedSchemes: ['https', 'http', 'mailto'],
         transformTags: { img: (tagName, attribs) => ({ tagName, attribs: { ...attribs, src: attribs.src?.startsWith('/docs/assets/') ? attribs.src : '' } }) },
+        exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
       });
       const otherLang = lang === 'ja' ? 'en' : 'ja';
       const sourceLang = file.endsWith('.ja.md') ? 'ja' : 'en';
