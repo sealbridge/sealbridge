@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSignedAgentCard, digest, generateKeyPair, signPayload, RevocationRegistry, createRevocationNotice } from '../packages/core/src/index.js';
 import { connectionIdFor } from '../packages/runtime/src/connection-service.js';
 import { admissionFixture } from './connections-fixture.js';
 const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
+// Admission checks use a fixed wall clock while relay polling and the test timeout use real timers.
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); });
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  vi.useRealTimers();
+});
 function fixture(...args: Parameters<typeof admissionFixture>) { const f = admissionFixture(...args); cleanups.push(f.cleanup); return f; }
 it.each([false, true])('holds unknown tasks on published=%s workers without owner or adapter calls', async published => {
   const f = fixture({ publishToRegistry: published });
@@ -105,11 +111,31 @@ it('binds one owner when two identities concurrently use the same invitation',as
   const f=fixture();const token=f.worker.invite();
   const {RequesterClient,PolicyAutoApprovalProvider}=await import('../packages/runtime/src/index.js');
   const {readFileSync}=await import('node:fs');const {workerIntakePath}=await import('../packages/runtime/src/index.js');
-  const other=generateKeyPair(),second=new RequesterClient({owner:other,relay:f.relay,timeoutMs:2000,approvalProvider:new PolicyAutoApprovalProvider(other)});
-  const running=f.worker.start();
-  const results=await Promise.allSettled([f.client.delegate({...f.task,to:token}),second.delegate({...f.task,to:token})]);
-  f.worker.stop();await running;
-  for(const result of results)expect(result).toMatchObject({status:'rejected',reason:{code:'PENDING_OWNER_APPROVAL'}});
+  const other=generateKeyPair(),second=new RequesterClient({owner:other,relay:f.relay,approvalProvider:new PolicyAutoApprovalProvider(other)});
+  // Both proposals must be held before either can redeem the invitation.
+  let release!: () => void;
+  const bothHeld = new Promise<void>(resolve => { release = resolve; });
+  const inspect = f.review.inspect.bind(f.review);
+  let inspections = 0;
+  vi.spyOn(f.review, 'inspect').mockImplementation(async id => {
+    if (++inspections === 2) release();
+    await bothHeld;
+    return inspect(id);
+  });
+  const running = f.worker.start();
+  try {
+    const results = await Promise.allSettled([
+      f.client.delegate({ ...f.task, to: token }), second.delegate({ ...f.task, to: token }),
+    ]);
+    for (const result of results)
+      expect(result).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+    expect(inspections).toBe(2);
+    expect(f.review.list()).toHaveLength(2);
+  } finally {
+    release();
+    f.worker.stop();
+    await running;
+  }
   expect(f.store.listConnections().filter(c=>c.state==='connected')).toHaveLength(1);
   expect(f.store.listConnections().filter(c=>c.state==='pending')).toHaveLength(1);
   expect(JSON.parse(readFileSync(workerIntakePath(f.owner.did,f.identityOptions),'utf8')).payload.inviteBindings).toHaveLength(1);
