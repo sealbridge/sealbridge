@@ -43,6 +43,10 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 [![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
+[![Sealbridge のデモ：インストール、コードレビューの依頼、署名付き結果の受領、監査ログの確認（英語字幕付き）](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
+
+30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
+
 > **ステータス**: Sealbridge の最新リリース `v0.2.2` は npm パッケージ `sealbridge` として公開済みです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)

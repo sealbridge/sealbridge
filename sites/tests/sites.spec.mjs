@@ -189,6 +189,19 @@ test('landing pages, generated source content and language switch work on mobile
   await expect(page.locator('article')).toHaveAttribute('lang', 'ja');
 });
 
+test('README demos retain MP4 caption links without broken images on the generated site', async ({ page }) => {
+  for (const lang of ['en', 'ja']) for (const [file, caption] of [
+    ['README', 'watch the MP4'], ['README.ja', 'MP4を見る'],
+  ]) {
+    await page.goto(`${site}/${lang}/docs/${file}/`);
+    await expect(page.locator('article').getByRole('link', { name: caption, exact: true })).toHaveAttribute(
+      'href', 'https://github.com/sealbridge/sealbridge/blob/main/docs/media/sealbridge-demo.mp4',
+    );
+    await expect(page.locator('article img:not([src]), article img[src=""]')).toHaveCount(0);
+    await expect(page.locator('article img[src*="sealbridge-demo"]')).toHaveCount(0);
+  }
+});
+
 test('all local document links resolve and all scripts/styles are external local assets', async ({ request }) => {
   const root = path.join(directory, '../dist/site');
   async function files(dir) { return (await Promise.all((await readdir(dir, { withFileTypes: true })).map((e) => e.isDirectory() ? files(path.join(dir, e.name)) : [path.join(dir, e.name)]))).flat(); }

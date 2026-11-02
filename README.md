@@ -43,6 +43,10 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 [![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
 [![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
 
+[![Sealbridge demo: install, delegate a code review, receive a signed result, and inspect the audit log (English captions)](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
+
+30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
+
 > **Status**: Sealbridge `v0.2.2` is the latest release, published on npm as `sealbridge`. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
