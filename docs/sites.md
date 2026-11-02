@@ -2,9 +2,9 @@
 
 **English** | [日本語](sites.ja.md)
 
-`sites/` builds two independent, static Cloudflare Workers asset bundles.
-Nothing is deployed by a build or CI. There is no server application, analytics,
-external font, CDN script, or remote QR service.
+`sites/` builds two independent Cloudflare Workers asset bundles. The official
+site also includes a small Worker for `/media/*` byte ranges. Nothing is deployed
+by a build or CI. There is no analytics, external font, CDN script, or remote QR service.
 
 | Intended host | Assets | Configuration |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ The audio tracks were removed by stream copy, leaving the video unchanged.
 The build copies the video-only WebM and MP4 and unchanged poster from `docs/media/` to the
 official site's `/media/` directory. Playback controls remain available, and a
 local script pauses playback and disables autoplay when reduced motion is requested.
-Preview serves media MIME types and byte ranges for playback and seeking.
+Production and preview serve media MIME types and byte ranges for playback and seeking.
 
 `sites/connect-agent.txt` is copied unchanged to `/connect-agent.txt` and served
 as `text/plain; charset=utf-8` by the headers file. Landing/install pages link
@@ -94,16 +94,61 @@ pnpm --filter @sealbridge/sites exec playwright install chromium
 pnpm --filter @sealbridge/sites test
 ```
 
-The three-OS CI matrix runs the site build, browser tests and existing conformance
-suite. Tests use synthetic, ephemeral identities: valid, tampered and expired
+The three-OS CI matrix runs the site build, Node unit tests, browser tests and existing
+conformance suite. `pnpm --filter @sealbridge/sites test:unit` runs the production
+Worker tests independently, including range bodies, GET/HEAD parity, ETag handling,
+and equality with every header in the `_headers` global policy.
+Browser tests use synthetic, ephemeral identities: valid, tampered and expired
 invites, delegated agents, fragment changes, malicious display text, QR capacity,
 network/console/storage privacy, copy behavior and deployment headers.
 
 ## Deployment handoff (requires separate authorization)
 
-This change contains configuration only. After review, an authorized operator
-can use Cloudflare Wrangler to upload the static assets with the respective
+After review, an authorized operator can use Cloudflare Wrangler to upload the
+official site's Worker and assets, or the invitation receiver's static assets, with the respective
 `--config sites/wrangler.site.jsonc` or `--config sites/wrangler.invite.jsonc`.
+The official site config uses `main: "./site-worker.mjs"`, an `ASSETS` binding,
+and `run_worker_first: ["/media/*"]`. Other routes remain asset-first; the
+invitation receiver remains assets-only. The output stays in `sites/dist/site`;
+Worker source modules live outside it and are not uploaded as public assets.
+
+For existing `/media/*` assets, GET supports one `bytes=a-b`, `bytes=a-`, or
+`bytes=-N` range with `206`, `Content-Range: bytes a-b/size`, and the selected
+`Content-Length`. Ends beyond the asset are clamped; oversized suffixes select
+the whole asset with `206`. A start at or beyond the size or a zero suffix gets
+an empty `416` with `Content-Range: bytes */size` and `Content-Length: 0`.
+No Range, malformed fields (including reversed bounds), and multi-range fields
+use full `200` responses. All these responses advertise `Accept-Ranges: bytes`.
+HEAD follows the same status and headers without a body. If-Range enables a
+range only for an exact matching strong ETag; weak tags, dates and mismatches
+use full `200`. Other conditional requests and asset errors retain their status.
+
+The Worker fetches the full asset through `env.ASSETS`, removing Range and
+If-Range and requesting identity encoding. It buffers range requests to slice
+the current roughly 3 MB video files; ordinary full GET responses stream.
+Full HEAD responses retain the asset's Content-Length, or measure its body when
+that header is absent, then return no body.
+Content-Type, ETag and other asset headers are retained. Cloudflare does not
+automatically apply `_headers` to Worker-generated responses, so the Worker
+explicitly attaches the equivalent CSP, Referrer-Policy, X-Content-Type-Options,
+X-Frame-Options and Permissions-Policy, including on errors. Keep its policy
+in sync with `sites/_headers`; unit tests check equality.
+
+To verify the production path locally after the site build, use Wrangler 4.156.1
+(verified with the configured `2026-10-29` compatibility date). Wrangler 4.151.1's
+bundled workerd rejects this date locally.
+
+```sh
+cd sites
+wrangler dev --config wrangler.site.jsonc --local --port 8787
+```
+
+From another terminal, check GET and HEAD against
+`http://127.0.0.1:8787/media/sealbridge-demo.mp4`, including `Range: bytes=0-1`,
+`bytes=-100` and `bytes=99999999-`. This uses the configured `2026-10-29`
+compatibility date. Changes take effect in production only after a separately
+approved site deploy.
+
 Attach sealbridge.dev to `sealbridge-site` and sealbridge.app to
 `sealbridge-invite` in the existing Cloudflare account in a separately approved
 operation. The files intentionally contain no routes, account credentials or

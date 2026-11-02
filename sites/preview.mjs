@@ -4,6 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { parseByteRange } from './media-range.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const rules = [];
@@ -35,22 +36,14 @@ for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
       const headers = { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
         'Accept-Ranges': 'bytes', ...policyFor(pathname) };
       // Single byte ranges cover browser media playback and seeking, including suffix ranges.
-      const range = req.headers.range;
+      const range = parseByteRange(req.headers.range, size);
       if (range) {
-        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-        let start = Number(match?.[1] || 0);
-        let end = match?.[2] ? Number(match[2]) : size - 1;
-        if (match && !match[1] && match[2]) {
-          start = Math.max(0, size - Number(match[2]));
-          end = size - 1;
-        }
-        if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end)
-          || start >= size || start > end) {
+        if (range.unsatisfiable) {
           res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}`, 'Content-Length': 0 });
           res.end();
           return;
         }
-        end = Math.min(end, size - 1);
+        const { start, end } = range;
         res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
         if (req.method === 'HEAD') res.end();
         else await pipeline(createReadStream(file, { start, end }), res);

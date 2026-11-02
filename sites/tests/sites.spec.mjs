@@ -163,12 +163,25 @@ test('missing, malformed and query-only invitations never enable acceptance', as
   }
 });
 
-test('both deployment bundles carry the strict headers and static configuration', async () => {
+test('deployment bundles carry the headers and media-only Worker configuration', async () => {
   for (const target of ['site', 'invite']) {
     const config = JSON.parse(await readFile(path.join(directory, `../wrangler.${target}.jsonc`), 'utf8'));
     expect(config.assets.directory).toBe(`./dist/${target}`);
     expect(config.workers_dev).toBe(false);
+    expect(config.preview_urls).toBe(false);
     expect(config.routes).toBeUndefined();
+    expect(config.account_id).toBeUndefined();
+    if (target === 'site') {
+      expect(config.main).toBe('./site-worker.mjs');
+      expect(config.assets.binding).toBe('ASSETS');
+      expect(config.assets.run_worker_first).toEqual(['/media/*']);
+      const assets = await readdir(path.join(directory, '../dist/site'));
+      expect(assets).not.toContain('site-worker.mjs');
+      expect(assets).not.toContain('media-range.mjs');
+    } else {
+      expect(config.main).toBeUndefined();
+      expect(config.assets.run_worker_first).toBeUndefined();
+    }
     const headers = await readFile(path.join(directory, `../dist/${target}/_headers`), 'utf8');
     for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "connect-src 'none'", 'Referrer-Policy: no-referrer']) expect(headers).toContain(directive);
     expect(headers).not.toContain('unsafe-inline');

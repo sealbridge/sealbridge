@@ -91,13 +91,21 @@ test('demo assets preserve docs/media bytes in the build and preview serves MIME
       expect(partial.headers()['content-range']).toBe(`bytes ${start}-${end}/${original.length}`);
       expect(await partial.body()).toEqual(original.subarray(start, end + 1));
     }
-    for (const range of [`bytes=${original.length}-`, 'bytes=20-10', 'bytes=-0']) {
+    for (const range of [`bytes=${original.length}-`, 'bytes=-0']) {
       const invalid = await request.get(`${site}/media/${file}`, { headers: { Range: range } });
       expect(invalid.status()).toBe(416);
       expect(invalid.headers()['accept-ranges']).toBe('bytes');
       expect(invalid.headers()['content-range']).toBe(`bytes */${original.length}`);
       expect(invalid.headers()['content-length']).toBe('0');
       expect(await invalid.body()).toHaveLength(0);
+    }
+    for (const range of ['bytes=20-10', 'bytes=0-1,4-5', 'bytes=invalid']) {
+      const fallback = await request.head(`${site}/media/${file}`, { headers: { Range: range } });
+      expect(fallback.status()).toBe(200);
+      expect(fallback.headers()['accept-ranges']).toBe('bytes');
+      expect(fallback.headers()['content-length']).toBe(String(original.length));
+      expect(fallback.headers()['content-range']).toBeUndefined();
+      expect(await fallback.body()).toHaveLength(0);
     }
   }
 });

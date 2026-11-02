@@ -2,9 +2,9 @@
 
 [English](sites.md) | **日本語**
 
-`sites/` は独立した 2 つの Cloudflare Workers 静的アセットを生成します。
-ビルドや CI は公開しません。サーバーアプリ、解析、外部フォント、CDN スクリプト、
-外部 QR サービスは使用しません。
+`sites/` は独立した 2 つの Cloudflare Workers アセットを生成します。公式サイトには
+`/media/*` のバイト範囲を処理する小さな Worker も含みます。ビルドや CI は公開しません。
+解析、外部フォント、CDN スクリプト、外部 QR サービスは使用しません。
 
 | 想定ホスト | アセット | 設定 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 音声トラックはストリームコピーで除去し、映像は変更していません。ビルドは `docs/media/` の
 映像のみの WebM・MP4 と変更のないポスターを公式サイトの `/media/` にコピーします。再生コントロールを
 表示し、動きを減らす設定ではローカルスクリプトが再生を停止して自動再生を無効にします。
-プレビューは再生とシーク用のメディア MIME 型とバイト範囲リクエストに対応します。
+本番とプレビューは再生とシーク用のメディア MIME 型とバイト範囲リクエストに対応します。
 
 `sites/connect-agent.txt` を変更せず `/connect-agent.txt` へコピーし、ヘッダーで
 `text/plain; charset=utf-8` を指定します。トップ・インストールページからリンクします。
@@ -82,16 +82,59 @@ pnpm --filter @sealbridge/sites exec playwright install chromium
 pnpm --filter @sealbridge/sites test
 ```
 
-3 OS の CI はビルド、ブラウザーテスト、既存の適合テストを実行します。
-テスト用の一時的な鍵で、有効・改ざん・期限切れの招待、別エージェントへの委任、
+3 OS の CI はビルド、Node 単体テスト、ブラウザーテスト、既存の適合テストを実行します。
+`pnpm --filter @sealbridge/sites test:unit` で本番 Worker のテストだけを実行できます。
+範囲の本文、GET/HEAD の一致、ETag 処理、`_headers` の共通ポリシーにある全ヘッダーの一致を確認します。
+ブラウザーテストは一時的な鍵で、有効・改ざん・期限切れの招待、別エージェントへの委任、
 フラグメント変更、悪意のある表示文字列、QR 容量、通信・ログ・ストレージの非漏洩、
 コピー動作、公開用ヘッダーを確認します。
 
 ## 公開の引き継ぎ（別途承認が必要）
 
-この変更は設定のみです。レビュー後、承認された担当者が Cloudflare Wrangler の
+レビュー後、承認された担当者が Cloudflare Wrangler の
 `--config sites/wrangler.site.jsonc` または `--config sites/wrangler.invite.jsonc`
-でアセットをアップロードできます。既存アカウントで sealbridge.dev を `sealbridge-site`、
+で公式サイトの Worker とアセット、または招待受信の静的アセットをアップロードできます。
+公式サイトは `main: "./site-worker.mjs"`、`ASSETS` バインディング、
+`run_worker_first: ["/media/*"]` を設定します。他の経路はアセット優先のままで、
+招待受信は静的アセットのみです。出力先は `sites/dist/site` のままです。
+Worker のソースモジュールはその外に置き、公開アセットには含めません。
+
+既存の `/media/*` アセットへの GET は単一の `bytes=a-b`、`bytes=a-`、`bytes=-N`
+に対して `206`、`Content-Range: bytes a-b/size`、選択範囲の `Content-Length` を返します。
+末尾がサイズを超える場合は切り詰め、大きすぎる接尾範囲は全体を `206` で返します。
+開始位置がサイズ以上、または接尾範囲がゼロなら、空の `416`、
+`Content-Range: bytes */size`、`Content-Length: 0` を返します。Range なし、不正な指定
+（開始・終了の逆転を含む）、複数範囲は全体の `200` にフォールバックします。
+これらはすべて `Accept-Ranges: bytes` を付けます。HEAD は本文なしで GET と同じ状態と
+ヘッダーを返します。If-Range は強い ETag が完全一致する場合だけ範囲を適用し、
+弱いタグ、日付、不一致は全体の `200` にします。他の条件付きリクエストとアセットの
+エラーは元の状態を保ちます。
+
+Worker は Range と If-Range を除き、identity エンコードを指定して `env.ASSETS` から
+全体を取得します。範囲指定時は現在約 3 MB の動画をバッファーして切り出し、通常の
+全体 GET はストリームで返します。Content-Type、ETag、その他のアセットヘッダーを保持します。
+全体 HEAD はアセットの Content-Length を保持し、ヘッダーがなければ本文を計測した後、
+本文なしで返します。
+Cloudflare は Worker が生成した応答に `_headers` を自動適用しないため、CSP、
+Referrer-Policy、X-Content-Type-Options、X-Frame-Options、Permissions-Policy と
+同等の値をエラー時も明示的に付けます。`sites/_headers` と Worker のポリシーを
+同期してください。単体テストで一致を確認します。
+
+サイトをビルド後、Wrangler 4.156.1 で本番経路をローカル確認できます。
+設定済みの互換性日付 `2026-10-29` で動作確認済みです。
+Wrangler 4.151.1 に同梱された workerd は、この日付をローカルで拒否します。
+
+```sh
+cd sites
+wrangler dev --config wrangler.site.jsonc --local --port 8787
+```
+
+別の端末から `http://127.0.0.1:8787/media/sealbridge-demo.mp4` へ GET と HEAD を送り、
+`Range: bytes=0-1`、`bytes=-100`、`bytes=99999999-` などを確認します。
+互換性日付は設定済みの `2026-10-29` を使います。本番への反映は別途承認された
+サイトのデプロイ後です。
+
+既存アカウントで sealbridge.dev を `sealbridge-site`、
 sealbridge.app を `sealbridge-invite` に接続する操作は別途承認を受けてください。
 設定にはルート、アカウント認証情報、DNS 変更を含めず、Workers 開発・プレビュー URL は
 無効です。公開後は `/`、`/ja/`、生成文書、`/i`、テスト用招待を実際のホストで確認してから
