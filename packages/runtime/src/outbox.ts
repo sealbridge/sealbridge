@@ -8,6 +8,7 @@ import { isTransientRelayError, relayDeadline, RelayAdmissionError, RelayDuplica
 import type { RelayTransport } from '@acp/relay';
 import type { IdentityStoreOptions } from './key-store.js';
 import { DeliveryStore } from './delivery-store.js';
+import type { DeliveryWrite, PreparedDeliveryWrite } from './delivery-store.js';
 import { deliveryError, DELIVERY_RETENTION_MS, requireDelivery } from './delivery-records.js';
 import type { DeliveryLimits, MessageRecordV1, MessageStatus, OutboxRecordV1 } from './delivery-records.js';
 
@@ -103,14 +104,7 @@ class GatewayDeliveryServiceImplementation {
   async prepare(signal?: AbortSignal): Promise<void> {
     await this.store.prepare(AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]));
   }
-  /** Publish all immutable members before the batch marker makes any member dispatchable. */
-  enqueue(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
-    const ids = this.store.transaction(() => this.enqueueLocked(prepared, context));
-    void this.statusRouter.refresh().catch(e => this.report(e));
-    return ids;
-  }
-  /** Caller holds the signer lock, including when publishing an observation reference. */
-  enqueueLocked(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
+  private buildBatch(prepared: readonly SignedEnvelope[], context: DeliveryContext) {
     const frames = structuredClone(prepared), c = structuredClone(context);
     const now = this.store.now(), batchId = randomUUID();
     requireDelivery(frames.length >= 1 && frames.length <= 2 && (c.kind !== 'delivery-status' || frames.length === 1));
@@ -128,25 +122,58 @@ class GatewayDeliveryServiceImplementation {
       createdAt: now, deliveryDeadline: c.deliveryDeadline, retainUntil: Math.max(now, c.deliveryDeadline) + DELIVERY_RETENTION_MS,
       status: 'queued', updatedAt: now, proposalEnvelopeDigest: digest(first),
       ...(c.message.operationId ? { operationId: c.message.operationId } : {}) } : undefined;
-    {
-      if (message) requireDelivery(first.payload.eventType === 'PROPOSE' && first.payload.envelopeId === c.messageId && first.payload.taskId === message.taskId);
-      this.store.assertCapacity(records, message);
-      for (const r of records) {
-        const prior = this.store.read('outbox', r.envelopeId);
-        if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-        this.store.write('outbox', r.envelopeId, r);
-      }
-      if (message) {
-        const prior = this.store.read('messages', message.messageId);
-        if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-        this.store.write('messages', message.messageId, message);
-      }
-      const marker = { version: 1 as const, batchId, messageId: c.messageId, localOwnerDid: this.owner.did,
-        envelopeIds: records.map(r => r.envelopeId), createdAt: now, committed: true as const };
-      this.store.write('batches', batchId, marker);
-      this.store.committed(batchId);
+    if (message) requireDelivery(first.payload.eventType === 'PROPOSE' && first.payload.envelopeId === c.messageId && first.payload.taskId === message.taskId);
+    const marker = { version: 1 as const, batchId, messageId: c.messageId, localOwnerDid: this.owner.did,
+      envelopeIds: records.map(r => r.envelopeId), createdAt: now, committed: true as const };
+    return { records, message, marker };
+  }
+  private publishBatch({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>, prepared?: PreparedDeliveryWrite[]): string[] {
+    const publish = (write: DeliveryWrite) => {
+      if (prepared) this.store.publishWrite(prepared.find(p => p.kind === write.kind && p.id === write.id)!);
+      else this.store.write(write.kind, write.id, write.record);
+    };
+    return this.store.transaction(() => this.publishBatchLocked({ records, message, marker }, publish));
+  }
+  private publishBatchLocked({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>,
+    publish: (write: DeliveryWrite) => void): string[] {
+    this.store.assertCapacity(records, message);
+    for (const r of records) {
+      const prior = this.store.read('outbox', r.envelopeId);
+      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      publish({ kind: 'outbox', id: r.envelopeId, record: r });
     }
+    if (message) {
+      const prior = this.store.read('messages', message.messageId);
+      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      publish({ kind: 'messages', id: message.messageId, record: message });
+    }
+    publish({ kind: 'batches', id: marker.batchId, record: marker });
+    this.store.committed(marker.batchId);
     return records.map(r => r.envelopeId);
+  }
+  /** Publish all immutable members before the batch marker makes any member dispatchable. */
+  enqueue(prepared: readonly SignedEnvelope[], context: DeliveryContext): string[] {
+    const ids = this.publishBatch(this.buildBatch(prepared, context));
+    void this.statusRouter.refresh().catch(e => this.report(e));
+    return ids;
+  }
+  /** Independent batches write concurrently without holding the signer lock or blocking relay readers. */
+  async enqueuePrepared(frames: readonly SignedEnvelope[], context: DeliveryContext, signal?: AbortSignal): Promise<string[]> {
+    const batch = this.buildBatch(frames, context);
+    const writes: DeliveryWrite[] = batch.records.map(record => ({ kind: 'outbox', id: record.envelopeId, record }));
+    if (batch.message) writes.push({ kind: 'messages', id: batch.message.messageId, record: batch.message });
+    writes.push({ kind: 'batches', id: batch.marker.batchId, record: batch.marker });
+    const prepared = await this.store.prepareWrites(writes);
+    try {
+      await this.prepare(signal);
+      const ids = this.publishBatch(batch, prepared);
+      void this.statusRouter.refresh().catch(e => this.report(e));
+      return ids;
+    } finally { this.store.discardWrites(prepared); }
+  }
+  /** C4 stages status frames and observation references in one prepared transaction. */
+  enqueueLocked(frames: readonly SignedEnvelope[], context: DeliveryContext): string[] {
+    return this.publishBatchLocked(this.buildBatch(frames, context), write => this.store.write(write.kind, write.id, write.record));
   }
   private async ordered(signal: AbortSignal): Promise<OutboxRecordV1[]> {
     const records: OutboxRecordV1[] = [];
@@ -217,6 +244,7 @@ class GatewayDeliveryServiceImplementation {
       const batch = this.store.committed(r.batchId);
       if (!batch.length) return;
       const now = this.store.now();
+      // Suppression/expiry bookkeeping can replay; every attempt rechecks disclosure and deadline.
       if (r.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(r)) {
         this.store.write('outbox', id, { ...r, state: 'closed', lastError: 'DELIVERY_STATUS_NOT_SUPPORTED' }); return;
       }
@@ -229,7 +257,7 @@ class GatewayDeliveryServiceImplementation {
       if (this.store.pending(r.messageId).some(other => other.kind === r.kind && (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
       const next = { ...r, lease: { holderId, until: now + 60_000 }, attemptCount: r.attemptCount + 1 };
       // A lost lease or attempt counter only repeats the same immutable envelope.
-      this.store.write('outbox', id, next, false); return next;
+      this.store.write('outbox', id, next); return next;
     });
     if (!claimed) return;
     let error: unknown, admitted = false, relayDid: string | undefined;
@@ -267,7 +295,7 @@ class GatewayDeliveryServiceImplementation {
         r.state = 'admitted'; r.admittedAt = now; delete r.lastError;
         if (relayDid) r.relayDid = relayDid;
         const m = r.kind === 'task' && this.store.read('messages', r.messageId);
-        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now }, false);
+        if (m && r.envelopeId === m.messageId && m.status === 'queued') this.store.write('messages', m.messageId, { ...m, status: 'relayed', updatedAt: now });
       } else if (now >= r.deliveryDeadline || !isTransientRelayError(error)) {
         if (error instanceof Error && now < r.deliveryDeadline) this.terminalErrors.set(id, error);
         const code = now >= r.deliveryDeadline ? 'OUTBOX_DEADLINE_EXPIRED' : errorCode(error);
@@ -282,8 +310,8 @@ class GatewayDeliveryServiceImplementation {
           detail.retryAfterMs! > 0 && detail.retryAfterMs! <= 3_600_000 ? detail.retryAfterMs! : 0;
         r.nextAttemptAt = Math.min(r.deliveryDeadline, now + Math.max(outboxRetryDelay(r.attemptCount), hint));
       }
-      // Admission and retry scheduling may be replayed after interruption; enqueue remains flushed.
-      this.store.write('outbox', id, r, false);
+      // Admission and retry scheduling may be replayed after interruption; enqueue remains published.
+      this.store.write('outbox', id, r);
     });
     if (signal.aborted) signal.throwIfAborted();
   }
@@ -301,18 +329,20 @@ class GatewayDeliveryServiceImplementation {
     this.store.transaction(() => this.closeLocked(messageId, code, code === 'OUTBOX_DEADLINE_EXPIRED' ? 'deadline' : 'local'));
   }
   markPeerObserved(messageId: string, observation: { status: MessageStatus; envelopeId: string; replyEnvelopeId?: string }): void {
-    this.store.transaction(() => {
+    const change = () => {
       const m = this.store.read('messages', messageId);
       requireDelivery(observation.envelopeId === messageId);
       const r = this.store.read('outbox', messageId);
       if (r?.state === 'pending') {
         const next = { ...r, state: 'admitted' as const, admittedAt: this.store.now() }; delete next.lease;
-        this.store.write('outbox', r.envelopeId, next, false);
+        this.store.write('outbox', r.envelopeId, next);
       }
       if (m && (['queued', 'relayed'].includes(m.status) || observation.status === 'replied'))
         this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now(),
           ...(observation.replyEnvelopeId ? { replyEnvelopeId: observation.replyEnvelopeId } : {}) });
-    });
+    };
+    if (observation.replyEnvelopeId) this.store.preparedTransaction(change);
+    else this.store.transaction(change);
   }
 }
 /** Structural public interface permits source and built hosts to share a service. */

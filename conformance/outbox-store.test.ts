@@ -54,6 +54,8 @@ describe('persistent envelope store', () => {
     const changed = JSON.parse(fs.readFileSync(path, 'utf8'));
     changed.payload.attemptCount++;
     fs.writeFileSync(path, JSON.stringify(changed) + '\n');
+    // Explicit metadata change keeps this cache test independent of timestamp granularity.
+    fs.utimesSync(path, 1, 1);
     expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
     fs.writeFileSync(path, JSON.stringify(signPayload({ ...record, version: 2 }, f.owner)) + '\n');
     expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
@@ -100,9 +102,9 @@ describe('persistent envelope store', () => {
     expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'OUTBOX_STORE_INVALID' }));
     expect(f.posted).toEqual([]); expect(fs.readFileSync(path)).toEqual(before);
   });
-  it('publishes no batch and sends nothing when an enqueue flush fails', async () => {
+  it('publishes no batch and sends nothing when an enqueue write fails', async () => {
     const f = fixture(), p = f.prepare(), service = f.restart(f.owner, { identityOptions: { ...f.identityOptions,
-      fs: { ...fs, fsyncSync: () => { throw Object.assign(new Error('fixture flush'), { code: 'EIO' }); } } } });
+      fs: { ...fs, writeSync: () => { throw Object.assign(new Error('fixture write'), { code: 'EIO' }); } } } });
     expect(() => service.enqueue(p.frames, p.context)).toThrow('OUTBOX_STORE_UNWRITABLE');
     expect(service.store.ids('batches')).toEqual([]);
     expect(inventory(service.store.root).filter(n => /\.tmp$|\.lock$/.test(n))).toEqual([]);

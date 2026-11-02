@@ -40,7 +40,7 @@ class RecipientDeliveryCoordinatorImplementation {
       envelope.payload.taskId !== manifest.taskId || envelope.payload.senderDid !== manifest.requester.ownerDid ||
       manifest.worker?.ownerDid !== this.service.owner.did || digest(body.proposal.payload) !== digest(manifest) ||
       !verifySigned(body.proposal as never, manifest.requester.ownerDid)) throw deliveryError('INVALID_DELIVERY_STATUS');
-    this.service.store.transaction(() => {
+    this.service.store.preparedTransaction(() => {
       const previous = this.service.store.read('observations', id);
       if (previous) {
         if (previous.originalEnvelopeDigest !== digest(envelope)) throw deliveryError('DELIVERY_RECORD_CONFLICT');
@@ -64,7 +64,7 @@ class RecipientDeliveryCoordinatorImplementation {
     const firstHandoff = !this.service.store.read('observations', id);
     if (firstHandoff) {
       const now = this.service.store.now(), connected = this.connection(manifest.requester.ownerDid) === 'connected';
-      this.service.store.transaction(() => {
+      this.service.store.preparedTransaction(() => {
         if (this.service.store.ids('observations').length >= this.service.store.limits.messages) throw deliveryError('OUTBOX_FULL');
         this.service.store.write('observations', id, {
         version: 1, messageId: id, localOwnerDid: this.service.owner.did, senderDid: manifest.requester.ownerDid,
@@ -80,7 +80,7 @@ class RecipientDeliveryCoordinatorImplementation {
   observe(id: string, state: RecipientDeliveryState): void { this.recordObservation(id, state); }
   private recordObservation(id: string, state: RecipientDeliveryState, firstHandoff = false): void {
     if (!UUID.test(id)) return;
-    this.service.store.transaction(() => {
+    this.service.store.preparedTransaction(() => {
       let r = this.service.store.read('observations', id);
       if (!r || this.service.store.now() >= r.retainUntil) return;
       this.reconcileLocked(r);
@@ -148,7 +148,7 @@ class RecipientDeliveryCoordinatorImplementation {
   }
   reconcile(records: HeldRecord[] = []): void {
     for (const record of records) if (!this.pendingAdmissions.has(record.envelope.payload.envelopeId)) this.transition(record, 'held');
-    if (this.service.store.ids('observations').length) this.service.store.transaction(() => {
+    if (this.service.store.ids('observations').length) this.service.store.preparedTransaction(() => {
       for (const r of this.service.store.snapshot('observations')) this.reconcileLocked(r);
     });
   }
