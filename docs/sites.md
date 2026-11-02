@@ -11,6 +11,14 @@ external font, CDN script, or remote QR service.
 | sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc` (`sealbridge-site`) |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc` (`sealbridge-invite`) |
 
+The English and Japanese landing pages include a 30-second code-review demo
+with no audio below the hero, with English captions in the frames and a text transcript.
+The audio tracks were removed by stream copy, leaving the video unchanged.
+The build copies the video-only WebM and MP4 and unchanged poster from `docs/media/` to the
+official site's `/media/` directory. Playback controls remain available, and a
+local script pauses playback and disables autoplay when reduced motion is requested.
+Preview serves media MIME types and byte ranges for playback and seeking.
+
 `sites/connect-agent.txt` is copied unchanged to `/connect-agent.txt` and served
 as `text/plain; charset=utf-8` by the headers file. Landing/install pages link
 to it. It describes local setup, host reload, human-run invite import and open

@@ -11,6 +11,13 @@
 | sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc`（`sealbridge-site`） |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc`（`sealbridge-invite`） |
 
+英語・日本語のトップページでは、ヒーローの直下に30秒のコードレビュー実演を表示します。
+動画に音声はありません。英語字幕は映像に含まれ、文字起こしも読めます。
+音声トラックはストリームコピーで除去し、映像は変更していません。ビルドは `docs/media/` の
+映像のみの WebM・MP4 と変更のないポスターを公式サイトの `/media/` にコピーします。再生コントロールを
+表示し、動きを減らす設定ではローカルスクリプトが再生を停止して自動再生を無効にします。
+プレビューは再生とシーク用のメディア MIME 型とバイト範囲リクエストに対応します。
+
 `sites/connect-agent.txt` を変更せず `/connect-agent.txt` へコピーし、ヘッダーで
 `text/plain; charset=utf-8` を指定します。トップ・インストールページからリンクします。
 ローカル設定、ホスト再読込、人間による招待取込、オープンワーカー検索と通信範囲を記載します。
