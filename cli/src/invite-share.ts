@@ -51,8 +51,10 @@ export function reissueInvite(value: string, key: KeyPair, seconds = 86400, agen
   const card = { name: original.name, description: original.description, agentDid: original.agentDid,
     relayEndpoint: original.relayEndpoint, skills: original.skills, costModes: original.costModes,
     version: original.version, protocolVersions: new LiveProtocol().receiveVersions() };
-  return createInviteToken({ agentCard: createSignedAgentCard({ ...card,
-    expiresAt: new Date(Date.now() + seconds * 1000).toISOString() }, key, agentKey), expiresInSeconds: seconds }, key);
+  const now = Date.now();
+  return createInviteToken({ agentCard: createSignedAgentCard({ ...card, now,
+    expiresAt: new Date(now + seconds * 1000).toISOString() }, key, agentKey),
+    issuedAt: new Date(now).toISOString(), expiresInSeconds: seconds }, key);
 }
 export function friendlyExpiry(expiresAt: string, now = Date.now(), locale?: string, timeZone?: string): string {
   const date = new Date(expiresAt), remaining = date.getTime() - now;
@@ -82,10 +84,11 @@ function saveReciprocalInvite(value: string, invite: Invite, key: KeyPair, conta
   out: string, name?: string, keyPath?: string, backend?: string) {
   if (!verifySigned(signPayload({ type: 'IdentityCheck' }, key), key.did)) throw new Error('INVALID_IDENTITY_KEY');
   if (key.did === invite.ownerDid) throw new Error('SELF_INVITE');
-  const card = createSignedAgentCard({ name: 'Sealbridge contact', agentDid: key.did, relayEndpoint: invite.relayUrl,
+  const now = Date.now();
+  const card = createSignedAgentCard({ name: 'Sealbridge contact', agentDid: key.did, relayEndpoint: invite.relayUrl, now,
     skills: [{ id: 'json-task', name: 'JSON task' }], protocolVersions: new LiveProtocol().receiveVersions(),
-    expiresAt: new Date(Date.now() + 86400000).toISOString() }, key);
-  const reciprocal = createInviteToken({ agentCard: card, expiresInSeconds: 86400 }, key);
+    expiresAt: new Date(now + 86400000).toISOString() }, key);
+  const reciprocal = createInviteToken({ agentCard: card, issuedAt: new Date(now).toISOString(), expiresInSeconds: 86400 }, key);
   writeFileSync(out, reciprocal, { flag: 'wx', mode: 0o600 });
   addContact(contactPath, key, inviteToken(value), name);
   return { ownerDid: key.did, keyFile: keyPath, reciprocalInviteFile: out,

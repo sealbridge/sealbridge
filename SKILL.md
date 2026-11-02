@@ -332,6 +332,9 @@ text is echoed. The existing token-free JSON result includes `alias`, `workerRef
 
 ## Connections and held review / つながりと保留の審査
 
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
+接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
+
 Release note: The following are available in the next release of the sealbridge npm
 package after 0.2.2; they are not supported in CLI 0.2.2:
 `connections`, `requests`.

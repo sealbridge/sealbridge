@@ -682,6 +682,7 @@ See [connection state persistence](docs/connections/connection-state.md) for API
 
 The library exports signed request, acceptance and ACK helpers plus an injected `ConnectionService`.
 Runtime, CLI, MCP and board now attach this exchange through owner-local persistence and held-content review.
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
 See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
 
 ## Local M0–M1 implementation
