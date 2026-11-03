@@ -11,6 +11,9 @@ import { AcpMcpServer, IdempotencyStore, InviteStore, PolicyAutoApprovalProvider
 import type { AcpMcpServerOptions, ApprovalProvider } from '../packages/runtime/src/index.js';
 import { body, deferred, form, harness, initialize, toolCall } from './mcp-approval-helpers.js';
 
+// Pin compatibility to this fixture's clock; idempotency does not test retirement.
+const protocolPolicy = { releasedAt: '2030-01-01T00:00:00Z',
+  sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 } as const;
 const cleanups: Array<() => void | Promise<void>> = [];
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.UTC(2030, 0, 1));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('OFFLINE_TEST_NETWORK'); })); });
@@ -26,13 +29,13 @@ function setup() {
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } };
   const owner = generateKeyPair(), remote = generateKeyPair(), relay = new InMemoryRelay();
   const execute = vi.fn(async (context: { input: Json }) => context.input);
-  const worker = new WorkerNode({ owner: remote, relay, relayUrl: 'https://relay.example', identityOptions,
+  const worker = new WorkerNode({ protocolPolicy, owner: remote, relay, relayUrl: 'https://relay.example', identityOptions,
     checkPeer: () => 'trusted', approvalProvider: new PolicyAutoApprovalProvider(remote),
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute } });
   const approve = vi.fn(async (request: Parameters<ApprovalProvider['approve']>[0]) =>
     signApproval(request.taskId, request.gate, request.target, owner));
   const transport = vi.fn(() => relay);
-  const options: AcpMcpServerOptions = { owner, identityOptions, relay: 'https://relay.example',
+  const options: AcpMcpServerOptions = { protocolPolicy, owner, identityOptions, relay: 'https://relay.example',
     transportFactory: transport, approvalProvider: { approve } };
   const server = new AcpMcpServer(options);
   const send = vi.spyOn(relay, 'send');
@@ -136,7 +139,7 @@ describe('MCP send-tool idempotency', () => {
   it('keeps a held result and one explicit resubmission attempt across restarts', async () => {
     const f = setup();
     // The default intake path holds an unconnected peer and never invokes an adapter.
-    const heldWorker = new WorkerNode({ owner: f.remote, identityOptions: f.identityOptions,
+    const heldWorker = new WorkerNode({ protocolPolicy, owner: f.remote, identityOptions: f.identityOptions,
       relay: f.relay, relayUrl: 'https://relay.example', approvalProvider: new PolicyAutoApprovalProvider(f.remote),
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: f.execute } });
     const running = heldWorker.start(); cleanups.push(async () => { heldWorker.stop(); await running; });
@@ -161,7 +164,7 @@ describe('MCP send-tool idempotency', () => {
     const args = { ...f.args, workerRef: 'reviewer' }; delete (args as any).workerDid;
     const first = await call(f.server, args); expect(body(first).status).toBe('SETTLED');
     invites.remove('reviewer');
-    const another = new WorkerNode({ owner: generateKeyPair(), relay: f.relay, relayUrl: 'https://relay.example',
+    const another = new WorkerNode({ protocolPolicy, owner: generateKeyPair(), relay: f.relay, relayUrl: 'https://relay.example',
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: f.execute } });
     invites.import(another.invite(), 'reviewer');
     vi.setSystemTime(Date.now() + 3600_001);
@@ -171,7 +174,7 @@ describe('MCP send-tool idempotency', () => {
   it.each(['quorum', 'race'] as const)('prepares a complete ordered %s fan-out and repeats no child or approval', async mode => {
     const f = setup(); f.start();
     const otherOwner = generateKeyPair();
-    const other = new WorkerNode({ owner: otherOwner, relay: f.relay, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
+    const other = new WorkerNode({ protocolPolicy, owner: otherOwner, relay: f.relay, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
       approvalProvider: new PolicyAutoApprovalProvider(otherOwner), adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: f.execute } });
     const running = other.start(); cleanups.push(async () => { other.stop(); await running; });
     f.approve.mockImplementation(async r => {
@@ -227,7 +230,7 @@ describe('MCP send-tool idempotency', () => {
   });
   it('supports keyed runtime sends and requires returned evidence from a pre-send hook', async () => {
     const f = setup(); f.start();
-    const client = new RequesterClient({ owner: f.owner, identityOptions: f.identityOptions, relay: f.relay,
+    const client = new RequesterClient({ protocolPolicy, owner: f.owner, identityOptions: f.identityOptions, relay: f.relay,
       approvalProvider: new PolicyAutoApprovalProvider(f.owner) });
     const beforePropose = vi.fn(async ({ manifest, input, relay }: any) => {
       const target = { manifest, input, relay, fanOut: 1, description: manifest.task.description };

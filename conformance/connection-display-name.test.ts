@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,7 +13,7 @@ import { connectionsCommand } from '../cli/src/connections.js';
 import type { ConnectionPeer, ConnectionStatus } from '../cli/src/sdk.js';
 import { admissionFixture, completeInspection } from './connections-fixture.js';
 
-const NOW = Date.parse('2026-11-03T00:00:00.000Z');
+const NOW = protocolTestNow('2026-11-03T00:00:00.000Z');
 const RELAY = 'https://relay.example';
 let root: string;
 const now = () => NOW;

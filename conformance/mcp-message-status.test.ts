@@ -23,7 +23,7 @@ afterEach(() => {
 function fixture(inspect = true) { const f = statusFixture(inspect); cleanups.push(f.cleanup); return f; }
 type Fixture = ReturnType<typeof fixture>;
 function server(f: Fixture, options: Partial<AcpMcpServerOptions> = {}) {
-  return new AcpMcpServer({ owner: f.sender, identityOptions: f.identityOptions, now: f.now, ...options });
+  return new AcpMcpServer({ protocolPolicy: f.protocolPolicy, owner: f.sender, identityOptions: f.identityOptions, now: f.now, ...options });
 }
 async function call(s: AcpMcpServer, args: unknown) {
   return await s.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
@@ -287,7 +287,7 @@ it('returns absent for missing roots, identities, unknown and foreign IDs withou
   const f = fixture(), unknown = randomUUID(), before = inventory(f.root);
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(f.root, 'missing'), HOME: join(f.root, 'home') },
     keyStore: 'file' as const, keyringLoader: async () => { throw new Error('KEY_STORE_UNAVAILABLE'); } };
-  for (const s of [server(f), new AcpMcpServer({ identityOptions, now: f.now })]) {
+  for (const s of [server(f), new AcpMcpServer({ protocolPolicy: f.protocolPolicy, identityOptions, now: f.now })]) {
     expect(await query(s, { messageId: unknown })).toEqual({ found: false });
     expect(await query(s, { taskId: 'no C2 record' })).toEqual({ found: false });
   }
@@ -326,7 +326,7 @@ it('returns a fixed code for malformed retained messages or proposal records wit
 it('restarts with inspected signer state and reads legacy observations without initializing clients or creating identities', async () => {
   const f = fixture(), p = f.enqueue(f.proposal('0.1.0'));
   const load = vi.fn(() => f.sender), createIfMissing = vi.fn(() => f.sender), factory = vi.fn();
-  const options: AcpMcpServerOptions = { now: f.now, transportFactory: factory,
+  const options: AcpMcpServerOptions = { protocolPolicy: f.protocolPolicy, now: f.now, transportFactory: factory,
     identityOptions: { ...f.identityOptions, keyStore: { load, createIfMissing,
       exists: () => true, describe: () => ({ backend: 'fixture', location: 'local' }) } } };
   const before = inventory(f.root);
@@ -351,6 +351,9 @@ it('reads the configured delivery store and clock without starting an injected s
   const injected = server(f, { identityOptions: unusedRoot, deliveryService: f.outgoing });
   expect(await query(injected, { messageId: p.messageId })).toMatchObject({ found: true, status: 'queued' });
   const configured = server(f, { identityOptions: unusedRoot, now: () => 0,
+    // Keep the deliberately different server clock valid while testing that
+    // deliveryOptions.now, rather than the server clock, controls this lookup.
+    protocolPolicy: { releasedAt: new Date(0).toISOString(), sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 },
     deliveryOptions: { identityOptions: f.identityOptions, now: f.now, resolveTransport } });
   f.setNow(Date.parse(p.manifest.deadline));
   expect(await query(configured, { messageId: p.messageId })).toMatchObject({ status: 'closed' });
