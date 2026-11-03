@@ -40,7 +40,8 @@ verified discovery card when available, rather than a manifest display label.
 Plain DID requests without a peer card can remain unnamed; acceptance messages
 carry no new name field. No wire or protocol schema changes are made.
 
-`WorkerTrustStore.listConnections()`, `connections list`, `acp_list_connections`
+`WorkerTrustStore.listConnections()`, `connectionStatus()`, `connections list`,
+`connections status`, `acp_list_connections`
 and `acp_list_connection_requests` include the optional field. Prior-approved
 candidates retain a known name from connection metadata for the same owner DID;
 `listPriorApprovedPeers()` and `connections prior-approved` return it. This does
@@ -50,3 +51,11 @@ rewrites; an inspected incoming exchange can fill a missing name during its next
 mutation without changing consent comparisons. The signed store stays version 2.
 Earlier binaries that reject unknown record fields cannot read named records;
 use the updated reader and avoid concurrent writers from different versions.
+
+`ConnectionStatus.peerDisplayName` is optional and comes from the retained connection
+or latest applicable offer, including inactive offers still present locally. Status
+reads do not resolve invitation tokens, rewrite records or send messages. The
+`sealbridge/sdk` entry exports `ConnectionPeer` and `ConnectionStatus` alongside the
+other connection types. Confirming a pending import retains it before verifying the
+invite and recording its name; unconfirmed-import cleanup does not change established
+connection metadata.

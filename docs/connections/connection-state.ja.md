@@ -39,7 +39,8 @@ relay を所有者の同意と送信より前に検証します。依頼者は�
 マニフェストの表示名は使いません。カードのない DID だけの依頼は名前なしのままです。
 承認通知に表示名の項目は追加せず、通信形式・プロトコルスキーマは変更しません。
 
-`WorkerTrustStore.listConnections()`・`connections list`・`acp_list_connections`・
+`WorkerTrustStore.listConnections()`・`connectionStatus()`・`connections list`・
+`connections status`・`acp_list_connections`・
 `acp_list_connection_requests` はこの任意項目を返します。過去の承認候補は同じ所有者 DID の
 接続 metadata にある既知の名前を保持し、`listPriorApprovedPeers()` と
 `connections prior-approved` が返します。表示名によって承認履歴や接続を作成しません。
@@ -47,3 +48,9 @@ relay を所有者の同意と送信より前に検証します。依頼者は�
 受信交換の次の更新時には同意の照合を変えず、不足する名前を補えます。署名付きストアの版は
 2 のままです。未知の記録項目を拒否する旧版は表示名付き記録を読めないため、新版の読み取りを
 使い、異なる版で同時に書き込まないでください。
+
+`ConnectionStatus.peerDisplayName` は任意項目で、保存済みの接続または該当する最新の申し込みから
+取得します。ローカルに残る無効化済みの申し込みも対象です。状態照会は招待トークンの解決・
+記録の書き換え・送信を行いません。`sealbridge/sdk` は他の接続型とともに `ConnectionPeer` と
+`ConnectionStatus` も公開します。確認待ちの取り込みは招待確認の前に保存を確定し、
+検証済み招待の表示名を記録します。未確認取り込みの整理では成立済みの接続 metadata を変更しません。

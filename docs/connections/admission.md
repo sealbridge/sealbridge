@@ -46,6 +46,10 @@ tokens remain errors before mutation. Established connections survive invitation
 expiry/revocation; use verified peer DID routing without the retired token for
 subsequent tasks. A saved `workerRef` still selects its saved invitation and checks
 that invitation on every use. Importing or previewing never connects either role.
+Embedders can mark imports as unconfirmed for explicit age-based cleanup. Retain them
+before use; `confirm-invite` retains before attempting owner confirmation, even if
+that attempt is rejected or interrupted. Retention grants no connection consent.
+See [invite lifecycle](invite-lifecycle.md).
 
 ```sh
 sealbridge accept --paste --alias reviewer

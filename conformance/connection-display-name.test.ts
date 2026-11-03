@@ -9,6 +9,7 @@ import type { KeyPair, SignedAgentCard, SignedEnvelope } from '../packages/core/
 import { AcpMcpServer, ConnectionRouter, HeldRequestReview, InviteStore, WorkerTrustStore,
   workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionsCommand } from '../cli/src/connections.js';
+import type { ConnectionPeer, ConnectionStatus } from '../cli/src/sdk.js';
 import { admissionFixture, completeInspection } from './connections-fixture.js';
 
 const NOW = Date.parse('2026-11-03T00:00:00.000Z');
@@ -28,9 +29,9 @@ function card(owner: KeyPair, name: string, agent = owner): SignedAgentCard {
   return createSignedAgentCard({ name, agentDid: agent.did, agentKey: agent, relayEndpoint: RELAY,
     skills: [], protocolVersions: ['0.2.0'], now: NOW }, owner);
 }
-function fixture(inspection = true) {
+function fixture(inspection = true, backend: 'file' | 'keychain' = 'keychain') {
   const secrets = new Map<string, string>();
-  const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'keychain' },
+  const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: backend },
     keyringLoader: async () => ({ Entry: class {
       constructor(_service: string, readonly id: string) {}
       getPassword() { return secrets.get(this.id) ?? null; }
@@ -216,4 +217,88 @@ it.each([null, 12, ''])('rejects invalid stored peer display metadata (%s)', nam
   state.connections[0].peerDisplayName = name;
   writeFileSync(path, JSON.stringify(signPayload(state, f.keys[0], new Date(NOW).toISOString())));
   expect(() => f.options[0].store.listConnections()).toThrow('INTAKE_STORE_INVALID');
+});
+
+it.each(['file', 'keychain'] as const)('retains a pending %s import on confirmation and keeps established names during unconfirmed cleanup', async backend => {
+  const f = fixture(true, backend);
+  const invites = await InviteStore.open(f.keys[0], { ...f.identityOptions, now });
+  const token = createInviteToken({ agentCard: f.options[1].agentCard }, f.keys[1]);
+  const saved = invites.import(token, 'reviewer', { pendingConfirmation: true });
+  expect(invites.listUnconfirmed()).toEqual([saved]);
+  expect(() => invites.resolve(saved.workerRef)).toThrow('INVITE_CONFIRMATION_REQUIRED');
+  expect(f.options[0].store.connectionStatus(f.keys[1].did)).not.toHaveProperty('peerDisplayName');
+  const output = vi.fn(), transportFactory = vi.fn(() => f.options[0].relay);
+  const commandOptions = { identityOptions: f.identityOptions, now, output, transportFactory,
+    review: vi.fn(async () => {
+      expect(invites.listUnconfirmed()).toEqual([]);
+      expect(invites.resolve(saved.workerRef).invite.agentCard.payload.name).toBe('査読者');
+      return true;
+    }) };
+  await connectionsCommand(['confirm-invite', saved.alias, '--key', f.keyPath], commandOptions);
+  expect(commandOptions.review).toHaveBeenCalledOnce();
+  expect(invites.list()[0]).not.toHaveProperty('importState');
+  expect(f.options[0].store.connectionStatus(f.keys[1].did)).toMatchObject({ status: 'pending_peer', peerDisplayName: '査読者' });
+  await f.routers[1].consume(f.take(1, 'CONNECTION_REQUEST'));
+  await f.routers[0].consume(f.take(0, 'CONNECTION_ACCEPTED'));
+  expect(f.options[0].store.connectionStatus(f.keys[1].did)).toMatchObject({ status: 'connected', peerDisplayName: '査読者' });
+
+  // A different pending invitation from the same owner is eligible for cleanup.
+  const unconfirmedToken = createInviteToken({ agentCard: card(f.keys[1], 'Later name') }, f.keys[1]);
+  const unconfirmed = invites.import(unconfirmedToken, 'temporary', { pendingConfirmation: true });
+  const path = workerIntakePath(f.keys[0].did, f.identityOptions), bytes = readFileSync(path);
+  const reopened = await InviteStore.open(f.keys[0], { ...f.identityOptions, now: () => NOW + 1 });
+  expect(reopened.removeUnconfirmed({ olderThan: new Date(NOW + 1).toISOString() })).toEqual({ removed: 1 });
+  expect(reopened.list().map(i => i.workerRef)).toEqual([saved.workerRef]);
+  expect(() => reopened.resolve(unconfirmed.workerRef)).toThrow('INVITE_NOT_FOUND');
+  expect(reopened.remove(saved.workerRef)).toBe(true);
+  expect(f.secrets.size).toBe(0);
+  transportFactory.mockClear(); commandOptions.review.mockClear();
+  await connectionsCommand(['status', f.keys[1].did, '--key', f.keyPath], commandOptions);
+  expect(JSON.parse(output.mock.calls.at(-1)![0])).toMatchObject({ status: 'connected', peerDisplayName: '査読者' });
+  const restarted = new WorkerTrustStore(f.keys[0], { path, now });
+  const status: ConnectionStatus = restarted.connectionStatus(f.keys[1].did);
+  expect(status).toMatchObject({ status: 'connected', peerDisplayName: '査読者' });
+  expect(restarted.listConnections()).toMatchObject([{ peerDisplayName: '査読者' }]);
+  expect(readFileSync(path)).toEqual(bytes);
+  expect(transportFactory).not.toHaveBeenCalled(); expect(commandOptions.review).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(JSON.stringify(output.mock.calls)).not.toContain(token);
+  expect(JSON.stringify(output.mock.calls)).not.toContain(unconfirmedToken);
+});
+
+it('projects named and unnamed status from one snapshot without rewriting legacy records', async () => {
+  const f = fixture(false), peer = f.keys[1].did;
+  expect(f.options[0].store.connectionStatus(peer)).toEqual({ peerOwnerDid: peer, state: 'none', status: 'none' });
+  await f.routers[0].service.request({ toOwnerDid: peer });
+  await f.routers[1].consume(f.take(1, 'CONNECTION_REQUEST'));
+  const unnamed = f.options[0].store.connectionStatus(peer);
+  expect(unnamed).toMatchObject({ status: 'pending_peer' });
+  expect(unnamed).not.toHaveProperty('peerDisplayName');
+  expect(f.options[1].store.connectionStatus(f.keys[0].did)).toMatchObject({ status: 'pending_owner', peerDisplayName: 'Requester' });
+  const path = workerIntakePath(peer, f.identityOptions);
+  const state = JSON.parse(readFileSync(path, 'utf8')).payload;
+  for (const c of state.connections) delete c.peerDisplayName;
+  for (const r of state.controls) delete r.offer.peerDisplayName;
+  writeFileSync(path, JSON.stringify(signPayload(state, f.keys[1], new Date(NOW).toISOString())));
+  const bytes = readFileSync(path);
+  expect(f.options[1].store.connectionStatus(f.keys[0].did)).toMatchObject({ status: 'pending_owner' });
+  expect(f.options[1].store.connectionStatus(f.keys[0].did)).not.toHaveProperty('peerDisplayName');
+  expect(readFileSync(path)).toEqual(bytes);
+});
+
+it('retains the applicable offer name in inactive status after withdrawal and restart', async () => {
+  const f = fixture(), peer = f.keys[1].did;
+  const peerAgentCard = f.options[1].agentCard;
+  await f.routers[0].service.request({ toOwnerDid: peer, peerAgentCard });
+  const store = f.options[0].store;
+  const status = store.connectionStatus(peer);
+  expect(status).toMatchObject({ status: 'pending_peer', peerDisplayName: '査読者' });
+  const known: ConnectionPeer = { peerOwnerDid: peer, peerDisplayName: status.peerDisplayName, relayUrl: RELAY };
+  store.withdrawConnection(peer, status.requestId!);
+  expect(store.listConnections()).toEqual([]);
+  const path = workerIntakePath(f.keys[0].did, f.identityOptions), bytes = readFileSync(path);
+  const restarted = new WorkerTrustStore(f.keys[0], { path, now });
+  expect(restarted.connectionStatus(peer)).toMatchObject({ peerOwnerDid: known.peerOwnerDid,
+    peerDisplayName: known.peerDisplayName, status: 'inactive', state: 'none', requestId: status.requestId });
+  expect(readFileSync(path)).toEqual(bytes);
 });
