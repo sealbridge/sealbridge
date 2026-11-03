@@ -742,7 +742,7 @@ export const mcpTools: Json = [
     inputSchema: objectSchema('No arguments.', {}),
     outputSchema: objectSchema('Local connection metadata.', {
       count: described('Number of connection records.', { type: 'integer', minimum: 0 }),
-      connections: described('Local peer states and lifecycle metadata.', { type: 'array', items: { type: 'object', additionalProperties: true } }),
+      connections: described('Local peer states and lifecycle metadata, including optional peerDisplayName from a verified card. Names are informational; DIDs determine identity.', { type: 'array', items: { type: 'object', additionalProperties: true } }),
     }, ['count', 'connections']),
   })),
   tool({

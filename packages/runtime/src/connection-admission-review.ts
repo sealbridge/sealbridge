@@ -11,7 +11,7 @@ export interface InboundConnectionSummary {
   id: string; requestId: string; requestDigest: string;
   localOwnerDid: string; peerOwnerDid: string; peerAgentDid: string;
   shortLocalOwnerDid: string; shortPeerOwnerDid: string; shortPeerAgentDid: string;
-  peerDisplayName: string; inviteAlias?: string;
+  peerDisplayName?: string; inviteAlias?: string;
   createdAt: string; receivedAt: number; expiresAt: number; relayUrl: string;
 }
 export interface ConnectionAdmissionReviewOptions extends Omit<ConnectionRouterOptions, 'review' | 'humanReview'> {

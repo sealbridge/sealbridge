@@ -22,7 +22,7 @@ await admission.approve(requests[0].id);
 `heldOptions` に渡してください。
 
 `list()` は書き込み・検査をせず、保留 ID・依頼 ID・依頼ダイジェスト、完全な DID と短縮 DID、
-相手のカードの表示名、作成・受信・保留期限、relay URL だけを返します。
+相手のカードの表示名（任意の `peerDisplayName`）、作成・受信・保留期限、relay URL だけを返します。
 任意の `inviteAlias(inviteDigest)` は公開ダイジェストから既存のローカル名を引くためのもので、
 トークンを解決しません。名前がなければ省略します。表示名は相手が指定したデータです。
 表示用の名前は120コードポイント以内にし、制御・書式文字を除き、招待トークン文字列を置換します。
@@ -42,6 +42,13 @@ sealbridge connections review list --role worker
 sealbridge connections review approve REQUEST_ID --role worker
 sealbridge connections review reject REQUEST_ID --role worker
 ```
+
+承認後のローカルの `connectionStatus()` / `connections status` は `connected` となり、
+相手から ACK を受けるまで `acknowledgementPending` です。送信側は承認通知を受けるまで
+`pending_peer` です。拒否時はローカルが `inactive`、送信側は `pending_peer` のままで、
+拒否通知は送りません。既知の表示名は招待削除後も接続の一覧・状態に残ります。
+確認待ちの招待は使用前に保存を確定する必要があり、`connections confirm-invite` は所有者への
+確認前に確定します。受信の審査は保留済みの封筒を使い、招待ストアの項目は解決・確定しません。
 
 CLI の判断には人間の TTY または既存の確認コールバックが必要です。無人承認フラグや MCP の判断用
 ツールはありません。一覧と拒否は relay に接続せず、一覧は鍵も作りません。組み込み側は所有者の
@@ -89,6 +96,9 @@ sealbridge requests deny REQUEST_ID
 失効では消えません。後続の依頼は古いトークンを添付せず、確認済みの相手 DID を使います。
 保存済み `workerRef` は引き続き招待を選び、使うたびに期限を確認します。
 取り込みやプレビューだけでは、どちらの役割にも接続同意を付けません。
+組み込みでは日時で整理できる確認待ちマーカーを付けられます。使う前に保存を確定し、
+`confirm-invite` は所有者への確認の試行前に保存を確定します。拒否・中断時も保持します。
+保存の確定は接続同意ではありません。[招待のライフサイクル](invite-lifecycle.ja.md)を参照してください。
 
 ```sh
 sealbridge accept --paste --alias reviewer

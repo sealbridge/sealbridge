@@ -46,6 +46,10 @@ tokens remain errors before mutation. Established connections survive invitation
 expiry/revocation; use verified peer DID routing without the retired token for
 subsequent tasks. A saved `workerRef` still selects its saved invitation and checks
 that invitation on every use. Importing or previewing never connects either role.
+Embedders can mark imports as unconfirmed for explicit age-based cleanup. Retain them
+before use; `confirm-invite` retains before attempting owner confirmation, even if
+that attempt is rejected or interrupted. Retention grants no connection consent.
+See [invite lifecycle](invite-lifecycle.md).
 
 ```sh
 sealbridge accept --paste --alias reviewer
@@ -130,7 +134,8 @@ records delivery status or other cleanup observations.
 
 `list()` reads without writing or inspecting. Its allowlisted projection includes
 request/held IDs, request digest, full and shortened owner/agent DIDs, peer card
-display name, creation/receipt/held-expiry times and relay URL. An optional
+display name (`peerDisplayName`, optional when unknown), creation/receipt/held-expiry
+times and relay URL. An optional
 `inviteAlias(inviteDigest)` callback supplies an existing local label without
 resolving a token; absent labels are omitted. Display labels are bounded to 120
 code points, omit control/format characters and replace invitation token strings.
@@ -154,6 +159,15 @@ sealbridge connections review list --role worker
 sealbridge connections review approve REQUEST_ID --role worker
 sealbridge connections review reject REQUEST_ID --role worker
 ```
+
+After approval, local `connectionStatus()` / `connections status` reports
+`connected`, with `acknowledgementPending` until the peer's ACK arrives. The sender
+remains `pending_peer` until it receives acceptance. Rejection reports `inactive`
+locally and leaves the sender `pending_peer`; no rejection notification is sent.
+Known display names remain in connection list/status metadata after invite removal.
+Pending invitation imports must be retained before use; `connections confirm-invite`
+retains before requesting owner confirmation. Inbound review uses the held envelope,
+without resolving or retaining entries in an invitation store.
 
 CLI decisions require a human TTY or the existing injected human confirmation
 callback; there is no unattended approval flag or MCP decision tool. Listing and

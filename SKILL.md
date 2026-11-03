@@ -324,15 +324,32 @@ then omit `--dry-run` to apply; `--key <file>` selects an existing requester sig
 Migration preserves the original metadata on failure; previously written strings may remain.
 References still use keychain after switching to file. Missing/differing strings report
 `INVITE_SECRET_MISSING` / `INVITE_SECRET_MISMATCH`; unavailable access reports
-`KEY_STORE_UNAVAILABLE` without file fallback. `INVITE_SECRET_DELETE_FAILED` reports
-metadata removal with incomplete keychain cleanup. Embedders use `InviteStore.open`
+`KEY_STORE_UNAVAILABLE` without file fallback. Removal deletes the secret before metadata;
+`INVITE_SECRET_DELETE_FAILED` retains metadata for retry with the same reference. Embedders use `InviteStore.open`
 and may inject `InviteStoreOptions.secretStore` or MCP `identityOptions.secretStore`.
 招待にも共通の方式選択を適用します。file は従来の署名付き JSON を維持し、keychain は参照・
 ダイジェストをファイルに残してトークンを同じサービスの `invite:<entry id>` に保存します。
 既存のインライン項目は自動移行しません。上記 migrate の dry run で件数を確認し、フラグを外して適用します。
 `--key` は既存の署名者ファイルを指定します。失敗時は元のメタデータを維持し、書込済み文字列が残る場合があります。
 file に戻しても既存参照は keychain を使います。欠落・不一致・利用不能は上記コードで報告します。
-削除後の keychain 処理が失敗した場合も専用コードで報告します。組み込みでは上記の注入 API を使えます。
+keychain の文字列を先に削除し、失敗時はメタデータを維持して同じ参照で再試行できます。組み込みでは上記の注入 API を使えます。
+
+Embedders may import with the third argument `{ pendingConfirmation: true }`.
+`listUnconfirmed()` returns token-free metadata; `removeUnconfirmed({ olderThan })`
+removes only explicitly marked imports strictly older than the timestamp. Call
+`retain(workerRef)` before use; pending resolution returns `INVITE_CONFIRMATION_REQUIRED`.
+Ordinary import retains duplicates. Existing saves and entries without markers remain
+outside cleanup. `connections confirm-invite` retains before the confirmation attempt,
+including rejected/interrupted attempts, without replacing owner consent. There are no
+new CLI commands or MCP tools. See [invite lifecycle](docs/connections/invite-lifecycle.md).
+
+組み込みでは import の第3引数 `{ pendingConfirmation: true }` で確認待ちにできます。
+`listUnconfirmed()` はトークンを含まない情報を返し、`removeUnconfirmed({ olderThan })` は
+指定日時より古いマーカー付き項目だけを削除します。使う前に `retain(workerRef)` で保存を確定し、
+それまでは解決が `INVITE_CONFIRMATION_REQUIRED` になります。通常の import は重複も保存確定とし、
+過去の保存やマーカーのない項目は整理しません。`connections confirm-invite` は接続確認の試行前に
+保存を確定し、拒否・中断時も保持します。所有者の同意は別です。CLI・MCP の道具は追加しません。
+[招待のライフサイクル](docs/connections/invite-lifecycle.ja.md)を参照してください。
 
 `--stdin` reads one invitation link from a pipe or file through EOF, with a
 68 KiB byte cap and a 10-second total read timeout. Applications can spawn
@@ -360,6 +377,20 @@ package after 0.2.2; they are not supported in CLI 0.2.2:
 
 リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`connections`、`requests`。
 
+Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
+agent card. `listConnections()`, `connections list`, `connectionStatus()`,
+`connections status`, the MCP connection lists and prior-approved metadata return it when known, even after invite removal. Names are
+informational data only; DIDs remain authoritative for identity and consent. Equal
+names can belong to different owner DIDs. Older records and peers without a known
+card may omit the field; reading does not rewrite them. No wire change is required.
+
+接続 metadata は、検証済みの招待・エージェントカードから得た任意の `peerDisplayName` を保持します。
+`listConnections()`・`connections list`・`connectionStatus()`・`connections status`・
+MCP の接続一覧・過去の承認候補一覧は、
+招待の削除後も既知の表示名を返します。表示名は情報としてのみ扱い、識別と同意の判断は
+DID に基づきます。同じ表示名でも所有者 DID は異なる場合があります。
+旧記録や相手のカードが不明な場合は省略でき、読み取りで書き換えません。通信形式の変更はありません。
+
 Follow [connections admission](docs/connections/admission.md) and the [Japanese workflow](docs/connections/admission.ja.md).
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
 Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.
@@ -379,8 +410,23 @@ sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge connections confirm-invite reviewer --role requester
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
 
+After `confirm-invite`, use `sync --once` then `connections status workerRef-or-DID`
+(default role: requester). `WorkerTrustStore.connectionStatus(peerOwnerDid)` reads the
+same local projection: `none`, `pending_peer`, `pending_owner`, `connected`, `inactive`,
+`expired`, or `blocked`. Querying sends nothing and creates no identity. A local
+connection can still have `acknowledgementPending`; remote rejection is not notified.
+Expired offer details disappear on existing pruning. See [status semantics](docs/connections/connection-exchange.md#querying-connection-status).
+Available in the next release after CLI 0.2.2.
+
+`confirm-invite` の後に `sync --once` を実行し、`connections status workerRef-or-DID`
+で照会します（既定の役割は requester）。`WorkerTrustStore.connectionStatus(peerOwnerDid)`
+も同じローカルの状態を返します。照会は送信も鍵の作成も行いません。ローカルの接続が成立しても
+`acknowledgementPending` の場合があります。相手の拒否は通知されず、期限切れの申し込みの
+詳細は既存の削除処理で消えます。[状態の定義](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
+CLI 0.2.2 の次のリリースで利用できます。
 
 Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
 connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
@@ -522,6 +568,17 @@ Revoked invites and capabilities fail with `TOKEN_REVOKED`.
 MCP では `sealbridge mcp-server` を使います。進捗は `onProgress`、中断は
 `AbortSignal`、複数委任は `race` と `quorum` です。失効トークンは
 `TOKEN_REVOKED` です。
+
+## Embedding SDK / 組み込み SDK
+
+Use `sealbridge/sdk` for the supported typed ESM embedding APIs (next release after
+0.2.2). It re-exports existing invitation, identity/secret-store, connection review
+and MCP hosting APIs; import alone starts no operation. Existing deep paths remain
+resolvable. See [SDK contract](docs/sdk.md).
+
+組み込みには型付き ESM の `sealbridge/sdk`（0.2.2 の次のリリース）を使います。
+既存の招待・鍵と秘密のストア・接続の審査・MCP ホスト API を再 export し、import
+だけでは操作を開始しません。従来の内部パスも解決できます。[契約](docs/sdk.ja.md)を参照します。
 
 ## Held-content library / 保留内容のライブラリ
 

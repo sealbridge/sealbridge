@@ -47,3 +47,45 @@ limited の同意、承認通知の送信待ちを一度の更新で保存しま
 runtime・CLI・MCP は所有者ごとの永続化と検査の口を接続しています。リレーには制御通知のルーティングが必要です。
 
 ライブ経路は[接続の受付](admission.ja.md)を参照してください。既定の検査は利用不可です。
+
+## 接続状態の照会
+
+`connections confirm-invite reviewer --role requester` の後、必要な間隔で
+`connections sync --once --role requester --relay https://relay.sealbridge.dev`
+（招待の relay を指定）を実行し、`connections status reviewer --role requester` で照会します。
+1回の sync は最大1件の制御封筒を処理するため、必要に応じて繰り返します。常駐プロセスは不要です。
+status は JSON を返し、保存済み workerRef または相手の所有者 DID も指定できます。
+既定の役割は requester です。alias と保存済み参照は相手の所有者を選ぶため、同じ所有者の
+複数の招待は同じ現在の接続を返します。期限切れを含む保存済み参照には既存の InviteStore と
+保管方式の検証を適用し、不明な参照は `INVITE_NOT_FOUND` です。ローカルの鍵がない場合は
+ファイルを作らず `{"role":"requester","status":"none","state":"none"}` を返します。DID 指定では招待ストアを読みません。
+
+`WorkerTrustStore.connectionStatus(peerOwnerDid): ConnectionStatus` は所有者ごとの
+記録を一度読み、ストアに注入した時計で判定します。照会では受信・送信・削除・内容の検査・
+タスクを開く操作・同意の変更をしません。受信した制御通知の適用には別途 sync を実行します。
+返り値は `peerOwnerDid`、従来の `state`（none/pending/connected/blocked）と次の `status` です。
+
+| status | ローカルの記録 |
+| --- | --- |
+| `none` | 申し込みも成立済みの接続も保持していません。 |
+| `pending_peer` | 送信側の同意を保存し、相手の承認はローカルに未適用です。未送信や相手側の検査・審査待ちも含みます。 |
+| `pending_owner` | 受信した申し込みの検査または所有者の審査待ちです。 |
+| `connected` | ローカルの limited 接続です。送信した申し込みでは相手の署名付き承認を適用し、ACK の送信待ちを同時に保存しています。 |
+| `inactive` | ローカルで交換を無効にした記録です。拒否・取り下げ・接続解除を含み、具体的な理由は保存していません。 |
+| `expired` | 未接続の有効な申し込みが元の期限に達しました。 |
+| `blocked` | ローカルで相手をブロックしています。 |
+
+成立済みの接続またはブロックを履歴より優先します。それ以外では現在の送信申し込み、
+受信申し込み、最後に保持した交換の順で選びます。記録がある場合は `requestId`・`direction`・
+`createdAt`・`expiresAt`・`connectionId`・`connectedAt` を返します。時刻は epoch ミリ秒です。
+一致する承認済み交換を保持している場合、`acknowledgementPending` は送信側では ACK の
+送信待ち、受信側では相手からの ACK 待ちを示します。送信側の `false` は ACK の送信記録で、
+相手の受領の証明ではありません。交換記録を削除した後はこの項目を省略し、省略は ACK の
+確認を意味しません。成立済みの接続は招待や申し込みの期限切れ後も維持します。
+
+プロトコルに相手側の拒否通知はなく、相手が拒否・ブロックしても送信側は申し込みの期限まで
+`pending_peer` のままの場合があります。照会では期限切れの記録を変更せず、既存の更新時の
+削除処理で消します。そのため `expired`・`inactive` の詳細は保持中だけ照会でき、削除後は
+接続やブロックが残らなければ `none` です。永続的な試行履歴ではなく現在の観測を返します。
+version 1 と制御交換記録のない version 2 のファイルも読み取り、存在する記録だけを返します。
+保存形式・通信形式・MCP の道具は変更せず、relay の配備は不要です。

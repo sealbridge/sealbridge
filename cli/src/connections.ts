@@ -7,7 +7,7 @@ import { HttpRelayClient } from '@acp/relay';
 import type { RelayTransport } from '@acp/relay';
 import { ConnectionAdmissionReview, ConnectionRouter, HeldRequestReview, InviteStore, LiveProtocol, WorkerTrustStore,
   workerIntakePath, inspectStoredIdentity, resolveStoredIdentity, syncConnections } from '@acp/runtime';
-import type { ConnectionHumanReviewProvider, HeldContentReviewProvider, IdentityStoreOptions } from '@acp/runtime';
+import type { ConnectionHumanReviewProvider, HeldContentReviewProvider, InviteStoreOptions } from '@acp/runtime';
 
 export async function confirmOwner(summary: string, review?: (summary: string) => Promise<boolean>): Promise<boolean> {
   if (review) return review(summary);
@@ -24,12 +24,12 @@ export function connectionHumanReview(review?: (summary: string) => Promise<bool
     effect: 'Connect these identities with limited consent and no expiry. Each task requires inspection and owner opening.' }), review) };
 }
 export interface ConnectionsCommandOptions {
-  identityOptions?: IdentityStoreOptions; review?: (summary: string) => Promise<boolean>;
+  identityOptions?: InviteStoreOptions; review?: (summary: string) => Promise<boolean>;
   inspectionProvider?: HeldContentReviewProvider; now?: () => number;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   output?: (value: string) => void;
 }
-const USAGE = 'Usage: sealbridge connections list | review list|approve ID|reject ID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Human confirmation is required for decisions. Review uses built-in connection metadata inspection; other inspection is unavailable by default. / 判断には所有者の確認が必要です。review は組み込みの接続情報検査を使い、他の検査は既定で利用不可です。';
+const USAGE = 'Usage: sealbridge connections list | status workerRef-or-DID | review list|approve ID|reject ID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Human confirmation is required for decisions. Review uses built-in connection metadata inspection; other inspection is unavailable by default. / 判断には所有者の確認が必要です。review は組み込みの接続情報検査を使い、他の検査は既定で利用不可です。';
 export async function connectionsCommand(args: string[], options: ConnectionsCommandOptions = {}): Promise<void> {
   const output = options.output ?? console.log;
   if (args.includes('--help')) { output(USAGE); return; }
@@ -45,16 +45,26 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
       throw new Error('INVALID_CONNECTION_OPTION');
     flags.set(flag, rest[++i]);
   }
-  const readOnly = ['list', 'prior-approved', 'review-list'].includes(action);
-  if (!['list','prior-approved','review-list','review-approve','review-reject','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
+  const readOnly = ['list', 'prior-approved', 'status', 'review-list'].includes(action);
+  if (!['list','prior-approved','status','review-list','review-approve','review-reject','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
       ids.length !== (['list','prior-approved','review-list','request','sync'].includes(action) ? 0 : 1)) throw new Error(USAGE);
-  const role = flags.get('--role') ?? (action === 'confirm-invite' ? 'requester' : 'worker');
+  const role = flags.get('--role') ?? (['confirm-invite', 'status'].includes(action) ? 'requester' : 'worker');
   if (role !== 'worker' && role !== 'requester') throw new Error('INVALID_IDENTITY_ROLE');
   const identityOptions = { ...options.identityOptions, explicitKeyPath: flags.get('--key') };
   const key = readOnly ? (await inspectStoredIdentity(role, identityOptions)).key : await resolveStoredIdentity(role, identityOptions);
-  if (!key) { output(JSON.stringify(reviewAction ? { requests: [] } : { connections: [], priorApprovedPeers: [] })); return; }
+  if (!key) { output(JSON.stringify(action === 'status' ? { role, status: 'none', state: 'none' } : reviewAction ? { requests: [] } : { connections: [], priorApprovedPeers: [] })); return; }
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions),
     fs: identityOptions.fs, platform: identityOptions.platform, now: options.now });
+  if (action === 'status') {
+    const saved = ids[0].startsWith('did:') ? undefined :
+      (await InviteStore.open(key, { ...identityOptions, now: options.now })).list()
+        .find(i => i.workerRef === ids[0] || i.alias === ids[0]);
+    if (!ids[0].startsWith('did:') && !saved) throw new Error('INVITE_NOT_FOUND');
+    output(JSON.stringify({ localOwnerDid: key.did, role,
+      ...(saved ? { workerRef: saved.workerRef, alias: saved.alias } : {}),
+      ...store.connectionStatus(saved?.ownerDid ?? ids[0]) }));
+    return;
+  }
   const review = new HeldRequestReview(key, { ...identityOptions, provider: options.inspectionProvider, now: options.now });
   const delivery = attachHeldDeliveryStatus(key, review, identityOptions, store, options.now);
   if (action === 'list') { output(JSON.stringify({ localOwnerDid: key.did, role, connections: store.listConnections() })); return; }
@@ -98,7 +108,10 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   }
   let token: string | undefined, to = flags.get('--to') ?? peer, relayUrl = flags.get('--relay') ?? (connection && 'relayUrl' in connection ? connection.relayUrl : undefined);
   if (action === 'confirm-invite') {
-    const saved = (await InviteStore.open(key, { ...identityOptions, relayPolicy: { allowPrivateRelay: flags.has('--allow-private-relay') } })).resolve(ids[0]);
+    const invites = await InviteStore.open(key, { ...identityOptions, now: options.now,
+      relayPolicy: { allowPrivateRelay: flags.has('--allow-private-relay') } });
+    invites.retain(ids[0]);
+    const saved = invites.resolve(ids[0]);
     token = saved.inviteToken; to = saved.invite.ownerDid; relayUrl = saved.invite.relayUrl;
     const existing = store.listConnections().find(c => c.peerOwnerDid === to);
     if (existing?.state === 'connected' || existing && 'outgoing' in existing && existing.outgoing) {

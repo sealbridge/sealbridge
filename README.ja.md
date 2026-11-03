@@ -183,8 +183,10 @@ file 方式では従来の署名付き JSON 形式とバイト列を維持しま
 file に戻しても既存参照は keychain から解決し、新規保存はインラインに戻ります。一覧や MCP の結果に
 トークンを含めません。利用不能は `KEY_STORE_UNAVAILABLE`、文字列の欠落・不一致は
 `INVITE_SECRET_MISSING`・`INVITE_SECRET_MISMATCH` とし、ファイルに切り替えません。
-削除では参照先の文字列も削除します。`INVITE_SECRET_DELETE_FAILED` はメタデータの削除後に
-keychain の削除が失敗したことを表し、該当アカウントに文字列が残る場合があります。
+削除は参照先の文字列の削除と欠落確認を先に行い、その後にメタデータを置換します。
+`INVITE_SECRET_DELETE_FAILED` ではメタデータを維持し、同じ別名・参照で `remove`・
+`invites remove`・`acp_remove_invite` を再実行できます。文字列削除後に置換が失敗すると
+解決は `INVITE_SECRET_MISSING` になりますが、削除の再実行は文字列なしで完了できます。
 
 既存の依頼者鍵を使い、明示的にインラインのトークンを移行できます。
 
@@ -204,6 +206,15 @@ dry run は書き込まず対象件数を表示します。適用時は全件の
 `new InviteStore(owner, options)` は同期のファイル・注入方式 API を維持します。
 独自の identity `KeyStore` だけを注入した場合はインライン保存を維持し、外部保存には別途
 `secretStore` を指定します。明示した鍵ファイルは署名者の選択にのみ使い、招待には共通の方式選択を適用します。
+
+組み込みでは `store.import(link, alias, { pendingConfirmation: true })` で確認待ちとして保存できます。
+`SavedInvite.importState` は `unconfirmed` になり、`listUnconfirmed()` はトークンを含まない情報を返します。
+`removeUnconfirmed({ olderThan: timestamp })` は日時より厳密に古い確認待ちだけを削除し、`{ removed }` を返します。
+使う前に `retain(workerRef)` で保存を確定します。それまでは `resolve` が `INVITE_CONFIRMATION_REQUIRED` を返します。
+通常の import（重複を含む）も保存を確定し、確認待ちとしての再取込は過去の保存を変更しません。
+`connections confirm-invite` は接続確認の試行前に保存を確定します。拒否・中断時も保持し、所有者の同意確認は別に行います。
+マーカーがない既存項目は整理の対象外です。これらのメソッドは通信しません。
+再試行と組み込み時の契約は[招待のライフサイクル](docs/connections/invite-lifecycle.ja.md)を参照してください。
 
 中継器の既定候補は `<data-root>/config.json` に保存できます。
 
@@ -430,7 +441,19 @@ sealbridge connections unblock PEER_DID
 sealbridge connections prior-approved
 sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
+
+確認送信後に `sync --once` を実行し、`connections status reviewer` で照会します。
+保存済み workerRef または相手の所有者 DID も指定できます。既定の役割は requester です。
+照会はローカルの記録だけを読み、送信や鍵の作成はしません。`pending_peer` は相手の承認が
+ローカルに未適用、`connected` はローカルの limited 接続です。交換記録がある場合は
+`acknowledgementPending` も返します。同じ情報を
+`WorkerTrustStore.connectionStatus(peerOwnerDid)` から取得できます。
+ほかの状態は `none`・`pending_owner`・`inactive`・`expired`・`blocked` です。
+このプロトコルは相手側の拒否を通知しません。期限切れの申し込みの詳細は既存の削除処理まで
+照会でき、成立済みの接続は期限切れで消えません。
+詳しくは[接続状態の照会](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
 
 判断には人間の TTY または注入された人間用審査プロバイダーが必要で、`--yes` はありません。
 ローカルの役割・DID と相手の所有者 DID を確認してください。requester と worker の既定鍵は別です。
@@ -666,6 +689,13 @@ node examples/network-collab/run.mjs
 
 `@acp/runtime` は、所有者のローカル操作用のつながり状態・永続化APIを提供します。
 connected は期限なしの limited に対応し、ライブ経路の受付に使います。
+接続 metadata は、検証済みの招待・エージェントカードから得た任意の `peerDisplayName` を保持します。
+`listConnections()`・`connections list`・`connectionStatus()`・`connections status`・
+MCP の接続一覧・過去の承認候補一覧は、
+招待の削除後も既知の表示名を返します。表示名は情報としてのみ扱い、識別と同意の判断は
+DID に基づきます。同じ表示名でも所有者 DID は異なる場合があります。
+旧記録や相手のカードが不明な場合は省略でき、読み取りで書き換えません。通信形式の変更はありません。
+
 APIとストアの互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
 
 ## ドキュメント
@@ -736,6 +766,13 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
 ビルド済み CLI は `node cli/dist/index.js <command>` でも起動でき、ワークスペースのバイナリ名は `acp` です。
 
 [デモの手順](examples/two-owner-demo/README.md)、[ワイヤ規約](spec/README.ja.md)、[適合性テスト](conformance/README.md)、[M1 セキュリティモデル](docs/security-model.md)、[敵対的セキュリティテストスイート](SECURITY_PROOF.ja.md) を読んでください。M1 は署名付きリレーエンベロープと、制限付き JavaScript 子プロセスです。M2/M3 は任意の強化 OCI 実行と、ペイロードのエンドツーエンド暗号化を追加します。ルートのコードは Apache-2.0 です。DelegateOS から取り込んだ部分の MIT 表記は [NOTICE](NOTICE) に残しています。
+
+## 組み込み SDK
+
+型付き ESM 入口 `sealbridge/sdk` は、保存済み招待・鍵と秘密のストア・接続の審査・
+MCP のホストなどの公開 API を提供します。0.2.2 の次のリリースから利用でき、
+既存の CLI と内部パスも引き続き利用できます。
+[公開範囲と互換性の契約](docs/sdk.ja.md)を参照してください。
 
 ## 保留内容のライブラリ
 

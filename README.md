@@ -458,8 +458,10 @@ migration. Stored references continue to resolve through keychain after selectin
 new imports then use inline file storage. Listing and MCP results omit tokens.
 Unavailable keychain access returns `KEY_STORE_UNAVAILABLE`; missing or differing
 strings return `INVITE_SECRET_MISSING` or `INVITE_SECRET_MISMATCH`, with no file fallback.
-Removal also deletes the referenced string. `INVITE_SECRET_DELETE_FAILED` means metadata
-was removed but keychain cleanup failed; the string may remain under its account name.
+Removal deletes and checks the referenced string before publishing metadata removal.
+`INVITE_SECRET_DELETE_FAILED` leaves the metadata in place: retry the same alias/reference
+with `remove`, `invites remove`, or `acp_remove_invite`. If publication fails after deletion,
+resolution reports `INVITE_SECRET_MISSING`; removal can still finish without the string.
 
 Move existing inline tokens explicitly, using the existing requester identity:
 
@@ -482,6 +484,19 @@ Embedders can inject synchronous `SecretStore.get/set/delete` via
 An injected identity `KeyStore` alone retains inline token storage; pass `secretStore`
 separately to use external strings. Explicit identity file paths select only the signer;
 invitation storage still follows the shared selection.
+
+Embedders can opt into recoverable pending imports with
+`store.import(link, alias, { pendingConfirmation: true })`. `SavedInvite.importState`
+is then `unconfirmed`; `listUnconfirmed()` returns token-free metadata, and
+`removeUnconfirmed({ olderThan: timestamp })` returns `{ removed }` for marked imports
+strictly older than that timestamp. Use `retain(workerRef)` to save one before use;
+`resolve` returns `INVITE_CONFIRMATION_REQUIRED` until retention. Ordinary import
+(including a duplicate) retains the entry, and pending reimport never demotes an
+existing save. `connections confirm-invite` retains before attempting confirmation,
+including when that attempt is rejected or interrupted; its owner consent prompt
+remains separate. Existing entries without the marker are excluded from cleanup.
+These methods perform no network operations; see [invite lifecycle](docs/connections/invite-lifecycle.md)
+for retry behavior and the embedding contract.
 
 Direct CLI delegation remains available with the complete invitation:
 
@@ -663,6 +678,13 @@ See [protocol versions](docs/connections/protocol-versions.md) for schemas, poli
 
 `@acp/runtime` provides owner-local connection lifecycle and persistence APIs.
 Connected state projects to limited without expiry and is used by live admission.
+Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
+agent card. `listConnections()`, `connections list`, `connectionStatus()`,
+`connections status`, the MCP connection lists and prior-approved metadata return it when known, even after invite removal. Names are
+informational data only; DIDs remain authoritative for identity and consent. Equal
+names can belong to different owner DIDs. Older records and peers without a known
+card may omit the field; reading does not rewrite them. No wire change is required.
+
 See [connection state persistence](docs/connections/connection-state.md) for API and store compatibility details.
 
 ## Documents
@@ -734,6 +756,13 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
 The built CLI is also available as `node cli/dist/index.js <command>` and its workspace binary is `acp`.
 
 Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spec/README.md), [conformance suite](conformance/README.md), [M1 security model](docs/security-model.md), and the [adversarial security test suite](SECURITY_PROOF.md). M1 uses signed relay envelopes and the restricted JavaScript subprocess driver. M2/M3 adds optional hardened OCI execution and end-to-end payload encryption. The root code is Apache-2.0; adapted DelegateOS portions retain MIT attribution in [NOTICE](NOTICE).
+
+## Embedding SDK
+
+Use the typed ESM entry point `sealbridge/sdk` for supported embedding APIs, including
+saved invitations, identity/secret stores, connection review and MCP hosting.
+Available in the next release after 0.2.2; existing CLI and deep paths remain usable.
+See the [SDK surface and compatibility contract](docs/sdk.md).
 
 ## Held-content library
 
@@ -810,7 +839,19 @@ sealbridge connections unblock PEER_DID
 sealbridge connections prior-approved
 sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
+
+After confirmation, run `sync --once` and query `connections status reviewer`
+(or a saved workerRef / peer owner DID). Status defaults to the requester role and
+reads local records without sending or creating an identity. `pending_peer` means
+no peer acceptance has been applied locally; `connected` reports the local limited
+connection, with `acknowledgementPending` when retained exchange evidence exists.
+`WorkerTrustStore.connectionStatus(peerOwnerDid)` provides the same projection.
+Other statuses are `none`, `pending_owner`, `inactive`, `expired`, and `blocked`.
+Remote rejection is not reported by this protocol. Expired offer details remain
+queryable only until existing store pruning; established connections survive expiry.
+See [connection status semantics](docs/connections/connection-exchange.md#querying-connection-status).
 
 All decisions require a human TTY or an injected human review provider. There is no
 `--yes` connection decision. Confirm the exact local role/DID and peer owner DID;

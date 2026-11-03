@@ -9,7 +9,7 @@ import type { LocalIdentityOptions } from './local-identity.js';
 import { emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
   projectConnectionState, projectConnectionTrust, validConnectionPeer, validConnectionOffer,
   validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
-import type { ConnectionData, ConnectionState, ConnectionTrust, ConnectionRecord, ConnectionPeer,
+import type { ConnectionData, ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionRecord, ConnectionPeer,
   PriorApprovedPeer, RecordIncomingConnection, RecordOutgoingConnection, ApproveConnectionInput,
   ApplyConnectionAcceptedInput, BindInviteFirstUseInput, ConnectionOutboxRecord, ConnectionPersistence } from './connection-records.js';
 
@@ -45,6 +45,10 @@ function priorApprovedPeers(state: TrustState): PriorApprovedPeer[] {
   };
   for (const r of state.requests) if (r.state === 'approved') add(r.requesterOwnerDid, r.trust ?? 'limited', r.id);
   for (const g of state.grants) add(g.did, g.trust);
+  if (state.version === 2) for (const p of peers.values()) {
+    const name = state.connections.find(c => c.peerOwnerDid === p.peerOwnerDid)?.peerDisplayName;
+    if (name !== undefined) p.peerDisplayName ??= name;
+  }
   return [...peers.values()];
 }
 export interface WorkerIntakeStore {
@@ -210,7 +214,43 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   connectionLevel(peerOwnerDid: string): ConnectionTrust {
     return projectConnectionTrust(this.connectionState(peerOwnerDid));
   }
-  listConnections(): Array<(ConnectionRecord | { peerOwnerDid: string }) & { state: Exclude<ConnectionState, 'none'> }> {
+  /** Read one local snapshot without polling, writing, pruning or changing consent. */
+  connectionStatus(peerOwnerDid: string): ConnectionStatus {
+    assertConnectionOwnerDid(peerOwnerDid);
+    const snapshot = this.read(), now = this.now();
+    const data = snapshot.version === 2 ? snapshot : emptyConnectionData();
+    const state = projectConnectionState(data, snapshot.denials, peerOwnerDid, now);
+    const connection = data.connections.find(c => c.peerOwnerDid === peerOwnerDid);
+    const controls = snapshot.version === 2 ? (snapshot.controls ?? []).filter(r =>
+      (r.offer.fromOwnerDid === this.owner.did ? r.offer.toOwnerDid : r.offer.fromOwnerDid) === peerOwnerDid) : [];
+    // Prefer the exchange that established this connection, then the current offer.
+    const control = state === 'connected' ? controls.find(r => r.active && r.accepted &&
+      r.accepted.payload.connectionId === connection?.connectionId &&
+      (connection.remoteAcceptanceDigest ? digest(r.accepted) === connection.remoteAcceptanceDigest :
+        r.consentDigest === connection.localConsentDigest)) :
+      controls.find(r => r.offer.requestId === connection?.outgoing?.requestId) ??
+      controls.find(r => r.offer.requestId === connection?.incoming?.requestId) ?? controls.at(-1);
+    const offer = control?.offer;
+    const legacyOffer = connection?.outgoing ?? connection?.incoming;
+    const direction = control?.direction ?? (connection?.outgoing ? 'outgoing' : connection?.incoming ? 'incoming' : undefined);
+    const expiresAt = offer ? Date.parse(offer.expiresAt) : legacyOffer?.expiresAt;
+    const status: ConnectionStatus['status'] = state === 'blocked' ? 'blocked' : state === 'connected' ? 'connected' :
+      control && !control.active ? 'inactive' : expiresAt !== undefined && expiresAt <= now ? 'expired' :
+      direction === 'outgoing' ? 'pending_peer' : direction === 'incoming' ? 'pending_owner' : 'none';
+    const peerDisplayName = connection?.peerDisplayName ?? offer?.peerDisplayName;
+    return { peerOwnerDid, state, status,
+      ...(peerDisplayName === undefined ? {} : { peerDisplayName }),
+      ...(offer ? { requestId: offer.requestId, direction: control!.direction,
+        createdAt: Date.parse(offer.createdAt), expiresAt } : legacyOffer ? {
+        requestId: legacyOffer.requestId, direction, expiresAt,
+        ...('createdAt' in legacyOffer ? { createdAt: legacyOffer.createdAt } : {}),
+      } : {}),
+      ...(state === 'connected' ? { connectionId: connection!.connectionId, connectedAt: connection!.connectedAt } : {}),
+      ...(state === 'connected' && control?.accepted ? { acknowledgementPending: control.outbox.some(b =>
+        b.envelope.payload.eventType === (control.direction === 'outgoing' ? 'CONNECTION_ACK' : 'CONNECTION_ACCEPTED')) } : {}),
+    };
+  }
+  listConnections(): Array<(ConnectionRecord | { peerOwnerDid: string; peerDisplayName?: string }) & { state: Exclude<ConnectionState, 'none'> }> {
     const state = this.read(), data = state.version === 2 ? state : emptyConnectionData();
     pruneConnectionData(data, this.now());
     return [...data.connections.filter(c => !state.denials.includes(c.peerOwnerDid)),
@@ -239,7 +279,10 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (c?.state === 'connected') throw new Error('CONNECTION_ALREADY_DECIDED');
       const previous = outgoing ? c?.outgoing : c?.incoming;
       if (previous) {
-        if (digest(previous) === digest(offer) && c!.relayUrl === input.relayUrl) return;
+        if (digest(previous) === digest(offer) && c!.relayUrl === input.relayUrl) {
+          if (input.peerDisplayName !== undefined) c!.peerDisplayName ??= input.peerDisplayName;
+          return;
+        }
         throw new Error('CONNECTION_ALREADY_DECIDED');
       }
       if (c && c.relayUrl !== input.relayUrl) throw new Error('INTAKE_STORE_INVALID');
@@ -248,6 +291,7 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
         s.connections.push(c);
       }
       if (input.peerAgentDid) c.peerAgentDid = input.peerAgentDid;
+      if (input.peerDisplayName !== undefined) c.peerDisplayName ??= input.peerDisplayName;
       if ('outgoing' in input) c.outgoing = structuredClone(input.outgoing);
       else c.incoming = structuredClone(input.incoming);
       if (new Set([...s.requests.filter(r => r.state === 'pending').map(r => r.requesterOwnerDid),
@@ -365,9 +409,12 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
         s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected') ? 'same' : 'inactive';
       this.assertAvailable(s, peer.peerOwnerDid);
       s.inviteBindings.push({ inviteDigest, requesterOwnerDid: peer.peerOwnerDid, boundAt: this.now(), tokenExpiresAt: deadline, connectionId });
-      if (!s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected')) {
+      const previous = s.connections.find(c => c.peerOwnerDid === peer.peerOwnerDid);
+      if (previous?.state !== 'connected') {
+        const peerDisplayName = previous?.peerDisplayName ?? peer.peerDisplayName;
         s.connections = s.connections.filter(c => c.peerOwnerDid !== peer.peerOwnerDid);
-        s.connections.push({ ...peer, state: 'connected', connectionId, connectedAt: this.now(), source: 'invite', localConsentDigest: inviteDigest });
+        s.connections.push({ ...peer, ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+          state: 'connected', connectionId, connectedAt: this.now(), source: 'invite', localConsentDigest: inviteDigest });
       }
       return 'first';
     });
@@ -383,13 +430,16 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (existing) return existing.requesterOwnerDid === input.peerOwnerDid ? 'same' : 'other';
       this.assertAvailable(s, input.peerOwnerDid, true);
       assertConnectionCommit(input.connectionId, input.localConsentDigest);
-      const connected = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid && c.state === 'connected');
+      const previous = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);
+      const connected = previous?.state === 'connected' ? previous : undefined;
       if (connected && connected.connectionId !== input.connectionId)
         throw new Error('CONNECTION_ALREADY_DECIDED');
       this.queueAcceptance(s, input, input.outbox, deadline);
       if (!connected) {
+        const peerDisplayName = previous?.peerDisplayName ?? input.peerDisplayName;
         s.connections = s.connections.filter(c => c.peerOwnerDid !== input.peerOwnerDid);
         s.connections.push({ peerOwnerDid: input.peerOwnerDid, ...(input.peerAgentDid ? { peerAgentDid: input.peerAgentDid } : {}),
+          ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
           relayUrl: input.relayUrl, state: 'connected', connectionId: input.connectionId, connectedAt: this.now(),
           source: 'invite', localConsentDigest: input.localConsentDigest });
       }

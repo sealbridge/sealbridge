@@ -213,17 +213,22 @@ describe('imported invitation string storage', () => {
     expect(fs.readdirSync(dirname(file.path))).toEqual([basename(file.path)]);
   });
 
-  it('reports cleanup failure after metadata removal and retains the lock through cleanup', async () => {
+  it('retains metadata on secret deletion failure and holds the lock through deletion', async () => {
     const owner = generateKeyPair(), store = await InviteStore.open(owner, { ...options, keyStore: 'keychain' });
     const saved = store.import(invitation());
-    vi.spyOn(module.Entry.prototype, 'deletePassword').mockImplementation(() => {
+    const deletion = vi.spyOn(module.Entry.prototype, 'deletePassword').mockImplementation(() => {
       expect(fs.existsSync(store.path + '.lock')).toBe(true);
       expect(() => store.import(invitation())).toThrow('INVITE_STORE_BUSY');
       throw new Error('native detail');
     });
     expect(() => store.remove(saved.workerRef)).toThrow('INVITE_SECRET_DELETE_FAILED');
-    expect(store.list()).toEqual([]); expect(secrets.has(account(saved))).toBe(true);
+    expect(store.list()).toEqual([saved]); expect(secrets.has(account(saved))).toBe(true);
     expect(fs.existsSync(store.path + '.lock')).toBe(false);
+    deletion.mockRestore();
+    const restarted = await InviteStore.open(owner, { ...options, keyStore: 'keychain' });
+    expect(restarted.remove(saved.workerRef)).toBe(true);
+    expect(secrets.has(account(saved))).toBe(false);
+    expect(restarted.remove(saved.workerRef)).toBe(false);
   });
 });
 

@@ -7,11 +7,15 @@ import { createInviteToken, createRevocationNotice, createSignedAgentCard, diges
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { ConnectionAdmissionReview, ConnectionRouter, HeldRequestReview, heldContentDigest, InviteStore, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionsCommand } from '../cli/src/connections.js';
+import type { ConnectionAdmissionReviewOptions, InboundConnectionSummary } from '../packages/runtime/src/index.js';
 
 const EPOCH = Date.parse('2030-01-01T00:00:00.000Z'), RELAY = 'https://relay.example';
 const roots: string[] = [];
-beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(EPOCH); });
-afterEach(() => { vi.useRealTimers(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(EPOCH);
+  vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network call'); }));
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'connection-admission-review-')); roots.push(root);
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root } }, now = () => Date.now();
@@ -225,4 +229,114 @@ it('rejects through the CLI using the held record ID without creating a transpor
   expect(transportFactory).not.toHaveBeenCalled();
   expect(f.queue().list()).toEqual([]);
   expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({ state: 'none' });
+});
+
+
+it.each([
+  ['inline', 'approve'], ['external', 'approve'], ['inline', 'reject'], ['external', 'reject'],
+] as const)('integrates %s pending imports with explicit review %s, bilateral status and names', async (backend, decision) => {
+  const f = fixture(), secrets = new Map<string, string>();
+  const secretStore = { get: vi.fn((id: string) => secrets.get(id)),
+    set: vi.fn((id: string, value: string) => { secrets.set(id, value); }),
+    delete: vi.fn((id: string) => { secrets.delete(id); }) };
+  const identityOptions = { ...f.identityOptions, ...(backend === 'external' ? { secretStore } : {}) };
+  const invites = new InviteStore(f.keys[1], { ...identityOptions, now: f.now });
+  const saved = invites.import(f.token, 'issuer', { pendingConfirmation: true });
+  expect(saved.importState).toBe('unconfirmed');
+  expect(() => invites.resolve(saved.workerRef)).toThrow('INVITE_CONFIRMATION_REQUIRED');
+  const keyPaths = f.keys.slice(0, 2).map((key, i) => {
+    const path = join(f.root, 'owner-' + i + '.private.json');
+    writeFileSync(path, JSON.stringify(key), { mode: 0o600 }); return path;
+  });
+  const output = vi.fn(), transportFactory = vi.fn(() => f.options[1].relay);
+  const senderReview = vi.fn(async () => {
+    expect(invites.listUnconfirmed()).toEqual([]);
+    expect(f.options[1].store.connectionStatus(f.keys[0].did).status).toBe('none');
+    return true;
+  });
+  await connectionsCommand(['confirm-invite', saved.workerRef, '--key', keyPaths[1]], {
+    identityOptions, now: f.now, output, transportFactory, review: senderReview,
+  });
+  expect(senderReview).toHaveBeenCalledOnce();
+  expect(invites.list()[0]).not.toHaveProperty('importState');
+  expect(f.options[0].store.connectionStatus(f.keys[1].did).status).toBe('none');
+  expect(f.options[1].store.connectionStatus(f.keys[0].did)).toMatchObject({
+    status: 'pending_peer', peerDisplayName: 'Peer 0', direction: 'outgoing',
+  });
+  await f.routers[0].consume(f.frames.find(e => e.payload.eventType === 'CONNECTION_REQUEST')!);
+  expect(f.options[0].store.connectionStatus(f.keys[1].did)).toMatchObject({
+    status: 'pending_owner', peerDisplayName: 'Sealbridge requester', direction: 'incoming',
+  });
+  const admissionOptions: ConnectionAdmissionReviewOptions = f.options[0];
+  const queue = new ConnectionAdmissionReview(admissionOptions);
+  const rows: InboundConnectionSummary[] = queue.list();
+  expect(rows).toMatchObject([{ peerDisplayName: 'Sealbridge requester' }]);
+  const before = f.files().map(path => [path, readFileSync(path, 'utf8')]);
+  secretStore.get.mockClear(); transportFactory.mockClear();
+  const status = async (side: 0 | 1, ref = f.keys[1 - side].did) => {
+    output.mockClear();
+    await connectionsCommand(['status', ref, '--key', keyPaths[side], '--role', side ? 'requester' : 'worker'], {
+      identityOptions, now: f.now, output, transportFactory,
+    });
+    return JSON.parse(output.mock.calls[0][0]);
+  };
+  expect(await status(0)).toMatchObject({ status: 'pending_owner', peerDisplayName: rows[0].peerDisplayName });
+  expect(secretStore.get).not.toHaveBeenCalled();
+  expect(await status(1, saved.alias)).toMatchObject({ status: 'pending_peer', peerDisplayName: 'Peer 0' });
+  expect(f.files().map(path => [path, readFileSync(path, 'utf8')])).toEqual(before);
+  // Alias lookup uses main's invitation validation; the inbound queue does not resolve secrets.
+  secretStore.get.mockClear();
+  const review = vi.fn(async () => true);
+  await connectionsCommand(['review', decision, rows[0].id, '--key', keyPaths[0]], {
+    identityOptions, now: f.now, output, review, transportFactory: () => f.options[0].relay,
+  });
+  expect(review).toHaveBeenCalledOnce();
+  expect(secretStore.get).not.toHaveBeenCalled();
+  expect(queue.list()).toEqual([]);
+  const intakePath = workerIntakePath(f.keys[0].did, identityOptions);
+  const state = JSON.parse(readFileSync(intakePath, 'utf8')).payload;
+  if (decision === 'approve') {
+    expect(state.inviteBindings).toMatchObject([{ inviteDigest: f.inviteDigest, requesterOwnerDid: f.keys[1].did }]);
+    expect(state.inviteBindings).toHaveLength(1);
+    expect(state.controls[0].consent).toHaveProperty('payload.type', 'ConnectionConsent');
+    expect(f.options[0].store.listConnections()).toMatchObject([{
+      source: 'invite', peerDisplayName: 'Sealbridge requester', state: 'connected',
+    }]);
+    expect(await status(0)).toMatchObject({ status: 'connected', acknowledgementPending: true });
+    expect(await status(1)).toMatchObject({ status: 'pending_peer' });
+    await f.routers[1].consume(f.frames.find(e => e.payload.eventType === 'CONNECTION_ACCEPTED')!);
+    expect(await status(1)).toMatchObject({ status: 'connected', peerDisplayName: 'Peer 0', acknowledgementPending: false });
+    await f.routers[0].consume(f.frames.find(e => e.payload.eventType === 'CONNECTION_ACK')!);
+    expect(await status(0)).toMatchObject({ status: 'connected', acknowledgementPending: false,
+      peerDisplayName: 'Sealbridge requester' });
+    const restarted = new WorkerTrustStore(f.keys[0], { path: intakePath, now: f.now });
+    expect(restarted.connectionStatus(f.keys[1].did)).toMatchObject({ status: 'connected', peerDisplayName: 'Sealbridge requester' });
+    expect(restarted.listConnections()).toMatchObject([{ peerDisplayName: 'Sealbridge requester' }]);
+  } else {
+    expect(state.inviteBindings).toEqual([]);
+    expect(await status(0)).toMatchObject({ status: 'inactive', state: 'none', peerDisplayName: 'Sealbridge requester' });
+    // Rejection has no remote notification; the sender keeps its outgoing offer.
+    expect(await status(1)).toMatchObject({ status: 'pending_peer', peerDisplayName: 'Peer 0' });
+    expect(f.frames.some(e => e.payload.eventType === 'CONNECTION_ACCEPTED')).toBe(false);
+  }
+  // Cleanup removes only a different unconfirmed import, leaving the attempted one retained.
+  const laterToken = createInviteToken({ agentCard: f.options[2].agentCard,
+    issuedAt: new Date(EPOCH).toISOString() }, f.keys[2]);
+  const unconfirmed = invites.import(laterToken, 'temporary', { pendingConfirmation: true });
+  const cleanup = new InviteStore(f.keys[1], { ...identityOptions, now: () => EPOCH + 1 });
+  expect(cleanup.listUnconfirmed()).toEqual([unconfirmed]);
+  expect(cleanup.removeUnconfirmed({ olderThan: new Date(EPOCH + 1).toISOString() })).toEqual({ removed: 1 });
+  expect(cleanup.list()).toHaveLength(1);
+  expect(cleanup.list()[0].workerRef).toBe(saved.workerRef);
+  expect(invites.remove(saved.workerRef)).toBe(true);
+  const retainedBytes = readFileSync(intakePath);
+  secretStore.get.mockClear();
+  expect(await status(0)).toMatchObject({ status: decision === 'approve' ? 'connected' : 'inactive',
+    peerDisplayName: 'Sealbridge requester' });
+  expect(await status(1)).toMatchObject({ status: decision === 'approve' ? 'connected' : 'pending_peer', peerDisplayName: 'Peer 0' });
+  expect(readFileSync(intakePath)).toEqual(retainedBytes);
+  expect(transportFactory).not.toHaveBeenCalled();
+  expect(secretStore.get).not.toHaveBeenCalled();
+  expect(secrets.size).toBe(0);
+  expect(fetch).not.toHaveBeenCalled();
 });
