@@ -663,7 +663,7 @@ node examples/network-collab/run.mjs
 ## Manifest protocol versions
 
 Library APIs validate manifest protocols 0.1.0 and 0.2.0 and provide explicit compatibility policy.
-Live sending selects the newest common version, preferring 0.2.0. The release clock and pre-release placeholder are described in [protocol versions](docs/connections/protocol-versions.md).
+Live sending selects the newest common version, preferring 0.2.0. The configured release clock is described in [protocol versions](docs/connections/protocol-versions.md).
 See [protocol versions](docs/connections/protocol-versions.md) for schemas, policy and peer observations.
 
 ## Five design principles

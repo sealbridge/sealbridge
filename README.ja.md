@@ -674,7 +674,7 @@ node examples/network-collab/run.mjs
 ## マニフェストのプロトコル版
 
 ライブラリはマニフェスト0.1.0と0.2.0を検証し、明示的な互換方針を提供します。
-送信は相互に対応する最新の版を選び、0.2.0 を優先します。リリース時計と未設定時の扱いは [版の説明](docs/connections/protocol-versions.ja.md)を参照してください。
+送信は相互に対応する最新の版を選び、0.2.0 を優先します。設定済みのリリース時計は [版の説明](docs/connections/protocol-versions.ja.md)を参照してください。
 スキーマ・方針・相手の観測については[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
 
 ## 5つの設計原則
