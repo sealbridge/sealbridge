@@ -28,11 +28,11 @@ Reuse an existing checkout when available; run install/build there instead.
 All commands below run from the repository root.
 既存チェックアウトを再利用し、以降はリポジトリ直下で実行します。
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `setup`.
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`setup`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`setup`。
 
 For local MCP host registration after building, use
 `node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
@@ -49,7 +49,7 @@ without changes. Review with `--update-existing --dry-run` or
 Sealbridge entry with a backup. Matching options are idempotent; running nothing leaves configs untouched.
 Reload the host and check its tools separately.
 See [agent-readable connection instructions](sites/connect-agent.txt); invitation
-import/open discovery require releases exposing those commands and tools.
+import/open discovery are available from sealbridge 0.3.0 (CLI 0.3.0 and later).
 既定は送信前・最終検収時のホスト承認です。フォーム非対応なら送信前に
 `APPROVAL_CHANNEL_UNAVAILABLE` を返します。`--no-require-approval` は依頼ごとの
 確認なしに送信・最終承認する従来のモードを明示的に選びます。モードが異なる既存登録は
@@ -116,11 +116,11 @@ Matching-role ~/.acp keys and old contacts-root owner.private.json (requester)
 are reused in place if no canonical key exists. Conflicting legacy identities
 require explicit `--key` selection. Invalid keys are never replaced.
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `config key-store`, `doctor --offline`.
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`config key-store`、`doctor --offline`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`config key-store`、`doctor --offline`。
 
 `sealbridge doctor --offline` inspects default/legacy paths without creating keys
 or contacting the relay. MCP initialization and tool listing make no network
@@ -278,11 +278,11 @@ For the optional audit paths below, create the audit directory first:
 
 ## User-operated invitation import / ユーザーによる招待保存
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
 
 For MCP alias delegation, have the human run the import outside model execution,
 on the MCP server's machine and OS account with the same data root/requester identity:
@@ -371,11 +371,11 @@ text is echoed. The existing token-free JSON result includes `alias`, `workerRef
 Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
 接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `connections`, `requests`.
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`connections`、`requests`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`connections`、`requests`。
 
 Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
 agent card. `listConnections()`, `connections list`, `connectionStatus()`,
@@ -419,14 +419,14 @@ same local projection: `none`, `pending_peer`, `pending_owner`, `connected`, `in
 `expired`, or `blocked`. Querying sends nothing and creates no identity. A local
 connection can still have `acknowledgementPending`; remote rejection is not notified.
 Expired offer details disappear on existing pruning. See [status semantics](docs/connections/connection-exchange.md#querying-connection-status).
-Available in the next release after CLI 0.2.2.
+Available from sealbridge 0.3.0 (CLI 0.3.0 and later).
 
 `confirm-invite` の後に `sync --once` を実行し、`connections status workerRef-or-DID`
 で照会します（既定の役割は requester）。`WorkerTrustStore.connectionStatus(peerOwnerDid)`
 も同じローカルの状態を返します。照会は送信も鍵の作成も行いません。ローカルの接続が成立しても
 `acknowledgementPending` の場合があります。相手の拒否は通知されず、期限切れの申し込みの
 詳細は既存の削除処理で消えます。[状態の定義](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
-CLI 0.2.2 の次のリリースで利用できます。
+sealbridge 0.3.0（CLI 0.3.0 以降）から利用できます。
 
 Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
 connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
@@ -511,11 +511,11 @@ lists signed registered cards. `validate` defaults to the task-manifest schema.
 
 ## MCP, progress, revocation, and quorum / MCP・進捗・失効・クォーラム
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`, `acp_list_connections`, `acp_list_connection_requests`.
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`、`acp_list_connections`、`acp_list_connection_requests`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`、`acp_list_connections`、`acp_list_connection_requests`。
 
 An MCP host can run the stdio server below. Tools: `acp_delegate_task`,
 `acp_delegate_multi`, `acp_verify_audit_bundle`, `acp_create_invite`,
@@ -571,12 +571,12 @@ MCP では `sealbridge mcp-server` を使います。進捗は `onProgress`、�
 
 ## Embedding SDK / 組み込み SDK
 
-Use `sealbridge/sdk` for the supported typed ESM embedding APIs (next release after
-0.2.2). It re-exports existing invitation, identity/secret-store, connection review
+Use `sealbridge/sdk` for the supported typed ESM embedding APIs (available from
+sealbridge 0.3.0). It re-exports existing invitation, identity/secret-store, connection review
 and MCP hosting APIs; import alone starts no operation. Existing deep paths remain
 resolvable. See [SDK contract](docs/sdk.md).
 
-組み込みには型付き ESM の `sealbridge/sdk`（0.2.2 の次のリリース）を使います。
+組み込みには型付き ESM の `sealbridge/sdk`（sealbridge 0.3.0 以降）を使います。
 既存の招待・鍵と秘密のストア・接続の審査・MCP ホスト API を再 export し、import
 だけでは操作を開始しません。従来の内部パスも解決できます。[契約](docs/sdk.ja.md)を参照します。
 

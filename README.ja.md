@@ -14,7 +14,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-インストーラーは npm で公開待ちの sealbridge 0.3.0 を固定指定しています。更新したインストーラーは npm 公開後にデプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
+インストーラーは npm で公開済みの sealbridge 0.3.0 を固定指定しています。更新したインストーラーは別途デプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
@@ -49,7 +49,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 
 30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
 
-> **ステータス**: Sealbridge `v0.3.0` を npm パッケージ `sealbridge` としてリリース準備中で、公開待ちです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
+> **ステータス**: Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
@@ -73,7 +73,7 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 
 リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`setup`、`accept`。
 
-このコマンドを含むリリースでは `sealbridge setup --help` を確認し、
+CLI 0.3.0 以降で `sealbridge setup --help` を確認し、
 `sealbridge setup --host cursor` または `sealbridge setup --host claude-desktop`
 （macOS/Windows）を実行します。`setup` だけなら検出したユーザーホストが1つのときに選択し、
 複数なら端末で選びます。`--host` の繰り返し、`--all-detected` にも対応します。
@@ -105,7 +105,7 @@ elicitation を要求します。ホストの対応状況はオフラインで�
 `sealbridge accept --paste` と `acp_list_invites`/`workerRef`、または
 `acp_discover_workers` から返った `workerDid` と `relayUrl` を
 `acp_delegate_task` へ渡す手順を記載しています。招待取込・オープン検索には
-それぞれ対応するリリースが必要です。help とツール一覧を確認してください。
+sealbridge 0.3.0（CLI 0.3.0 以降）が必要です。help とツール一覧を確認してください。
 ホスト設定は厳密な JSON のみ対応し、TOML/JSONC は今後の対応です。
 
 `mcp-server`、`delegate`、`worker start`、`discover`、`invite create` は `--key` と `--relay` を省略できます。既定の中継器は `https://relay.sealbridge.dev` です。MCP の初期化・ツール一覧は通信せず、検索は公開ディレクトリを取得し、依頼は暗号化したタスクを送ります。中継器には経路メタデータが見えます。招待作成はローカル署名のみで、ワーカーを起動しません。

@@ -22,8 +22,8 @@ Production and preview serve media MIME types and byte ranges for playback and s
 `sites/connect-agent.txt` is copied unchanged to `/connect-agent.txt` and served
 as `text/plain; charset=utf-8` by the headers file. Landing/install pages link
 to it. It describes local setup, host reload, human-run invite import and open
-worker discovery, distinguishing local state from relay traffic. Commands and
-tools delivered separately require a release exposing them. No site runtime or
+worker discovery, distinguishing local state from relay traffic. These commands
+and tools are available from sealbridge 0.3.0 (CLI 0.3.0 and later). No site runtime or
 deployment is added by this route.
 
 ## Build and preview

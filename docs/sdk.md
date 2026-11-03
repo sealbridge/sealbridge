@@ -3,7 +3,7 @@
 [日本語](sdk.ja.md)
 
 `sealbridge/sdk` is the supported ESM entry point for embedding existing Sealbridge
-APIs. It is available in the next package release after 0.2.2. Use Node.js 22 or
+APIs. It is available from sealbridge 0.3.0. Use Node.js 22 or
 later and TypeScript `NodeNext` (or another resolver that supports package export
 maps). The package includes JavaScript and declarations; workspace packages are
 not required in the consuming application.
