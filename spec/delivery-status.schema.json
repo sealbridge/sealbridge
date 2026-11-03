@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.2/delivery-status.schema.json",
+  "title": "delivery-status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "messageId",
+        "taskId",
+        "senderDid",
+        "recipientDid",
+        "state",
+        "revision",
+        "occurredAt",
+        "retainUntil"
+      ],
+      "properties": {
+        "type": {
+          "const": "DeliveryStatus"
+        },
+        "version": {
+          "const": 1
+        },
+        "messageId": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "senderDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "recipientDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "state": {
+          "enum": [
+            "received_held",
+            "opened",
+            "handed_to_agent",
+            "closed"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "occurredAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retainUntil": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signerDid",
+        "canonicalization",
+        "payloadDigest",
+        "signedAt",
+        "signature"
+      ],
+      "properties": {
+        "signerDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "canonicalization": {
+          "const": "RFC8785-JCS"
+        },
+        "payloadDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^ed25519:[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  }
+}

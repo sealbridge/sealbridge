@@ -911,3 +911,16 @@ Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
 or execution. Final verification stays separate, and calls without keys are unchanged.
 See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
 No relay deployment is needed.
+
+### Recipient delivery status
+
+Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
+held/opened/adapter-handoff/closed observations separately from task sequences and
+bilateral audit. Unknown peers get only `received_held` and `closed`; later connection
+approval does not release that task's history. Inspection/display alone does not open
+a task, and successful result cleanup does not close it. Queued detail is suppressed
+on disconnect; blocking suppresses all queued status. Legacy peers without version
+declarations retain 0.1.0 behavior. Status records use the fixed delivery deadline plus
+seven days; active maintenance deletes expired bytes. A handoff does not prove reading
+or execution. Both gateways need support; no relay deployment is required.
+See [relay reliability](docs/relay-reliability.md) for status sources, retention and lifecycle behavior.

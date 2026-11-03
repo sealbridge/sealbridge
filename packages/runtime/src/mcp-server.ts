@@ -228,6 +228,10 @@ export class AcpMcpServer {
         ...this.options.deliveryOptions, identityOptions: this.options.deliveryOptions?.identityOptions ?? this.options.identityOptions,
         now: this.options.deliveryOptions?.now ?? this.options.now,
         resolveTransport: this.options.deliveryOptions?.resolveTransport ?? ((url, key) => this.transport(url, key)),
+        assertReceiveAllowed: async url => {
+          this.assertRelays([url], []);
+          await this.options.deliveryOptions?.assertReceiveAllowed?.(url);
+        },
         assertSendAllowed: async record => {
           this.assertRelays([record.relayUrl], []);
           const message = this.deliveryService?.store.read('messages', record.messageId);

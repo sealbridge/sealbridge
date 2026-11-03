@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { DeliveryStatusRouter } from './delivery-status-router.js';
+import { RecipientDeliveryCoordinator } from './delivery-status.js';
 import { randomUUID } from 'node:crypto';
 import { digest } from '@acp/core';
 import type { KeyPair, SignedEnvelope } from '@acp/core';
@@ -22,6 +24,8 @@ export interface GatewayDeliveryOptions {
   limits?: Partial<DeliveryLimits>;
   resolveTransport: (relayUrl: string, owner: KeyPair) => RelayTransport | Promise<RelayTransport>;
   assertSendAllowed?: (context: OutboxRecordV1) => void | Promise<void>;
+  /** Check retained relay bindings before starting a status reader. */
+  assertReceiveAllowed?: (relayUrl: string) => void | Promise<void>;
   requestTimeoutMs?: number;
   onError?: (error: Error) => void;
   timers?: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'>;
@@ -38,6 +42,8 @@ function errorCode(error: unknown): string {
 /** Durable transport admission, independent of task execution and owner decisions. */
 class GatewayDeliveryServiceImplementation {
   readonly store: DeliveryStore;
+  readonly statusRouter: DeliveryStatusRouter;
+  recipientStatus: RecipientDeliveryCoordinator;
   private controller = new AbortController();
   private active = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -49,21 +55,27 @@ class GatewayDeliveryServiceImplementation {
   private readonly timers: NonNullable<GatewayDeliveryOptions['timers']>;
   constructor(readonly owner: KeyPair, readonly options: GatewayDeliveryOptions) {
     this.store = new DeliveryStore(owner, { ...options.identityOptions, now: options.now, limits: options.limits });
+    this.statusRouter = new DeliveryStatusRouter(this);
+    this.recipientStatus = new RecipientDeliveryCoordinator(this);
     this.sleep = options.sleep ?? waitForRelayRetry; this.timers = options.timers ?? globalThis;
   }
   async start(): Promise<void> {
     if (this.active) return;
     if (this.controller.signal.aborted) this.controller = new AbortController();
     this.active = true;
+    if (this.store.ids('observations', e => this.report(e)).length) await this.prepare();
+    this.recipientStatus.reconcile();
     // Do not create an empty store during lifecycle-only startup.
-    if (this.store.ids('batches', e => this.report(e)).length || this.store.ids('receipts', e => this.report(e)).length || this.store.ids('messages', e => this.report(e)).length)
+    if (this.store.ids('observations', e => this.report(e)).length || this.store.ids('batches', e => this.report(e)).length || this.store.ids('receipts', e => this.report(e)).length || this.store.ids('messages', e => this.report(e)).length)
       await this.store.maintainInBackground(error => this.report(error), this.controller.signal);
     for (const callback of this.maintenance) { this.controller.signal.throwIfAborted(); await callback(this.controller.signal); }
     await this.drainDue(this.controller.signal);
+    await this.statusRouter.start();
     this.schedule();
   }
   stop(): void {
     this.active = false;
+    this.statusRouter.stop();
     this.timers.clearTimeout(this.timer);
     this.controller.abort(deliveryError('OUTBOX_STOPPED'));
     this.terminalErrors.clear();
@@ -76,7 +88,8 @@ class GatewayDeliveryServiceImplementation {
   private schedule(): void {
     if (!this.active) return;
     this.timer = this.timers.setTimeout(() => {
-      void this.drainDue(this.controller.signal).then(async () => {
+      void this.prepare().then(() => this.recipientStatus.reconcile()).then(() => this.drainDue(this.controller.signal)).then(async () => {
+        void this.statusRouter.refresh().catch(e => this.report(e));
         await this.store.maintainInBackground(error => this.report(error), this.controller.signal);
         for (const id of this.terminalErrors.keys()) {
           await new Promise<void>(resolve => setImmediate(resolve));
@@ -134,24 +147,31 @@ class GatewayDeliveryServiceImplementation {
       if (prepared) this.store.publishWrite(prepared.find(p => p.kind === write.kind && p.id === write.id)!);
       else this.store.write(write.kind, write.id, write.record);
     };
-    return this.store.transaction(() => {
+    const ids = this.store.transaction(() => {
       if (operation && JSON.stringify(this.store.read('operations', operation.record.operationId)) !== operation.prior) return;
-      this.store.assertCapacity(records, message);
-      for (const r of records) {
-        const prior = this.store.read('outbox', r.envelopeId);
-        if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-        publish({ kind: 'outbox', id: r.envelopeId, record: r });
-      }
-      if (message) {
-        const prior = this.store.read('messages', message.messageId);
-        if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-        publish({ kind: 'messages', id: message.messageId, record: message });
-      }
-      if (operation) publish({ kind: 'operations', id: operation.record.operationId, record: operation.record });
-      publish({ kind: 'batches', id: marker.batchId, record: marker });
-      this.store.committed(marker.batchId);
-      return records.map(r => r.envelopeId);
+      return this.publishBatchLocked({ records, message, marker }, publish, operation);
     });
+    if (ids) void this.statusRouter.refresh().catch(e => this.report(e));
+    return ids;
+  }
+  private publishBatchLocked({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>,
+    publish: (write: DeliveryWrite) => void,
+    operation?: ReturnType<GatewayDeliveryServiceImplementation['batchOperation']>): string[] {
+    this.store.assertCapacity(records, message);
+    for (const r of records) {
+      const prior = this.store.read('outbox', r.envelopeId);
+      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      publish({ kind: 'outbox', id: r.envelopeId, record: r });
+    }
+    if (message) {
+      const prior = this.store.read('messages', message.messageId);
+      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      publish({ kind: 'messages', id: message.messageId, record: message });
+    }
+    if (operation) publish({ kind: 'operations', id: operation.record.operationId, record: operation.record });
+    publish({ kind: 'batches', id: marker.batchId, record: marker });
+    this.store.committed(marker.batchId);
+    return records.map(r => r.envelopeId);
   }
   private batchWrites(batch: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>): DeliveryWrite[] {
     const writes: DeliveryWrite[] = batch.records.map(record => ({ kind: 'outbox', id: record.envelopeId, record }));
@@ -190,6 +210,10 @@ class GatewayDeliveryServiceImplementation {
       }
     } finally { this.store.discardWrites(prepared); }
   }
+  /** C4 stages status frames and observation references in one prepared transaction. */
+  enqueueLocked(frames: readonly SignedEnvelope[], context: DeliveryContext): string[] {
+    return this.publishBatchLocked(this.buildBatch(frames, context), write => this.store.write(write.kind, write.id, write.record));
+  }
   private async ordered(signal: AbortSignal): Promise<OutboxRecordV1[]> {
     const records: OutboxRecordV1[] = [];
     for (const id of this.store.ids('batches', e => this.report(e))) {
@@ -213,6 +237,17 @@ class GatewayDeliveryServiceImplementation {
       try { await this.attempt(r.envelopeId, combined); } catch (error) { this.report(error); }
     }
   }
+  /** One attempt per due control frame; background lifecycle owns subsequent retries. */
+  async drainStatuses(): Promise<void> {
+    try { await this.prepare(); } catch (error) { this.report(error); return; }
+    for (const r of this.store.statusOutbox().sort((a, b) => a.createdAt - b.createdAt || a.ordinal - b.ordinal)) {
+      if (this.controller.signal.aborted) return;
+      try {
+        await this.attempt(r.envelopeId, this.controller.signal);
+        if (!this.controller.signal.aborted) this.finishBatch(r.batchId);
+      } catch (error) { if (!this.controller.signal.aborted) this.report(error); }
+    }
+  }
   async sendPrepared(envelopeId: string, signal?: AbortSignal): Promise<void> {
     const combined = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
     for (;;) {
@@ -226,7 +261,7 @@ class GatewayDeliveryServiceImplementation {
       await this.attempt(envelopeId, combined);
       const next = this.store.read('outbox', envelopeId);
       if (next?.state === 'pending') {
-        const blockers = this.store.pending(next.messageId).filter(other => other.ordinal < next.ordinal);
+        const blockers = this.store.pending(next.messageId).filter(other => other.kind === next.kind && other.ordinal < next.ordinal);
         const time = Math.min(next.deliveryDeadline, Math.max(next.nextAttemptAt, next.lease?.until ?? 0,
           ...blockers.map(r => Math.max(r.nextAttemptAt, r.lease?.until ?? this.store.now() + 60_000))));
         await this.sleep(Math.max(1, time - this.store.now()), combined);
@@ -248,13 +283,17 @@ class GatewayDeliveryServiceImplementation {
       const batch = this.store.committed(r.batchId);
       if (!batch.length) return;
       const now = this.store.now();
+      // Suppression/expiry bookkeeping can replay; every attempt rechecks disclosure and deadline.
+      if (r.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(r)) {
+        this.store.write('outbox', id, { ...r, state: 'closed', lastError: 'DELIVERY_STATUS_NOT_SUPPORTED' }); return;
+      }
       if (now >= r.deliveryDeadline) {
         if (r.kind === 'delivery-status') this.store.write('outbox', id, { ...r, state: 'closed', lastError: 'OUTBOX_DEADLINE_EXPIRED' });
         else this.closeLocked(r.messageId, 'OUTBOX_DEADLINE_EXPIRED', 'deadline');
         return;
       }
       if (r.nextAttemptAt > now || r.lease && r.lease.until > now) return;
-      if (this.store.pending(r.messageId).some(other => (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
+      if (this.store.pending(r.messageId).some(other => other.kind === r.kind && (other.ordinal < r.ordinal || other.envelopeId !== id && other.lease && other.lease.until > now))) return;
       const next = { ...r, lease: { holderId, until: now + 60_000 }, attemptCount: r.attemptCount + 1 };
       // A lost lease or attempt counter only repeats the same immutable envelope.
       this.store.write('outbox', id, next); return next;
@@ -268,9 +307,11 @@ class GatewayDeliveryServiceImplementation {
         attemptSignal.throwIfAborted();
         await this.options.assertSendAllowed?.(structuredClone(claimed));
         attemptSignal.throwIfAborted();
+        if (claimed.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(claimed)) throw deliveryError('DELIVERY_STATUS_NOT_SUPPORTED');
         const relay = await this.options.resolveTransport(claimed.relayUrl, this.owner);
         attemptSignal.throwIfAborted();
         if (this.store.now() >= claimed.deliveryDeadline) throw deliveryError('OUTBOX_DEADLINE_EXPIRED');
+        if (claimed.kind === 'delivery-status' && !this.recipientStatus.dispatchAllowed(claimed)) throw deliveryError('DELIVERY_STATUS_NOT_SUPPORTED');
         await relay.send(structuredClone(claimed.envelope));
         relayDid = relay.getDeliveryStatusPin?.(claimed.envelopeId);
       })(), Math.max(1, ceiling), signal);
@@ -326,8 +367,8 @@ class GatewayDeliveryServiceImplementation {
   closeMessage(messageId: string, code = 'CANCELLED'): void {
     this.store.transaction(() => this.closeLocked(messageId, code, code === 'OUTBOX_DEADLINE_EXPIRED' ? 'deadline' : 'local'));
   }
-  markPeerObserved(messageId: string, observation: { status: MessageStatus; envelopeId: string }): void {
-    this.store.transaction(() => {
+  markPeerObserved(messageId: string, observation: { status: MessageStatus; envelopeId: string; replyEnvelopeId?: string }): void {
+    const change = () => {
       const m = this.store.read('messages', messageId);
       requireDelivery(observation.envelopeId === messageId);
       const r = this.store.read('outbox', messageId);
@@ -336,8 +377,11 @@ class GatewayDeliveryServiceImplementation {
         this.store.write('outbox', r.envelopeId, next);
       }
       if (m && (['queued', 'relayed'].includes(m.status) || observation.status === 'replied'))
-        this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now() });
-    });
+        this.store.write('messages', messageId, { ...m, status: observation.status, updatedAt: this.store.now(),
+          ...(observation.replyEnvelopeId ? { replyEnvelopeId: observation.replyEnvelopeId } : {}) });
+    };
+    if (observation.replyEnvelopeId) this.store.preparedTransaction(change);
+    else this.store.transaction(change);
   }
 }
 /** Structural public interface permits source and built hosts to share a service. */

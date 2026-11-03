@@ -233,3 +233,46 @@ a keyed `beforePropose` hook must return verified authorization evidence.
 C2 operation, authorization, binding and result records use the same process-restart durability: completed writes and atomic publication, without file or directory fsync. Power-loss persistence is not guaranteed.
 
 The local cache permits 10,000 retained operations and 16 MiB aggregate cached-result JSON per signer, with a 4 MiB operation-record bound. Active calls reserve their result space before approval; capacity and persistence failures return fixed `IDEMPOTENCY_STORE_*` codes without evicting live work.
+
+## Recipient delivery observations
+
+For validated 0.2.0 tasks, upgraded gateways exchange encrypted, recipient-signed
+`DeliveryStatus` frames containing identifiers, state, revision and timestamps only.
+They travel separately from task sequences and bilateral audit entries. Peers without
+version declarations keep existing 0.1.0 behavior and receive no new frame.
+Unknown, pending and former open peers receive only `received_held` and `closed`.
+The initial admission classification stays attached to that task; connecting later
+does not release its detailed history. Current disconnection suppresses queued detail;
+blocking suppresses every queued status. Inspection completion and content display
+alone do not open a task. Connection-only approval closes the original held task
+without recording `opened`.
+
+| State | Source and meaning |
+| --- | --- |
+| `queued` | Local approved ciphertext persisted in the outbox |
+| `relayed` | Relay admission; no recipient opening implied |
+| `received_held` | Recipient persisted quarantine content; an existing authenticated pending response can also establish this local observation |
+| `opened` | Recipient committed human contract approval after completed inspection |
+| `handed_to_agent` | Recipient recorded the adapter input boundary; no proof of reading or completed execution |
+| `replied` | Sender verified the returned delivery, independently of final owner verification |
+| `closed` | Local deadline/closure or recipient terminal held disposition; no proof of non-execution |
+
+Status facts outlive quarantine deletion. Successful result cleanup does not create
+`closed`. Records contain no task content, inspection details or closure reasons.
+They use the existing signer-scoped delivery store, POSIX 0600 files/0700 directories
+and atomic publication (Windows inherits parent DACLs). Observations, status batches
+and revision receipts follow the C1 process-restart policy: completed writes without
+file or directory fsync; power-loss persistence is not guaranteed. The fixed retention horizon
+is seven days after the original deadline, or creation if later; reads hide expired
+records without writing. Active gateway maintenance removes expired bytes. Status
+frames retry unchanged for at most 24 hours after the fact, within that horizon.
+A stopped gateway neither retries nor polls. Explicit gateway startup restores the
+reader for retained outgoing message IDs, including after a pending delegation ends;
+initialization and tool listing do not start it. This is an observation record for a
+later local query, not a new MCP tool or an execution/audit guarantee.
+A cached `idempotencyKey` lookup returns the first result without a new envelope.
+Recipient observations continue to update the original message record; cached
+lookups create no additional delivery records, observations or revision receipts.
+
+Both gateways need this implementation for recipient observations. No relay deployment
+is required; relay retention configuration is a separate change.

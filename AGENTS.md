@@ -602,3 +602,26 @@ Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
 やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
 保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
 relay のデプロイは不要です。
+
+### Delivery observations / 配達の状態
+
+Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
+held/opened/adapter-handoff/closed observations separately from task sequences and
+bilateral audit. Unknown peers get only `received_held` and `closed`; later connection
+approval does not release that task's history. Inspection/display alone does not open
+a task, and successful result cleanup does not close it. Queued detail is suppressed
+on disconnect; blocking suppresses all queued status. Legacy peers without version
+declarations retain 0.1.0 behavior. Status records use the fixed delivery deadline plus
+seven days; active maintenance deletes expired bytes. A handoff does not prove reading
+or execution. Both gateways need support; no relay deployment is required.
+See [relay reliability](docs/relay-reliability.md) for status sources, retention and lifecycle behavior.
+
+検証済みの 0.2.0 タスクでは、受信側署名付き `DeliveryStatus` で本文を含まない
+保留・開く・アダプターへの引き渡し・終了を記録します。タスク連番・双方向監査とは別です。
+未接続の相手には `received_held` と `closed` だけを返し、後の接続承認でも元の履歴を
+送りません。検査・表示だけでは開かず、結果成功時の後片付けでは閉じません。
+接続解除は待機中の詳細を、ブロックは待機中の全状態を送信対象から外します。
+版の宣言がない相手は従来の 0.1.0 の動作です。記録は元の配達期限から7日後まで保持し、
+稼働中の保守が期限切れを削除します。引き渡しは既読や実行の証明ではありません。
+両ゲートウェイの対応が必要で、relay の配備は不要です。
+状態の記録元・保持・動作は [relay の動作](docs/relay-reliability.ja.md)を参照してください。

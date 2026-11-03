@@ -74,6 +74,7 @@ export async function receiveRelay(
   signal?: AbortSignal,
   filter?: RelayReceiveFilter,
   onStatus?: (status: RelayConnectionStatus) => void,
+  onIdle?: () => Promise<SignedEnvelope | undefined>,
 ): Promise<SignedEnvelope> {
   let attempt = 0;
   while (true) {
@@ -83,6 +84,8 @@ export async function receiveRelay(
       onStatus?.('connected');
       attempt = 0;
       if (e) return e;
+      const control = await onIdle?.();
+      if (control) return control;
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? new Error('SESSION_ABORTED');
       if (!isTransientRelayError(error)) { onStatus?.('unavailable'); throw error; }
@@ -205,6 +208,13 @@ export class SessionWire {
           this.owner.did,
           AbortSignal.any([this.readController.signal, ...(this.detached ? [] : [this.signal])]),
         );
+        if (envelope.payload.eventType === 'DELIVERY_STATUS') {
+          try {
+            if (this.delivery) await this.delivery.service.statusRouter.route(envelope, this.relay);
+            else await acknowledgeRelay(this.relay, envelope);
+          } catch (error) { this.delivery?.service.options.onError?.(error as Error); }
+          continue;
+        }
         if (envelope.payload.eventType === 'CANCEL' && envelope.payload.senderDid === this.peerDid)
           this.earlyCancel?.();
         this.inbox.push(envelope);

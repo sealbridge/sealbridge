@@ -537,7 +537,7 @@ function sessionFixture(inspection: boolean, loseResponse = false) {
 }
 
 describe('durable session integration', () => {
-  it('settles sequential and concurrent delegates across two HTTP relay bindings without a listener', async () => {
+  it.each(['0.1.0', '0.2.0'] as const)('settles sequential and concurrent delegates across two HTTP relay bindings without a listener (%s)', async version => {
     const f = fixture();
     const counted = countDeliveryFs(f.service.store.io);
     const io = counted.fs;
@@ -576,6 +576,8 @@ describe('durable session integration', () => {
         taskTimeoutMs: 86400_000, checkPeer: () => 'trusted',
         adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async context => context.input },
         approvalProvider: new PolicyAutoApprovalProvider(owner) });
+      vi.spyOn(worker.protocol, 'receiveVersions').mockReturnValue([version]);
+      worker.agentCard = signPayload({ ...worker.agentCard.payload, protocolVersions: [version] }, owner);
       cleanups.push(() => worker.stop());
       return worker;
     });
@@ -587,11 +589,13 @@ describe('durable session integration', () => {
       description: 'Synthetic relay fixture', input: { index } });
     try {
       const assertWork = (delegations: number) => {
-        expect(counted.total() + counted.asyncCounts.write + counted.asyncCounts.fsync).toBeLessThanOrEqual(750 * delegations);
-        expect(counted.counts.openSync).toBeLessThanOrEqual(425 * delegations);
+        // Preserve the C1 ceilings for legacy traffic; C4 also persists signed observations and status frames.
+        expect(counted.total() + counted.asyncCounts.write + counted.asyncCounts.fsync).toBeLessThanOrEqual((version === '0.1.0' ? 750 : 850) * delegations);
+        expect(counted.counts.openSync).toBeLessThanOrEqual((version === '0.1.0' ? 425 : 450) * delegations);
         // One pre-existing worker intake write per delegation still flushes.
         expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBeLessThanOrEqual(delegations);
         expect(counted.asyncCounts.write).toBe(54 * delegations);
+        expect(counted.asyncCounts.fsync).toBe(0);
         expect(counted.counts.readdirSync).toBeLessThanOrEqual(12 * delegations);
         // Ancestor checks include the platform-specific temporary-directory depth.
         expect(counted.counts.lstatSync).toBeLessThanOrEqual(12000 * delegations);
@@ -734,7 +738,7 @@ describe('durable session integration', () => {
     await server.handle({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     expect(resolveTransport).not.toHaveBeenCalled(); expect(f.posted).toEqual([]);
-    try { await server.startDelivery(); expect(resolveTransport).toHaveBeenCalledOnce(); expect(f.posted).toEqual(p.frames); }
+    try { await server.startDelivery(); expect(resolveTransport).toHaveBeenCalledTimes(2); expect(f.posted).toEqual(p.frames); }
     finally { server.stopDelivery(); }
   });
   it('does not execute or acknowledge a proposal when durable receipt capacity is unavailable', async () => {

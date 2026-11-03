@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { attachHeldDeliveryStatus } from '@acp/runtime';
 import { openEnvelope } from '@acp/core';
 import type { SignedEnvelope } from '@acp/core';
 import { inspectStoredIdentity } from '@acp/runtime/key-store';
@@ -31,6 +32,7 @@ export async function requestsCommand(args: string[], options: {
   if (!key) { if (action === 'list') { output(JSON.stringify({ requests: [] })); return; } throw new Error('REQUEST_REVIEW_UNAVAILABLE'); }
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions), fs: identityOptions.fs, platform: identityOptions.platform });
   const review = new HeldRequestReview(key, { ...identityOptions, provider: options.inspectionProvider });
+  attachHeldDeliveryStatus(key, review, identityOptions, store);
   if (action === 'list') {
     // Legacy text previews are historical metadata, never reviewed content.
     output(JSON.stringify({ requests: store.list().map(({ title: _title, description: _description, ...r }) => ({ ...r,

@@ -2,6 +2,8 @@
 import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validateIdempotencyKey } from './idempotency-store.js';
 import type { IdempotencyOperation, IdempotencyStoreOptions } from './idempotency-store.js';
 import type { IdempotencyAuthorization } from './delivery-records.js';
+import { RecipientDeliveryCoordinator } from './delivery-status.js';
+import { setDeliveryStatusReaderFactory } from './delivery-status-router.js';
 import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
 import type { RequesterPendingStore } from './requester-pending-store.js';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -321,6 +323,15 @@ class RecipientInbox {
   private started = false;
   private error?: Error;
   private connections?: ConnectionRouter;
+  private delivery?: { service: GatewayDeliveryService; url: string; active: boolean };
+  setDelivery(service: GatewayDeliveryService, url: string, active: boolean): void {
+    this.delivery = { service, url, active };
+    this.readAbort?.abort(); this.wake?.(); this.wake = undefined;
+    if (active && !this.started) { this.started = true; registerRequesterInbox(this.did, this); void this.pump(); }
+  }
+  private statusIds(): string[] {
+    return this.delivery && (this.delivery.active || this.mailboxes.size > 0) ? this.delivery.service.statusRouter.ids(this.delivery.url) : [];
+  }
   setConnections(router: ConnectionRouter): void { this.connections = router; this.readAbort?.abort(); }
   constructor(
     private readonly relay: RelayTransport,
@@ -330,6 +341,9 @@ class RecipientInbox {
     return this.mailboxes.has(taskId);
   }
   deliverFromPeerRole(envelope: SignedEnvelope): boolean {
+    if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.delivery) {
+      void this.delivery.service.statusRouter.route(envelope, this.relay).catch(e => this.delivery?.service.options.onError?.(e)); return true;
+    }
     const mailbox = this.mailboxes.get(envelope.payload.taskId);
     if (!mailbox) return false;
     mailbox.push(envelope);
@@ -341,6 +355,7 @@ class RecipientInbox {
     if (existing) return existing;
     const mailbox = new TaskMailbox();
     this.mailboxes.set(taskId, mailbox);
+    if (this.delivery || this.connections) this.readAbort?.abort();
     registerRequesterInbox(this.did, this);
     this.wake?.();
     this.wake = undefined;
@@ -366,9 +381,9 @@ class RecipientInbox {
   }
   private async pump(): Promise<void> {
     for (;;) {
-      if (this.mailboxes.size === 0) {
+      if (this.mailboxes.size === 0 && this.statusIds().length === 0) {
         await new Promise<void>((resolve) => {
-          if (this.mailboxes.size > 0) {
+          if (this.mailboxes.size > 0 || this.statusIds().length > 0) {
             resolve();
             return;
           }
@@ -379,10 +394,22 @@ class RecipientInbox {
       const controller = new AbortController();
       this.readAbort = controller;
       try {
-        const envelope = await receiveRelay(this.relay, this.did, controller.signal, {
-          ...(this.connections ? { taskId: [...this.mailboxes.keys(), ...this.connections.options.store.controlSnapshot()
-            .filter(r => r.active).map(r => 'conn_' + r.offer.requestId)] } : { role: 'requester' as const }),
-        });
+        const statusIds = this.statusIds();
+        const readStatus = async () => statusIds.length ? await this.relay.receive(this.did, 0, controller.signal,
+          { taskId: statusIds, lease: this.relay.acknowledgeDelivery !== undefined }) : undefined;
+        // Read the independent status namespace without a role filter so existing relays
+        // can forward it. Task reads retain bilateral role inference, including self-delegation.
+        const envelope = await readStatus() ?? await receiveRelay(this.relay, this.did, controller.signal,
+          this.mailboxes.size === 0 ? { taskId: statusIds } : this.connections ? {
+            taskId: [...this.mailboxes.keys(), ...this.connections.options.store.controlSnapshot()
+              .filter(r => r.active).map(r => 'conn_' + r.offer.requestId)],
+          } : this.delivery ? { role: 'requester', taskId: [...this.mailboxes.keys()] } : { role: 'requester' },
+          undefined, readStatus);
+        if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.delivery) {
+          try { await this.delivery.service.statusRouter.route(envelope, this.relay); }
+          catch (error) { this.delivery.service.options.onError?.(error as Error); }
+          continue;
+        }
         if (isConnectionEvent(envelope.payload.eventType) && this.connections) { await this.connections.route(envelope); continue; }
         if (!this.mailboxes.has(envelope.payload.taskId) || this.isWorkerBoundFrame(envelope)) {
           if (forwardToWorkerListener(this.did, envelope)) continue;
@@ -421,6 +448,9 @@ function recipientInbox(
   }
   return inbox;
 }
+setDeliveryStatusReaderFactory((service, relay, url, active) => {
+  recipientInbox(service, relay, service.owner.did, url.replace(/\/$/, '')).setDelivery(service, url, active);
+});
 export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
@@ -595,6 +625,18 @@ export class WorkerNode {
           await options.deliveryOptions?.assertSendAllowed?.(context);
         } }) : undefined) : undefined;
     if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
+    if (this.deliveryService) {
+      this.deliveryService.recipientStatus = new RecipientDeliveryCoordinator(this.deliveryService, {
+        relayUrl: typeof options.relay === 'string' ? options.relay : options.relayUrl,
+        connectionState: peer => this.connectionStore.connectionState(peer),
+        onPublish: () => { void this.deliveryService!.drainStatuses(); },
+      });
+      this.heldReview.store.setTransitionSink(this.deliveryService.recipientStatus.transition);
+      this.deliveryService.onMaintenance(() => {
+        this.deliveryService!.recipientStatus.reconcile(this.heldReview.store.records());
+        if (this.heldReview.list().some(r => r.state === 'expired')) this.heldReview.expire();
+      });
+    }
     if (!persistencePath && this.deliveryService) {
       this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes, 'process');
       this.deliveryService.onMaintenance(async signal => {
@@ -1238,6 +1280,7 @@ export class WorkerNode {
       }
       const previouslyPending = this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest);
       let inspection: HeldSummary | undefined;
+      this.deliveryService?.recipientStatus.begin(first.payload.envelopeId);
       // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
       if (this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
         inspection = await this.holdTask(first, m, data.input);
@@ -1257,6 +1300,8 @@ export class WorkerNode {
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
       const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
+      this.deliveryService?.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
+      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       if (previouslyPending && peerTrust === 'trusted') throw new Error('PENDING_OWNER_APPROVAL');
       if (peerTrust !== 'trusted') {
         inspection ??= await this.holdTask(first, m, data.input);
@@ -1302,6 +1347,7 @@ export class WorkerNode {
       const accepted = gateway.accept(approval);
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
       saveCheckpoint({ phase: 'accepted' });
+      if (inspection?.inspectionStatus === 'complete') this.deliveryService?.recipientStatus.observe(first.payload.envelopeId, 'opened');
       if (this.options.dailyLimit)
         consumeDailyTask(this.options.dailyLimit.path, this.options.dailyLimit.maxTasks, m.taskId);
       if (this.options.inboxPath) {
@@ -1529,6 +1575,7 @@ export class WorkerNode {
       };
       this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
+      this.deliveryService?.recipientStatus.handoff(first, m);
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
       if (!this.options.inboxPath) await acknowledgeProposal(executionSignal);
       // A task may return while a queued progress update is still waiting for its ACK.
@@ -1600,6 +1647,9 @@ export class WorkerNode {
       if (idleSignal.aborted) throw e;
       const diagnostic = preserveWorkspace ? { code: 'TASK_INTERRUPTED' } : rejectionBody(progressFailure ?? e);
       saveOutcome(diagnostic);
+      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
+      const refused = this.heldReview.list().find(r => r.taskId === m.taskId);
+      if (refused && diagnostic.code !== 'PENDING_OWNER_APPROVAL' && !preserveWorkspace) this.heldReview.discard(refused.id);
       this.reportRejection(m.taskId, progressFailure ?? e);
       if (!wireFailureSent) {
         wireFailureSent = true;
@@ -1618,13 +1668,14 @@ export class WorkerNode {
         throw progressFailure;
       throw e;
     } finally {
+      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       heartbeatStopped = true;
       clearTimeout(heartbeat);
       timeouts.close();
       wire.close();
       this.acceptedPeers.delete(m.taskId);
       const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
-      if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id);
+      if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
       if (trackedTaskId) this.liveChains.delete(trackedTaskId);
       gateway?.close();
       if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
@@ -1678,6 +1729,11 @@ export class WorkerNode {
             return afterWait;
           }
           return undefined;
+        }
+        if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.deliveryService) {
+          try { await this.deliveryService.statusRouter.route(envelope, relay); }
+          catch (error) { this.deliveryService.options.onError?.(error as Error); }
+          continue;
         }
         if (this.consumeRevocation(envelope)) { await acknowledgeRelay(relay, envelope); continue; }
         if (isConnectionEvent(envelope.payload.eventType)) { await this.connections.route(envelope); continue; }
@@ -2353,8 +2409,8 @@ export class RequesterClient {
       owner = this.options.owner,
       inbox =
         typeof relayOption === 'string'
-          ? recipientInbox(this, relay, owner.did, relayOption.replace(/\/$/, ''))
-          : recipientInbox(relayOption, relay, owner.did);
+          ? recipientInbox(this.deliveryService ?? this, relay, owner.did, relayOption.replace(/\/$/, ''))
+          : recipientInbox(this.deliveryService ?? relayOption, relay, owner.did, this.deliveryService ? options.pendingRelayUrl ?? this.options.pendingRelayUrl : undefined);
     const rawCards = !invite && relay.discover ? await relay.discover() : [];
     if (!Array.isArray(rawCards)) throw new Error('INVALID_AGENT_CARD');
     if (invite && options.discover) throw new Error('CONFLICTING_DISCOVERY_TARGET');
@@ -2457,6 +2513,7 @@ export class RequesterClient {
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
     const bridge = new AbortController();
+    if (this.deliveryService && stableRelayUrl) inbox.setDelivery(this.deliveryService, stableRelayUrl, this.deliveryStarted || this.deliveryService.statusRouter.active);
     const mailbox = inbox.attach(manifest.taskId);
     const timeouts = new SessionTimeouts(timeoutOptions, manifest.deadline, bridge.signal);
     const signal = timeouts.signal;
@@ -2616,14 +2673,16 @@ export class RequesterClient {
         wire.sealed(envelope),
         this.options.verificationEngine ?? new VerificationEngine(),
         approval,
-        { allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true },
+        { allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: () => {
+          if (!wireDelivery) return;
+          wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
+            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) });
+        } },
       ), signal);
       if (!result.accepted || !settlement) {
         await wire.sendEvent('VERIFY_REJECT', verification);
         throw new Error('VERIFICATION_REJECTED: ' + result.reason);
       }
-      if (wireDelivery) wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
-        { status: 'replied', envelopeId: wireDelivery.context.messageId });
       verifiedReceipt = {
         workerDid: manifest.worker!.agentDid,
         taskId: manifest.taskId,

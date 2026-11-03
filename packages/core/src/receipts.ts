@@ -65,7 +65,7 @@ export function signAck(payload: Ack, key: KeyPair) {
 export function signEnvelope(
   payload: Omit<Envelope, 'type' | 'envelopeId' | 'senderDid'>,
   key: KeyPair,
-  options?: { encrypt?: boolean },
+  options?: { encrypt?: boolean; signedAt?: string },
 ): SignedEnvelope {
   const envelope: Envelope = {
     ...payload,
@@ -81,7 +81,7 @@ export function signEnvelope(
       senderDid: envelope.senderDid,
       recipientDid: envelope.recipientDid,
     });
-  return signPayload(envelope, key);
+  return signPayload(envelope, key, options?.signedAt);
 }
 export function verifyEnvelope(envelope: SignedEnvelope, recipientDid?: string): boolean {
   try {

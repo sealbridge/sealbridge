@@ -124,7 +124,7 @@ export class VerificationEngine {
     gate: ApprovalGate,
     approval?: ApprovalReceipt | (() => Promise<ApprovalReceipt>),
     recipient?: KeyPair,
-    verifyOptions?: { allowUnencryptedEnvelopes?: boolean },
+    verifyOptions?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void },
   ): Promise<VerificationResult> {
     const stages: string[] = [];
     try {
@@ -193,6 +193,7 @@ export class VerificationEngine {
         if (result !== (check.expectedExitCode ?? 0)) throw new Error('DETERMINISTIC_CHECK_FAILED');
       }
       stages.push('schema_isolated_check');
+      verifyOptions?.onVerifiedDelivery?.();
       gate.require(
         m.taskId,
         'final_verification',

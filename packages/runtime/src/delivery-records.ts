@@ -7,12 +7,17 @@ export const DELIVERY_RETENTION_MS = 7 * 86400_000;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export type MessageStatus = 'queued' | 'relayed' | 'received_held' | 'opened' | 'handed_to_agent' | 'replied' | 'closed';
 export type OutboxState = 'pending' | 'admitted' | 'closed';
-export type RecipientDeliveryState = 'received_held' | 'opened' | 'handed_to_agent' | 'closed';
-/** Reserved local extension contract; emission and routing are separate work. */
-export interface DeliveryStatus {
-  type: 'DeliveryStatus'; version: 1; messageId: string; taskId: string;
-  senderDid: string; recipientDid: string; state: RecipientDeliveryState;
-  revision: number; occurredAt: number; retainUntil: number;
+export type { DeliveryStatus, RecipientDeliveryState } from '@acp/core';
+import type { DeliveryStatus, RecipientDeliveryState, SignedDeliveryStatus } from '@acp/core';
+import { verifyDeliveryStatus, DEFAULT_CLOCK_SKEW_MS } from '@acp/core';
+export interface RecipientDeliveryRecordV1 {
+  version: 1; messageId: string; localOwnerDid: string; senderDid: string;
+  taskId: string; originalEnvelopeDigest: string;
+  createdAt: number; deliveryDeadline: number; retainUntil: number;
+  protocolVersion: '0.1.0' | '0.2.0'; disclosure: 'coarse' | 'connected';
+  latestState: RecipientDeliveryState; nextRevision: number;
+  facts: Array<{ state: RecipientDeliveryState; occurredAt: number }>;
+  published: Array<{ revision: number; status: SignedDeliveryStatus; envelopeId: string }>;
 }
 export interface MessageRecordV1 {
   version: 1; messageId: string; localOwnerDid: string; peerOwnerDid: string; peerAgentDid: string;
@@ -60,6 +65,7 @@ export interface IdempotencyBindingV1 {
 export interface DeliveryRecords {
   operations: IdempotencyOperationV1; idempotency: IdempotencyBindingV1;
   messages: MessageRecordV1; outbox: OutboxRecordV1; batches: OutboxBatchV1; receipts: InboundReceiptV1;
+  observations: RecipientDeliveryRecordV1;
 }
 export interface DeliveryLimits {
   operations: number; cachedResultBytes: number; operationBytes: number;
@@ -102,14 +108,7 @@ export function validateSignedShape(value: unknown): asserts value is Signed<unk
   exact(value, ['payload', 'signature']); signature(value.signature);
 }
 export function validateDeliveryStatus(value: unknown): asserts value is Signed<DeliveryStatus> {
-  validateSignedShape(value);
-  const p = value.payload;
-  exact(p, ['type', 'version', 'messageId', 'taskId', 'senderDid', 'recipientDid', 'state', 'revision', 'occurredAt', 'retainUntil']);
-  requireDelivery(p.type === 'DeliveryStatus' && p.version === 1 && uuid(p.messageId) && text(p.taskId) &&
-    ['received_held', 'opened', 'handed_to_agent', 'closed'].includes(String(p.state)) &&
-    integer(p.revision) && Number(p.revision) >= 1 && integer(p.occurredAt) && integer(p.retainUntil) && Number(p.retainUntil) >= Number(p.occurredAt));
-  did(p.senderDid); did(p.recipientDid);
-  requireDelivery(verifySigned(value, p.recipientDid as string));
+  requireDelivery(verifyDeliveryStatus(value));
 }
 /** Validate exact version-one local records before they can affect transport. */
 export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K, value: unknown, ownerDid: string): asserts value is DeliveryRecords[K] {
@@ -117,6 +116,7 @@ export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K,
   const fields: Record<keyof DeliveryRecords, [string[], string[]]> = {
     operations: [['operationId', 'tool', 'requestDigest', 'createdAt', 'retainUntil', 'phase', 'messageIds', 'taskIds', 'preparedActions'], ['approvals', 'response', 'lease']],
     idempotency: [['tool', 'keyHash', 'requestDigest', 'operationId', 'createdAt', 'retainUntil'], []],
+    observations: [['messageId', 'senderDid', 'taskId', 'originalEnvelopeDigest', 'createdAt', 'deliveryDeadline', 'retainUntil', 'protocolVersion', 'disclosure', 'latestState', 'nextRevision', 'facts', 'published'], []],
     messages: [['messageId', 'peerOwnerDid', 'peerAgentDid', 'taskId', 'relayUrl', 'protocolVersion', 'createdAt', 'deliveryDeadline', 'retainUntil', 'status', 'updatedAt', 'proposalEnvelopeDigest'], ['lastError', 'closedBy', 'operationId', 'remoteStatus', 'replyEnvelopeId']],
     outbox: [['envelopeId', 'messageId', 'batchId', 'kind', 'peerOwnerDid', 'relayUrl', 'envelopeDigest', 'envelope', 'createdAt', 'deliveryDeadline', 'state', 'attemptCount', 'nextAttemptAt', 'ordinal'], ['lease', 'admittedAt', 'lastError', 'relayDid']],
     batches: [['batchId', 'messageId', 'envelopeIds', 'createdAt', 'committed'], []],
@@ -138,6 +138,27 @@ export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K,
   }
   if (kind === 'operations' || kind === 'idempotency') {
     validateIdempotencyRecord(kind, r, ownerDid);
+  } else if (kind === 'observations') {
+    requireDelivery(r.protocolVersion === '0.2.0' && ['coarse', 'connected'].includes(String(r.disclosure)) && hash(r.originalEnvelopeDigest) &&
+      r.retainUntil === Math.max(Number(r.createdAt), Number(r.deliveryDeadline)) + DELIVERY_RETENTION_MS &&
+      integer(r.nextRevision) && Number(r.nextRevision) >= 1 && Number(r.nextRevision) <= 5 &&
+      Array.isArray(r.facts) && r.facts.length >= 1 && r.facts.length <= 4 && Array.isArray(r.published) && r.published.length <= 4);
+    const facts = r.facts as RecipientDeliveryRecordV1['facts'], published = r.published as RecipientDeliveryRecordV1['published'];
+    const states = ['received_held', 'opened', 'handed_to_agent', 'closed'];
+    facts.forEach((f, i) => {
+      exact(f, ['state', 'occurredAt']);
+      requireDelivery(states.includes(f.state) && integer(f.occurredAt) && f.occurredAt >= Number(r.createdAt) - DEFAULT_CLOCK_SKEW_MS && f.occurredAt < Number(r.retainUntil) &&
+        (!i || f.occurredAt >= facts[i - 1].occurredAt));
+    });
+    requireDelivery(new Set(facts.map(f => f.state)).size === facts.length && r.latestState === facts.at(-1)!.state && r.nextRevision === published.length + 1);
+    published.forEach((p, i) => {
+      exact(p, ['revision', 'status', 'envelopeId']); validateDeliveryStatus(p.status);
+      const v = p.status.payload;
+      requireDelivery(uuid(p.envelopeId) && p.revision === i + 1 && v.revision === p.revision && v.messageId === r.messageId &&
+        v.taskId === r.taskId && v.recipientDid === ownerDid && v.senderDid === r.senderDid && v.retainUntil === r.retainUntil &&
+        facts.some(f => f.state === v.state && f.occurredAt === v.occurredAt) &&
+        (r.disclosure !== 'coarse' || ['received_held', 'closed'].includes(v.state)));
+    });
   } else if (kind === 'messages') {
     requireDelivery(['0.1.0', '0.2.0'].includes(String(r.protocolVersion)) &&
       ['queued', 'relayed', 'received_held', 'opened', 'handed_to_agent', 'replied', 'closed'].includes(String(r.status)) &&
@@ -146,7 +167,7 @@ export function validateDeliveryRecord<K extends keyof DeliveryRecords>(kind: K,
     if ('remoteStatus' in r) {
       validateDeliveryStatus(r.remoteStatus);
       const p = r.remoteStatus.payload;
-      requireDelivery(p.messageId === r.messageId && p.taskId === r.taskId && p.senderDid === ownerDid && p.recipientDid === r.peerOwnerDid && p.retainUntil === r.retainUntil);
+      requireDelivery(p.messageId === r.messageId && p.taskId === r.taskId && p.senderDid === ownerDid && p.recipientDid === r.peerOwnerDid && p.retainUntil <= Number(r.retainUntil));
     }
   } else if (kind === 'outbox') {
     requireDelivery(['task', 'delivery-status'].includes(String(r.kind)) && ['pending', 'admitted', 'closed'].includes(String(r.state)));

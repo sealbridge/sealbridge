@@ -90,3 +90,7 @@ M0/M1 の JSON スキーマとサンプルは変更していません。署名�
 ## 接続のライブ受付
 
 [受付と移行](../docs/connections/admission.ja.md)・[リリース時計](../docs/connections/protocol-versions.ja.md)を参照してください。0.1.0 は接続由来の入場を認めません。スキーマと過去の監査検証に時計は適用しません。0.2.0 の PROPOSE は、別に同意した場合だけ暗号化済み ConnectionRequest 封筒を添付できます。その originProposalDigest は提案のダイジェストに一致する必要があります。公開リリース前に検査プロバイダーとリリース時刻の設定が必要です。
+
+`delivery-status.schema.json` は本文を含まない受信側署名付き `DeliveryStatus` を定義します。
+例は `examples/sample-delivery-status.json` です。0.2.0 タスクだけに別経路の暗号化封筒で送り、
+relay の署名付き保持状態とは区別します。
