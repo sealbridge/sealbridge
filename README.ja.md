@@ -730,6 +730,13 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
 
 [デモの手順](examples/two-owner-demo/README.md)、[ワイヤ規約](spec/README.ja.md)、[適合性テスト](conformance/README.md)、[M1 セキュリティモデル](docs/security-model.md)、[敵対的セキュリティテストスイート](SECURITY_PROOF.ja.md) を読んでください。M1 は署名付きリレーエンベロープと、制限付き JavaScript 子プロセスです。M2/M3 は任意の強化 OCI 実行と、ペイロードのエンドツーエンド暗号化を追加します。ルートのコードは Apache-2.0 です。DelegateOS から取り込んだ部分の MIT 表記は [NOTICE](NOTICE) に残しています。
 
+## 組み込み SDK
+
+型付き ESM 入口 `sealbridge/sdk` は、保存済み招待・鍵と秘密のストア・接続の審査・
+MCP のホストなどの公開 API を提供します。0.2.2 の次のリリースから利用でき、
+既存の CLI と内部パスも引き続き利用できます。
+[公開範囲と互換性の契約](docs/sdk.ja.md)を参照してください。
+
 ## 保留内容のライブラリ
 
 `@acp/runtime` は、暗号化済みリクエストの保存と注入用の検査プロバイダーを提供します。

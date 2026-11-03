@@ -51,12 +51,21 @@
     "sealbridge": "./dist/cli/dist/index.js",
     "acp": "./dist/cli/dist/acp.js"
   },
+  "exports": {
+    "./sdk": {
+      "types": "./dist/cli/dist/sdk.d.ts",
+      "import": "./dist/cli/dist/sdk.js"
+    },
+    "./*": "./*"
+  },
   "files": [
     "dist/",
     "LICENSE",
     "NOTICE",
     "README.md",
-    "README.ja.md"
+    "README.ja.md",
+    "docs/sdk.md",
+    "docs/sdk.ja.md"
   ],
   "publishConfig": {
     "access": "public"
