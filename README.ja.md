@@ -183,8 +183,10 @@ file 方式では従来の署名付き JSON 形式とバイト列を維持しま
 file に戻しても既存参照は keychain から解決し、新規保存はインラインに戻ります。一覧や MCP の結果に
 トークンを含めません。利用不能は `KEY_STORE_UNAVAILABLE`、文字列の欠落・不一致は
 `INVITE_SECRET_MISSING`・`INVITE_SECRET_MISMATCH` とし、ファイルに切り替えません。
-削除では参照先の文字列も削除します。`INVITE_SECRET_DELETE_FAILED` はメタデータの削除後に
-keychain の削除が失敗したことを表し、該当アカウントに文字列が残る場合があります。
+削除は参照先の文字列の削除と欠落確認を先に行い、その後にメタデータを置換します。
+`INVITE_SECRET_DELETE_FAILED` ではメタデータを維持し、同じ別名・参照で `remove`・
+`invites remove`・`acp_remove_invite` を再実行できます。文字列削除後に置換が失敗すると
+解決は `INVITE_SECRET_MISSING` になりますが、削除の再実行は文字列なしで完了できます。
 
 既存の依頼者鍵を使い、明示的にインラインのトークンを移行できます。
 
@@ -204,6 +206,15 @@ dry run は書き込まず対象件数を表示します。適用時は全件の
 `new InviteStore(owner, options)` は同期のファイル・注入方式 API を維持します。
 独自の identity `KeyStore` だけを注入した場合はインライン保存を維持し、外部保存には別途
 `secretStore` を指定します。明示した鍵ファイルは署名者の選択にのみ使い、招待には共通の方式選択を適用します。
+
+組み込みでは `store.import(link, alias, { pendingConfirmation: true })` で確認待ちとして保存できます。
+`SavedInvite.importState` は `unconfirmed` になり、`listUnconfirmed()` はトークンを含まない情報を返します。
+`removeUnconfirmed({ olderThan: timestamp })` は日時より厳密に古い確認待ちだけを削除し、`{ removed }` を返します。
+使う前に `retain(workerRef)` で保存を確定します。それまでは `resolve` が `INVITE_CONFIRMATION_REQUIRED` を返します。
+通常の import（重複を含む）も保存を確定し、確認待ちとしての再取込は過去の保存を変更しません。
+`connections confirm-invite` は接続確認の試行前に保存を確定します。拒否・中断時も保持し、所有者の同意確認は別に行います。
+マーカーがない既存項目は整理の対象外です。これらのメソッドは通信しません。
+再試行と組み込み時の契約は[招待のライフサイクル](docs/connections/invite-lifecycle.ja.md)を参照してください。
 
 中継器の既定候補は `<data-root>/config.json` に保存できます。
 

@@ -24,6 +24,7 @@ interface StoredInvite {
   tokenDigest?: string;
   inviteDigest: string;
   importedAt: string;
+  importState?: 'unconfirmed';
   effectiveExpiresAt: string;
 }
 interface StoredInvites {
@@ -40,8 +41,13 @@ export interface SavedInvite {
   agentDid: string;
   relayUrl: string;
   importedAt: string;
+  importState?: 'unconfirmed';
   effectiveExpiresAt: string;
   status: 'current' | 'expired';
+}
+export interface InviteImportOptions {
+  /** Only newly imported entries become eligible for explicit age-based cleanup. */
+  pendingConfirmation?: boolean;
 }
 export interface InviteStoreOptions extends IdentityStoreOptions {
   /** External token storage; omitted file selection retains inline signed entries. */
@@ -118,7 +124,9 @@ export class InviteStore {
       for (const e of p.entries) {
         const external = e?.inviteSecret !== undefined;
         const fields = 'id,alias,displayName,ownerDid,agentDid,relayUrl,inviteDigest,importedAt,effectiveExpiresAt,';
-        if (!e || !exactKeys(e, fields + (external ? 'inviteSecret,tokenDigest' : 'inviteToken')) ||
+        if (!e || !exactKeys(e, fields + (external ? 'inviteSecret,tokenDigest' : 'inviteToken') +
+            (e.importState !== undefined ? ',importState' : '')) ||
+            (e.importState !== undefined && e.importState !== 'unconfirmed') ||
             Object.values(e).some(v => typeof v !== 'string') || !aliasPattern.test(e.alias) ||
             !Number.isFinite(Date.parse(e.importedAt)) || Date.parse(e.importedAt) > this.now() ||
             ids.has(e.id) || aliases.has(e.alias)) throw new Error();
@@ -140,6 +148,7 @@ export class InviteStore {
         expected.inviteSecret = 'invite:' + expected.id;
         expected.tokenDigest = digestBytes(token);
       }
+      if (e.importState !== undefined) expected.importState = e.importState;
       if (token !== inviteTokenFromUri(token) || digest(e) !== digest(expected)) throw new Error();
     } catch { throw new Error('INVITE_STORE_INVALID'); }
   }
@@ -177,13 +186,15 @@ export class InviteStore {
   private publicEntry(e: StoredInvite): SavedInvite {
     const { alias, displayName, ownerDid, agentDid, relayUrl, importedAt, effectiveExpiresAt } = e;
     return { workerRef: 'saved:' + e.id, alias, displayName, ownerDid, agentDid, relayUrl,
-      importedAt, effectiveExpiresAt, status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current' };
+      importedAt, effectiveExpiresAt, ...(e.importState ? { importState: e.importState } : {}),
+      status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current' };
   }
   list(): SavedInvite[] { return this.read().map(e => this.publicEntry(e)); }
   /** Strict validation occurs on every resolution; an expired invite never becomes a DID target. */
   resolve(workerRef: string): { inviteToken: string; invite: Invite } {
     const e = this.find(this.read(), workerRef);
     if (!e) throw new Error('INVITE_NOT_FOUND');
+    if (e.importState === 'unconfirmed') throw new Error('INVITE_CONFIRMATION_REQUIRED');
     const token = this.token(e);
     const invite = this.verify(token, this.now());
     selectApplicationRelay({ ...this.options.relayPolicy, inviteRelay: invite.relayUrl });
@@ -192,7 +203,7 @@ export class InviteStore {
   private find(entries: StoredInvite[], ref: string): StoredInvite | undefined {
     return entries.find(e => ref === 'saved:' + e.id || ref === e.alias);
   }
-  private mutate<T>(change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean }, metadataOnly = false, afterPublish?: () => void): T {
+  private mutate<T>(change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean }, metadataOnly = false): T {
     const lock = this.path + '.lock';
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     let locked = false, written = false;
@@ -213,7 +224,6 @@ export class InviteStore {
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
-      afterPublish?.();
       return result;
     } catch (error) {
       if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
@@ -223,7 +233,7 @@ export class InviteStore {
       if (locked) this.io.unlinkSync(lock);
     }
   }
-  import(link: string, alias?: string): SavedInvite {
+  import(link: string, alias?: string, options: InviteImportOptions = {}): SavedInvite {
     const now = this.now();
     const invite = this.verify(link, now);
     selectApplicationRelay({ ...this.options.relayPolicy, inviteRelay: invite.relayUrl });
@@ -231,11 +241,14 @@ export class InviteStore {
     const suffix = digest(invite).slice(7, 19);
     const slug = invite.agentCard.payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'worker';
     const entry = this.entry(inviteTokenFromUri(link), alias ?? slug + '-' + suffix, new Date(now).toISOString(), invite);
+    if (options.pendingConfirmation) entry.importState = 'unconfirmed';
     return this.mutate(entries => {
       const duplicate = entries.find(e => e.inviteDigest === entry.inviteDigest);
       if (duplicate) {
         if (alias !== undefined && alias !== duplicate.alias) throw new Error('ALIAS_EXISTS');
-        return { entries, result: this.publicEntry(duplicate), changed: false };
+        const changed = !options.pendingConfirmation && duplicate.importState === 'unconfirmed';
+        if (changed) delete duplicate.importState;
+        return { entries, result: this.publicEntry(duplicate), changed };
       }
       if (entries.some(e => e.alias === entry.alias)) throw new Error('ALIAS_EXISTS');
       const stored = this.options.secretStore || this.selection() === 'keychain' ? this.externalize(entry) : entry;
@@ -252,18 +265,48 @@ export class InviteStore {
         result: { count, dryRun }, changed: count > 0 };
     });
   }
-  remove(workerRef: string): boolean {
-    let secret: string | undefined;
+  /** Keeps an import permanently outside unconfirmed cleanup; grants no connection or task consent. */
+  retain(workerRef: string): SavedInvite {
+    const current = this.find(this.read(), workerRef);
+    if (!current) throw new Error('INVITE_NOT_FOUND');
+    if (current.importState !== 'unconfirmed') return this.publicEntry(current);
     return this.mutate(entries => {
       const entry = this.find(entries, workerRef);
-      secret = entry?.inviteSecret;
-      return { entries: entries.filter(e => e !== entry), result: !!entry, changed: !!entry };
-    }, true, () => {
-      if (!secret) return;
-      try {
-        if (!this.secretStore) throw new Error();
-        this.secretStore.delete(secret);
-      } catch { throw new Error('INVITE_SECRET_DELETE_FAILED'); }
+      if (!entry) throw new Error('INVITE_NOT_FOUND');
+      const changed = entry.importState === 'unconfirmed';
+      delete entry.importState;
+      return { entries, result: this.publicEntry(entry), changed };
     });
+  }
+  /** Token-free metadata remains available even after interrupted secret deletion. */
+  listUnconfirmed(): SavedInvite[] {
+    return this.readMetadata().filter(e => e.importState === 'unconfirmed').map(e => this.publicEntry(e));
+  }
+  /** Deletes only explicitly pending imports strictly older than the supplied timestamp. */
+  removeUnconfirmed(options: { olderThan: string }): { removed: number } {
+    const cutoff = Date.parse(options.olderThan);
+    if (!Number.isFinite(cutoff) || cutoff > this.now()) throw new Error('INVITE_CLEANUP_INVALID_CUTOFF');
+    return this.mutate(entries => {
+      const selected = entries.filter(e => e.importState === 'unconfirmed' && Date.parse(e.importedAt) < cutoff);
+      for (const entry of selected) this.deleteSecret(entry);
+      return { entries: entries.filter(e => !selected.includes(e)), result: { removed: selected.length },
+        changed: selected.length > 0 };
+    }, true);
+  }
+  private deleteSecret(entry: StoredInvite): void {
+    if (!entry.inviteSecret) return;
+    try {
+      if (!this.secretStore) throw new Error();
+      this.secretStore.delete(entry.inviteSecret);
+      if (this.secretStore.get(entry.inviteSecret) !== undefined) throw new Error();
+    } catch { throw new Error('INVITE_SECRET_DELETE_FAILED'); }
+  }
+  /** Secret deletion precedes metadata publication, so either step can be retried with the same reference. */
+  remove(workerRef: string): boolean {
+    return this.mutate(entries => {
+      const entry = this.find(entries, workerRef);
+      if (entry) this.deleteSecret(entry);
+      return { entries: entries.filter(e => e !== entry), result: !!entry, changed: !!entry };
+    }, true);
   }
 }
