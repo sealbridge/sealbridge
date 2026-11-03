@@ -24,7 +24,8 @@ async function rewrite(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) await rewrite(file);
-    else if (file.endsWith('.js')) {
+    // Declarations must resolve outside the workspace just like runtime imports.
+    else if (file.endsWith('.js') || file.endsWith('.d.ts')) {
       let source = await readFile(file, 'utf8');
       source = source.replace(/(['"])(@acp\/[^'"]+)\1/g, (match, quote, name) => {
         const base = name.split('/').slice(0, 2).join('/');

@@ -508,6 +508,17 @@ MCP では `sealbridge mcp-server` を使います。進捗は `onProgress`、�
 `AbortSignal`、複数委任は `race` と `quorum` です。失効トークンは
 `TOKEN_REVOKED` です。
 
+## Embedding SDK / 組み込み SDK
+
+Use `sealbridge/sdk` for the supported typed ESM embedding APIs (next release after
+0.2.2). It re-exports existing invitation, identity/secret-store, connection review
+and MCP hosting APIs; import alone starts no operation. Existing deep paths remain
+resolvable. See [SDK contract](docs/sdk.md).
+
+組み込みには型付き ESM の `sealbridge/sdk`（0.2.2 の次のリリース）を使います。
+既存の招待・鍵と秘密のストア・接続の審査・MCP ホスト API を再 export し、import
+だけでは操作を開始しません。従来の内部パスも解決できます。[契約](docs/sdk.ja.md)を参照します。
+
 ## Held-content library / 保留内容のライブラリ
 
 Held-content APIs retain encrypted envelopes and require a completed inspection receipt for display.
