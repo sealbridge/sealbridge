@@ -99,6 +99,37 @@ describe('idempotency index generation', () => {
       expect(await second.run(tool, key, action, async () => { throw new Error('UNEXPECTED_EXECUTION'); })).toEqual(response);
   });
 
+  it.each([false, true])('refreshes both inventories under the lock before aged orphan cleanup with binding restored %s', async restored => {
+    const f = setup(), { io } = directoryIo(), counted = countDeliveryFs(io), writer = records(f, io);
+    await initialize(writer); publish(writer, 'one');
+    const [operation] = writer.snapshot('operations'), [binding] = writer.snapshot('idempotency');
+    writer.transaction(() => writer.remove('idempotency', binding.keyHash));
+    const scans: string[] = [];
+    let observing = false;
+    const reader = records(f, { ...counted.fs, readdirSync: ((path: fs.PathLike) => {
+      if (observing) {
+        expect(fs.existsSync(join(writer.root, '.lock'))).toBe(true);
+        scans.push(String(path));
+      }
+      return counted.fs.readdirSync(path);
+    }) as typeof fs.readdirSync });
+    await reader.prepareIdempotency();
+    if (restored) fs.writeFileSync(writer.path('idempotency', binding.keyHash),
+      JSON.stringify(signPayload(binding, f.owner)) + '\n', { mode: 0o600 });
+    const before = fs.statSync(generation(writer)).size;
+    counted.reset(); scans.length = 0;
+    observing = true;
+    reader.transaction(() => reader.reserveIdempotencyCapacity(now + 120_000));
+    expect(scans).toEqual([join(reader.root, 'operations'), join(reader.root, 'idempotency')]);
+    expect(fs.existsSync(reader.path('operations', operation.operationId))).toBe(restored);
+    expect(fs.statSync(generation(writer)).size).toBe(before + (restored ? 0 : 1));
+    // A full refresh and any cleanup publication leave both indexes at the current generation.
+    counted.reset(); scans.length = 0;
+    await reader.prepareIdempotency();
+    reader.transaction(() => reader.reserveIdempotencyCapacity(now + 120_000));
+    expect(counted.counts.readdirSync).toBe(0);
+  });
+
   it('retains a concurrent publication during temporary-file creation', async () => {
     const f = setup(), { io, advance } = directoryIo();
     let interleave: (() => void) | undefined;

@@ -23,9 +23,9 @@ export interface PreparedDeliveryWrite extends DeliveryWrite { temporary: string
 type IdempotencyKind = 'operations' | 'idempotency';
 const idempotencyKinds = ['operations', 'idempotency'] as const;
 const isIdempotencyKind = (kind: Kind): kind is IdempotencyKind => kind === 'operations' || kind === 'idempotency';
-type IdempotencySummary = { operationId: string; retainUntil: number; bytes?: number };
+type IdempotencySummary = { operationId: string; createdAt: number; retainUntil: number; bytes?: number };
 function summarizeIdempotency(record: DeliveryRecords[IdempotencyKind]): IdempotencySummary {
-  return { operationId: record.operationId, retainUntil: record.retainUntil,
+  return { operationId: record.operationId, createdAt: record.createdAt, retainUntil: record.retainUntil,
     bytes: 'response' in record && record.response ? Buffer.byteLength(JSON.stringify(record)) : undefined };
 }
 type StatusMessage = Pick<MessageRecordV1, 'messageId' | 'relayUrl' | 'protocolVersion' | 'retainUntil'>;
@@ -67,6 +67,7 @@ class DeliveryStoreImplementation {
   private readonly verified = new Map<string, { stamp: string; data: string; record: DeliveryRecords[Kind] }>();
   private verifiedBytes = 0;
   private preparedMode = false;
+  private readonly idempotencyLeaseMs: number;
   private outboxIndex?: { stamp: string; entries: Map<string, OutboxSummary> };
   private readonly idempotencyIndexes = new Map<Kind, { stamp: string; entries: Map<string, IdempotencySummary> }>();
   private messageIndex?: { stamp: string; entries: Map<string, StatusMessage> };
@@ -94,6 +95,8 @@ class DeliveryStoreImplementation {
     catch { throw deliveryError('OUTBOX_STORE_INVALID'); }
     this.root = deliveryRoot(owner.did, options);
     this.io = options.fs ?? fs; this.platform = options.platform ?? process.platform; this.now = options.now ?? Date.now;
+    // IdempotencyStore forwards its lease option in this same options object.
+    this.idempotencyLeaseMs = (options as DeliveryStoreOptions & { leaseMs?: number }).leaseMs ?? 120_000;
     this.limits = { ...DEFAULT_DELIVERY_LIMITS, ...options.limits };
     requireDelivery(Object.values(this.limits).every(n => Number.isSafeInteger(n) && n > 0));
   }
@@ -654,6 +657,16 @@ class DeliveryStoreImplementation {
       if (adopted) return;
     }
   }
+  /** Caller holds the signer lock. Reread both inventories and validate every listed record. */
+  private refreshIdempotencyIndexes(): void {
+    for (const kind of ['operations', 'idempotency'] as const) {
+      // A matching directory stamp alone does not confirm the inventory for orphan cleanup.
+      this.listings.delete(kind);
+      const entries = new Map(this.snapshot(kind).map(record => [kind === 'operations' ? record.operationId
+        : (record as DeliveryRecords['idempotency']).keyHash, summarizeIdempotency(record)]));
+      this.idempotencyIndexes.set(kind, { stamp: this.listingStamp(kind), entries });
+    }
+  }
   /** Caller holds the signer lock. Unchanged retained results require no file scans or reopens. */
   reserveIdempotencyCapacity(now: number): void {
     // Creating a missing generation changes the shared stamp and requires a full
@@ -663,12 +676,23 @@ class DeliveryStoreImplementation {
       for (const kind of idempotencyKinds) this.listings.delete(kind);
       this.openGeneration();
     }
-    const operations = this.idempotencyIndexes.get('operations'), bindings = this.idempotencyIndexes.get('idempotency');
+    let operations = this.idempotencyIndexes.get('operations'), bindings = this.idempotencyIndexes.get('idempotency');
     if (!operations || !bindings || operations.stamp !== this.listingStamp('operations') || bindings.stamp !== this.listingStamp('idempotency'))
       throw deliveryError('IDEMPOTENCY_STORE_BUSY');
+    const leaseMs = this.idempotencyLeaseMs;
+    const retainedBindings = new Set([...bindings.entries.values()].filter(b => b.retainUntil > now).map(b => b.operationId));
+    let refreshed = false;
+    if (this.transactionReads && [...operations.entries.values()].some(r => r.retainUntil > now &&
+        !retainedBindings.has(r.operationId) && r.createdAt + leaseMs <= now)) {
+      // Only an aged orphan candidate needs this extra I/O; warm reservations reuse their indexes.
+      this.refreshIdempotencyIndexes();
+      operations = this.idempotencyIndexes.get('operations')!; bindings = this.idempotencyIndexes.get('idempotency')!;
+      refreshed = true;
+    }
     for (const [id, binding] of bindings.entries) if (binding.retainUntil <= now) this.remove('idempotency', id);
     const bound = new Set([...bindings.entries.values()].map(b => b.operationId));
-    for (const [id, record] of operations.entries) if (record.retainUntil <= now || !bound.has(id)) this.remove('operations', id);
+    for (const [id, record] of operations.entries) if (record.retainUntil <= now ||
+        refreshed && !bound.has(id) && record.createdAt + leaseMs <= now) this.remove('operations', id);
     const bytes = [...operations.entries.values()].reduce((n, r) => n + (r.bytes ?? this.limits.operationBytes), 0);
     if (operations.entries.size >= this.limits.operations || bytes + this.limits.operationBytes > this.limits.cachedResultBytes)
       throw deliveryError('IDEMPOTENCY_STORE_FULL');

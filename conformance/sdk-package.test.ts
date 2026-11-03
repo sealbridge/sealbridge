@@ -66,7 +66,7 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
   for (const path of declarations(join(installed, 'dist'))) expect(readFileSync(path, 'utf8')).not.toMatch(/['"]@acp\//);
   write(join(fixture, 'consumer.mts'), `
     import {
-      AcpMcpServer, ConnectionService, ConnectionRouter, StoredConnectionExchange, InviteStore,
+      AcpMcpServer, ConnectionService, ConnectionRouter, StoredConnectionExchange, ConnectionAdmissionReview, InviteStore,
       WorkerTrustStore, HeldRequestReview, KeychainSecretStore, resolveStoredIdentity, resolveDataRoot,
       connectionsCommand, connectionHumanReview, mcpServerCommand, parseMcpServerArgs,
       mcpServerOptionsFromArgs, parseAndVerifyInviteToken,
@@ -74,8 +74,16 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
     import type {
       SavedInvite, SecretStore, KeyStore, IdentityStoreOptions, DataRootOptions, KeyringModule,
       ConnectionServiceOptions, ConnectionHumanReviewProvider, ConnectionRouterOptions,
+      ConnectionAdmissionReviewOptions, InboundConnectionSummary,
       ConnectionsCommandOptions, AcpMcpServerOptions, HeldContentReviewProvider, RelayTransport,
     } from 'sealbridge/sdk';
+    function admission(options: ConnectionAdmissionReviewOptions): InboundConnectionSummary[] {
+      const queue = new ConnectionAdmissionReview(options);
+      const rows = queue.list();
+      const name: string | undefined = rows[0]?.peerDisplayName;
+      return rows;
+    }
+    const unnamed: Pick<InboundConnectionSummary, 'peerDisplayName'> = {};
     const root: DataRootOptions = { env: { SEALBRIDGE_DATA_DIR: '/example' } };
     const secrets: SecretStore = { get: () => undefined, set: () => {}, delete: () => {} };
     const identity: IdentityStoreOptions = { ...root, keyStore: 'keychain' };

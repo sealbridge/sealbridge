@@ -36,7 +36,7 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
 | 接続の metadata | `WorkerTrustStore`（`listConnections` を含む）, `workerIntakePath` |
 | 接続交換 | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | 所有者の確認コマンド | `connectionsCommand`, `connectionHumanReview` |
-| 保留の審査 | `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
+| 保留の審査 | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
 | 検索・招待 | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | 鍵の生成 | `generateKeyPair` |
 | MCP のホスト | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
@@ -56,7 +56,8 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
   `ConnectionRedemptionCommit`, `ConnectionTransport`, `ConnectionFrame`,
   `ConnectionRouterOptions`, `ConnectedEvent`, `ConnectionsCommandOptions`。
 - 審査: `HeldRequestReviewOptions`, `HeldContentReviewProvider`,
-  `HeldInspectionContext`, `InspectionCompletion`。
+  `HeldInspectionContext`, `InspectionCompletion`, `ConnectionAdmissionReviewOptions`,
+  `InboundConnectionSummary`。
 - MCP: `AcpMcpServerOptions`, `ApprovalProvider`, `ParsedMcpServerArgs`。
 - core・転送: `KeyPair`, `Json`, `Signed`, `SignedEnvelope`, `Invite`,
   `AgentSkill`, `DiscoveryAgentCard`, `CreateAgentCardOptions`, `SignedAgentCard`,
@@ -114,6 +115,11 @@ JSON の metadata・イベントを受け取ります。`now`・`transportFactor
 使います。接続後も limited で、各タスクは検査と所有者が開く操作を必要とします。
 既定の検査 provider は利用不可です。[接続交換](connections/connection-exchange.ja.md)と
 [保留内容の審査](connections/held-content.ja.md)を参照してください。
+
+`ConnectionAdmissionReview` は保留中の受信接続に `list()`・`approve(id)`・`reject(id)` を
+提供します。判断は所有者の明示操作に結び付けます。`InboundConnectionSummary` は既知のとき
+任意の `peerDisplayName` を含み、表示名は情報として扱います。組み込み検査の対象は接続情報だけです。
+[受信接続の審査](connections/admission.ja.md#受信接続の審査)を参照してください。
 
 ## MCP のライフサイクル
 

@@ -719,6 +719,13 @@ APIとストアの互換性は[つながりの状態と永続化](docs/connectio
 接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
 詳細は[つながり交換](docs/connections/connection-exchange.ja.md)を参照してください。
 
+組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
+一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
+CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
+組み込み検査は接続情報だけが対象です。既定の受信・タスク検査は `unavailable` のままで、
+タスクは開きません。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
+
+
 ## ローカルの M0–M1 実装
 
 Node.js 22 LTS と pnpm 10 が必要です。WP-1 から WP-6 は `@acp/core`、`@acp/ledger`、`@acp/sandbox`、`@acp/runtime`、`@acp/relay`、`@acp/cli`、`@acp/two-owner-demo` として実装されています。

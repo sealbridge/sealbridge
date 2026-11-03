@@ -1,5 +1,10 @@
 # つながり交換
 
+明示的な受信 `approve` でも、署名付き所有者同意とともに招待の初回 DID の結び付けを保存します。
+既に別の所有者や無効になった接続に結び付いている招待では、元の結び付けを変更せず、別の明示的な
+同意で申し込みを承認できます。明示選択の `ConnectionAdmissionReview` は所有者の判断操作中だけ
+組み込みの接続情報検査を使います。[受信接続の審査](admission.ja.md#受信接続の審査)を参照してください。
+
 `@acp/core` は `ConnectionRequest`・`ConnectionAccepted`・`ConnectionAck` の型、
 大きさと形式の検証、署名・署名検証を公開します。`@acp/runtime` は `ConnectionService`
 と暗号化された制御封筒の関数を公開します。永続化・保留内容の検査・人による確認・通信は

@@ -708,6 +708,14 @@ Runtime, CLI, MCP and board now attach this exchange through owner-local persist
 Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
 See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
 
+Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
+connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
+an owner action. The opt-in CLI is `connections review list|approve ID|reject ID`;
+decisions still require human confirmation. Built-in inspection covers connection
+metadata only. Default inbound and task inspection remain `unavailable`; no task
+is opened. See [admission review](docs/connections/admission.md#owner-admission-review).
+
+
 ## Local M0–M1 implementation
 
 Node.js 22 LTS and pnpm 10 are required. WP-1 through WP-6 are implemented as `@acp/core`, `@acp/ledger`, `@acp/sandbox`, `@acp/runtime`, `@acp/relay`, `@acp/cli` and `@acp/two-owner-demo`.
