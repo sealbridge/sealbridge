@@ -230,6 +230,8 @@ Keys are optional; calls without them retain existing behavior. No relay deploym
 is needed. The runtime single/multi options also accept `idempotencyKey`;
 a keyed `beforePropose` hook must return verified authorization evidence.
 
+The delivery root also contains the internal `.idempotency-gen` file. Its size increases by one before each operation or binding replacement/removal under the signer lock; both indexes use its inode and size together with directory metadata. The file is never shrunk or replaced by the store. Missing or replaced files require both indexes to be rebuilt. Signed record formats are unchanged. Older versions ignore this root-level file; directory metadata remains part of change detection, with the existing possibility of matching stamps between concurrent older writers. Downgrading retains the older index behavior.
+
 C2 operation, authorization, binding and result records use the same process-restart durability: completed writes and atomic publication, without file or directory fsync. Power-loss persistence is not guaranteed.
 
 The local cache permits 10,000 retained operations and 16 MiB aggregate cached-result JSON per signer, with a 4 MiB operation-record bound. Active calls reserve their result space before approval; capacity and persistence failures return fixed `IDEMPOTENCY_STORE_*` codes without evicting live work.

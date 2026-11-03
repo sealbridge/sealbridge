@@ -159,8 +159,8 @@ describe('signer-scoped idempotency records', () => {
       expect(await store.run(tool, 'new-' + i, f.action, f.run)).toMatchObject({ isError: false });
       expect(counted.counts.readdirSync).toBe(0);
       expect(counted.counts.readSync).toBe(0);
-      // Reservation and result publication each plan and publish under short locks; staging needs no lock.
-      expect(counted.counts.openSync).toBeLessThanOrEqual(7);
+      // Reservation and result publication each open the generation once under their publication lock.
+      expect(counted.counts.openSync).toBeLessThanOrEqual(9);
       expect(counted.counts.fsyncSync).toBe(0);
       expect(counted.asyncCounts.fsync).toBe(0);
     }
