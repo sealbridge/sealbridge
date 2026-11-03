@@ -18,6 +18,9 @@ export function statusFixture(inspect = true) {
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } };
   const sender = generateKeyPair(), recipient = generateKeyPair();
   let now = Date.now(); const epoch = now;
+  // Delivery lifecycle tests control their own clock, independently of release packaging.
+  const protocolPolicy = { releasedAt: new Date(epoch).toISOString(),
+    sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 } as const;
   const relay = new InMemoryRelay({ now: () => now, envelopeTtlMs: 86400_000 });
   const frames: SignedEnvelope[] = [];
   const transport: RelayTransport = {
@@ -33,10 +36,10 @@ export function statusFixture(inspect = true) {
   const approval = new PolicyAutoApprovalProvider(recipient);
   const human: { kind: 'human'; approve: Mock<ApprovalProvider['approve']> } = { kind: 'human', approve: vi.fn(approval.approve.bind(approval)) };
   const execute: Mock<(ctx: { input: Json }) => Promise<Json>> = vi.fn(async ctx => ctx.input);
-  const worker = new WorkerNode({ owner: recipient, relay: transport, relayUrl: statusRelayUrl, identityOptions, now: () => now,
+  const worker = new WorkerNode({ protocolPolicy, owner: recipient, relay: transport, relayUrl: statusRelayUrl, identityOptions, now: () => now,
     deliveryService: incoming, connectionStore: store, intakeStore: store, heldReview: review, approvalProvider: approval, ownerApprovalProvider: human,
     taskTimeoutMs: 86400_000, adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute } });
-  const client = new RequesterClient({ owner: sender, relay: transport, pendingRelayUrl: statusRelayUrl, identityOptions,
+  const client = new RequesterClient({ protocolPolicy, owner: sender, relay: transport, pendingRelayUrl: statusRelayUrl, identityOptions,
     deliveryService: outgoing, taskTimeoutMs: 86400_000, now: () => now, approvalProvider: new PolicyAutoApprovalProvider(sender) });
   const task = { title: 'Delivery fixture', description: 'Lifecycle fixture', input: { text: 'fixture content' } };
   function proposal(version: '0.1.0' | '0.2.0' = '0.2.0') {
@@ -63,6 +66,6 @@ export function statusFixture(inspect = true) {
     return Promise.allSettled([client.delegate({ ...task, to: invite ? worker.invite() : recipient.did, manifest }), worker.start({ once: true })]);
   }
   return { root, identityOptions, sender, recipient, relay, transport, frames, errors, incoming, outgoing, store, review, human, execute, worker, client,
-    epoch, now: () => now, setNow: (n: number) => { now = n; }, proposal, enqueue, status, attempt,
+    epoch, protocolPolicy, now: () => now, setNow: (n: number) => { now = n; }, proposal, enqueue, status, attempt,
     cleanup: () => { client.stopDelivery(); worker.stop(); rmSync(root, { recursive: true, force: true }); } };
 }

@@ -1,3 +1,4 @@
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 
 let home: string;
 let identityOptions: { home: string; env: { SEALBRIDGE_DATA_DIR: string } };
-const NOW = Date.parse('2026-11-01T00:00:00.000Z');
+const NOW = protocolTestNow('2026-11-01T00:00:00.000Z');
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW);
   home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-alias-'));

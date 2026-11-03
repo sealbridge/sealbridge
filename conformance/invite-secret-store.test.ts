@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import * as fs from 'node:fs';
@@ -14,7 +15,7 @@ import { acceptCommand } from '../cli/src/accept.js';
 import { invitesMigrateCommand } from '../cli/src/invites-migrate.js';
 import { pendingCommand } from '../cli/src/pending.js';
 
-const NOW = Date.parse('2026-11-01T00:00:00.000Z');
+const NOW = protocolTestNow('2026-11-01T00:00:00.000Z');
 let home: string, options: InviteStoreOptions;
 let secrets: Map<string, string>, loader: Mock<() => Promise<KeyringModule>>, module: KeyringModule;
 beforeEach(() => {

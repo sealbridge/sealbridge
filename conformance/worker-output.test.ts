@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { chmodSync, closeSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync,
   realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -29,7 +30,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-worker-output-'));
   writeFileSync(join(dir, 'worker.private.json'), JSON.stringify(owner), { mode: 0o600 });
   captured.options = undefined; captured.token = ''; captured.starts = 0;
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+  vi.useFakeTimers(); vi.setSystemTime(protocolTestNow('2026-01-01T00:00:00.000Z'));
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('OFFLINE_TEST'); }));
@@ -68,7 +69,7 @@ it('suppresses invitation stdout and emits exact invitation metadata', async () 
   expect(events()).toEqual([{ event: 'invite_ready',
     inviteDigest: 'sha256:' + createHash('sha256').update(captured.token).digest('hex'),
     expiresAt: invite.expiresAt, workerDid: owner.did, relay: 'https://relay.example' }]);
-  expect(invite.expiresAt).toBe('2026-01-01T00:02:00.000Z');
+  expect(invite.expiresAt).toBe(new Date(Date.now() + 120_000).toISOString());
   expect(fetch).not.toHaveBeenCalled();
 });
 

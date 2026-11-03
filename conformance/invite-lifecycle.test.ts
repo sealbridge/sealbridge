@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -11,7 +12,7 @@ import { AcpMcpServer, resolveStoredIdentity, WorkerTrustStore, workerIntakePath
 import { connectionsCommand } from '../cli/src/connections.js';
 import { acceptCommand } from '../cli/src/accept.js';
 
-const NOW = Date.parse('2026-11-01T00:00:00.000Z');
+const NOW = protocolTestNow('2026-11-01T00:00:00.000Z');
 const pending = { pendingConfirmation: true };
 let root: string, now: number, options: InviteStoreOptions, secrets: Map<string, string>, secretStore: SecretStore;
 beforeEach(() => {

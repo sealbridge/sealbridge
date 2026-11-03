@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -58,7 +59,7 @@ afterEach(() => {
 
 // Every test in this file uses local I/O and the in-memory credential loader.
 function offline() {
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
+  vi.useFakeTimers(); vi.setSystemTime(protocolTestNow('2026-11-01T00:00:00Z'));
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected network request'); });
   return vi.spyOn(console, 'log').mockImplementation(() => {});
 }

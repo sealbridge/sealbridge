@@ -1,3 +1,4 @@
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -329,7 +330,7 @@ describe('multiple local candidates, one active route', () => {
   });
   it('keeps signed cards, invite serialization and CLI output identical when an unused candidate is added', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
+    vi.setSystemTime(protocolTestNow('2026-11-01T00:00:00Z'));
     const { home, identityOptions } = fixture([first]);
     const owner = resolveOrCreateIdentity('worker', identityOptions);
     const server = new AcpMcpServer({ owner, identityOptions });

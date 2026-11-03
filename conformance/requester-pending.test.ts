@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,7 +18,7 @@ import { formatCliError } from '../cli/src/error-messages.js';
 let root: string;
 const url = 'https://relay.sealbridge.dev';
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(protocolTestNow('2026-11-01T00:00:00Z'));
   root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'sealbridge-pending-'));
   vi.stubEnv('SEALBRIDGE_DATA_DIR', root); vi.stubEnv('ACP_DATA_DIR', root);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('UNEXPECTED_NETWORK'); });

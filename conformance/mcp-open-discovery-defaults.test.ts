@@ -14,6 +14,9 @@ import type { AcpMcpServerOptions, ApprovalProvider, WorkerNodeOptions } from '.
 import { mcpServerOptionsFromArgs, parseMcpServerArgs } from '../cli/src/mcp.js';
 
 const NOW = new Date('2026-06-01T12:00:00Z');
+// Keep discovery/admission fixtures in the initial compatibility phase.
+const protocolPolicy = { releasedAt: NOW.toISOString(),
+  sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 } as const;
 const POLICY = { maxInputTokens: 1000, maxOutputTokens: 500,
   maxToolInvocations: 2, maxWallClockSeconds: 30 };
 const SKILL = { id: 'echo', name: 'Echo', description: 'Return JSON', taskTypes: ['json'],
@@ -66,12 +69,12 @@ function harness() {
   const requester = () => resolveOrCreateIdentity('requester', identityOptions);
   const approvalProvider = approving(requester);
   const options = { ...mcpServerOptionsFromArgs(parseMcpServerArgs([])),
-    identityOptions, transportFactory, approvalProvider };
+    identityOptions, transportFactory, approvalProvider, protocolPolicy };
   const server = new AcpMcpServer(options);
   return { relay, send, routes, options, server, requester, approvalProvider, transportFactory };
 }
 function directory(raw: unknown, options: Partial<AcpMcpServerOptions> = {}) {
-  return new AcpMcpServer({
+  return new AcpMcpServer({ protocolPolicy,
     identityOptions: { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } },
     transportFactory: () => ({ discover: async () => raw } as RelayTransport), ...options,
   });
@@ -90,7 +93,7 @@ describe('default MCP connection discovery', () => {
     });
     const store = new WorkerTrustStore(owner);
     const workerApproval = approving(() => owner);
-    const worker = new WorkerNode({ owner, agentDid: agent.did, agentKey: agent,
+    const worker = new WorkerNode({ protocolPolicy, owner, agentDid: agent.did, agentKey: agent,
       relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
       publishToRegistry: true, allowedRequesterDids: [],
       intakeStore: store, approvalProvider: workerApproval,
@@ -161,7 +164,7 @@ describe('default MCP connection discovery', () => {
       { publishToRegistry: true },
     ].map(options => {
       const owner = generateKeyPair();
-      return new WorkerNode({ owner, ...options, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),
+      return new WorkerNode({ protocolPolicy, owner, ...options, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),
         relayUrl: DEFAULT_PUBLIC_RELAY, approvalProvider: approving(() => owner),
         adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input } });
     });
@@ -295,7 +298,7 @@ describe('default MCP connection discovery', () => {
 describe('MCP DID admission compatibility', () => {
   it.each(['unknown','allowlisted','contact','excluded','budget'] as const)('preserves admission without retry: %s', async scenario => {
     const h = harness(), owner = generateKeyPair(), executeTask = vi.fn(async ctx => ctx.input);
-    const worker = new WorkerNode({ owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
+    const worker = new WorkerNode({ protocolPolicy, owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
       ...(scenario === 'contact' ? { checkPeer: () => 'trusted' as const } : {}),
       allowedRequesterDids: scenario === 'excluded' ? [generateKeyPair().did] : scenario === 'allowlisted' ? [h.requester().did] : [],
       ...(scenario === 'budget' ? { maxInputTokens: 1 } : {}),

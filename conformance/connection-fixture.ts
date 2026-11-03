@@ -7,13 +7,14 @@ import {
   digest, generateKeyPair, signPayload, verifySigned, agentCardDelegationStatement,
 } from '../packages/core/src/index.js';
 import type { ConnectionAccepted, KeyPair, Signed, SignedAgentCard, SignedEnvelope } from '../packages/core/src/index.js';
+import { protocolTestNow } from './protocol-test-clock.js';
 import { ConnectionService } from '../packages/runtime/src/connection-service.js';
 import type {
   ConnectionAcceptanceCommit, ConnectionConsent, ConnectionInspectionPort, ConnectionOffer,
   ConnectionOutboxEntry, ConnectionPersistencePort, ConnectionRedemptionCommit, ConnectionServiceOptions,
 } from '../packages/runtime/src/connection-service.js';
 
-export const EPOCH = Date.parse('2026-11-02T00:00:00.000Z');
+export const EPOCH = protocolTestNow('2026-11-02T00:00:00.000Z');
 export const DAY = 86_400_000;
 export const RELAY = 'https://relay.example/connection';
 export function card(owner: KeyPair, agent = owner): SignedAgentCard {
