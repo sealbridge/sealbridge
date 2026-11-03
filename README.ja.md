@@ -14,11 +14,11 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-インストーラーは現在のリリース sealbridge 0.2.2 を固定指定しており、同バージョンは npm で公開済みです。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
+インストーラーは npm で公開待ちの sealbridge 0.3.0 を固定指定しています。更新したインストーラーは npm 公開後にデプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`doctor --offline`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`doctor --offline`。
 
 インストーラーと `sealbridge doctor` は、Node 実行ファイルの解決済みパスとバージョンを表示します。Windows では解決済み Node と同じ場所に npm が必要です。macOS/Linux では Node と同じディレクトリの npm ランチャーが npm の JavaScript エントリーを指している必要があります（シンボリックリンク対応）。その Node で npm を直接実行します。Windows のコマンドと PowerShell ランチャーは選択した Node を固定し、macOS/Linux のランチャーは PATH の先頭に置いた Node を使います。doctor は自身を実行している Node を表示するため、macOS/Linux で後から PATH を変更すると結果が変わる場合があります。正常な項目は短い `(OK)` 行で表示し、対処方法は `(WARN)` 行だけに表示します。鍵は初回使用時に作成します。インストーラーと doctor は鍵を生成しません。`sealbridge doctor --offline` は中継器へ接続せずローカル設定を検査します。
 
@@ -49,7 +49,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 
 30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
 
-> **ステータス**: Sealbridge の最新リリース `v0.2.2` は npm パッケージ `sealbridge` として公開済みです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
+> **ステータス**: Sealbridge `v0.3.0` を npm パッケージ `sealbridge` としてリリース準備中で、公開待ちです。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
@@ -71,7 +71,7 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 
 ### ローカルホスト設定
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`setup`、`accept`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`setup`、`accept`。
 
 このコマンドを含むリリースでは `sealbridge setup --help` を確認し、
 `sealbridge setup --host cursor` または `sealbridge setup --host claude-desktop`
@@ -116,7 +116,7 @@ POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モ
 
 既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`config key-store`、`doctor --offline`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`config key-store`、`doctor --offline`。
 
 秘密鍵の既定保存先はファイルです。`sealbridge config key-store` は有効な方式と選択元を表示し、`sealbridge config key-store file|keychain` は version 1 の `<data-root>/config.json` に中継器設定とともに `"keyStore"` を保存します。優先順位はプログラム指定 > `SEALBRIDGE_KEY_STORE` > config > 既定の file です。`--key <path>` は常にファイルを指定します。設定時は利用可否を確認し、他方式に既存の鍵があれば表示します。鍵の移動・作成・削除は行いません。他の設定項目を保持し、同じ値の再設定では既存バイト列を維持します。保存後も環境変数の指定が優先されます。
 
@@ -133,7 +133,7 @@ keychain 方式は任意の [`@napi-rs/keyring`](https://github.com/Brooooooklyn
 明示した `--relay` は接続先を固定します。未指定なら検証済み招待の中継器が公開既定値より優先されます。明示の許可リスト（プログラムの空リストを含む）と注入した transport の優先順位は維持します。ループバック接続には引き続き `--allow-private-relay` が必要です。
 
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
 
 招待はモデル実行の外で、ご自身でターミナルに保存します。
 
@@ -388,7 +388,7 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 
 [English](docs/connections/admission.md)
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
 
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
@@ -593,7 +593,7 @@ docker run --rm -i -v sealbridge-data:/data sealbridge
 pnpm sealbridge mcp-server
 ```
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`。
 
 `sealbridge mcp-server` は、依存ライブラリを増やさない JSON-RPC 2.0 の MCP サーバーです。標準入力に、改行区切り JSON と `Content-Length` フレームの両方を受けます。Claude Code、Cursor、Codex、Grok Bot から次のツールを呼べます。
 
@@ -770,7 +770,7 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
 ## 組み込み SDK
 
 型付き ESM 入口 `sealbridge/sdk` は、保存済み招待・鍵と秘密のストア・接続の審査・
-MCP のホストなどの公開 API を提供します。0.2.2 の次のリリースから利用でき、
+MCP のホストなどの公開 API を提供します。0.3.0 から利用でき、CLI 0.2.2 以前では対応していません。
 既存の CLI と内部パスも引き続き利用できます。
 [公開範囲と互換性の契約](docs/sdk.ja.md)を参照してください。
 
