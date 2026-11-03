@@ -45,6 +45,11 @@ jobs:
           . "$HOME/.profile"
           cd "$HOME"
           sealbridge --version
+          # HOME began empty; installation must not require config or keys.
+          sealbridge doctor --offline
+          sealbridge doctor
+          SEALBRIDGE_KEY_STORE=file sealbridge doctor --offline
+          SEALBRIDGE_KEY_STORE=file sealbridge doctor
           sealbridge demo
           sh "$GITHUB_WORKSPACE/sites/install.sh" --uninstall
           test ! -d "$HOME/.local/share/sealbridge"
@@ -52,6 +57,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'sealbridge-clean-home'
+          $env:HOME = $env:USERPROFILE
+          New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'sealbridge-clean-user'
           $env:SEALBRIDGE_INSTALL_TARBALL = Join-Path $PWD (node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -60,6 +68,14 @@ jobs:
           Set-Location $env:RUNNER_TEMP
           sealbridge.cmd --version
           if ($LASTEXITCODE -ne 0) { throw 'version failed' }
+          foreach ($keyStore in @($null, 'file')) {
+            $env:SEALBRIDGE_KEY_STORE = $keyStore
+            sealbridge.cmd doctor --offline
+            if ($LASTEXITCODE -ne 0) { throw 'offline doctor failed in fresh HOME' }
+            sealbridge.cmd doctor
+            if ($LASTEXITCODE -ne 0) { throw 'doctor failed in fresh HOME' }
+          }
+          $env:SEALBRIDGE_KEY_STORE = $null
           sealbridge.cmd demo
           if ($LASTEXITCODE -ne 0) { throw 'demo failed' }
           & "$env:GITHUB_WORKSPACE/sites/install.ps1" -Uninstall -NoProfile

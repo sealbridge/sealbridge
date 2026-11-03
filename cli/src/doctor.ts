@@ -34,7 +34,7 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
       const selected = await inspectStoredIdentity(role, { ...options.identityOptions,
         ...(options.home !== undefined ? { home: options.home } : {}),
         explicitKeyPath: options.keyFile });
-      return `${role}: ${selected.location} (${selected.present ? selected.source ?? 'present' : 'created on first use'}) [${selected.backend}]`;
+      return `${role}: ${selected.location} (${selected.present ? selected.source ?? 'present' : 'optional; created on first use'}) [${selected.backend}]`;
     }));
     keys = { name: 'Keys', ok: true, message: identities.join('; ') + `; selection: ${typeof selection.keyStore === 'object' ? 'custom' : selection.keyStore} (${selection.source})` };
   } catch (error) {

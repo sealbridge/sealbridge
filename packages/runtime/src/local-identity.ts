@@ -156,19 +156,21 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
     return { path, source: 'explicit', key };
   }
   const root = resolveDataRoot(options);
-  for (const directory of [root, join(root, 'identities')]) {
-    try {
-      inspectDirectory(directory, io, platform);
-    } catch (error) {
-      if (errno(error) !== 'ENOENT') {
+  const path = join(root, 'identities', role + '.private.json');
+  const key = readKey(path, io, platform);
+  if (key) {
+    // Missing identities are optional even when the data root holds only an
+    // installation. Existing identities still require private directories.
+    for (const directory of [root, join(root, 'identities')]) {
+      try {
+        inspectDirectory(directory, io, platform);
+      } catch (error) {
         if (error instanceof Error && error.message === 'IDENTITY_INVALID') throw error;
         throw failure('IDENTITY_UNREADABLE');
       }
     }
+    return { path, source: 'default', key };
   }
-  const path = join(root, 'identities', role + '.private.json');
-  const key = readKey(path, io, platform);
-  if (key) return { path, source: 'default', key };
   let legacy: LocalIdentity | undefined;
   for (const candidate of legacyPaths(role, options)) {
     const key = readKey(candidate, io, platform);
