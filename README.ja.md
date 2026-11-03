@@ -689,6 +689,13 @@ node examples/network-collab/run.mjs
 
 `@acp/runtime` は、所有者のローカル操作用のつながり状態・永続化APIを提供します。
 connected は期限なしの limited に対応し、ライブ経路の受付に使います。
+接続 metadata は、検証済みの招待・エージェントカードから得た任意の `peerDisplayName` を保持します。
+`listConnections()`・`connections list`・`connectionStatus()`・`connections status`・
+MCP の接続一覧・過去の承認候補一覧は、
+招待の削除後も既知の表示名を返します。表示名は情報としてのみ扱い、識別と同意の判断は
+DID に基づきます。同じ表示名でも所有者 DID は異なる場合があります。
+旧記録や相手のカードが不明な場合は省略でき、読み取りで書き換えません。通信形式の変更はありません。
+
 APIとストアの互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
 
 ## ドキュメント

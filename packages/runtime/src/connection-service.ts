@@ -20,6 +20,8 @@ export interface ConnectionOffer {
   fromOwnerDid: string;
   toOwnerDid: string;
   peerAgentDid?: string;
+  /** Derived locally from a verified peer card; never an identity selector. */
+  peerDisplayName?: string;
   relayUrl: string;
   createdAt: string;
   expiresAt: string;
@@ -167,11 +169,12 @@ export class ConnectionService {
       throw new Error('INVITE_EXPIRED');
     return invite;
   }
-  private offer(request: Signed<ConnectionRequest>, outgoing = false, peerAgentDid?: string): ConnectionOffer {
+  private offer(request: Signed<ConnectionRequest>, outgoing = false, peerCard?: SignedAgentCard): ConnectionOffer {
     const p = request.payload;
     return { requestId: p.requestId, requestDigest: digest(request), fromOwnerDid: p.fromOwnerDid,
       toOwnerDid: p.toOwnerDid,
-      ...(!outgoing ? { peerAgentDid: p.agentCard.payload.agentDid } : peerAgentDid ? { peerAgentDid } : {}),
+      ...(!outgoing ? { peerAgentDid: p.agentCard.payload.agentDid } : peerCard ? { peerAgentDid: peerCard.payload.agentDid } : {}),
+      ...(!outgoing ? { peerDisplayName: p.agentCard.payload.name } : peerCard ? { peerDisplayName: peerCard.payload.name } : {}),
       relayUrl: this.options.relayUrl, createdAt: p.createdAt, expiresAt: p.expiresAt,
       ...(p.inviteDigest ? { inviteDigest: p.inviteDigest } : {}) };
   }
@@ -181,9 +184,14 @@ export class ConnectionService {
       envelope: sealConnectionFrame(frame, this.options.owner, this.now(), this.id()) };
   }
   async request(input: {
-    toOwnerDid: string; message?: string; expiresAt?: string; inviteToken?: string; originProposalDigest?: string; deferDelivery?: boolean;
+    toOwnerDid: string; peerAgentCard?: SignedAgentCard; message?: string; expiresAt?: string; inviteToken?: string; originProposalDigest?: string; deferDelivery?: boolean;
   }): Promise<ConnectionServiceResult> {
     const invite = input.inviteToken === undefined ? undefined : this.invite(input.inviteToken, input.toOwnerDid);
+    const peerCard = invite?.agentCard ?? input.peerAgentCard;
+    if (input.peerAgentCard && (!verifySignedAgentCard(input.peerAgentCard, this.now()) ||
+        input.peerAgentCard.payload.ownerDid !== input.toOwnerDid ||
+        input.peerAgentCard.payload.relayEndpoint !== this.options.relayUrl ||
+        (invite && input.peerAgentCard.payload.agentDid !== invite.agentDid))) throw new Error('INVALID_AGENT_CARD');
     const now = this.now();
     const request = signConnectionRequest({ type: 'ConnectionRequest', v: 1, protocolVersion: '0.2.0',
       requestId: this.id(), fromOwnerDid: this.options.owner.did, toOwnerDid: input.toOwnerDid,
@@ -193,7 +201,7 @@ export class ConnectionService {
       ...(input.originProposalDigest === undefined ? {} : { originProposalDigest: input.originProposalDigest }),
     }, this.options.owner);
     const consent = await this.review(invite ? 'confirm-invite' : 'outgoing', request);
-    const offer = this.offer(request, true, invite?.agentDid);
+    const offer = this.offer(request, true, peerCard);
     const outbox = this.outbox({ requestId: offer.requestId, event: request,
       ...(input.inviteToken === undefined ? {} : { inviteToken: input.inviteToken }) }, offer.expiresAt);
     await this.options.persistence.recordOutgoing(offer, consent, outbox, this.now());

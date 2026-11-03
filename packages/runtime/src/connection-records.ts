@@ -11,6 +11,8 @@ export type ConnectionState = 'none' | 'pending' | 'connected' | 'blocked';
 /** Owner-local observation of the current connection or latest retained offer. */
 export interface ConnectionStatus {
   peerOwnerDid: string;
+  /** Informational name retained in local connection or offer metadata, when known. */
+  peerDisplayName?: string;
   state: ConnectionState;
   status: 'none' | 'pending_peer' | 'pending_owner' | 'connected' | 'inactive' | 'expired' | 'blocked';
   requestId?: string;
@@ -30,7 +32,7 @@ export interface ConnectionOutgoingOffer {
   requestId: string; requestDigest: string; createdAt: number; expiresAt: number; ownerConsentDigest: string;
 }
 export interface ConnectionRecord {
-  peerOwnerDid: string; peerAgentDid?: string; relayUrl: string;
+  peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl: string;
   state: 'pending' | 'connected';
   incoming?: ConnectionIncomingOffer; outgoing?: ConnectionOutgoingOffer;
   connectionId?: string; connectedAt?: number; source?: 'request' | 'invite' | 'prior-approval';
@@ -40,7 +42,7 @@ export interface InviteBindingRecord {
   inviteDigest: string; requesterOwnerDid: string; boundAt: number; tokenExpiresAt: number; connectionId: string;
 }
 export interface PriorApprovedPeer {
-  peerOwnerDid: string; lastApprovedAt?: number; sourceRequestIds: string[]; legacyTrust: 'limited' | 'trusted';
+  peerOwnerDid: string; peerDisplayName?: string; lastApprovedAt?: number; sourceRequestIds: string[]; legacyTrust: 'limited' | 'trusted';
 }
 /** Callers supply owner-signed control data and omit invitation tokens and task input. */
 export interface ConnectionOutboxRecord {
@@ -52,9 +54,10 @@ export interface ConnectionData {
   refusals: Array<{ peerOwnerDid: string; refuseUntil: number }>;
   priorApprovedPeers: PriorApprovedPeer[]; outbox: ConnectionOutboxRecord[];
 }
-export interface ConnectionPeer { peerOwnerDid: string; peerAgentDid?: string; relayUrl: string }
+/** Peer names are informational; owner and agent DIDs determine identity. */
+export interface ConnectionPeer { peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl: string }
 export interface ConnectionSummary {
-  peerOwnerDid: string; peerAgentDid?: string; relayUrl?: string; state: Exclude<ConnectionState, 'none'>;
+  peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl?: string; state: Exclude<ConnectionState, 'none'>;
 }
 export interface RecordOutgoingConnection extends ConnectionPeer { outgoing: ConnectionOutgoingOffer }
 export interface RecordIncomingConnection extends ConnectionPeer { incoming: ConnectionIncomingOffer }
@@ -142,7 +145,8 @@ function relay(v: unknown): v is string {
   catch { return false; }
 }
 export function validConnectionPeer(p: ConnectionPeer): boolean {
-  return object(p) && did(p.peerOwnerDid) && (p.peerAgentDid === undefined || did(p.peerAgentDid)) && relay(p.relayUrl);
+  return object(p) && did(p.peerOwnerDid) && (p.peerAgentDid === undefined || did(p.peerAgentDid)) &&
+    (p.peerDisplayName === undefined || typeof p.peerDisplayName === 'string' && p.peerDisplayName.length > 0) && relay(p.relayUrl);
 }
 export function assertConnectionOwnerDid(peerOwnerDid: string): void {
   if (!did(peerOwnerDid)) throw new Error('INTAKE_STORE_INVALID');
@@ -170,7 +174,7 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
     .every(k => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k])) return false;
   const unique = <T>(rows: T[], key: (r: T) => string) => new Set(rows.map(key)).size === rows.length;
   if (d.connections.some(c => !validConnectionPeer(c) ||
-    !keys(c, ['peerOwnerDid', 'peerAgentDid', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest']) ||
+    !keys(c, ['peerOwnerDid', 'peerAgentDid', 'peerDisplayName', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest']) ||
     (c.incoming !== undefined && !validConnectionOffer(c.incoming, false)) ||
     (c.outgoing !== undefined && !validConnectionOffer(c.outgoing, true)) ||
     (c.state === 'pending' ? !(c.incoming || c.outgoing) ||
@@ -184,8 +188,9 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
       !hash(b.inviteDigest) || !did(b.requesterOwnerDid) || !time(b.boundAt) || !time(b.tokenExpiresAt) ||
       b.tokenExpiresAt <= b.boundAt || !text(b.connectionId, 128)) ||
     d.refusals.some(r => !object(r) || !keys(r, ['peerOwnerDid', 'refuseUntil']) || !did(r.peerOwnerDid) || !time(r.refuseUntil)) ||
-    d.priorApprovedPeers.some(p => !object(p) || !keys(p, ['peerOwnerDid', 'lastApprovedAt', 'sourceRequestIds', 'legacyTrust']) ||
-      !did(p.peerOwnerDid) || (p.lastApprovedAt !== undefined && !time(p.lastApprovedAt)) ||
+    d.priorApprovedPeers.some(p => !object(p) || !keys(p, ['peerOwnerDid', 'peerDisplayName', 'lastApprovedAt', 'sourceRequestIds', 'legacyTrust']) ||
+      !did(p.peerOwnerDid) || (p.peerDisplayName !== undefined && (typeof p.peerDisplayName !== 'string' || !p.peerDisplayName)) ||
+      (p.lastApprovedAt !== undefined && !time(p.lastApprovedAt)) ||
       !['limited', 'trusted'].includes(p.legacyTrust) || !Array.isArray(p.sourceRequestIds) || p.sourceRequestIds.length > 200 ||
       p.sourceRequestIds.some(id => !text(id, 128)) || new Set(p.sourceRequestIds).size !== p.sourceRequestIds.length) ||
     d.outbox.some(e => !validConnectionOutbox(e, owner))) return false;

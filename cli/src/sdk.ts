@@ -15,7 +15,7 @@ export type {
   DataRootOptions, LocalIdentityOptions, IdentityRole, IdentityStoreOptions, StoredIdentity,
   KeyStore, KeyStoreDescription, KeyStoreSelection, KeyringEntry, KeyringModule,
   ApplicationConfig, ApplicationConfigOptions, RelaySelectionOptions,
-  ConnectionState, ConnectionTrust, ConnectionRecord, ConnectionSummary, PriorApprovedPeer,
+  ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionPeer, ConnectionRecord, ConnectionSummary, PriorApprovedPeer,
   ConnectionServiceOptions, ConnectionServiceResult, ConnectionHumanReviewProvider,
   ConnectionInspectionPort, ConnectionPersistencePort, ConnectionOffer, ConnectionConsent,
   ConnectionOutboxEntry, ConnectionAcceptanceCommit, ConnectionRedemptionCommit,
