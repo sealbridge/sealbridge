@@ -381,6 +381,21 @@ sealbridge connections confirm-invite reviewer --role requester
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
 ```
 
+
+Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
+connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
+an owner action. The opt-in CLI is `connections review list|approve ID|reject ID`;
+decisions still require human confirmation. Built-in inspection covers connection
+metadata only. Default inbound and task inspection remain `unavailable`; no task
+is opened. See [admission review](docs/connections/admission.md#owner-admission-review).
+
+
+組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
+一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
+CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
+組み込み検査は接続情報だけが対象です。既定の受信・タスク検査は `unavailable` のままで、
+タスクは開きません。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
+
 ## Requester flow / 発注側
 
 1. Omit `--key` to create/reuse the persistent requester identity. It is

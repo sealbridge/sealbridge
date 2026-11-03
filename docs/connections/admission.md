@@ -108,6 +108,65 @@ One-time task tickets and a separate application queue are deferred.
 
 The release clock is documented in [protocol versions](protocol-versions.md).
 
+## Owner admission review
+
+`ConnectionAdmissionReview` from `@acp/runtime` is an opt-in owner-facing queue
+for held inbound connection requests. Continue receiving through the existing
+listener or `ConnectionRouter`; the queue does not receive or poll. Use the same
+owner, intake store, relay and held-content data root:
+
+```ts
+const admission = new ConnectionAdmissionReview({
+  owner, agentCard, relayUrl, relay, store, heldOptions: identityOptions,
+});
+const requests = admission.list();
+// Bind these calls to explicit owner actions in the host UI.
+await admission.approve(requests[0].id);
+// Alternatively: admission.reject(requests[0].id);
+```
+
+Pass the existing held-content `transitionSink` in `heldOptions` when the host
+records delivery status or other cleanup observations.
+
+`list()` reads without writing or inspecting. Its allowlisted projection includes
+request/held IDs, request digest, full and shortened owner/agent DIDs, peer card
+display name, creation/receipt/held-expiry times and relay URL. An optional
+`inviteAlias(inviteDigest)` callback supplies an existing local label without
+resolving a token; absent labels are omitted. Display labels are bounded to 120
+code points, omit control/format characters and replace invitation token strings.
+Names are peer-provided data. Messages, task input, envelopes, tokens and keys are
+never returned. Review is scoped to one owner and relay. Expired held content,
+inactive offers, accepted requests and blocked peers are excluded.
+
+`approve(id)` accepts a held ID or request ID. It revalidates the request, card,
+invitation and current peer policy, then uses built-in structural connection
+metadata inspection during that owner operation only. The inspection receipt
+binds the request and ciphertext digests. It records signed owner consent and
+limited acceptance through the existing exchange. First invite use also commits
+the original invite binding; a different owner can receive separate explicit
+consent without changing that binding. Delivery failure returns connected with
+`CONNECTION_DELIVERY_PENDING`; the existing control outbox handles delivery.
+`reject(id)` uses the existing peer-wide rejection/cooldown and discards that
+peer's held content. Repeated or stale decisions return `CONNECTION_NOT_PENDING`.
+
+```sh
+sealbridge connections review list --role worker
+sealbridge connections review approve REQUEST_ID --role worker
+sealbridge connections review reject REQUEST_ID --role worker
+```
+
+CLI decisions require a human TTY or the existing injected human confirmation
+callback; there is no unattended approval flag or MCP decision tool. Listing and
+rejection do not contact the relay. Listing creates no identity. The host must
+expose programmatic decisions only to explicit owner actions. Constructing or
+listing the queue grants no consent. Existing `connections approve` keeps its
+injected-inspector requirement, while `connections review approve` explicitly
+selects built-in connection metadata inspection. Default receipt inspection and
+task inspection remain `unavailable`. Tasks still require their own inspection
+and owner opening; no task is forwarded to an adapter by admission review.
+Existing store formats and the wire protocol are unchanged. Existing atomic,
+owner-only storage applies; no relay deployment is needed.
+
 
 The optional send-tool `idempotencyKey` caches the first result for the local signer,
 tool and exact request. A cached `PENDING_OWNER_APPROVAL` stays `retryable:false`

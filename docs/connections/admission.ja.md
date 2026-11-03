@@ -2,6 +2,55 @@
 
 [English](admission.md)
 
+## 受信接続の審査
+
+`@acp/runtime` の `ConnectionAdmissionReview` は、保留中の受信接続を所有者が審査するための
+明示選択の API です。受信は既存のリスナーまたは `ConnectionRouter` を使い、キュー自体は
+受信・ポーリングしません。所有者・intake ストア・relay・保留内容のデータルートを揃えます。
+
+```ts
+const admission = new ConnectionAdmissionReview({
+  owner, agentCard, relayUrl, relay, store, heldOptions: identityOptions,
+});
+const requests = admission.list();
+// ホスト UI で所有者が明示操作した時だけ呼びます。
+await admission.approve(requests[0].id);
+// 拒否する場合: admission.reject(requests[0].id);
+```
+
+配達状態などの破棄時の観測を記録するホストでは、既存の `transitionSink` も
+`heldOptions` に渡してください。
+
+`list()` は書き込み・検査をせず、保留 ID・依頼 ID・依頼ダイジェスト、完全な DID と短縮 DID、
+相手のカードの表示名、作成・受信・保留期限、relay URL だけを返します。
+任意の `inviteAlias(inviteDigest)` は公開ダイジェストから既存のローカル名を引くためのもので、
+トークンを解決しません。名前がなければ省略します。表示名は相手が指定したデータです。
+表示用の名前は120コードポイント以内にし、制御・書式文字を除き、招待トークン文字列を置換します。
+メッセージ・タスク入力・封筒・トークン・鍵は返しません。所有者と relay ごとの一覧で、期限切れの
+保留・無効な申し込み・承認済み依頼・ブロック済みの相手は除外します。
+
+`approve(id)` は保留 ID または依頼 ID を受け取り、依頼・カード・招待・現在の相手方針を再検証します。
+この所有者操作の間だけ、接続情報の構造検査を組み込みで行い、依頼と暗号文のダイジェストに
+結び付く検査受領書を保存します。既存の交換経路で署名付き同意と limited の承認を記録します。
+招待の初回利用では DID の結び付けも原子的に保存します。別の DID への明示的な同意は元の
+結び付けを変更しません。配達失敗時は connected と `CONNECTION_DELIVERY_PENDING` を返し、
+既存の制御 outbox が配達を扱います。`reject(id)` は既存の相手単位の拒否・クールダウンを使い、
+その相手の保留内容を破棄します。判断済みや無効な ID は `CONNECTION_NOT_PENDING` です。
+
+```sh
+sealbridge connections review list --role worker
+sealbridge connections review approve REQUEST_ID --role worker
+sealbridge connections review reject REQUEST_ID --role worker
+```
+
+CLI の判断には人間の TTY または既存の確認コールバックが必要です。無人承認フラグや MCP の判断用
+ツールはありません。一覧と拒否は relay に接続せず、一覧は鍵も作りません。組み込み側は所有者の
+明示操作だけに判断 API を公開してください。キューの生成・一覧は同意になりません。
+既存の `connections approve` は注入された検査を引き続き必要とし、`connections review approve` が
+組み込みの接続情報検査を明示選択します。既定の受信・タスク検査は `unavailable` のままです。
+タスクの検査と所有者が開く操作は別途必要で、この審査からアダプターへタスクを渡しません。
+既存のファイル形式・通信形式、所有者専用の権限とアトミックな保存を維持し、relay の配備は不要です。
+
 リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
 
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。

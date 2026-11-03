@@ -298,7 +298,10 @@ export class ConnectionService {
     if (!offer || offer.requestDigest !== digest(request)) throw new Error('CONNECTION_NOT_PENDING');
     if (!await this.inspect(envelope, request)) throw new Error('INSPECTION_INCOMPLETE');
     const consent = await this.review('incoming', request);
-    await this.accept(request, consent);
+    // Explicit review retains first-use invitation binding; an already-bound invite
+    // can still receive separate owner consent without changing that binding.
+    const status = frame.inviteToken === undefined ? 'pending' : await this.accept(request, consent, frame.inviteToken);
+    if (status !== 'connected') await this.accept(request, consent);
     const delivered = await this.flushOutbox();
     return { requestId: frame.requestId, status: 'connected', ...(!delivered ? { code: 'CONNECTION_DELIVERY_PENDING' } : {}) };
   }
