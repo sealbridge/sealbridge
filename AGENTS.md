@@ -461,7 +461,7 @@ For an MCP host, start a stdio server; its requester identity is created on firs
 `acp_delegate_task`, `acp_delegate_multi`, `acp_verify_audit_bundle`,
 `acp_create_invite`, `acp_revoke_token`, `acp_discover_workers`,
 `acp_inspect_revocations`, `acp_list_invites`, `acp_remove_invite`,
-`acp_list_pending_requests`, and `acp_resubmit_pending_request`. `initialize` publishes workflow instructions.
+`acp_list_pending_requests`, `acp_message_status`, and `acp_resubmit_pending_request`. `initialize` publishes workflow instructions.
 `acp_discover_workers` reads the relay directory and still obeys the relay
 allowlist. `acp_inspect_revocations` reads this process's revocation registry.
 
@@ -625,3 +625,33 @@ See [relay reliability](docs/relay-reliability.md) for status sources, retention
 稼働中の保守が期限切れを削除します。引き渡しは既読や実行の証明ではありません。
 両ゲートウェイの対応が必要で、relay の配備は不要です。
 状態の記録元・保持・動作は [relay の動作](docs/relay-reliability.ja.md)を参照してください。
+
+### Local message status
+
+A send with `idempotencyKey` keeps its original message and task IDs on cached retries.
+This lookup reads the current retained observations for those IDs, independently of
+the cached send result.
+
+`acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
+`acp_message_status {"taskId":"<original task ID>"}` reads sender-local status without
+sending, refreshing, polling or cleanup. Use exactly one selector; ambiguous task IDs
+require `messageId`. Records expire seven days after the original deadline (or creation
+time if later); absent, foreign and expired IDs return `found:false`. Initially unknown
+peers disclose only `received_held`/`closed`. Recipient claims are separate from bilateral
+audit; handoff does not prove reading or execution. This read is distinct from a cached
+delegation result and explicit pending resubmission. No relay deployment is required;
+richer observations require C4 peers. See [relay reliability](docs/relay-reliability.md).
+
+### ローカルの送信状態
+
+`idempotencyKey` 付き送信のキャッシュ再参照でも、元のメッセージ ID・タスク ID を使います。
+状態照会は送信結果のキャッシュとは独立して、その ID に保存された最新の観測を返します。
+
+`acp_message_status {"messageId":"<元の PROPOSE UUID>"}` または
+`acp_message_status {"taskId":"<元のタスク ID>"}` は、送信・更新取得・ポーリング・削除を
+せず送信側の記録を読みます。指定は一方だけにし、複数一致するタスク ID は `messageId` で
+選びます。元の期限（作成時刻が後ならその時刻）の7日後に失効し、不明・別の署名者・
+期限切れは `found:false` です。当初未接続の相手の詳細は `received_held`/`closed` だけです。
+受信側の主張は双方向監査とは別で、引き渡しは既読・実行の証明ではありません。
+委任結果のキャッシュや保留の明示的な再依頼とは別の読み取りです。relay の配備は不要で、
+詳細な観測には相手の C4 対応が必要です。[relay の動作](docs/relay-reliability.ja.md)を参照してください。

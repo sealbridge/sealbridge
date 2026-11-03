@@ -81,6 +81,9 @@ const EXPECTED_HINTS: Record<
   acp_remove_invite: {
     readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
   },
+  acp_message_status: {
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+  },
 };
 
 interface ToolDefinition {

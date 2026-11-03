@@ -585,6 +585,7 @@ pnpm sealbridge mcp-server
 | `acp_revoke_token`         | このプロセスに保存した署名済み `RevocationNotice`                      |
 | `acp_discover_workers`     | 既定では公開済み open ワーカーの現在のカード                           |
 | `acp_inspect_revocations`  | このサーバープロセスに記録された失効通知                               |
+| `acp_message_status` | 送信側のローカル状態。送信・更新取得・ポーリングはしません |
 | `acp_list_pending_requests` | タスク本文・招待情報を含まないローカルの保留記録                       |
 | `acp_resubmit_pending_request` | 所有者の審査後、現在の確認・承認を適用して新しいタスクを送信        |
 
@@ -810,3 +811,17 @@ relay のデプロイは不要です。
 稼働中の保守が期限切れを削除します。引き渡しは既読や実行の証明ではありません。
 両ゲートウェイの対応が必要で、relay の配備は不要です。
 状態の記録元・保持・動作は [relay の動作](docs/relay-reliability.ja.md)を参照してください。
+
+### ローカルの送信状態
+
+`idempotencyKey` 付き送信のキャッシュ再参照でも、元のメッセージ ID・タスク ID を使います。
+状態照会は送信結果のキャッシュとは独立して、その ID に保存された最新の観測を返します。
+
+`acp_message_status {"messageId":"<元の PROPOSE UUID>"}` または
+`acp_message_status {"taskId":"<元のタスク ID>"}` は、送信・更新取得・ポーリング・削除を
+せず送信側の記録を読みます。指定は一方だけにし、複数一致するタスク ID は `messageId` で
+選びます。元の期限（作成時刻が後ならその時刻）の7日後に失効し、不明・別の署名者・
+期限切れは `found:false` です。当初未接続の相手の詳細は `received_held`/`closed` だけです。
+受信側の主張は双方向監査とは別で、引き渡しは既読・実行の証明ではありません。
+委任結果のキャッシュや保留の明示的な再依頼とは別の読み取りです。relay の配備は不要で、
+詳細な観測には相手の C4 対応が必要です。[relay の動作](docs/relay-reliability.ja.md)を参照してください。

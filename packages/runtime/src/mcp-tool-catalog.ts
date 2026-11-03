@@ -902,4 +902,61 @@ export const mcpTools: Json = [
       removed: described('True if the entry existed and was removed; false when already absent.', { type: 'boolean' }),
     }, ['removed']),
   }),
+  tool({
+    name: 'acp_message_status',
+    title: 'Read local message status',
+    description:
+      'Read current delivery facts for one message sent by this local requester signer, using exactly one original messageId or taskId. This local read never sends, resends, refreshes, polls, acknowledges, starts delivery or removes expired records; use acp_resubmit_pending_request only for explicit new delegation after owner review. Records are hidden seven days after the original deadline or creation time if later; absent, foreign and expired IDs return found false, while multiple retained task matches return MESSAGE_STATUS_AMBIGUOUS and require messageId. Recipient observations are signed gateway claims separate from bilateral audit; unknown peers disclose only received_held and closed, and handed_to_agent does not prove reading or execution. Results contain no task content or cached delegation result; invalid selectors return JSON-RPC -32602 and store errors return isError true with a fixed code.',
+    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    inputSchema: {
+      ...objectSchema('Select one sender-local message by its original message or task ID.', {
+        messageId: described('UUID of the initial PROPOSE envelope, distinct from the task ID.', { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$' }),
+        taskId: described('Original nonempty task ID; multiple retained matches require messageId instead.', { type: 'string', minLength: 1 }),
+      }) as object,
+      oneOf: [{ required: ['messageId'] }, { required: ['taskId'] }],
+    },
+    outputSchema: {
+      type: 'object', description: 'Current local observation or an indistinguishable absent/expired result.',
+      properties: { found: described('Whether this local signer has a retained matching message.', { type: 'boolean' }) },
+      oneOf: [
+        objectSchema('No retained message for this local requester signer.', {
+          found: described('False for absent, foreign or expired IDs and missing local identity.', { type: 'boolean', const: false }),
+        }, ['found']),
+        objectSchema('Content-free sender-local message status and retained initial proposal retry metadata.', {
+          found: described('True when a matching sender-local record remains within its fixed retention horizon.', { type: 'boolean', const: true }),
+          messageId: described('UUID identifying the original outbound PROPOSE envelope.', { type: 'string' }),
+          taskId: described('Original task identifier bound to this outbound message.', { type: 'string' }),
+          peerDid: described('Recipient owner DID bound to the original outbound message.', { type: 'string' }),
+          status: described('Latest lifecycle fact; queued/relayed computes closed at the deadline without writing.', { type: 'string', enum: ['queued', 'relayed', 'received_held', 'opened', 'handed_to_agent', 'replied', 'closed'] }),
+          source: described('Origin of the displayed fact: local state/deadline, relay admission, signed recipient claim or verified reply.', { type: 'string', enum: ['local', 'relay', 'recipient', 'reply'] }),
+          createdAt: described('Original message creation time in integer UTC milliseconds.', { type: 'integer', minimum: 0 }),
+          updatedAt: described('Last committed lifecycle fact time in UTC milliseconds; never the query time.', { type: 'integer', minimum: 0 }),
+          deliveryDeadline: described('Original delivery deadline in UTC milliseconds; reads never extend it.', { type: 'integer', minimum: 0 }),
+          retainUntil: described('Fixed expiry: seven days after the later of original deadline and creation time.', { type: 'integer', minimum: 0 }),
+          retry: objectSchema('Retry summary for the initial PROPOSE only, excluding audit/control envelopes.', {
+            pending: described('Whether the original proposal is still awaiting relay admission before the deadline.', { type: 'boolean' }),
+            attemptCount: described('Retained initial proposal attempt count; zero when C1 has removed the completed batch member.', { type: 'integer', minimum: 0 }),
+            nextAttemptAt: described('Next scheduled proposal attempt in UTC milliseconds, or null after admission or effective closure.', { type: ['integer', 'null'], minimum: 0 }),
+          }, ['pending', 'attemptCount', 'nextAttemptAt']),
+          recipientStatus: described('Latest retained verified content-free recipient event, or null for legacy/local-only observations.', {
+            oneOf: [{ type: 'null' }, objectSchema('Recipient-signed observation, separate from bilateral audit.', {
+              payload: objectSchema('Exact content-free DeliveryStatus payload verified and bound by C4.', {
+                type: described('Protocol payload type identifying a recipient delivery observation.', { type: 'string', const: 'DeliveryStatus' }),
+                version: described('DeliveryStatus format version, independent of the task manifest version.', { type: 'integer', const: 1 }),
+                messageId: described('Original sender message UUID bound to the recipient observation.', { type: 'string' }),
+                taskId: described('Original task ID bound to the recipient observation.', { type: 'string' }),
+                senderDid: described('Local sending owner DID bound to the original proposal.', { type: 'string' }),
+                recipientDid: described('Recipient owner DID that signed this delivery observation.', { type: 'string' }),
+                state: described('Recipient observation; initially unknown tasks retain only received_held or closed.', { type: 'string', enum: ['received_held', 'opened', 'handed_to_agent', 'closed'] }),
+                revision: described('Monotonically increasing revision of published recipient observations.', { type: 'integer', minimum: 1 }),
+                occurredAt: described('Recipient observation time in integer UTC milliseconds.', { type: 'integer', minimum: 0 }),
+                retainUntil: described('Fixed recipient observation expiry in integer UTC milliseconds.', { type: 'integer', minimum: 0 }),
+              }, ['type', 'version', 'messageId', 'taskId', 'senderDid', 'recipientDid', 'state', 'revision', 'occurredAt', 'retainUntil']),
+              signature: signatureSchema,
+            }, ['payload', 'signature'])],
+          }),
+        }, ['found', 'messageId', 'taskId', 'peerDid', 'status', 'source', 'createdAt', 'updatedAt', 'deliveryDeadline', 'retainUntil', 'retry', 'recipientStatus']),
+      ],
+    },
+  }),
 ];

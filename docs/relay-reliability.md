@@ -276,3 +276,31 @@ lookups create no additional delivery records, observations or revision receipts
 
 Both gateways need this implementation for recipient observations. No relay deployment
 is required; relay retention configuration is a separate change.
+
+### Read local message status
+
+A send with `idempotencyKey` keeps its original message and task IDs on cached retries.
+This lookup reads the current retained observations for those IDs, independently of
+the cached send result.
+
+Use `acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
+`acp_message_status {"taskId":"<original task ID>"}` with exactly one selector.
+It reads messages sent by this gateway's requester signer, including other local
+entry points using the same signer/data root. It never sends, refreshes, polls,
+acknowledges, starts delivery or cleans up records. Multiple retained task matches
+return `MESSAGE_STATUS_AMBIGUOUS`; use `messageId` to select one.
+
+Records become absent at the fixed horizon: seven days after the original delivery
+deadline (or creation time if later). Unknown IDs, foreign IDs, expired records and
+missing local identities all return `{"found":false}`. An unknown peer with a retained
+message can still have `received_held` or `closed`; absence makes no delivery claim.
+`updatedAt` is the last committed fact time. The initial proposal's retained retry
+count becomes zero after C1 removes its completed batch member. Reads preserve files;
+active gateway maintenance removes expired bytes independently.
+
+Recipient detail follows C4: initially unknown tasks disclose only `received_held`
+and `closed`, including after later connection. Recipient status is a signed gateway
+claim, separate from bilateral audit; handoff does not prove reading or execution.
+Legacy peers have null recipient status. This tool is distinct from a cached first
+delegation result and explicit pending resubmission. A gateway upgrade provides the
+tool; richer observations require C4 peers. No relay deployment is needed.
