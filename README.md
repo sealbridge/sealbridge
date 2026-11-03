@@ -14,12 +14,12 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers pin the current release, sealbridge 0.2.2, which is published on npm. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
+The installers pin sealbridge 0.3.0, pending publication on npm. Deploy the updated installers after npm publication. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `doctor --offline`.
 
 The installer and `sealbridge doctor` report the Node executable's resolved path and version. On Windows, npm must be installed beside the resolved Node; on macOS/Linux, the npm launcher beside the resolved Node must point to npm's JavaScript entry point (symlinks are supported). The installer runs npm with that exact Node. Windows command and PowerShell shims pin the selected runtime; macOS/Linux shims use the selected Node first on PATH. Doctor reports its own running Node, so changing PATH later on macOS/Linux can change the reported runtime. Successful checks use short `(OK)` lines; only `(WARN)` lines include fix hints. Identity files are created on first use; installers and doctor do not generate them. Use `sealbridge doctor --offline` to inspect local configuration without a relay request.
@@ -51,7 +51,7 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 
 30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
 
-> **Status**: Sealbridge `v0.2.2` is the latest release, published on npm as `sealbridge`. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
+> **Status**: Sealbridge `v0.3.0` is being prepared for release on npm as `sealbridge`; publication is pending. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
 
@@ -73,8 +73,8 @@ git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm 
 
 ### Local host setup
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `setup`, `accept`.
 
 For a release containing this command, check `sealbridge setup --help`, then run
@@ -121,8 +121,8 @@ POSIX application directories use 0700 and keys use 0600, with ownership/type/mo
 
 Existing role-matched `~/.acp/{requester,worker}.private.json` keys and the old contacts-root `owner.private.json` (requester only) are reused in place when the canonical key is absent. Conflicting legacy requester identities return `IDENTITY_SELECTION_REQUIRED`; select one with `--key`. Existing canonical keys take precedence. Invalid or unreadable files return an error and are never replaced. `keygen <path>` still creates only an explicit, previously unused path.
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `config key-store`, `doctor --offline`.
 
 Private-key storage defaults to files. `sealbridge config key-store` reports the effective backend and source; `sealbridge config key-store file|keychain` persists `"keyStore"` in version-1 `<data-root>/config.json` alongside relays. Precedence is programmatic option > `SEALBRIDGE_KEY_STORE` > config > default file. `--key <path>` always selects a file. Setting the backend checks availability and reports identities in the other backend without moving, creating, or deleting keys. Other config fields are retained; setting the same value preserves existing bytes. An environment override still applies after setting the config.
@@ -392,8 +392,8 @@ signed card uses the configured lifetime too. The runtime equivalent is
 `WorkerNodeOptions.inviteTtlSeconds` (default 86400); `worker.invite()` also defaults
 to 24 hours. Standalone `invite create --expires-in` keeps its 3600-second default.
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
 
 The requester installs Sealbridge using the invite page, then **runs the import
@@ -574,8 +574,8 @@ DIDs, allowlists, and invitations.
 pnpm sealbridge mcp-server
 ```
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`.
 
 `sealbridge mcp-server` is a dependency-free JSON-RPC 2.0 MCP server on stdio. It accepts newline-delimited JSON and `Content-Length` frames. Hosts such as Claude Code, Cursor, Codex, and Grok Bot can call:
@@ -761,7 +761,7 @@ Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spe
 
 Use the typed ESM entry point `sealbridge/sdk` for supported embedding APIs, including
 saved invitations, identity/secret stores, connection review and MCP hosting.
-Available in the next release after 0.2.2; existing CLI and deep paths remain usable.
+Available from 0.3.0; not supported in CLI 0.2.2 and earlier. Existing CLI and deep paths remain usable.
 See the [SDK surface and compatibility contract](docs/sdk.md).
 
 ## Held-content library
@@ -780,8 +780,8 @@ See the [held-content library contract](docs/connections/held-content.md) for AP
 
 [日本語](docs/connections/admission.ja.md)
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0;
+they are not supported in CLI 0.2.2 and earlier:
 `requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
 `acp_list_connections`, `acp_list_connection_requests`.
 

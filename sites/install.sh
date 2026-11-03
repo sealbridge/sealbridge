@@ -3,7 +3,7 @@ set -eu
 # Dedicated user-local installation; never changes system Node or user keys.
 ROOT="$HOME/.local/share/sealbridge"
 NODE_VERSION=22.22.0
-PACKAGE=sealbridge@0.2.2
+PACKAGE=sealbridge@0.3.0
 NODE_EXECUTABLE=missing
 NODE_ACTUAL_VERSION=unknown
 NPM_STATE="not checked"
