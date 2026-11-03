@@ -535,7 +535,7 @@ describe('embedding and application entry points', () => {
     new KeychainKeyStore(module, options).createIfMissing('requester');
     const present = await diagnose({ identityOptions: configured, offline: true, fetch });
     expect(present[2].message).toContain('/requester (present) [keychain]');
-    expect(present[2].message).toContain('/worker (created on first use) [keychain]');
+    expect(present[2].message).toContain('/worker (optional; created on first use) [keychain]');
     const failed = await diagnose({ identityOptions: { ...configured, keyringLoader: async () => unavailable() },
       offline: true, fetch });
     expect(failed[2]).toMatchObject({ ok: false });
