@@ -857,7 +857,9 @@ export class WorkerNode {
   }
   private async reconcileTasks(): Promise<void> {
     if (this.reconciled || !this.taskJournal) return;
-    this.taskJournal.load();
+    if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath)
+      this.deliveryService.store.transaction(() => this.taskJournal!.reload());
+    else this.taskJournal.load();
     for (const saved of [...this.taskJournal.tasks.values()]) {
       let record = saved;
       const pending = this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
@@ -916,7 +918,8 @@ export class WorkerNode {
         manifest.taskId !== envelope.payload.taskId || manifest.requester?.ownerDid !== envelope.payload.senderDid)
       return false;
     const proposalDigest = digest({ manifest, input: data.input });
-    if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) this.taskJournal.reload();
+    if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath)
+      this.deliveryService.store.transaction(() => this.taskJournal!.reload());
     let record = this.taskJournal.tasks.get(manifest.taskId);
     const exactReceipt = this.deliveryService?.store.read('receipts', envelope.payload.envelopeId);
     const receipt = exactReceipt ?? this.deliveryService?.store.snapshot('receipts').find(r => r.taskId === manifest.taskId);

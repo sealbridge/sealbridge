@@ -29,23 +29,35 @@ export interface TaskCheckpoint {
   notificationPending?: boolean;
 }
 
-/** Private signed checkpoints. A torn final append retains the preceding checkpoint. */
+/** Private signed checkpoints. Shared callers hold the signer lock for load/reload/save/compact.
+ * A torn final append retains the preceding checkpoint, but is never a reusable cache. */
 export class TaskJournal {
   readonly tasks = new Map<string, TaskCheckpoint>();
   private loaded = false;
   private validBytes = 0;
   private stamp?: string;
   private writer?: number;
-  close(): void { if (this.writer !== undefined) { closeSync(this.writer); this.writer = undefined; } }
+  // Pin a loaded inode until invalidation so rename/unlink cannot recycle its identity into the cache.
+  private reader?: number;
+  close(): void {
+    if (this.writer !== undefined) { closeSync(this.writer); this.writer = undefined; }
+    if (this.reader !== undefined) { closeSync(this.reader); this.reader = undefined; }
+  }
   constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity,
     private readonly durability: 'file-sync' | 'process' = 'file-sync') {}
   private fingerprint(stat: fs.BigIntStats): string {
     return [stat.dev, stat.ino, stat.size, stat.mode, stat.uid, stat.mtimeNs, stat.ctimeNs].join(':');
   }
   reload(): void {
-    // Gateway callers hold the signer lock. Reuse only the unchanged journal, including permissions.
-    if (this.durability === 'process' && this.loaded && this.stamp) {
-      try { if (this.fingerprint(fs.lstatSync(this.path, { bigint: true })) === this.stamp) return; }
+    // Under the signer lock, complete journals only grow by append or are replaced by rename.
+    // A retained descriptor pins the inode against reuse after replacement.
+    // A torn tail can instead be repaired to the same size in the same timestamp tick.
+    if (this.durability === 'process' && this.loaded && this.stamp &&
+        (this.reader !== undefined || this.writer !== undefined)) {
+      try {
+        const stat = fs.lstatSync(this.path, { bigint: true });
+        if (BigInt(this.validBytes) === stat.size && this.fingerprint(stat) === this.stamp) return;
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     }
     this.close();
@@ -85,6 +97,7 @@ export class TaskJournal {
     if (!before.isFile()) throw new Error('INVALID_TASK_JOURNAL');
     const handle = await fs.promises.open(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
     const tasks = new Map<string, TaskCheckpoint>();
+    const sourceChunks: Buffer[] = [];
     let validBytes = 0;
     try {
       checkStat(await handle.stat());
@@ -95,6 +108,7 @@ export class TaskJournal {
         signal.throwIfAborted();
         const { bytesRead } = await handle.read(chunk);
         if (!bytesRead) break;
+        sourceChunks.push(Buffer.from(chunk.subarray(0, bytesRead)));
         const block = Buffer.concat([tail, chunk.subarray(0, bytesRead)]);
         let start = 0, end: number;
         while ((end = block.indexOf(10, start)) !== -1) {
@@ -111,6 +125,7 @@ export class TaskJournal {
       if (stamp(await handle.stat({ bigint: true })) !== stamp(before)) return;
     } finally { await handle.close(); }
     if (!validBytes) return;
+    const source = Buffer.concat(sourceChunks);
     const temporary = this.path + '.' + randomUUID() + '.tmp';
     let created = false;
     try {
@@ -134,8 +149,14 @@ export class TaskJournal {
       signal.throwIfAborted();
       commit(() => {
         checkPath(this.path, fs);
-        // A checkpoint appended during preparation takes precedence over this maintenance snapshot.
+        // Stat is only an early rejection: same-size tail repair can preserve the fingerprint.
         if (stamp(fs.lstatSync(this.path, { bigint: true })) !== stamp(before)) return;
+        const fd = fs.openSync(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+        try {
+          checkStat(fs.fstatSync(fd));
+          // Include the incomplete tail. Compare under the signer lock before publishing the cache.
+          if (!readFileSync(fd).equals(source)) return;
+        } finally { fs.closeSync(fd); }
         this.close();
         fs.renameSync(temporary, this.path); created = false;
         this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
@@ -182,14 +203,17 @@ export class TaskJournal {
     try {
       const bytes = readFileSync(fd);
       const end = bytes.lastIndexOf(10) + 1;
+      const tasks = new Map<string, TaskCheckpoint>();
       for (const line of bytes.subarray(0, end).toString('utf8').split('\n').filter(Boolean)) {
         const record = this.decode(line);
-        this.tasks.set(record.taskId, record);
+        tasks.set(record.taskId, record);
       }
-      this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
+      this.stamp = end === bytes.length ? this.fingerprint(fs.fstatSync(fd, { bigint: true })) : undefined;
+      this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
       this.validBytes = end;
-      this.loaded = true;
-    } finally { closeSync(fd); }
+      this.loaded = end === bytes.length;
+      if (this.loaded && this.durability === 'process') this.reader = fd;
+    } finally { if (this.reader !== fd) closeSync(fd); }
   }
   save(record: TaskCheckpoint): void {
     this.load();
@@ -197,7 +221,10 @@ export class TaskJournal {
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
     if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
     const fd = this.writer ?? this.open(constants.O_WRONLY | constants.O_CREAT);
-    if (this.durability === 'process') this.writer = fd;
+    if (this.durability === 'process') {
+      this.writer = fd;
+      if (this.reader !== undefined) { closeSync(this.reader); this.reader = undefined; }
+    }
     try {
       // Explicit paths have one writer; gateway journals use the signer lock.
       const size = fstatSync(fd).size;
@@ -218,7 +245,12 @@ export class TaskJournal {
       this.stamp = this.fingerprint(fs.fstatSync(fd, { bigint: true }));
       this.validBytes += line.length;
       this.tasks.set(record.taskId, snapshot);
-    } catch (error) { this.close(); throw error; }
+      this.loaded = true;
+    } catch (error) {
+      this.close();
+      this.loaded = false; this.stamp = undefined; this.validBytes = 0; this.tasks.clear();
+      throw error;
+    }
     finally { if (this.durability === 'file-sync') closeSync(fd); }
   }
 }
