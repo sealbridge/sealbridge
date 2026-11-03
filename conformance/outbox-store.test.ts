@@ -60,6 +60,24 @@ describe('persistent envelope store', () => {
     fs.writeFileSync(path, JSON.stringify(signPayload({ ...record, version: 2 }, f.owner)) + '\n');
     expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
   });
+  it('does not revive rejected cached bytes when a later file has the original stat fingerprint', () => {
+    const f = fixture(), p = f.prepare(), [id] = f.service.enqueue(p.frames, p.context);
+    const path = f.service.store.path('outbox', id), original = fs.lstatSync(path, { bigint: true });
+    let collide = false;
+    const io = { ...fs, lstatSync: ((file: fs.PathLike, options?: fs.StatOptions) =>
+      collide && String(file) === path && options?.bigint ? original : fs.lstatSync(file, options)) as typeof fs.lstatSync };
+    const store = new DeliveryStore(f.owner, { ...f.identityOptions, now: f.now, fs: io });
+    const record = store.read('outbox', id)!;
+    const changed = JSON.parse(fs.readFileSync(path, 'utf8'));
+    changed.payload.attemptCount++;
+    fs.writeFileSync(path, JSON.stringify(changed) + '\n');
+    fs.utimesSync(path, 1, 1);
+    expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
+    fs.writeFileSync(path, JSON.stringify(signPayload({ ...record, version: 2 }, f.owner)) + '\n');
+    // Model two same-size writes sharing the filesystem's timestamp tick.
+    collide = true;
+    expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
+  });
   it('constructs and reads absent messages without creating a data root or key', () => {
     const f = fixture(), id = f.prepare().context.messageId;
     expect(f.service.store.getMessage(id)).toBeUndefined();

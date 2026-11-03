@@ -69,10 +69,13 @@ class DeliveryStoreImplementation {
   private messageIndex?: { stamp: string; entries: Map<string, StatusMessage> };
   private readonly inspected = new Map<string, string>();
   private readonly listings = new Map<Kind, { stamp: string; ids: string[] }>();
+  private forget(path: string): void {
+    const cached = this.verified.get(path);
+    if (cached) { this.verifiedBytes -= Buffer.byteLength(cached.data); this.verified.delete(path); }
+  }
   /** Reuse verified records only while file identity, permissions and timestamps match. */
   private remember(path: string, data: string, record: DeliveryRecords[Kind], stamp = fingerprint(this.io.lstatSync(path, { bigint: true }))): void {
-    const previous = this.verified.get(path);
-    if (previous) { this.verifiedBytes -= Buffer.byteLength(previous.data); this.verified.delete(path); }
+    this.forget(path);
     const bytes = Buffer.byteLength(data);
     if (bytes > VERIFIED_CACHE_BYTES) return;
     while (this.verified.size >= VERIFIED_CACHE_ENTRIES || this.verifiedBytes + bytes > VERIFIED_CACHE_BYTES) {
@@ -144,8 +147,8 @@ class DeliveryStoreImplementation {
     } catch (e) { if (errno(e) === 'ENOENT') return []; throw deliveryError('OUTBOX_STORE_INVALID'); }
   }
   read<K extends Kind>(kind: K, id: string): DeliveryRecords[K] | undefined {
+    const path = this.path(kind, id);
     try {
-      const path = this.path(kind, id);
       if (this.transactionReads?.has(path)) return structuredClone(this.transactionReads.get(path)) as DeliveryRecords[K] | undefined;
       this.inspect(kind);
       let stamp: string;
@@ -155,6 +158,7 @@ class DeliveryStoreImplementation {
         stamp = fingerprint(stat);
       } catch (error) {
         if (errno(error) !== 'ENOENT') throw error;
+        this.forget(path);
         this.transactionReads?.set(path, undefined); return;
       }
       const cached = this.verified.get(path);
@@ -162,6 +166,9 @@ class DeliveryStoreImplementation {
         this.transactionReads?.set(path, cached.record);
         return structuredClone(cached.record) as DeliveryRecords[K];
       }
+      // Once a change was observed, old validation must not become usable again
+      // if a later write returns to the same size and filesystem timestamp tick.
+      this.forget(path);
       const data = readPrivateFile(path, this.io, kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes, this.platform);
       requireDelivery(data !== undefined);
       const signed: unknown = JSON.parse(data);
@@ -174,7 +181,7 @@ class DeliveryStoreImplementation {
       if (fingerprint(this.io.lstatSync(path, { bigint: true })) === stamp) this.remember(path, data, r, stamp);
       this.transactionReads?.set(path, structuredClone(r));
       return r;
-    } catch { throw deliveryError('OUTBOX_STORE_INVALID'); }
+    } catch { this.forget(path); throw deliveryError('OUTBOX_STORE_INVALID'); }
   }
   snapshot<K extends Kind>(kind: K, onError?: (error: Error) => void): DeliveryRecords[K][] {
     return this.ids(kind, onError).flatMap(id => {
@@ -496,8 +503,7 @@ class DeliveryStoreImplementation {
       if (knownIndex) { knownIndex.entries.delete(id); knownIndex.stamp = this.listingStamp('outbox'); }
       if (knownRetained) { knownRetained.entries.delete(id); knownRetained.stamp = this.listingStamp(kind); }
       if (knownMessages) { knownMessages.entries.delete(id); knownMessages.stamp = this.listingStamp('messages'); }
-      const cached = this.verified.get(path);
-      if (cached) { this.verifiedBytes -= Buffer.byteLength(cached.data); this.verified.delete(path); }
+      this.forget(path);
       if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: knownListing.ids.filter(entry => entry !== listingId) });
       else this.listings.delete(kind);
     }
