@@ -58,7 +58,7 @@ CLI の判断には人間の TTY または既存の確認コールバックが�
 タスクの検査と所有者が開く操作は別途必要で、この審査からアダプターへタスクを渡しません。
 既存のファイル形式・通信形式、所有者専用の権限とアトミックな保存を維持し、relay の配備は不要です。
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
+リリース注記：次の機能は sealbridge npm パッケージの 0.3.0（CLI 0.3.0 以降）から利用できます：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
 
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は

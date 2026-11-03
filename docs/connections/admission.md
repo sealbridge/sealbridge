@@ -2,8 +2,8 @@
 
 [日本語](admission.ja.md)
 
-Release note: The following are available in the next release of the sealbridge npm
-package after 0.2.2; they are not supported in CLI 0.2.2:
+Release note: The following are available from sealbridge npm package 0.3.0
+(CLI 0.3.0 and later):
 `requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
 `acp_list_connections`, `acp_list_connection_requests`.
 

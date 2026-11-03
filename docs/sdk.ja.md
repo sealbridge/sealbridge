@@ -3,7 +3,7 @@
 [English](sdk.md)
 
 `sealbridge/sdk` は既存の Sealbridge API を組み込むための公開 ESM 入口です。
-パッケージ 0.2.2 の次のリリースから利用できます。Node.js 22 以降と、TypeScript の
+sealbridge 0.3.0 から利用できます。Node.js 22 以降と、TypeScript の
 `NodeNext` など package exports に対応した解決方式を使います。JavaScript と型宣言を
 同梱し、利用側にワークスペースパッケージを要求しません。
 

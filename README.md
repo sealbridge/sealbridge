@@ -14,7 +14,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers pin sealbridge 0.3.0, pending publication on npm. Deploy the updated installers after npm publication. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
+The installers pin sealbridge 0.3.0, released on npm. Deploy the updated installers separately. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
@@ -51,7 +51,7 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 
 30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
 
-> **Status**: Sealbridge `v0.3.0` is being prepared for release on npm as `sealbridge`; publication is pending. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
+> **Status**: Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
 
@@ -77,7 +77,7 @@ Release note: The following are available from sealbridge npm package 0.3.0;
 they are not supported in CLI 0.2.2 and earlier:
 `setup`, `accept`.
 
-For a release containing this command, check `sealbridge setup --help`, then run
+With CLI 0.3.0 or later, check `sealbridge setup --help`, then run
 `sealbridge setup --host cursor` or `sealbridge setup --host claude-desktop`
 (macOS/Windows). Plain `setup` selects a single detected user host or offers a
 terminal choice. Repeat `--host` or use `--all-detected`; Claude Code requires
@@ -109,8 +109,8 @@ untouched unless setup is run; rerunning with matching options changes nothing.
 Follow the [agent-readable instructions](sites/connect-agent.txt) for human-run
 `sealbridge accept --paste` and `acp_list_invites`/`workerRef`, or open-worker
 `acp_discover_workers` then `acp_delegate_task` with returned `workerDid` and
-`relayUrl`. Invitation import and open discovery require their corresponding
-release features; check help and the tool catalog before use. Setup supports
+`relayUrl`. Invitation import and open discovery require sealbridge 0.3.0
+(CLI 0.3.0 and later); check help and the tool catalog before use. Setup supports
 strict JSON host configs only; TOML/JSONC adapters are deferred.
 
 `sealbridge mcp-server`, `delegate`, `worker start`, `discover`, and `invite create` need no `--key` or `--relay`. The application uses `https://relay.sealbridge.dev` by default. MCP initialization and tool listing make no network request. Discovery reads the relay directory; delegation sends encrypted task payloads and routing metadata is visible to the relay. Invite creation only signs locally and does not start a worker.
