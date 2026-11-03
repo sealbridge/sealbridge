@@ -8,6 +8,20 @@ export const CONNECTION_REFUSAL_TTL_MS = 7 * CONNECTION_DAY_MS;
 export const CONNECTION_CAPACITY = { connections: 1000, inviteBindings: 1000, outbox: 100,
   priorApprovedPeers: 1000, refusals: 1000 } as const;
 export type ConnectionState = 'none' | 'pending' | 'connected' | 'blocked';
+/** Owner-local observation of the current connection or latest retained offer. */
+export interface ConnectionStatus {
+  peerOwnerDid: string;
+  state: ConnectionState;
+  status: 'none' | 'pending_peer' | 'pending_owner' | 'connected' | 'inactive' | 'expired' | 'blocked';
+  requestId?: string;
+  direction?: 'incoming' | 'outgoing';
+  createdAt?: number;
+  expiresAt?: number;
+  connectionId?: string;
+  connectedAt?: number;
+  /** Outgoing: ACK awaits sending. Incoming: acceptance awaits the peer ACK. */
+  acknowledgementPending?: boolean;
+}
 export type ConnectionTrust = 'unknown' | 'limited' | 'denied';
 export interface ConnectionIncomingOffer {
   requestId: string; requestDigest: string; receivedAt: number; expiresAt: number;

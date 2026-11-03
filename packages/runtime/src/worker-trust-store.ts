@@ -9,7 +9,7 @@ import type { LocalIdentityOptions } from './local-identity.js';
 import { emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
   projectConnectionState, projectConnectionTrust, validConnectionPeer, validConnectionOffer,
   validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
-import type { ConnectionData, ConnectionState, ConnectionTrust, ConnectionRecord, ConnectionPeer,
+import type { ConnectionData, ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionRecord, ConnectionPeer,
   PriorApprovedPeer, RecordIncomingConnection, RecordOutgoingConnection, ApproveConnectionInput,
   ApplyConnectionAcceptedInput, BindInviteFirstUseInput, ConnectionOutboxRecord, ConnectionPersistence } from './connection-records.js';
 
@@ -209,6 +209,40 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   }
   connectionLevel(peerOwnerDid: string): ConnectionTrust {
     return projectConnectionTrust(this.connectionState(peerOwnerDid));
+  }
+  /** Read one local snapshot without polling, writing, pruning or changing consent. */
+  connectionStatus(peerOwnerDid: string): ConnectionStatus {
+    assertConnectionOwnerDid(peerOwnerDid);
+    const snapshot = this.read(), now = this.now();
+    const data = snapshot.version === 2 ? snapshot : emptyConnectionData();
+    const state = projectConnectionState(data, snapshot.denials, peerOwnerDid, now);
+    const connection = data.connections.find(c => c.peerOwnerDid === peerOwnerDid);
+    const controls = snapshot.version === 2 ? (snapshot.controls ?? []).filter(r =>
+      (r.offer.fromOwnerDid === this.owner.did ? r.offer.toOwnerDid : r.offer.fromOwnerDid) === peerOwnerDid) : [];
+    // Prefer the exchange that established this connection, then the current offer.
+    const control = state === 'connected' ? controls.find(r => r.active && r.accepted &&
+      r.accepted.payload.connectionId === connection?.connectionId &&
+      (connection.remoteAcceptanceDigest ? digest(r.accepted) === connection.remoteAcceptanceDigest :
+        r.consentDigest === connection.localConsentDigest)) :
+      controls.find(r => r.offer.requestId === connection?.outgoing?.requestId) ??
+      controls.find(r => r.offer.requestId === connection?.incoming?.requestId) ?? controls.at(-1);
+    const offer = control?.offer;
+    const legacyOffer = connection?.outgoing ?? connection?.incoming;
+    const direction = control?.direction ?? (connection?.outgoing ? 'outgoing' : connection?.incoming ? 'incoming' : undefined);
+    const expiresAt = offer ? Date.parse(offer.expiresAt) : legacyOffer?.expiresAt;
+    const status: ConnectionStatus['status'] = state === 'blocked' ? 'blocked' : state === 'connected' ? 'connected' :
+      control && !control.active ? 'inactive' : expiresAt !== undefined && expiresAt <= now ? 'expired' :
+      direction === 'outgoing' ? 'pending_peer' : direction === 'incoming' ? 'pending_owner' : 'none';
+    return { peerOwnerDid, state, status,
+      ...(offer ? { requestId: offer.requestId, direction: control!.direction,
+        createdAt: Date.parse(offer.createdAt), expiresAt } : legacyOffer ? {
+        requestId: legacyOffer.requestId, direction, expiresAt,
+        ...('createdAt' in legacyOffer ? { createdAt: legacyOffer.createdAt } : {}),
+      } : {}),
+      ...(state === 'connected' ? { connectionId: connection!.connectionId, connectedAt: connection!.connectedAt } : {}),
+      ...(state === 'connected' && control?.accepted ? { acknowledgementPending: control.outbox.some(b =>
+        b.envelope.payload.eventType === (control.direction === 'outgoing' ? 'CONNECTION_ACK' : 'CONNECTION_ACCEPTED')) } : {}),
+    };
   }
   listConnections(): Array<(ConnectionRecord | { peerOwnerDid: string }) & { state: Exclude<ConnectionState, 'none'> }> {
     const state = this.read(), data = state.version === 2 ? state : emptyConnectionData();

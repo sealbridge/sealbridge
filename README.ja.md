@@ -441,7 +441,19 @@ sealbridge connections unblock PEER_DID
 sealbridge connections prior-approved
 sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
+
+確認送信後に `sync --once` を実行し、`connections status reviewer` で照会します。
+保存済み workerRef または相手の所有者 DID も指定できます。既定の役割は requester です。
+照会はローカルの記録だけを読み、送信や鍵の作成はしません。`pending_peer` は相手の承認が
+ローカルに未適用、`connected` はローカルの limited 接続です。交換記録がある場合は
+`acknowledgementPending` も返します。同じ情報を
+`WorkerTrustStore.connectionStatus(peerOwnerDid)` から取得できます。
+ほかの状態は `none`・`pending_owner`・`inactive`・`expired`・`blocked` です。
+このプロトコルは相手側の拒否を通知しません。期限切れの申し込みの詳細は既存の削除処理まで
+照会でき、成立済みの接続は期限切れで消えません。
+詳しくは[接続状態の照会](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
 
 判断には人間の TTY または注入された人間用審査プロバイダーが必要で、`--yes` はありません。
 ローカルの役割・DID と相手の所有者 DID を確認してください。requester と worker の既定鍵は別です。
