@@ -6,7 +6,7 @@ export {
   selectKeyStore, keyStoreSelection, keychainService, resolveDataRoot,
   readApplicationConfig, setApplicationKeyStore,
   WorkerTrustStore, workerIntakePath,
-  ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange,
+  ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider,
   AcpMcpServer,
 } from '@acp/runtime';
@@ -20,6 +20,7 @@ export type {
   ConnectionInspectionPort, ConnectionPersistencePort, ConnectionOffer, ConnectionConsent,
   ConnectionOutboxEntry, ConnectionAcceptanceCommit, ConnectionRedemptionCommit,
   ConnectionTransport, ConnectionFrame, ConnectionRouterOptions, ConnectedEvent,
+  ConnectionAdmissionReviewOptions, InboundConnectionSummary,
   HeldRequestReviewOptions, HeldContentReviewProvider, HeldInspectionContext, InspectionCompletion,
   AcpMcpServerOptions, ApprovalProvider,
 } from '@acp/runtime';

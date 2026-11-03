@@ -39,7 +39,7 @@ All values are direct re-exports of existing implementations, without wrappers.
 | Connection metadata | `WorkerTrustStore` (including `listConnections`), `workerIntakePath` |
 | Connection exchange | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | Owner confirmation command | `connectionsCommand`, `connectionHumanReview` |
-| Held review | `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
+| Held review | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
 | Discovery and invitations | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | Key creation | `generateKeyPair` |
 | MCP hosting | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
@@ -59,7 +59,8 @@ Named type exports:
   `ConnectionRedemptionCommit`, `ConnectionTransport`, `ConnectionFrame`,
   `ConnectionRouterOptions`, `ConnectedEvent`, `ConnectionsCommandOptions`.
 - Review: `HeldRequestReviewOptions`, `HeldContentReviewProvider`,
-  `HeldInspectionContext`, `InspectionCompletion`.
+  `HeldInspectionContext`, `InspectionCompletion`, `ConnectionAdmissionReviewOptions`,
+  `InboundConnectionSummary`.
 - MCP: `AcpMcpServerOptions`, `ApprovalProvider`, `ParsedMcpServerArgs`.
 - Core/transport: `KeyPair`, `Json`, `Signed`, `SignedEnvelope`, `Invite`,
   `AgentSkill`, `DiscoveryAgentCard`, `CreateAgentCardOptions`, `SignedAgentCard`,
@@ -119,6 +120,12 @@ explicit `syncConnections`. Connected remains limited; each task requires
 inspection and owner opening. The default inspection provider is unavailable.
 See [connection exchange](connections/connection-exchange.md) and
 [held-content review](connections/held-content.md).
+
+`ConnectionAdmissionReview` exposes `list()`, `approve(id)` and `reject(id)` for held
+inbound connections. Bind decisions to explicit owner actions. Its
+`InboundConnectionSummary` includes optional `peerDisplayName` when known; display
+names are informational data. Built-in inspection covers connection metadata only.
+See [owner admission review](connections/admission.md#owner-admission-review).
 
 ## MCP lifecycle
 

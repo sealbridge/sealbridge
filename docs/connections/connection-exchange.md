@@ -39,6 +39,12 @@ pending review. Same-owner reuse does not renew consent. Accepted consent is
 limited with no expiry; it does not authorize task execution. Invite expiry or
 revocation prevents future redemption without removing an established connection.
 
+Explicit incoming `approve` also commits first-use invite binding with signed
+owner consent. If the invite already belongs to another owner or an inactive
+connection, separate explicit consent can accept the offer without rebinding it.
+The opt-in `ConnectionAdmissionReview` provides built-in connection metadata
+inspection only during an owner decision; see [owner admission review](admission.md#owner-admission-review).
+
 Persistence adapters must implement the atomic preconditions documented on
 `ConnectionPersistencePort`, retain decisions through the offer deadline and
 bindings through effective invite expiry, and cancel outboxes on removal.
