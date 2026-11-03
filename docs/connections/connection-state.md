@@ -22,3 +22,31 @@ Already pruned history cannot be recovered, and legacy records do not provide an
 exact approval timestamp. The file retains its 1 MiB ceiling; live connections are
 not evicted for capacity. Before mutation, preserve a v1 backup if rollback is
 needed: older binaries cannot read v2. Do not run old and new writers concurrently.
+
+Connection records, `ConnectionPeer`, `ConnectionSummary`, `ConnectionOffer` and
+`PriorApprovedPeer` accept optional `peerDisplayName` (a non-empty string). The
+store retains the first known name for that owner DID; later unnamed offers do
+not erase it. Names are informational data, never identity selectors or consent.
+DIDs remain authoritative: equal names do not merge peers or imply a key change.
+Names inherit the store's existing byte ceiling and are not executable content.
+
+Incoming control exchange derives the name from the verified request's signed
+agent card. Outgoing invite confirmation derives it from the verified invite.
+`ConnectionService.request` also accepts optional `peerAgentCard` for a card
+already available through discovery; it verifies signature, current expiry,
+owner DID and relay before owner consent and transmission. The requester passes
+its discovered peer card through this local API. Task admission uses the matched
+verified discovery card when available, rather than a manifest display label.
+Plain DID requests without a peer card can remain unnamed; acceptance messages
+carry no new name field. No wire or protocol schema changes are made.
+
+`WorkerTrustStore.listConnections()`, `connections list`, `acp_list_connections`
+and `acp_list_connection_requests` include the optional field. Prior-approved
+candidates retain a known name from connection metadata for the same owner DID;
+`listPriorApprovedPeers()` and `connections prior-approved` return it. This does
+not create approval evidence or a connection. Invite removal does not remove
+connection names. Legacy v1/v2 records without names remain readable without
+rewrites; an inspected incoming exchange can fill a missing name during its next
+mutation without changing consent comparisons. The signed store stays version 2.
+Earlier binaries that reject unknown record fields cannot read named records;
+use the updated reader and avoid concurrent writers from different versions.

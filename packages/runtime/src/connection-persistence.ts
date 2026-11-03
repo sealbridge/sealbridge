@@ -16,6 +16,7 @@ export function validStoredControls(records: StoredControlRecord[], ownerDid: st
       return ['incoming', 'outgoing'].includes(r.direction) && typeof r.active === 'boolean' &&
         typeof o?.requestId === 'string' && /^sha256:[a-f0-9]{64}$/.test(o.requestDigest) &&
         (r.direction === 'incoming' ? o.toOwnerDid : o.fromOwnerDid) === ownerDid &&
+        (o.peerDisplayName === undefined || typeof o.peerDisplayName === 'string' && o.peerDisplayName.length > 0) &&
         Number.isFinite(Date.parse(o.createdAt)) && Date.parse(o.expiresAt) > Date.parse(o.createdAt) &&
         Date.parse(o.expiresAt) - Date.parse(o.createdAt) <= 14 * 86400000 &&
         (!r.accepted || verifyConnectionAccepted(r.accepted)) &&
@@ -31,6 +32,8 @@ export function validStoredControls(records: StoredControlRecord[], ownerDid: st
           Date.parse(b.deliveryDeadline) <= Date.parse(o.expiresAt));
     });
 }
+/** Display metadata is outside the offer's identity and consent comparison. */
+function offerDigest({ peerDisplayName: _name, ...offer }: ConnectionOffer): string { return digest(offer); }
 /** PR2 lifecycle and PR3 exchange commit under the same owner-signed file lock. */
 export class StoredConnectionExchange implements ConnectionPersistencePort {
   constructor(readonly store: WorkerTrustStore) {}
@@ -41,12 +44,13 @@ export class StoredConnectionExchange implements ConnectionPersistencePort {
     if (Date.parse(o.expiresAt) <= now) throw new Error('CONNECTION_REQUEST_EXPIRED');
     const controls = s.controls ??= [];
     let r = controls.find(r => r.offer.requestId === o.requestId);
-    if (r && (!r.active || r.direction !== direction || digest(r.offer) !== digest(o))) throw new Error('CONNECTION_NOT_PENDING');
+    if (r && (!r.active || r.direction !== direction || offerDigest(r.offer) !== offerDigest(o))) throw new Error('CONNECTION_NOT_PENDING');
     if (!r) {
       if (direction === 'incoming' && s.refusals.some(r => r.peerOwnerDid === peer && r.refuseUntil > now))
         throw new Error('CONNECTION_REQUEST_COOLDOWN');
       r = { offer: structuredClone(o), direction, active: true, outbox: [] }; controls.push(r);
     }
+    if (o.peerDisplayName !== undefined) r.offer.peerDisplayName ??= o.peerDisplayName;
     return r;
   }
   private pending(s: ConnectionTrustState, r: StoredControlRecord, now: number): void {
@@ -54,6 +58,7 @@ export class StoredConnectionExchange implements ConnectionPersistencePort {
     let c = s.connections.find(c => c.peerOwnerDid === peer);
     if (!c) { c = { peerOwnerDid: peer, relayUrl: o.relayUrl, state: 'pending',
       ...(o.peerAgentDid ? { peerAgentDid: o.peerAgentDid } : {}) }; s.connections.push(c); }
+    if (o.peerDisplayName !== undefined) c.peerDisplayName ??= o.peerDisplayName;
     if (r.direction === 'incoming') c.incoming ??= { requestId: o.requestId, requestDigest: o.requestDigest,
       receivedAt: now, expiresAt: Date.parse(o.expiresAt) };
     else c.outgoing ??= { requestId: o.requestId, requestDigest: o.requestDigest, createdAt: Date.parse(o.createdAt),
@@ -87,7 +92,7 @@ export class StoredConnectionExchange implements ConnectionPersistencePort {
   }
   private acceptInto(s: ConnectionTrustState, c: ConnectionAcceptanceCommit, source: 'request' | 'invite') {
     const retained = s.controls?.find(r => r.offer.requestId === c.offer.requestId && r.direction === 'incoming');
-    if (!retained?.active || digest(retained.offer) !== digest(c.offer)) throw new Error('CONNECTION_NOT_PENDING');
+    if (!retained?.active || offerDigest(retained.offer) !== offerDigest(c.offer)) throw new Error('CONNECTION_NOT_PENDING');
     const r = this.record(s, c.offer, 'incoming', c.now);
     const p = c.accepted.payload;
     if (!verifyConnectionAccepted(c.accepted) || p.fromOwnerDid !== this.store.ownerDid || p.toOwnerDid !== c.offer.fromOwnerDid ||

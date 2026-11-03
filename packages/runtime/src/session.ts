@@ -1210,11 +1210,13 @@ export class WorkerNode {
     let wireFailureSent = false;
     try {
       this.assertInviteActive(data);
+      let peerDisplayName: string | undefined;
       if (this.relay.discover) {
         const cards = await this.relay.discover();
         const sender = findDiscoveredAgentCard(cards, m.requester.agentDid, this.protocol.now());
-        if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint)
-          this.protocol.observe(sender, cards);
+        if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint) {
+          this.protocol.observe(sender, cards); peerDisplayName = sender.payload.name;
+        }
       }
       this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid);
       const skills = this.agentCard.payload.skills;
@@ -1291,7 +1293,8 @@ export class WorkerNode {
       if (data.inviteToken) {
         const invite = parseAndVerifyInviteToken(data.inviteToken, this.protocol.now(), { allowPrivateRelay: true });
         const outcome = this.connectionStore.redeemTaskInvite(invite, { peerOwnerDid: m.requester.ownerDid,
-          peerAgentDid: m.requester.agentDid, relayUrl: this.agentCard.payload.relayEndpoint },
+          peerAgentDid: m.requester.agentDid, ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+          relayUrl: this.agentCard.payload.relayEndpoint },
           connectionIdFor(this.options.owner.did, m.requester.ownerDid));
         inviteIneligible = outcome === 'other' || outcome === 'inactive';
         if (outcome === 'first') this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: m.requester.ownerDid,
@@ -1311,6 +1314,7 @@ export class WorkerNode {
           if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
             const receivedAt = this.protocol.now();
             try { this.connectionStore.recordIncoming({ peerOwnerDid: m.requester.ownerDid, peerAgentDid: m.requester.agentDid,
+              ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
               relayUrl: this.agentCard.payload.relayEndpoint, incoming: { requestId: m.taskId, requestDigest: proposalDigest,
                 receivedAt, expiresAt: receivedAt + 14 * 86400000 } }); }
             catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
@@ -2612,7 +2616,7 @@ export class RequesterClient {
             onConnectionEvent: this.options.onConnectionEvent });
           try {
             const request = await connectionRouter.service.request({ toOwnerDid: peer,
-              ...(invite ? { inviteToken: options.to } : {}), originProposalDigest: digest({ manifest, input: options.input }), deferDelivery: true });
+              ...(invite ? { inviteToken: options.to } : card ? { peerAgentCard: card } : {}), originProposalDigest: digest({ manifest, input: options.input }), deferDelivery: true });
             connectionRequest = store.controlSnapshot().find(r => r.offer.requestId === request.requestId)?.outbox[0]?.envelope;
           } catch (error) { if (!(error instanceof Error) || error.message !== 'APPROVAL_REJECTED') throw error; }
         }

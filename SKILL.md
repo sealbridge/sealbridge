@@ -360,6 +360,19 @@ package after 0.2.2; they are not supported in CLI 0.2.2:
 
 リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`connections`、`requests`。
 
+Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
+agent card. `listConnections()`, `connections list`, the MCP connection lists and
+prior-approved metadata return it when known, even after invite removal. Names are
+informational data only; DIDs remain authoritative for identity and consent. Equal
+names can belong to different owner DIDs. Older records and peers without a known
+card may omit the field; reading does not rewrite them. No wire change is required.
+
+接続 metadata は、検証済みの招待・エージェントカードから得た任意の `peerDisplayName` を保持します。
+`listConnections()`・`connections list`・MCP の接続一覧・過去の承認候補一覧は、
+招待の削除後も既知の表示名を返します。表示名は情報としてのみ扱い、識別と同意の判断は
+DID に基づきます。同じ表示名でも所有者 DID は異なる場合があります。
+旧記録や相手のカードが不明な場合は省略でき、読み取りで書き換えません。通信形式の変更はありません。
+
 Follow [connections admission](docs/connections/admission.md) and the [Japanese workflow](docs/connections/admission.ja.md).
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
 Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.

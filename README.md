@@ -663,6 +663,13 @@ See [protocol versions](docs/connections/protocol-versions.md) for schemas, poli
 
 `@acp/runtime` provides owner-local connection lifecycle and persistence APIs.
 Connected state projects to limited without expiry and is used by live admission.
+Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
+agent card. `listConnections()`, `connections list`, the MCP connection lists and
+prior-approved metadata return it when known, even after invite removal. Names are
+informational data only; DIDs remain authoritative for identity and consent. Equal
+names can belong to different owner DIDs. Older records and peers without a known
+card may omit the field; reading does not rewrite them. No wire change is required.
+
 See [connection state persistence](docs/connections/connection-state.md) for API and store compatibility details.
 
 ## Documents
