@@ -802,7 +802,19 @@ sealbridge connections unblock PEER_DID
 sealbridge connections prior-approved
 sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
+
+After confirmation, run `sync --once` and query `connections status reviewer`
+(or a saved workerRef / peer owner DID). Status defaults to the requester role and
+reads local records without sending or creating an identity. `pending_peer` means
+no peer acceptance has been applied locally; `connected` reports the local limited
+connection, with `acknowledgementPending` when retained exchange evidence exists.
+`WorkerTrustStore.connectionStatus(peerOwnerDid)` provides the same projection.
+Other statuses are `none`, `pending_owner`, `inactive`, `expired`, and `blocked`.
+Remote rejection is not reported by this protocol. Expired offer details remain
+queryable only until existing store pruning; established connections survive expiry.
+See [connection status semantics](docs/connections/connection-exchange.md#querying-connection-status).
 
 All decisions require a human TTY or an injected human review provider. There is no
 `--yes` connection decision. Confirm the exact local role/DID and peer owner DID;

@@ -29,7 +29,7 @@ export interface ConnectionsCommandOptions {
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   output?: (value: string) => void;
 }
-const USAGE = 'Usage: sealbridge connections list | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Human confirmation is required for decisions. Inspection is unavailable by default. / 接続の判断には所有者の確認が必要です。既定の検査は利用不可です。';
+const USAGE = 'Usage: sealbridge connections list | status workerRef-or-DID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Human confirmation is required for decisions. Inspection is unavailable by default. / 接続の判断には所有者の確認が必要です。既定の検査は利用不可です。';
 export async function connectionsCommand(args: string[], options: ConnectionsCommandOptions = {}): Promise<void> {
   const output = options.output ?? console.log;
   if (args.includes('--help')) { output(USAGE); return; }
@@ -42,16 +42,27 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
       throw new Error('INVALID_CONNECTION_OPTION');
     flags.set(flag, rest[++i]);
   }
-  const readOnly = ['list', 'prior-approved'].includes(action);
-  if (!['list','prior-approved','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
+  const readOnly = ['list', 'prior-approved', 'status'].includes(action);
+  if (!['list','prior-approved','status','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
       ids.length !== (['list','prior-approved','request','sync'].includes(action) ? 0 : 1)) throw new Error(USAGE);
-  const role = flags.get('--role') ?? (action === 'confirm-invite' ? 'requester' : 'worker');
+  const role = flags.get('--role') ?? (['confirm-invite', 'status'].includes(action) ? 'requester' : 'worker');
   if (role !== 'worker' && role !== 'requester') throw new Error('INVALID_IDENTITY_ROLE');
   const identityOptions = { ...options.identityOptions, explicitKeyPath: flags.get('--key') };
   const key = readOnly ? (await inspectStoredIdentity(role, identityOptions)).key : await resolveStoredIdentity(role, identityOptions);
-  if (!key) { output(JSON.stringify({ connections: [], priorApprovedPeers: [] })); return; }
+  if (!key) { output(JSON.stringify(action === 'status' ? { role, status: 'none', state: 'none' } :
+    { connections: [], priorApprovedPeers: [] })); return; }
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions),
     fs: identityOptions.fs, platform: identityOptions.platform, now: options.now });
+  if (action === 'status') {
+    const saved = ids[0].startsWith('did:') ? undefined :
+      (await InviteStore.open(key, { ...identityOptions, now: options.now })).list()
+        .find(i => i.workerRef === ids[0] || i.alias === ids[0]);
+    if (!ids[0].startsWith('did:') && !saved) throw new Error('INVITE_NOT_FOUND');
+    output(JSON.stringify({ localOwnerDid: key.did, role,
+      ...(saved ? { workerRef: saved.workerRef, alias: saved.alias } : {}),
+      ...store.connectionStatus(saved?.ownerDid ?? ids[0]) }));
+    return;
+  }
   const review = new HeldRequestReview(key, { ...identityOptions, provider: options.inspectionProvider, now: options.now });
   attachHeldDeliveryStatus(key, review, identityOptions, store, options.now);
   if (action === 'list') { output(JSON.stringify({ localOwnerDid: key.did, role, connections: store.listConnections() })); return; }

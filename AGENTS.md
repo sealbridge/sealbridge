@@ -376,7 +376,23 @@ sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge connections confirm-invite reviewer --role requester
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
+sealbridge connections status reviewer --role requester
 ```
+
+After `confirm-invite`, use `sync --once` then `connections status workerRef-or-DID`
+(default role: requester). `WorkerTrustStore.connectionStatus(peerOwnerDid)` reads the
+same local projection: `none`, `pending_peer`, `pending_owner`, `connected`, `inactive`,
+`expired`, or `blocked`. Querying sends nothing and creates no identity. A local
+connection can still have `acknowledgementPending`; remote rejection is not notified.
+Expired offer details disappear on existing pruning. See [status semantics](docs/connections/connection-exchange.md#querying-connection-status).
+Available in the next release after CLI 0.2.2.
+
+`confirm-invite` の後に `sync --once` を実行し、`connections status workerRef-or-DID`
+で照会します（既定の役割は requester）。`WorkerTrustStore.connectionStatus(peerOwnerDid)`
+も同じローカルの状態を返します。照会は送信も鍵の作成も行いません。ローカルの接続が成立しても
+`acknowledgementPending` の場合があります。相手の拒否は通知されず、期限切れの申し込みの
+詳細は既存の削除処理で消えます。[状態の定義](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
+CLI 0.2.2 の次のリリースで利用できます。
 
 ## Requester flow / 発注側
 
