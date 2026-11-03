@@ -458,8 +458,10 @@ migration. Stored references continue to resolve through keychain after selectin
 new imports then use inline file storage. Listing and MCP results omit tokens.
 Unavailable keychain access returns `KEY_STORE_UNAVAILABLE`; missing or differing
 strings return `INVITE_SECRET_MISSING` or `INVITE_SECRET_MISMATCH`, with no file fallback.
-Removal also deletes the referenced string. `INVITE_SECRET_DELETE_FAILED` means metadata
-was removed but keychain cleanup failed; the string may remain under its account name.
+Removal deletes and checks the referenced string before publishing metadata removal.
+`INVITE_SECRET_DELETE_FAILED` leaves the metadata in place: retry the same alias/reference
+with `remove`, `invites remove`, or `acp_remove_invite`. If publication fails after deletion,
+resolution reports `INVITE_SECRET_MISSING`; removal can still finish without the string.
 
 Move existing inline tokens explicitly, using the existing requester identity:
 
@@ -482,6 +484,19 @@ Embedders can inject synchronous `SecretStore.get/set/delete` via
 An injected identity `KeyStore` alone retains inline token storage; pass `secretStore`
 separately to use external strings. Explicit identity file paths select only the signer;
 invitation storage still follows the shared selection.
+
+Embedders can opt into recoverable pending imports with
+`store.import(link, alias, { pendingConfirmation: true })`. `SavedInvite.importState`
+is then `unconfirmed`; `listUnconfirmed()` returns token-free metadata, and
+`removeUnconfirmed({ olderThan: timestamp })` returns `{ removed }` for marked imports
+strictly older than that timestamp. Use `retain(workerRef)` to save one before use;
+`resolve` returns `INVITE_CONFIRMATION_REQUIRED` until retention. Ordinary import
+(including a duplicate) retains the entry, and pending reimport never demotes an
+existing save. `connections confirm-invite` retains before attempting confirmation,
+including when that attempt is rejected or interrupted; its owner consent prompt
+remains separate. Existing entries without the marker are excluded from cleanup.
+These methods perform no network operations; see [invite lifecycle](docs/connections/invite-lifecycle.md)
+for retry behavior and the embedding contract.
 
 Direct CLI delegation remains available with the complete invitation:
 

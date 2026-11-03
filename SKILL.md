@@ -324,15 +324,32 @@ then omit `--dry-run` to apply; `--key <file>` selects an existing requester sig
 Migration preserves the original metadata on failure; previously written strings may remain.
 References still use keychain after switching to file. Missing/differing strings report
 `INVITE_SECRET_MISSING` / `INVITE_SECRET_MISMATCH`; unavailable access reports
-`KEY_STORE_UNAVAILABLE` without file fallback. `INVITE_SECRET_DELETE_FAILED` reports
-metadata removal with incomplete keychain cleanup. Embedders use `InviteStore.open`
+`KEY_STORE_UNAVAILABLE` without file fallback. Removal deletes the secret before metadata;
+`INVITE_SECRET_DELETE_FAILED` retains metadata for retry with the same reference. Embedders use `InviteStore.open`
 and may inject `InviteStoreOptions.secretStore` or MCP `identityOptions.secretStore`.
 招待にも共通の方式選択を適用します。file は従来の署名付き JSON を維持し、keychain は参照・
 ダイジェストをファイルに残してトークンを同じサービスの `invite:<entry id>` に保存します。
 既存のインライン項目は自動移行しません。上記 migrate の dry run で件数を確認し、フラグを外して適用します。
 `--key` は既存の署名者ファイルを指定します。失敗時は元のメタデータを維持し、書込済み文字列が残る場合があります。
 file に戻しても既存参照は keychain を使います。欠落・不一致・利用不能は上記コードで報告します。
-削除後の keychain 処理が失敗した場合も専用コードで報告します。組み込みでは上記の注入 API を使えます。
+keychain の文字列を先に削除し、失敗時はメタデータを維持して同じ参照で再試行できます。組み込みでは上記の注入 API を使えます。
+
+Embedders may import with the third argument `{ pendingConfirmation: true }`.
+`listUnconfirmed()` returns token-free metadata; `removeUnconfirmed({ olderThan })`
+removes only explicitly marked imports strictly older than the timestamp. Call
+`retain(workerRef)` before use; pending resolution returns `INVITE_CONFIRMATION_REQUIRED`.
+Ordinary import retains duplicates. Existing saves and entries without markers remain
+outside cleanup. `connections confirm-invite` retains before the confirmation attempt,
+including rejected/interrupted attempts, without replacing owner consent. There are no
+new CLI commands or MCP tools. See [invite lifecycle](docs/connections/invite-lifecycle.md).
+
+組み込みでは import の第3引数 `{ pendingConfirmation: true }` で確認待ちにできます。
+`listUnconfirmed()` はトークンを含まない情報を返し、`removeUnconfirmed({ olderThan })` は
+指定日時より古いマーカー付き項目だけを削除します。使う前に `retain(workerRef)` で保存を確定し、
+それまでは解決が `INVITE_CONFIRMATION_REQUIRED` になります。通常の import は重複も保存確定とし、
+過去の保存やマーカーのない項目は整理しません。`connections confirm-invite` は接続確認の試行前に
+保存を確定し、拒否・中断時も保持します。所有者の同意は別です。CLI・MCP の道具は追加しません。
+[招待のライフサイクル](docs/connections/invite-lifecycle.ja.md)を参照してください。
 
 `--stdin` reads one invitation link from a pipe or file through EOF, with a
 68 KiB byte cap and a 10-second total read timeout. Applications can spawn

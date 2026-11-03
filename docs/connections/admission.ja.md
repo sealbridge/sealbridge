@@ -40,6 +40,9 @@ sealbridge requests deny REQUEST_ID
 失効では消えません。後続の依頼は古いトークンを添付せず、確認済みの相手 DID を使います。
 保存済み `workerRef` は引き続き招待を選び、使うたびに期限を確認します。
 取り込みやプレビューだけでは、どちらの役割にも接続同意を付けません。
+組み込みでは日時で整理できる確認待ちマーカーを付けられます。使う前に保存を確定し、
+`confirm-invite` は所有者への確認の試行前に保存を確定します。拒否・中断時も保持します。
+保存の確定は接続同意ではありません。[招待のライフサイクル](invite-lifecycle.ja.md)を参照してください。
 
 ```sh
 sealbridge accept --paste --alias reviewer

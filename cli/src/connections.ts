@@ -7,7 +7,7 @@ import { HttpRelayClient } from '@acp/relay';
 import type { RelayTransport } from '@acp/relay';
 import { ConnectionRouter, HeldRequestReview, InviteStore, LiveProtocol, WorkerTrustStore,
   workerIntakePath, inspectStoredIdentity, resolveStoredIdentity, syncConnections } from '@acp/runtime';
-import type { ConnectionHumanReviewProvider, HeldContentReviewProvider, IdentityStoreOptions } from '@acp/runtime';
+import type { ConnectionHumanReviewProvider, HeldContentReviewProvider, InviteStoreOptions } from '@acp/runtime';
 
 export async function confirmOwner(summary: string, review?: (summary: string) => Promise<boolean>): Promise<boolean> {
   if (review) return review(summary);
@@ -24,7 +24,7 @@ export function connectionHumanReview(review?: (summary: string) => Promise<bool
     effect: 'Connect these identities with limited consent and no expiry. Each task requires inspection and owner opening.' }), review) };
 }
 export interface ConnectionsCommandOptions {
-  identityOptions?: IdentityStoreOptions; review?: (summary: string) => Promise<boolean>;
+  identityOptions?: InviteStoreOptions; review?: (summary: string) => Promise<boolean>;
   inspectionProvider?: HeldContentReviewProvider; now?: () => number;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   output?: (value: string) => void;
@@ -69,7 +69,10 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   }
   let token: string | undefined, to = flags.get('--to') ?? peer, relayUrl = flags.get('--relay') ?? (connection && 'relayUrl' in connection ? connection.relayUrl : undefined);
   if (action === 'confirm-invite') {
-    const saved = (await InviteStore.open(key, { ...identityOptions, relayPolicy: { allowPrivateRelay: flags.has('--allow-private-relay') } })).resolve(ids[0]);
+    const invites = await InviteStore.open(key, { ...identityOptions, now: options.now,
+      relayPolicy: { allowPrivateRelay: flags.has('--allow-private-relay') } });
+    invites.retain(ids[0]);
+    const saved = invites.resolve(ids[0]);
     token = saved.inviteToken; to = saved.invite.ownerDid; relayUrl = saved.invite.relayUrl;
     const existing = store.listConnections().find(c => c.peerOwnerDid === to);
     if (existing?.state === 'connected' || existing && 'outgoing' in existing && existing.outgoing) {

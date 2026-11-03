@@ -6,6 +6,7 @@ import type { IdentityStoreOptions, KeyringModule } from './key-store.js';
 export interface SecretStore {
   get(id: string): string | undefined;
   set(id: string, value: string): void;
+  /** Removing an already absent entry succeeds; callers verify absence after deletion. */
   delete(id: string): void;
 }
 
