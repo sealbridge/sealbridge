@@ -591,11 +591,11 @@ describe('durable session integration', () => {
       const assertWork = (delegations: number) => {
         // Preserve the C1 ceilings for legacy traffic; C4 also persists signed observations and status frames.
         expect(counted.total() + counted.asyncCounts.write + counted.asyncCounts.fsync).toBeLessThanOrEqual((version === '0.1.0' ? 750 : 850) * delegations);
-        expect(counted.counts.openSync).toBeLessThanOrEqual((version === '0.1.0' ? 425 : 475) * delegations);
+        expect(counted.counts.openSync).toBeLessThanOrEqual((version === '0.1.0' ? 425 : 450) * delegations);
         // One pre-existing worker intake write per delegation still flushes.
         expect(counted.counts.fsyncSync + counted.asyncCounts.fsync).toBeLessThanOrEqual(delegations);
-        expect(counted.asyncCounts.fsync).toBe(0);
         expect(counted.asyncCounts.write).toBe(54 * delegations);
+        expect(counted.asyncCounts.fsync).toBe(0);
         expect(counted.counts.readdirSync).toBeLessThanOrEqual(12 * delegations);
         // Ancestor checks include the platform-specific temporary-directory depth.
         expect(counted.counts.lstatSync).toBeLessThanOrEqual(12000 * delegations);

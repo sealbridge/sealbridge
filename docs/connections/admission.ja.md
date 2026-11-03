@@ -2,6 +2,8 @@
 
 [English](admission.md)
 
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
+
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
 検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
@@ -92,6 +94,13 @@ board の claim と dispatch は、選択した投稿者の現在の接続が必
 
 [プロトコル版とリリース時計](protocol-versions.ja.md)も参照してください。
 
+
+送信の道具の任意の `idempotencyKey` はローカル署名者・道具・同じ依頼の最初の結果を
+保持します。保存された `PENDING_OWNER_APPROVAL` は元の pendingId と `retryable:false`
+を維持し、再依頼しません。明示した再依頼には別のキーを使え、現在の方針と送信前承認で
+新しい1回を開始します。結果の再参照で招待を解決し直したり、接続・検査・所有者が開く判断を
+変えたりしません。キーの範囲・期限・中断は[relay の動作](../relay-reliability.ja.md)を参照します。
+
 ### 受信側の配達状態
 
 検証済みの 0.2.0 タスクでは、受信側署名付き `DeliveryStatus` で本文を含まない
@@ -105,6 +114,9 @@ board の claim と dispatch は、選択した投稿者の現在の接続が必
 状態の記録元・保持・動作は [relay の動作](../relay-reliability.ja.md)を参照してください。
 
 ### ローカルの送信状態
+
+`idempotencyKey` 付き送信のキャッシュ再参照でも、元のメッセージ ID・タスク ID を使います。
+状態照会は送信結果のキャッシュとは独立して、その ID に保存された最新の観測を返します。
 
 `acp_message_status {"messageId":"<元の PROPOSE UUID>"}` または
 `acp_message_status {"taskId":"<元のタスク ID>"}` は、送信・更新取得・ポーリング・削除を

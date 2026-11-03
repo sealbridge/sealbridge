@@ -56,7 +56,7 @@ describe('P0-2 per-inbox byte cap', () => {
     });
     relay.send(first);
     relay.send(second);
-    expect(() => relay.send(third)).toThrow('QUEUE_BYTES_EXCEEDED');
+    expect(() => relay.send(third)).toThrow('RELAY_RETRY_LATER');
     expect(relay.snapshot().queues[0]?.[1]).toHaveLength(2);
 
     const handler = createRelayFetchHandler({ relay });
@@ -67,7 +67,7 @@ describe('P0-2 per-inbox byte cap', () => {
       }),
     );
     expect(denied.status).toBe(429);
-    expect(await denied.json()).toEqual({ error: 'QUEUE_BYTES_EXCEEDED' });
+    expect(await denied.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
     expect(Number(denied.headers.get('retry-after'))).toBeGreaterThan(0);
 
     expect(relay.receive(bob.did)).toEqual(first);
@@ -84,7 +84,7 @@ describe('P0-2 per-inbox byte cap', () => {
       now: () => now,
     });
     capped.send(held);
-    expect(() => capped.send(other)).toThrow('QUEUE_BYTES_EXCEEDED');
+    expect(() => capped.send(other)).toThrow('RELAY_RETRY_LATER');
     const staleId = capped.snapshot().queues[0]![1][0]!.payload.envelopeId;
     expect(
       capped.acknowledge(bob.did, staleId, createRelayAuthToken(bob)),
@@ -100,7 +100,7 @@ describe('P0-2 per-inbox byte cap', () => {
     });
     expiring.send(expiringEnvelope);
     expect(() => expiring.send(envelope(alice, bob.did, { n: 8 }))).toThrow(
-      'QUEUE_BYTES_EXCEEDED',
+      'RELAY_RETRY_LATER',
     );
     now += 501;
     expect(() => expiring.send(envelope(alice, bob.did, { n: 9 }))).not.toThrow();
@@ -113,7 +113,7 @@ describe('P0-2 per-inbox byte cap', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay({ maxEnvelopesPerSender: 1, maxQueueSize: 8 });
     relay.send(envelope(alice, bob.did, { n: 1 }));
-    expect(() => relay.send(envelope(alice, bob.did, { n: 2 }))).toThrow('SENDER_QUOTA_EXCEEDED');
+    expect(() => relay.send(envelope(alice, bob.did, { n: 2 }))).toThrow('RELAY_RETRY_LATER');
     expect(() => relay.send(envelope(carol, bob.did, { n: 3 }))).not.toThrow();
     expect(relay.snapshot().queues[0]?.[1]).toHaveLength(2);
   });

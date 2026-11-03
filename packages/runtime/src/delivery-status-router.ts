@@ -80,7 +80,7 @@ class DeliveryStatusRouterImplementation {
       Date.parse(body.signature.signedAt) > now + DEFAULT_CLOCK_SKEW_MS ||
       Date.parse(envelope.signature.signedAt) < p.occurredAt - DEFAULT_CLOCK_SKEW_MS ||
       Date.parse(envelope.signature.signedAt) > now + DEFAULT_CLOCK_SKEW_MS) invalid();
-    this.service.store.transaction(() => {
+    this.service.store.preparedTransaction(() => {
       const m = this.service.store.read('messages', p.messageId)!;
       const receiptId = 'ds_' + p.messageId + '_' + p.revision;
       const receipt = this.service.store.read('receipts', receiptId);

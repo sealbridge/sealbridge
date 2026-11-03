@@ -493,7 +493,7 @@ export async function handleRelayEdge(
       try {
         parsed = JSON.parse(body);
       } catch {
-        throw new Error('INVALID_ENVELOPE');
+        throw new Error('INVALID_REQUEST');
       }
       recipient = recipientOf(parsed) ?? '';
     } else recipient = inboxRecipientFromRequest(path, url) ?? url.searchParams.get('recipient') ?? '';

@@ -2,6 +2,11 @@
 
 [日本語](admission.ja.md)
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
+`acp_list_connections`, `acp_list_connection_requests`.
+
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
 Connected means limited consent with no expiry. Every limited task requires a
 completed inspection and a separate human opening before acceptance, for every
@@ -103,6 +108,15 @@ One-time task tickets and a separate application queue are deferred.
 
 The release clock is documented in [protocol versions](protocol-versions.md).
 
+
+The optional send-tool `idempotencyKey` caches the first result for the local signer,
+tool and exact request. A cached `PENDING_OWNER_APPROVAL` stays `retryable:false`
+with its original pendingId and never resubmits. Explicit resubmission can use its
+own key to identify one fresh attempt, with current policy and approval checked
+before its first transmission. Duplicate cached calls do not resolve invitations
+again or change connections, inspection or owner opening. See
+[relay reliability](../relay-reliability.md) for key scope, expiry and interruption.
+
 ### Recipient delivery status
 
 Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
@@ -117,6 +131,10 @@ or execution. Both gateways need support; no relay deployment is required.
 See [relay reliability](../relay-reliability.md) for status sources, retention and lifecycle behavior.
 
 ### Local message status
+
+A send with `idempotencyKey` keeps its original message and task IDs on cached retries.
+This lookup reads the current retained observations for those IDs, independently of
+the cached send result.
 
 `acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
 `acp_message_status {"taskId":"<original task ID>"}` reads sender-local status without

@@ -42,7 +42,7 @@ export const DEFAULT_MAX_ENVELOPE_BYTES = 256 * 1024;
 export const DEFAULT_MAX_QUEUE_SIZE = 256;
 /** Sum of queued envelope JSON sizes for one recipient. */
 export const DEFAULT_MAX_QUEUE_BYTES_PER_RECIPIENT = 4 * 1024 * 1024;
-export const DEFAULT_ENVELOPE_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_ENVELOPE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_SEEN_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_AUTH_SEEN_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_AGENT_CARD_TTL_MS = 60 * 60 * 1000;
@@ -669,18 +669,26 @@ export class InMemoryRelay {
   send(envelope: SignedEnvelope): void {
     if (!verifyRelayEnvelope(envelope)) throw new Error('INVALID_ENVELOPE');
     this.evictExpired();
-    if (this.seen.has(envelope.payload.envelopeId) || this.operations.has('expiry:' + envelope.payload.envelopeId)) throw new Error('REPLAYED_ENVELOPE');
+    const id = envelope.payload.envelopeId;
+    if (
+      this.seen.has(id) || this.operations.has('expiry:' + id) ||
+      [...this.queues.values()].some(queue => queue.some(item => item.envelope.payload.envelopeId === id))
+    )
+      throw new Error('REPLAYED_ENVELOPE');
     const did = envelope.payload.recipientDid;
     const queue = this.queues.get(did) ?? [];
     const bytes = Buffer.byteLength(JSON.stringify(envelope));
-    if (!this.queues.has(did) && this.queues.size >= this.maxQueues)
-      throw new Error('RELAY_CAPACITY');
-    if (queue.length >= this.maxQueueSize || bytes > this.maxEnvelopeBytes)
-      throw new Error('RELAY_CAPACITY');
+    if (bytes > this.maxEnvelopeBytes || bytes > this.maxQueueBytesPerRecipient)
+      throw new Error('ENVELOPE_TOO_LARGE');
+    if (
+      (!this.queues.has(did) && this.queues.size >= this.maxQueues) ||
+      queue.length >= this.maxQueueSize
+    )
+      throw new Error('RELAY_RETRY_LATER');
     if (this.queuedBytes(queue) + bytes > this.maxQueueBytesPerRecipient)
-      throw new Error('QUEUE_BYTES_EXCEEDED');
+      throw new Error('RELAY_RETRY_LATER');
     if (this.senderCount(queue, envelope.payload.senderDid) >= this.maxEnvelopesPerSender)
-      throw new Error('SENDER_QUOTA_EXCEEDED');
+      throw new Error('RELAY_RETRY_LATER');
     this.remember(this.seen, envelope.payload.envelopeId, this.maxSeenEntries, this.seenTtlMs);
     const role = classifyEnvelopeRole(envelope, CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
       ? undefined : this.stateForTask(envelope.payload.taskId));
@@ -1072,6 +1080,7 @@ export const KNOWN_RELAY_ERROR_CODES = [
   'DUPLICATE_ENVELOPE_ID',
   'ENVELOPE_TOO_LARGE',
   'RELAY_CAPACITY',
+  'RELAY_RETRY_LATER',
   'RELAY_QUEUE_FULL',
   'QUEUE_BYTES_EXCEEDED',
   'QUEUE_LIMIT_EXCEEDED',
@@ -1137,6 +1146,7 @@ const RELAY_ERROR_STATUS: Readonly<Record<string, number>> = {
   DUPLICATE_ENVELOPE_ID: 400,
   ENVELOPE_TOO_LARGE: 400,
   RELAY_CAPACITY: 400,
+  RELAY_RETRY_LATER: 429,
   RELAY_QUEUE_FULL: 400,
   INVALID_RECIPIENT_DID: 400,
   MISSING_RECIPIENT_DID: 400,
@@ -1230,16 +1240,27 @@ export function relayAuthFailure(error: unknown): string | undefined {
   const code = sanitizeRelayErrorCode(error);
   return RELAY_ERROR_STATUS[code] === 401 ? code : undefined;
 }
+/** Shared HTTP and WebSocket admission error fields. */
+export function relayErrorBody(error: unknown): { error: string; retryable?: true; retryAfterMs?: number } {
+  const code = sanitizeRelayErrorCode(error);
+  return code === 'RELAY_RETRY_LATER'
+    ? { error: code, retryable: true, retryAfterMs: 60_000 }
+    : { error: code };
+}
 export function relayErrorResponse(error: unknown, relay?: InMemoryRelay): Response {
   const mapped = mapRelayError(error);
+  const body = relayErrorBody(error);
   if (mapped.status === 429) {
+    const retryAfter = body.retryAfterMs !== undefined
+      ? Math.ceil(body.retryAfterMs / 1000)
+      : (relay?.retryAfterSeconds() ?? 60);
     return Response.json(
-      { error: mapped.error },
+      body,
       {
         status: 429,
         headers: {
           ...relayHttpHeaders('json'),
-          'retry-after': String(relay?.retryAfterSeconds() ?? 60),
+          'retry-after': String(retryAfter),
         },
       },
     );

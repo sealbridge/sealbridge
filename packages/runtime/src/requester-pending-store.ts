@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { IdempotencyStore, unwrapIdempotency } from './idempotency-store.js';
+import type { IdempotencyStoreOptions } from './idempotency-store.js';
 import * as fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
@@ -44,10 +46,11 @@ export function pendingErrorCode(error: unknown): string {
 }
 export class RequesterPendingStore {
   readonly path: string;
+  private idempotency?: IdempotencyStore;
   private readonly io: typeof fs;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
-  constructor(private readonly owner: KeyPair, options: LocalIdentityOptions & { now?: () => number } = {}) {
+  constructor(private readonly owner: KeyPair, private readonly options: LocalIdentityOptions & { now?: () => number } = {}) {
     this.path = requesterPendingPath(owner.did, options);
     this.io = options.fs ?? fs; this.platform = options.platform ?? process.platform;
     this.now = options.now ?? Date.now;
@@ -159,7 +162,14 @@ export class RequesterPendingStore {
     return record;
   }
   /** The callback must use the current host's normal delegation and approval path. */
-  async resubmit<T>(id: string, run: (request: DelegateOptions, relayUrl?: string) => Promise<T>): Promise<T> {
+  async resubmit<T>(id: string, run: (request: DelegateOptions, relayUrl?: string) => Promise<T>,
+    options: { idempotencyKey?: string; idempotencyOptions?: IdempotencyStoreOptions } = {}): Promise<T> {
+    if (options.idempotencyKey !== undefined) {
+      this.idempotency ??= new IdempotencyStore(this.owner, { ...this.options, ...options.idempotencyOptions });
+      return unwrapIdempotency<T>(await this.idempotency.run('acp_resubmit_pending_request', options.idempotencyKey,
+        { pendingId: id }, async operation => ({ isError: false, value: await this.resubmit(id,
+          (request, relay) => run({ ...request, idempotencyOperation: operation }, relay)) as Json })));
+    }
     this.get(id);
     const io = this.io, lock = this.path + '.' + id + '.attempt.lock';
     try { io.writeFileSync(lock, '', { flag: 'wx', mode: 0o600 }); }

@@ -478,13 +478,18 @@ function tool(options: {
   };
 }
 
+const idempotencyKeySchema = described(
+  'Optional exact Unicode key of 1–200 UTF-8 bytes, scoped to signer and tool across restarts. Same request returns its first result without another send or approval; different content returns IDEMPOTENCY_CONFLICT and needs a new key. Retained until seven days after the original task deadline.',
+  { type: 'string', minLength: 1, maxLength: 200 },
+);
+
 /** Tools returned by `tools/list`, in catalog order. */
 export const mcpTools: Json = [
   tool({
     name: 'acp_delegate_task',
     title: 'Delegate one task',
     description:
-      'Delegate one JSON task; return verified deliverable, taskId, status and audit summary; use acp_delegate_multi for race/quorum or acp_verify_audit_bundle for audits. Use workerRef from acp_list_invites or an exact alias, exclusive with inviteToken/workerDid; import does not approve work. Optional relayUrl: invites bind relay and match allowedWorkerDids by agentDid or ownerDid; bare DIDs match exactly; Ed25519 owner signing, worker/relay allowlists and approval precede input transmitted externally over the relay. Requested approval uses advertised MCP form elicitation or explicit webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE before transmission. Each call opens a new session and is not idempotent; bad arguments: JSON-RPC -32602; operational errors: isError true with { error: CODE }; post-transmission failures do not undo tasks. Holds return PENDING_OWNER_APPROVAL, retryable: false, pendingId and local next steps; do not retry or poll: worker owner review and explicit new delegation are required; use acp_list_pending_requests and acp_resubmit_pending_request.',
+      'Delegate JSON to one worker and return taskId, deliverable and audit summary; use workerRef from acp_list_invites or inviteToken/workerDid. Ed25519 signing, worker/relay allowlists and approval precede input transmitted externally over the relay; invites match agentDid or ownerDid, bare DIDs match exactly. Requested approval needs host form elicitation or a webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE before transmission. Optional idempotencyKey returns the first result without repeating sends or approval; changed content returns IDEMPOTENCY_CONFLICT. Bad arguments: JSON-RPC -32602; operational errors: isError true; post-transmission failures do not undo tasks. Holds return PENDING_OWNER_APPROVAL, retryable: false, pendingId and next steps; do not retry or poll: worker owner review and explicit new delegation are required; use acp_list_pending_requests and acp_resubmit_pending_request.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -493,6 +498,7 @@ export const mcpTools: Json = [
       'Arguments for delegating one task to one worker.',
       {
         workerRef: described('Saved workerRef from acp_list_invites or an exact local alias. Mutually exclusive with inviteToken and workerDid; the stored token is resolved locally.', { type: 'string' }),
+        idempotencyKey: idempotencyKeySchema,
         relayUrl: delegateRelaySchema,
         inviteToken: inviteTokenSchema,
         workerDid: workerDidSchema,
@@ -524,7 +530,7 @@ export const mcpTools: Json = [
     name: 'acp_delegate_multi',
     title: 'Delegate to multiple workers',
     description:
-      'Delegate one JSON task to several remote Sealbridge workers and return the winning deliverable, digest, task ids, and per-worker audit summaries; use acp_delegate_task for one worker. mode race keeps the first verified result and cancels the rest; quorum requires quorumSize matching digests (default floor of worker count over 2, plus 1) or returns QUORUM_NOT_REACHED. Each workers item needs workerDid and may include inviteToken or relayUrl; allowlists, signing, and the configured approval policy apply before input is transmitted externally over the relay. When requested, host form approval reviews each recipient with total fan-out disclosed; use a host with elicitation or an explicit webhook/provider. Calls are not idempotent; bad arguments are JSON-RPC -32602, and operational failures return isError true with { error: CODE } and no partial deliverable, including failures after transmission.',
+      'Delegate JSON to multiple remote workers and return the winning deliverable, digest, task ids and audit summaries; use acp_delegate_task for one worker. Race keeps the first verified result; quorum needs quorumSize matching digests (default floor of worker count over 2, plus 1), else QUORUM_NOT_REACHED. Each workers entry has workerDid and optional inviteToken/relayUrl; signing, allowlists and approval precede input transmitted externally over the relay. Requested host form approval reviews each recipient with total fan-out; use elicitation or a webhook/provider. Optional idempotencyKey returns the first result without repeating sends or per-recipient approvals; changed content returns IDEMPOTENCY_CONFLICT. Bad arguments: JSON-RPC -32602; operational failures: isError true with { error: CODE } and no partial deliverable, including after transmission.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -544,6 +550,7 @@ export const mcpTools: Json = [
           'Agreement count used only when mode is quorum. Omit it to use floor of the worker count over 2, plus 1. Ignored when mode is race. The call fails with QUORUM_NOT_REACHED when that many matching digests are impossible.',
           { type: 'integer', minimum: 1 },
         ),
+        idempotencyKey: idempotencyKeySchema,
         relayUrl: delegateRelaySchema,
         title: taskTitleSchema,
         description: taskDescriptionSchema,
@@ -845,9 +852,10 @@ export const mcpTools: Json = [
   tool({
     name: 'acp_resubmit_pending_request',
     title: 'Resubmit a local pending request',
-    description: 'Explicitly submit a retained requester-local delegation as a fresh task with a new task id; use acp_list_pending_requests to obtain pendingId after worker owner review. Applies current worker and relay checks and the configured approval policy, including required host elicitation, before task input is transmitted externally. A repeated hold keeps the record, completion resolves it, and other errors mark it failed; invitation material is never returned and no task is retried automatically.',
+    description: 'Explicitly submit a retained requester-local delegation as a fresh task with a new task id; use acp_list_pending_requests to obtain pendingId after worker owner review. Applies current worker and relay checks and the configured approval policy, including required host elicitation, before task input is transmitted externally. A repeated hold keeps the record, completion resolves it, and other errors mark it failed; invitation material is never returned and no task is retried automatically. Optional idempotencyKey returns the first attempt result without another task or attempt increment; changed content returns IDEMPOTENCY_CONFLICT.',
     readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true,
     inputSchema: objectSchema('Select a retained delegation for one explicit fresh attempt.', {
+      idempotencyKey: idempotencyKeySchema,
       pendingId: described('Local pending record id returned by delegation or acp_list_pending_requests.', { type: 'string' }),
     }, ['pendingId']),
     outputSchema: objectSchema('Verified result of the fresh task, matching acp_delegate_task.', {

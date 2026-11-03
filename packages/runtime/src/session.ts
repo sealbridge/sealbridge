@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
+import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validateIdempotencyKey } from './idempotency-store.js';
+import type { IdempotencyOperation, IdempotencyStoreOptions } from './idempotency-store.js';
+import type { IdempotencyAuthorization } from './delivery-records.js';
 import { RecipientDeliveryCoordinator } from './delivery-status.js';
 import { setDeliveryStatusReaderFactory } from './delivery-status-router.js';
 import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
@@ -646,9 +649,10 @@ export class WorkerNode {
     this.approvalProvider =
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
     const agentDid = options.agentDid ?? options.agentKey?.did ?? options.owner.did;
+    const now = this.protocol.now();
     this.agentCard = createSignedAgentCard(
       {
-        name: options.name ?? options.adapter.name, now: this.protocol.now(),
+        name: options.name ?? options.adapter.name, now,
         agentDid,
         relayEndpoint:
           typeof options.relay === 'string'
@@ -656,7 +660,7 @@ export class WorkerNode {
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
         ...(options.inviteTtlSeconds !== undefined ? {
-          expiresAt: new Date(this.protocol.now() + options.inviteTtlSeconds * 1000).toISOString(),
+          expiresAt: new Date(now + options.inviteTtlSeconds * 1000).toISOString(),
         } : {}),
         protocolVersions: this.protocol.receiveVersions(),
       },
@@ -674,9 +678,11 @@ export class WorkerNode {
   }
   async register(): Promise<void> {
     const protocolVersions = this.protocol.receiveVersions();
-    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now())
-      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now: this.protocol.now(),
-        expiresAt: new Date(this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now()) {
+      const now = this.protocol.now();
+      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now,
+        expiresAt: new Date(now + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+    }
     this.connections.service.setAgentCard(this.agentCard);
     await this.relay.register?.(this.agentCard);
     this.registered = true;
@@ -1303,9 +1309,10 @@ export class WorkerNode {
             inspection.inspectionStatus !== 'complete') {
           this.intakeStore.enqueue(m, data.input);
           if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
+            const receivedAt = this.protocol.now();
             try { this.connectionStore.recordIncoming({ peerOwnerDid: m.requester.ownerDid, peerAgentDid: m.requester.agentDid,
               relayUrl: this.agentCard.payload.relayEndpoint, incoming: { requestId: m.taskId, requestDigest: proposalDigest,
-                receivedAt: this.protocol.now(), expiresAt: this.protocol.now() + 14 * 86400000 } }); }
+                receivedAt, expiresAt: receivedAt + 14 * 86400000 } }); }
             catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
           }
           throw new Error('PENDING_OWNER_APPROVAL');
@@ -2033,6 +2040,7 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   }
 }
 export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+  idempotencyOptions?: IdempotencyStoreOptions;
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
   connectionStore?: WorkerTrustStore;
@@ -2072,6 +2080,11 @@ function freezeApprovalAction<T>(value: T): T {
   return value;
 }
 export interface DelegateOptions extends SessionTimeoutOptions {
+  idempotencyKey?: string;
+  /** @internal Host operation shared by prepared fan-out children. */
+  idempotencyOperation?: IdempotencyOperation;
+  /** @internal Stable ordered child index. */
+  idempotencyChildIndex?: number;
   /** Saved target retained without its token; applications must resolve it into `to` on each attempt. */
   workerRef?: string;
   /** Existing requester-local record when explicitly resubmitting. */
@@ -2080,7 +2093,7 @@ export interface DelegateOptions extends SessionTimeoutOptions {
   pendingRelayUrl?: string;
   /** Explicit resubmission renegotiates the stored manifest version before signing. */
   renegotiateProtocol?: boolean;
-  beforePropose?: (action: BeforeProposeContext) => Promise<void>;
+  beforePropose?: (action: BeforeProposeContext) => Promise<void | IdempotencyAuthorization>;
   /** Local synchronous reservation after final protocol preflight and before transmission. */
   beforeTransmit?: () => void;
   to: string;
@@ -2154,6 +2167,9 @@ export interface DelegateMultiResult {
   cancelled: string[];
 }
 export interface DelegateMultiOptions extends SessionTimeoutOptions {
+  idempotencyKey?: string;
+  /** @internal Host operation covering this ordered fan-out. */
+  idempotencyOperation?: IdempotencyOperation;
   beforePropose?: DelegateOptions['beforePropose'];
   workers: DelegateWorkerTarget[];
   mode: 'race' | 'quorum';
@@ -2230,6 +2246,35 @@ export async function deliverRevocation(
   return envelope;
 }
 export class RequesterClient {
+  private idempotency?: IdempotencyStore;
+  private keyedStore(): IdempotencyStore {
+    return this.idempotency ??= new IdempotencyStore(this.options.owner, {
+      ...this.options.identityOptions, now: this.options.now, ...this.options.idempotencyOptions,
+    });
+  }
+  private keyedAction(options: DelegateOptions | DelegateMultiOptions): Json {
+    const allowed = ['idempotencyKey', 'idempotencyOperation', 'idempotencyChildIndex', 'workerRef', 'pendingId', 'pendingRelayUrl',
+      'renegotiateProtocol', 'beforePropose', 'beforeTransmit', 'to', 'discover', 'relay', 'title', 'description', 'input',
+      'outputSchema', 'budget', 'manifest', 'auditPath', 'signal', 'capabilities', 'capabilityChains', 'minimumIsolationLevel',
+      'onProgress', 'workers', 'mode', 'quorumSize', 'completionTimeoutMs', 'timeoutMs', 'executionTimeoutMs', 'taskTimeoutMs',
+      'waitTimeoutMs', 'connectTimeoutMs', 'transportIdleTimeoutMs', 'heartbeatIntervalMs'];
+    if (Object.keys(options).some(k => !allowed.includes(k))) throw new Error('INVALID_IDEMPOTENCY_ARGUMENT');
+    const timeouts = resolveSessionTimeouts(this.options, options);
+    const normalized = { ...options, ...timeouts, relay: ('relay' in options ? options.relay : undefined) ?? this.options.relay,
+      outputSchema: options.outputSchema ?? {}, capabilities: options.capabilities ?? [],
+      minimumIsolationLevel: options.minimumIsolationLevel ?? 'subprocess_restricted',
+      budget: { costBearer: 'worker_byok', maxInputTokens: 50000, maxOutputTokens: 10000,
+        maxToolInvocations: 10, maxWallClockSeconds: timeouts.executionTimeoutMs !== undefined
+          ? Math.floor(timeouts.executionTimeoutMs / 1000) : 60, onOverrun: 'hard_stop', ...options.budget },
+      taskTimeoutMs: timeouts.taskTimeoutMs ?? timeouts.timeoutMs ?? 600_000, timeoutMs: undefined,
+      waitTimeoutMs: timeouts.waitTimeoutMs ?? 600_000, connectTimeoutMs: timeouts.connectTimeoutMs ?? 45_000,
+      transportIdleTimeoutMs: timeouts.transportIdleTimeoutMs ?? 90_000, heartbeatIntervalMs: timeouts.heartbeatIntervalMs ?? 15_000,
+      ...('workers' in options ? { workers: structuredClone(options.workers),
+        completionTimeoutMs: options.completionTimeoutMs ?? 45_000,
+        ...(options.mode === 'quorum' ? { quorumSize: options.quorumSize ?? Math.floor(options.workers.length / 2) + 1 } : {}) } : {}),
+    };
+    return runtimeIdempotencyAction(normalized);
+  }
   deliveryService?: GatewayDeliveryService;
   private deliveryStarted = false;
   readonly approvalProvider: ApprovalProvider;
@@ -2312,6 +2357,20 @@ export class RequesterClient {
       onDelivered?: () => void;
     },
   ): Promise<SessionResult> {
+    if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
+      validateIdempotencyKey(options.idempotencyKey);
+      options = { ...options, input: structuredClone(options.input),
+        outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+        budget: options.budget && structuredClone(options.budget),
+        capabilities: options.capabilities && structuredClone(options.capabilities) };
+      options = { ...options, manifest: options.manifest && structuredClone(options.manifest),
+        discover: options.discover && structuredClone(options.discover),
+        capabilityChains: options.capabilityChains && structuredClone(options.capabilityChains) };
+      const action = this.keyedAction(options);
+      return unwrapIdempotency<SessionResult>(await this.keyedStore().run('acp_delegate_task', options.idempotencyKey!,
+        action, async operation => ({ isError: false, value: await this.delegate({ ...options,
+          idempotencyKey: undefined, idempotencyOperation: operation }, hooks) as unknown as Json })));
+    }
     assertConnectionsOptions(this.options);
     // Retain the reviewed values even if the caller changes its objects while awaiting consent.
     if (options.beforePropose) options = { ...options,
@@ -2408,19 +2467,28 @@ export class RequesterClient {
     }
     await this.deliveryService?.prepare(options.signal);
     this.deliveryService?.store.checkAvailable();
+    const operation = options.idempotencyOperation, childIndex = options.idempotencyChildIndex ?? 0;
+    const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
+    const approvalRelay = typeof relayOption === 'string' ? relayOption
+      : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport';
+    const approvalTargetDigest = digest({ manifest, description: manifest.task.description, input: options.input,
+      relay: approvalRelay, fanOut: operation?.children ?? 1 });
+    if (operation) await operation.prepare({ childIndex, manifest, input: options.input, relayUrl: stableRelayUrl ?? approvalRelay,
+      peerOwnerDid: peer, peerAgentDid: manifest.worker!.agentDid, approvalTargetDigest });
     if (options.beforePropose) {
       const approvalSignal = AbortSignal.any([
         AbortSignal.timeout(Math.max(0, Date.parse(manifest.deadline) - Date.now())),
         ...(options.signal ? [options.signal] : []),
       ]);
       try {
-        await abortable(options.beforePropose({
+        const evidence = await abortable(options.beforePropose({
           manifest: freezeApprovalAction(manifest), input: freezeApprovalAction(options.input),
           relay: typeof relayOption === 'string' ? relayOption
             : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport',
           signal: approvalSignal,
         }), approvalSignal);
         approvalSignal.throwIfAborted();
+        await operation?.authorize(childIndex, evidence);
       } catch (error) {
         if (approvalSignal.aborted)
           throw new Error(options.signal?.aborted ? 'APPROVAL_ABORTED' : 'APPROVAL_TIMEOUT');
@@ -2431,12 +2499,16 @@ export class RequesterClient {
       });
       if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('APPROVAL_TIMEOUT');
     }
-    const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
+    if (operation && !options.beforePropose) await operation.authorize(childIndex, {
+      targetDigest: approvalTargetDigest, approvedAt: (this.options.now ?? Date.now)(), policy: 'configured-auto',
+    });
+    await operation?.sending();
     const wireDelivery: WireDelivery | undefined = this.deliveryService && stableRelayUrl ? {
       service: this.deliveryService, context: { messageId: '00000000-0000-4000-8000-000000000000',
         peerOwnerDid: peer, relayUrl: stableRelayUrl, deliveryDeadline: Date.parse(manifest.deadline),
         message: { taskId: manifest.taskId, peerAgentDid: manifest.worker!.agentDid,
-          protocolVersion: manifest.protocolVersion as '0.1.0' | '0.2.0' } },
+          protocolVersion: manifest.protocolVersion as '0.1.0' | '0.2.0',
+          ...(operation ? { operationId: operation.operationId } : {}) } },
     } : undefined;
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
@@ -2710,6 +2782,18 @@ export class RequesterClient {
     }
   }
   async delegateMulti(options: DelegateMultiOptions): Promise<DelegateMultiResult> {
+    if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
+      validateIdempotencyKey(options.idempotencyKey);
+      options = { ...options, input: structuredClone(options.input),
+        outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+        budget: options.budget && structuredClone(options.budget),
+        capabilities: options.capabilities && structuredClone(options.capabilities) };
+      options = { ...options, workers: structuredClone(options.workers) };
+      const action = this.keyedAction(options);
+      return unwrapIdempotency<DelegateMultiResult>(await this.keyedStore().run('acp_delegate_multi', options.idempotencyKey!,
+        action, async operation => ({ isError: false, value: await this.delegateMulti({ ...options,
+          idempotencyKey: undefined, idempotencyOperation: operation }) as unknown as Json }), { children: options.workers.length }));
+    }
     if (!Array.isArray(options.workers) || options.workers.length === 0)
       throw new Error('WORKERS_REQUIRED');
     if (options.mode !== 'race' && options.mode !== 'quorum')
@@ -2785,6 +2869,8 @@ export class RequesterClient {
           signal,
           onProgress: options.onProgress,
           beforePropose: options.beforePropose,
+          idempotencyOperation: options.idempotencyOperation,
+          idempotencyChildIndex: index,
           auditPath: options.auditPath
             ? options.auditPath.replace(/(\.jsonl)?$/, '.' + index + '.jsonl')
             : undefined,
@@ -2817,7 +2903,9 @@ export class RequesterClient {
       } catch (error) {
         if (error instanceof IncompleteSettlementError)
           incompleteReceipts.push(error.incompleteReceipt);
-        if (options.beforePropose && error instanceof Error && error.message.startsWith('APPROVAL_'))
+        await options.idempotencyOperation?.childReady(index, error);
+        if ((options.beforePropose || options.idempotencyOperation) && error instanceof Error &&
+            /^(APPROVAL_|IDEMPOTENCY_)/.test(error.message))
           approvalFailures.push(error);
         finished[index] = true;
         failures += 1;

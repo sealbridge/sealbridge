@@ -4,15 +4,23 @@ import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 
 import { join, relative } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
-import { AcpMcpServer, DELIVERY_RETENTION_MS, RecipientDeliveryCoordinator } from '../packages/runtime/src/index.js';
+import { digest, generateKeyPair, openEnvelope, signApproval, signEnvelope } from '../packages/core/src/index.js';
+import type { SignedDeliveryStatus } from '../packages/core/src/index.js';
+import { AcpMcpServer, DELIVERY_RETENTION_MS, IdempotencyStore, RecipientDeliveryCoordinator,
+  RequesterPendingStore } from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, MessageStatusResult } from '../packages/runtime/src/index.js';
 import { statusFixture, statusRelayUrl } from './delivery-status-fixture.js';
 
 const cleanups: Array<() => void> = [];
-beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T00:00:00Z')); });
-afterEach(() => { vi.restoreAllMocks(); cleanups.splice(0).forEach(f => f()); vi.useRealTimers(); });
-function fixture() { const f = statusFixture(); cleanups.push(f.cleanup); return f; }
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T00:00:00Z'));
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('OFFLINE_TEST_NETWORK'); }));
+});
+afterEach(() => {
+  try { expect(fetch).not.toHaveBeenCalled(); }
+  finally { vi.restoreAllMocks(); cleanups.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.useRealTimers(); }
+});
+function fixture(inspect = true) { const f = statusFixture(inspect); cleanups.push(f.cleanup); return f; }
 type Fixture = ReturnType<typeof fixture>;
 function server(f: Fixture, options: Partial<AcpMcpServerOptions> = {}) {
   return new AcpMcpServer({ owner: f.sender, identityOptions: f.identityOptions, now: f.now, ...options });
@@ -128,6 +136,96 @@ it.each(['received_held', 'opened', 'handed_to_agent', 'closed'] as const)('proj
   if (!value.found) throw new Error('EXPECTED_MESSAGE');
   expect(validate({ ...value, recipientStatus: { ...event.signed,
     payload: { ...event.signed.payload, detail: 'extra' } } })).toBe(false);
+});
+
+it('reads successive recipient revisions from another store without refreshing or changing the original message', async () => {
+  const f = fixture(), p = f.enqueue(), s = server(f), states = ['received_held', 'opened', 'handed_to_agent', 'closed'] as const;
+  expect(await query(s, { taskId: p.manifest.taskId })).toMatchObject({ status: 'queued', recipientStatus: null });
+  for (const [index, state] of states.entries()) {
+    f.setNow(f.epoch + index + 1);
+    const event = f.status(p, { state, revision: index + 1 });
+    f.outgoing.statusRouter.receive(event.envelope);
+    const before = inventory(f.root);
+    const value = await query(s, { messageId: p.messageId });
+    expect(value).toMatchObject({ messageId: p.messageId, taskId: p.manifest.taskId, status: state,
+      source: 'recipient', updatedAt: f.now(), recipientStatus: event.signed });
+    expect(await query(s, { taskId: p.manifest.taskId })).toEqual(value);
+    expect(inventory(f.root)).toEqual(before);
+  }
+  expect(f.frames).toEqual([]);
+});
+
+it.each(['settled', 'held'] as const)('queries the original %s keyed MCP send and updated recipient observations after cached retries', async outcome => {
+  const f = fixture(outcome === 'settled');
+  const approve = vi.fn(async (request: Parameters<NonNullable<AcpMcpServerOptions['approvalProvider']>['approve']>[0]) =>
+    signApproval(request.taskId, request.gate, request.target, f.sender));
+  const options: Partial<AcpMcpServerOptions> = { relay: statusRelayUrl, transportFactory: () => f.transport,
+    deliveryService: f.outgoing, approvalProvider: { kind: 'human', approve } };
+  const s = server(f, options);
+  cleanups.push(() => s.stopDelivery());
+  const args = { inviteToken: f.worker.invite(), title: 'Keyed message status', input: { n: 1 },
+    idempotencyKey: 'status-observation' };
+  const send = async (target: AcpMcpServer) => await target.handle({ jsonrpc: '2.0', id: 10, method: 'tools/call',
+    params: { name: 'acp_delegate_task', arguments: args } }) as unknown as {
+      result: { isError: boolean; content: Array<{ text: string }> };
+    };
+  const running = f.worker.start({ once: true }).catch(error => {
+    expect(outcome).toBe('held'); expect(error.message).toBe('PENDING_OWNER_APPROVAL');
+  });
+  const [first, concurrent] = await Promise.all([send(s), send(s), running]);
+  const result = JSON.parse(first.result.content[0].text);
+  expect(first.result.isError).toBe(outcome === 'held');
+  expect(result).toMatchObject(outcome === 'held'
+    ? { error: 'PENDING_OWNER_APPROVAL', retryable: false } : { status: 'SETTLED' });
+  expect(concurrent.result).toEqual(first.result);
+  const proposals = () => f.frames.filter(e => e.payload.eventType === 'PROPOSE');
+  expect(proposals()).toHaveLength(1);
+  const original = proposals()[0], messageId = original.payload.envelopeId, taskId = original.payload.taskId;
+  const records = new IdempotencyStore(f.sender, { ...f.identityOptions, now: f.now }).records;
+  const operation = records.snapshot('operations')[0];
+  expect(operation).toMatchObject({ phase: 'finished', messageIds: [messageId], taskIds: [taskId],
+    preparedActions: [{ messageId, manifest: { taskId, protocolVersion: '0.2.0' } }] });
+  expect(records.read('messages', messageId)).toMatchObject({ operationId: operation.operationId,
+    proposalEnvelopeDigest: digest(original) });
+
+  s.stopDelivery();
+  const restarted = server(f, { ...options, deliveryService: undefined });
+  const approvals = approve.mock.calls.length;
+  const pending = new RequesterPendingStore(f.sender, f.identityOptions);
+  const pendingBefore = pending.list();
+  expect((await send(restarted)).result).toEqual(first.result);
+  expect(await query(restarted, { taskId })).toMatchObject({ messageId, taskId,
+    status: outcome === 'held' ? 'received_held' : 'replied' });
+
+  const expectedStates = outcome === 'held' ? ['received_held'] : ['received_held', 'opened', 'handed_to_agent'];
+  await f.incoming.drainDue();
+  const statuses = () => f.frames.filter(e => e.payload.eventType === 'DELIVERY_STATUS');
+  expect(statuses().map(e => openEnvelope<SignedDeliveryStatus>(e, f.sender).payload.state)).toEqual(expectedStates);
+  for (const frame of statuses()) await f.outgoing.statusRouter.route(frame);
+  const latest = openEnvelope<SignedDeliveryStatus>(statuses().at(-1)!, f.sender);
+  const value = await query(restarted, { messageId });
+  expect(value).toMatchObject({ messageId, taskId, status: outcome === 'held' ? 'received_held' : 'replied',
+    source: outcome === 'held' ? 'recipient' : 'reply', recipientStatus: latest });
+  expect(await query(restarted, { taskId })).toEqual(value);
+
+  if (outcome === 'held') {
+    expect(pendingBefore).toHaveLength(1); expect(pendingBefore[0].attempts).toBe(1);
+    f.setNow(f.epoch + 1000);
+    f.review.discard(f.review.list()[0].id);
+    await f.incoming.drainDue();
+    await f.outgoing.statusRouter.route(statuses().at(-1)!);
+    expect(await query(restarted, { messageId })).toMatchObject({ messageId, taskId, status: 'closed', source: 'recipient',
+      updatedAt: f.now(), recipientStatus: { payload: { messageId, taskId, state: 'closed', revision: 2 } } });
+  }
+  const current = await query(restarted, { messageId });
+  expect((await send(restarted)).result).toEqual(first.result);
+  const snapshot = inventory(f.root);
+  expect(await query(restarted, { taskId })).toEqual(current);
+  expect(inventory(f.root)).toEqual(snapshot);
+  expect(records.read('operations', operation.operationId)).toEqual(operation);
+  expect(pending.list()).toEqual(pendingBefore);
+  expect(proposals()).toEqual([original]); expect(approve).toHaveBeenCalledTimes(approvals);
+  expect(f.execute).toHaveBeenCalledTimes(outcome === 'held' ? 0 : 1);
 });
 
 it('preserves held, opened, handoff and reply facts after the delivery deadline', async () => {

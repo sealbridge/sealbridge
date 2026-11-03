@@ -28,6 +28,12 @@ Reuse an existing checkout when available; run install/build there instead.
 All commands below run from the repository root.
 既存チェックアウトを再利用し、以降はリポジトリ直下で実行します。
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`setup`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`setup`。
+
 For local MCP host registration after building, use
 `node cli/dist/index.js setup --host cursor` (or `--host claude-desktop` on
 macOS/Windows). Use `--dry-run` or `--print` to review without writes.
@@ -57,6 +63,25 @@ See [protocol versions](docs/connections/protocol-versions.md) for explicit poli
 
 ライブ経路は対応版を選び、相手が対応すれば0.2.0を優先します。公開前は時刻未設定でもパッケージを作成できます。公開時はリリース時刻を設定し、`pnpm run check:protocol-release` を実行します。
 明示的な方針と保存動作は[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
+
+## Relay retention / 中継器の保持
+
+New admissions remain queued for 24 hours by default; existing stored expiries
+are unchanged. Local `relay start` accepts `--envelope-ttl-ms`, `--max-queue-size`,
+`--max-queue-bytes`, `--max-envelope-bytes`, and `--max-envelopes-per-sender`.
+Leased envelopes count toward the recipient caps. Temporary capacity refusal is
+HTTP 429 `RELAY_RETRY_LATER` with `retryable:true`, `retryAfterMs:60000` and
+`Retry-After: 60`; no envelope is admitted. Current send clients report the
+error without automatic retry. Retention does not extend task deadlines or
+approve held work. Hosted changes require an operator-controlled relay update.
+See [relay reliability](docs/relay-reliability.md#retention-and-admission).
+
+新規受理の保持期間は既定24時間で、保存済みの期限は維持します。
+ローカル設定は上のフラグを使い、リース中も宛先の上限に含めます。
+容量の一時拒否は上記の HTTP 429 を返し、封筒を保存しません。
+既存クライアントは送信を自動再試行しません。保持期間で依頼の期限や
+保留内容の承認は変わりません。公開中継器への反映は運用者による更新が必要です。
+[中継器の信頼性](docs/relay-reliability.ja.md#保持と受理)を参照してください。
 
 ## Role determination / 役割の判断
 
@@ -90,6 +115,13 @@ the corresponding /private directories; first-use publication requires same-dire
 Matching-role ~/.acp keys and old contacts-root owner.private.json (requester)
 are reused in place if no canonical key exists. Conflicting legacy identities
 require explicit `--key` selection. Invalid keys are never replaced.
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`config key-store`, `doctor --offline`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`config key-store`、`doctor --offline`。
+
 `sealbridge doctor --offline` inspects default/legacy paths without creating keys
 or contacting the relay. MCP initialization and tool listing make no network
 request. Discovery reads the directory; delegation transmits encrypted payloads
@@ -246,6 +278,12 @@ For the optional audit paths below, create the audit directory first:
 
 ## User-operated invitation import / ユーザーによる招待保存
 
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
+
 For MCP alias delegation, have the human run the import outside model execution,
 on the MCP server's machine and OS account with the same data root/requester identity:
 
@@ -312,6 +350,15 @@ text is echoed. The existing token-free JSON result includes `alias`, `workerRef
 入力リンクや読み取りエラーの内容は出力せず、既存のトークンを含まない JSON 形式で結果を返します。
 
 ## Connections and held review / つながりと保留の審査
+
+Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
+接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`connections`, `requests`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`connections`、`requests`。
 
 Follow [connections admission](docs/connections/admission.md) and the [Japanese workflow](docs/connections/admission.ja.md).
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
@@ -402,6 +449,12 @@ lists signed registered cards. `validate` defaults to the task-manifest schema.
 検索は登録済みカードを列挙し、validate はマニフェストを検証します。
 
 ## MCP, progress, revocation, and quorum / MCP・進捗・失効・クォーラム
+
+Release note: The following are available in the next release of the sealbridge npm
+package after 0.2.2; they are not supported in CLI 0.2.2:
+`acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`, `acp_list_connections`, `acp_list_connection_requests`.
+
+リリース注記：次の機能は sealbridge npm パッケージの 0.2.2 の次のリリースで利用できます。CLI 0.2.2 では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`、`acp_list_connections`、`acp_list_connection_requests`。
 
 An MCP host can run the stdio server below. Tools: `acp_delegate_task`,
 `acp_delegate_multi`, `acp_verify_audit_bundle`, `acp_create_invite`,
@@ -519,6 +572,34 @@ C1 の永続化はゲートウェイのプロセス再起動を対象とし、�
 セッションの送信と処理済み受信記録は、準備時に署名者ロックを取得せず、一意の一時ファイルへ非同期に書き込みます。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して書き込めます。公開時に署名者ロックの下で容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。既定のタスクジャーナルは追記ハンドルと変更のない検証済みチェックポイントを再利用し、圧縮時とワーカー停止時にハンドルを閉じます。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
+
+The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
+`acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
+string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
+The same signer/tool/key and content return the first stored result across restarts,
+without another send or approval; changed content returns `IDEMPOTENCY_CONFLICT`
+and requires a new key. Keys/results expire seven days after the original deadline
+(latest child deadline for multi). Cached holds never resubmit or increment attempts.
+Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
+`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` without repeating a prompt
+or execution. Final verification stays separate, and calls without keys are unchanged.
+See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
+No relay deployment is needed.
+
+
+MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
+`acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。
+Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
+（例: `"idempotencyKey":"review-2026-11-02"`）。同じ署名者・道具・キー・内容なら
+再起動後も最初の結果を返し、送信と承認を繰り返しません。内容が違えば
+`IDEMPOTENCY_CONFLICT` となり、新しいキーが必要です。キーと結果は元の期限
+（複数では最も遅い子の期限）の7日後まで保持します。保留の再参照では再依頼せず、
+試行回数も増やしません。別サーバーは `IDEMPOTENCY_IN_PROGRESS`、中断後は
+`APPROVAL_INTERRUPTED` または `IDEMPOTENCY_RESULT_UNAVAILABLE` を返し、承認や実行を
+やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
+保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
+relay のデプロイは不要です。
+
 ### Delivery observations / 配達の状態
 
 Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
@@ -544,6 +625,10 @@ See [relay reliability](docs/relay-reliability.md) for status sources, retention
 
 ### Local message status
 
+A send with `idempotencyKey` keeps its original message and task IDs on cached retries.
+This lookup reads the current retained observations for those IDs, independently of
+the cached send result.
+
 `acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
 `acp_message_status {"taskId":"<original task ID>"}` reads sender-local status without
 sending, refreshing, polling or cleanup. Use exactly one selector; ambiguous task IDs
@@ -555,6 +640,9 @@ delegation result and explicit pending resubmission. No relay deployment is requ
 richer observations require C4 peers. See [relay reliability](docs/relay-reliability.md).
 
 ### ローカルの送信状態
+
+`idempotencyKey` 付き送信のキャッシュ再参照でも、元のメッセージ ID・タスク ID を使います。
+状態照会は送信結果のキャッシュとは独立して、その ID に保存された最新の観測を返します。
 
 `acp_message_status {"messageId":"<元の PROPOSE UUID>"}` または
 `acp_message_status {"taskId":"<元のタスク ID>"}` は、送信・更新取得・ポーリング・削除を
