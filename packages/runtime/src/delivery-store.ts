@@ -21,6 +21,8 @@ type Kind = keyof DeliveryRecords;
 export interface DeliveryWrite { kind: Kind; id: string; record: DeliveryRecords[Kind] }
 export interface PreparedDeliveryWrite extends DeliveryWrite { temporary: string; bytes: Buffer; published?: true }
 type IdempotencyKind = 'operations' | 'idempotency';
+const idempotencyKinds = ['operations', 'idempotency'] as const;
+const isIdempotencyKind = (kind: Kind): kind is IdempotencyKind => kind === 'operations' || kind === 'idempotency';
 type IdempotencySummary = { operationId: string; createdAt: number; retainUntil: number; bytes?: number };
 function summarizeIdempotency(record: DeliveryRecords[IdempotencyKind]): IdempotencySummary {
   return { operationId: record.operationId, createdAt: record.createdAt, retainUntil: record.retainUntil,
@@ -58,6 +60,7 @@ class DeliveryStoreImplementation {
   readonly io: typeof fs;
   readonly platform: NodeJS.Platform;
   readonly now: () => number;
+  private generationFd?: number;
   private stagedWrites?: DeliveryWrite[];
   private transactionDirectories?: Set<string>;
   private transactionReads?: Map<string, DeliveryRecords[Kind] | undefined>;
@@ -128,16 +131,58 @@ class DeliveryStoreImplementation {
       try { this.inspectPath(dir); } catch (e) { if (errno(e) !== 'ENOENT') throw e; }
     }
   }
-  private listingStamp(kind: Kind): string {
+  private directoryStamp(kind: Kind): string {
     try { return fingerprint(this.io.lstatSync(join(this.root, kind), { bigint: true })); }
     catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw error; }
+  }
+  private generationStamp(): string {
+    try {
+      const stat = this.io.lstatSync(join(this.root, '.idempotency-gen'), { bigint: true });
+      requireDelivery(stat.isFile() && (this.platform === 'win32' || stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o077n) === 0n));
+      return [stat.ino, stat.size].join(':');
+    } catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw deliveryError('OUTBOX_STORE_UNWRITABLE'); }
+  }
+  private listingStamp(kind: Kind): string {
+    if (!isIdempotencyKind(kind)) return this.directoryStamp(kind);
+    // Older writers do not increment the generation. Keep directory values too;
+    // concurrent writes by two older versions can still share those values.
+    return [this.generationStamp(), ...idempotencyKinds.map(k => this.directoryStamp(k))].join('|');
+  }
+  private adoptIdempotencyStamp(before: string, after: string, publishedKind?: Kind): void {
+    for (const kind of idempotencyKinds) {
+      const index = this.idempotencyIndexes.get(kind), listing = this.listings.get(kind);
+      if (index?.stamp === before) index.stamp = after;
+      if (kind !== publishedKind && listing?.stamp === before) listing.stamp = after;
+    }
+  }
+  /** Lazily held for this signer lock, including multiple record publications. */
+  private openGeneration(): number {
+    if (!this.transactionDirectories) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
+    if (this.generationFd !== undefined) return this.generationFd;
+    const fd = this.io.openSync(join(this.root, '.idempotency-gen'),
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    try { checkStat(this.io.fstatSync(fd)); }
+    catch (error) { this.io.closeSync(fd); throw error; }
+    this.generationFd = fd;
+    return fd;
+  }
+  private publishIdempotencyChange(kind: Kind, change: () => void): void {
+    if (!isIdempotencyKind(kind)) { change(); return; }
+    const before = this.listingStamp(kind), fd = this.openGeneration();
+    const size = this.io.fstatSync(fd).size;
+    if (!Number.isSafeInteger(size + 1)) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
+    // Never shrink or replace this file. An interruption before publication only
+    // invalidates indexes; the next reader rebuilds both from the retained records.
+    this.io.ftruncateSync(fd, size + 1);
+    change();
+    this.adoptIdempotencyStamp(before, this.listingStamp(kind), kind);
   }
   ids(kind: Kind, onError?: (error: Error) => void): string[] {
     try {
       this.inspect(kind);
       const stamp = this.listingStamp(kind), cached = this.listings.get(kind);
       if (cached?.stamp === stamp) return [...cached.ids];
-      if (stamp === 'absent') { this.listings.set(kind, { stamp, ids: [] }); return []; }
+      if (stamp === 'absent' || isIdempotencyKind(kind) && this.directoryStamp(kind) === 'absent') { this.listings.set(kind, { stamp, ids: [] }); return []; }
       let invalid = false;
       const ids = this.io.readdirSync(join(this.root, kind)).filter(n => n.endsWith('.json')).flatMap(n => {
         const id = n.slice(0, -5);
@@ -233,7 +278,15 @@ class DeliveryStoreImplementation {
     } catch (e) {
       if (e instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(e.message)) throw e;
       throw deliveryError('OUTBOX_STORE_UNWRITABLE');
-    } finally { if (acquired) { this.transactionReads = undefined; this.transactionDirectories = undefined; this.io.unlinkSync(lock); } }
+    } finally {
+      if (acquired) {
+        try { if (this.generationFd !== undefined) this.io.closeSync(this.generationFd); }
+        finally {
+          this.generationFd = undefined; this.transactionReads = undefined; this.transactionDirectories = undefined;
+          this.io.unlinkSync(lock);
+        }
+      }
+    }
   }
   /** Caller holds the signer lock. */
   write<K extends Kind>(kind: K, id: string, record: DeliveryRecords[K]): void {
@@ -281,20 +334,22 @@ class DeliveryStoreImplementation {
       this.checkObservation(kind, previous, record);
       if (kind === 'outbox' && previous && 'envelopeDigest' in previous &&
         previous.envelopeDigest !== (record as OutboxRecordV1).envelopeDigest) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-      this.io.renameSync(temporary, path); created = false;
-      this.remember(path, bytes.toString('utf8'), record);
-      this.transactionReads?.set(path, structuredClone(record));
-      if (knownIndex) {
-        knownIndex.entries.set(id, summarize(record as OutboxRecordV1));
-        knownIndex.stamp = this.listingStamp('outbox');
-      }
-      if (knownRetained) {
-        knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
-        knownRetained.stamp = this.listingStamp(kind);
-      }
-      if (knownMessages) { knownMessages.entries.set(id, statusMessage(record as MessageRecordV1)); knownMessages.stamp = this.listingStamp('messages'); }
-      if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: [...new Set([...knownListing.ids, listingId])].sort() });
-      else this.listings.delete(kind);
+      this.publishIdempotencyChange(kind, () => {
+        this.io.renameSync(temporary, path); created = false;
+        this.remember(path, bytes.toString('utf8'), record);
+        this.transactionReads?.set(path, structuredClone(record));
+        if (knownIndex) {
+          knownIndex.entries.set(id, summarize(record as OutboxRecordV1));
+          knownIndex.stamp = this.listingStamp('outbox');
+        }
+        if (knownRetained) {
+          knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
+          knownRetained.stamp = this.listingStamp(kind);
+        }
+        if (knownMessages) { knownMessages.entries.set(id, statusMessage(record as MessageRecordV1)); knownMessages.stamp = this.listingStamp('messages'); }
+        if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: [...new Set([...knownListing.ids, listingId])].sort() });
+        else this.listings.delete(kind);
+      });
     } finally { if (created) this.io.unlinkSync(temporary); }
   }
   private checkObservation(kind: Kind, previous: DeliveryRecords[Kind] | undefined, record: DeliveryRecords[Kind]): void {
@@ -309,16 +364,22 @@ class DeliveryStoreImplementation {
   /** Creating/removing an unpublished temporary does not change the indexed JSON records. */
   private temporaryChange<T>(kind: Kind, change: () => T): T {
     const before = this.listingStamp(kind), listing = this.listings.get(kind);
+    if (isIdempotencyKind(kind)) {
+      try { return change(); }
+      finally {
+        // Staging is outside the lock: a concurrent publication must invalidate
+        // both indexes rather than be adopted as our temporary directory change.
+        const after = this.listingStamp(kind);
+        if (after.split('|')[0] === before.split('|')[0]) this.adoptIdempotencyStamp(before, after);
+      }
+    }
     const index = kind === 'outbox' && this.outboxIndex?.stamp === before ? this.outboxIndex : undefined;
-    const retained = this.idempotencyIndexes.get(kind);
-    const knownRetained = retained?.stamp === before ? retained : undefined;
     const messages = kind === 'messages' && this.messageIndex?.stamp === before ? this.messageIndex : undefined;
     try { return change(); }
     finally {
       const stamp = this.listingStamp(kind);
       if (index) index.stamp = stamp;
       if (messages) messages.stamp = stamp;
-      if (knownRetained) knownRetained.stamp = stamp;
       if (listing?.stamp === before) listing.stamp = stamp;
     }
   }
@@ -341,12 +402,9 @@ class DeliveryStoreImplementation {
         this.messageIndex = { stamp: 'absent', entries: new Map() };
       const absentMessages = kind === 'messages' && this.messageIndex?.stamp === 'absent' ? this.messageIndex : undefined;
       const absentIndex = kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
-      const retained = this.idempotencyIndexes.get(kind);
-      const absentRetained = retained?.stamp === 'absent' ? retained : undefined;
       this.inspectPath(dirname(path), true);
       if (absentIndex) absentIndex.stamp = this.listingStamp(kind);
       if (absentMessages) absentMessages.stamp = this.listingStamp(kind);
-      if (absentRetained) absentRetained.stamp = this.listingStamp(kind);
       const fd = this.temporaryChange(kind, () => this.io.openSync(temporary,
         fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600));
       descriptors.push(fd); prepared.push({ kind, id, record, temporary, bytes });
@@ -467,19 +525,21 @@ class DeliveryStoreImplementation {
     const retained = this.idempotencyIndexes.get(kind);
     const knownRetained = retained?.stamp === before ? retained : undefined;
     const messages = kind === 'messages' && this.messageIndex?.stamp === before ? this.messageIndex : undefined;
-    this.io.renameSync(temporary, path);
-    write.published = true;
-    this.remember(path, bytes.toString('utf8'), record);
-    this.transactionReads?.set(path, structuredClone(record));
-    if (index) { index.entries.set(id, summarize(record as OutboxRecordV1)); index.stamp = this.listingStamp(kind); }
-    if (knownRetained) {
-      knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
-      knownRetained.stamp = this.listingStamp(kind);
-    }
-    if (messages) { messages.entries.set(id, statusMessage(record as MessageRecordV1)); messages.stamp = this.listingStamp(kind); }
-    if (listing?.stamp === before) this.listings.set(kind, { stamp: this.listingStamp(kind),
-      ids: [...new Set([...listing.ids, kind === 'receipts' ? receiptFileId(id) : id])].sort() });
-    else this.listings.delete(kind);
+    this.publishIdempotencyChange(kind, () => {
+      this.io.renameSync(temporary, path);
+      write.published = true;
+      this.remember(path, bytes.toString('utf8'), record);
+      this.transactionReads?.set(path, structuredClone(record));
+      if (index) { index.entries.set(id, summarize(record as OutboxRecordV1)); index.stamp = this.listingStamp(kind); }
+      if (knownRetained) {
+        knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
+        knownRetained.stamp = this.listingStamp(kind);
+      }
+      if (messages) { messages.entries.set(id, statusMessage(record as MessageRecordV1)); messages.stamp = this.listingStamp(kind); }
+      if (listing?.stamp === before) this.listings.set(kind, { stamp: this.listingStamp(kind),
+        ids: [...new Set([...listing.ids, kind === 'receipts' ? receiptFileId(id) : id])].sort() });
+      else this.listings.delete(kind);
+    });
   }
   discardWrites(writes: PreparedDeliveryWrite[]): void {
     const remaining = writes.filter(write => !write.published);
@@ -501,14 +561,16 @@ class DeliveryStoreImplementation {
     const knownRetained = retained?.stamp === beforeStamp ? retained : undefined;
     const knownMessages = kind === 'messages' && this.messageIndex?.stamp === beforeStamp ? this.messageIndex : undefined;
     if (this.read(kind, id)) {
-      this.io.unlinkSync(path);
-      this.transactionReads?.set(path, undefined);
-      if (knownIndex) { knownIndex.entries.delete(id); knownIndex.stamp = this.listingStamp('outbox'); }
-      if (knownRetained) { knownRetained.entries.delete(id); knownRetained.stamp = this.listingStamp(kind); }
-      if (knownMessages) { knownMessages.entries.delete(id); knownMessages.stamp = this.listingStamp('messages'); }
-      this.forget(path);
-      if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: knownListing.ids.filter(entry => entry !== listingId) });
-      else this.listings.delete(kind);
+      this.publishIdempotencyChange(kind, () => {
+        this.io.unlinkSync(path);
+        this.transactionReads?.set(path, undefined);
+        if (knownIndex) { knownIndex.entries.delete(id); knownIndex.stamp = this.listingStamp('outbox'); }
+        if (knownRetained) { knownRetained.entries.delete(id); knownRetained.stamp = this.listingStamp(kind); }
+        if (knownMessages) { knownMessages.entries.delete(id); knownMessages.stamp = this.listingStamp('messages'); }
+        this.forget(path);
+        if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: knownListing.ids.filter(entry => entry !== listingId) });
+        else this.listings.delete(kind);
+      });
     }
   }
   /** Gateway entry points load/reconcile indexes in bounded slices before synchronous publication. */
@@ -572,15 +634,27 @@ class DeliveryStoreImplementation {
   }
   /** Reconcile C2 capacity metadata outside the signer lock, yielding between retained records. */
   async prepareIdempotency(): Promise<void> {
-    for (const kind of ['operations', 'idempotency'] as const) for (;;) {
-      const stamp = this.listingStamp(kind);
-      if (this.idempotencyIndexes.get(kind)?.stamp === stamp) break;
-      const entries = new Map<string, IdempotencySummary>();
-      for await (const record of this.scan(kind, new AbortController().signal)) {
-        const id = kind === 'operations' ? record.operationId : (record as DeliveryRecords['idempotency']).keyHash;
-        entries.set(id, summarizeIdempotency(record));
+    for (;;) {
+      const current = this.listingStamp('operations');
+      if (idempotencyKinds.every(kind => this.idempotencyIndexes.get(kind)?.stamp === current)) return;
+      // Sample both ends under the signer lock: an unlocked scan must not adopt
+      // an increment whose corresponding rename/unlink has not finished yet.
+      const stamp = this.transaction(() => this.listingStamp('operations'));
+      const indexes = new Map<IdempotencyKind, { stamp: string; entries: Map<string, IdempotencySummary> }>();
+      for (const kind of idempotencyKinds) {
+        const entries = new Map<string, IdempotencySummary>();
+        for await (const record of this.scan(kind, new AbortController().signal)) {
+          const id = kind === 'operations' ? record.operationId : (record as DeliveryRecords['idempotency']).keyHash;
+          entries.set(id, summarizeIdempotency(record));
+        }
+        indexes.set(kind, { stamp, entries });
       }
-      if (this.listingStamp(kind) === stamp) { this.idempotencyIndexes.set(kind, { stamp, entries }); break; }
+      const adopted = this.transaction(() => {
+        if (this.listingStamp('operations') !== stamp) return false;
+        for (const [kind, index] of indexes) this.idempotencyIndexes.set(kind, index);
+        return true;
+      });
+      if (adopted) return;
     }
   }
   /** Caller holds the signer lock. Reread both inventories and validate every listed record. */
@@ -595,6 +669,13 @@ class DeliveryStoreImplementation {
   }
   /** Caller holds the signer lock. Unchanged retained results require no file scans or reopens. */
   reserveIdempotencyCapacity(now: number): void {
+    // Creating a missing generation changes the shared stamp and requires a full
+    // preparation before any capacity or orphan decision can use these indexes.
+    if (this.generationStamp() === 'absent') {
+      this.idempotencyIndexes.clear();
+      for (const kind of idempotencyKinds) this.listings.delete(kind);
+      this.openGeneration();
+    }
     let operations = this.idempotencyIndexes.get('operations'), bindings = this.idempotencyIndexes.get('idempotency');
     if (!operations || !bindings || operations.stamp !== this.listingStamp('operations') || bindings.stamp !== this.listingStamp('idempotency'))
       throw deliveryError('IDEMPOTENCY_STORE_BUSY');
