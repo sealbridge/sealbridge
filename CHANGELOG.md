@@ -2,7 +2,7 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-11-03
 
 ### Added
 
@@ -44,3 +44,5 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Installers fall back to a user-local Node installation with bundled npm when an existing Node lacks a usable co-installed npm. (#116)
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
+
+[0.3.0]: https://github.com/sealbridge/sealbridge/compare/v0.2.2...v0.3.0
