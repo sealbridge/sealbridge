@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@noble/curves": "2.0.1",
-    "@noble/hashes": "2.0.1",
+    "@noble/hashes": "2.4.0",
     "@playwright/test": "1.56.1",
     "buffer": "6.0.3",
     "esbuild": "0.25.12",
