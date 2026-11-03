@@ -37,14 +37,19 @@ export class TaskJournal {
   private validBytes = 0;
   private stamp?: string;
   private writer?: number;
-  // Pin a loaded inode until invalidation so rename/unlink cannot recycle its identity into the cache.
+  // On POSIX, pin a loaded inode so replacement cannot recycle its identity into the cache.
   private reader?: number;
+  private readonly retainDescriptors: boolean;
   close(): void {
     if (this.writer !== undefined) { closeSync(this.writer); this.writer = undefined; }
     if (this.reader !== undefined) { closeSync(this.reader); this.reader = undefined; }
   }
   constructor(readonly path: string, private readonly owner: KeyPair, private readonly maxRecordBytes = Infinity,
-    private readonly durability: 'file-sync' | 'process' = 'file-sync') {}
+    private readonly durability: 'file-sync' | 'process' = 'file-sync') {
+    // Windows replacement can fail while another process retains a journal handle.
+    // Close both readers and writers between operations there; reload fully under the signer lock.
+    this.retainDescriptors = durability === 'process' && process.platform !== 'win32';
+  }
   private fingerprint(stat: fs.BigIntStats): string {
     return [stat.dev, stat.ino, stat.size, stat.mode, stat.uid, stat.mtimeNs, stat.ctimeNs].join(':');
   }
@@ -52,7 +57,7 @@ export class TaskJournal {
     // Under the signer lock, complete journals only grow by append or are replaced by rename.
     // A retained descriptor pins the inode against reuse after replacement.
     // A torn tail can instead be repaired to the same size in the same timestamp tick.
-    if (this.durability === 'process' && this.loaded && this.stamp &&
+    if (this.retainDescriptors && this.loaded && this.stamp &&
         (this.reader !== undefined || this.writer !== undefined)) {
       try {
         const stat = fs.lstatSync(this.path, { bigint: true });
@@ -212,7 +217,7 @@ export class TaskJournal {
       this.tasks.clear(); for (const [id, record] of tasks) this.tasks.set(id, record);
       this.validBytes = end;
       this.loaded = end === bytes.length;
-      if (this.loaded && this.durability === 'process') this.reader = fd;
+      if (this.loaded && this.retainDescriptors) this.reader = fd;
     } finally { if (this.reader !== fd) closeSync(fd); }
   }
   save(record: TaskCheckpoint): void {
@@ -221,7 +226,7 @@ export class TaskJournal {
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
     if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
     const fd = this.writer ?? this.open(constants.O_WRONLY | constants.O_CREAT);
-    if (this.durability === 'process') {
+    if (this.retainDescriptors) {
       this.writer = fd;
       if (this.reader !== undefined) { closeSync(this.reader); this.reader = undefined; }
     }
@@ -251,6 +256,6 @@ export class TaskJournal {
       this.loaded = false; this.stamp = undefined; this.validBytes = 0; this.tasks.clear();
       throw error;
     }
-    finally { if (this.durability === 'file-sync') closeSync(fd); }
+    finally { if (!this.retainDescriptors) closeSync(fd); }
   }
 }

@@ -15,7 +15,7 @@ import type { TaskCheckpoint } from '../packages/runtime/src/task-journal.js';
 const original = { ...fs }, promises = { ...fs.promises };
 const cleanups: Array<() => void> = [];
 afterEach(() => {
-  for (const name of ['openSync', 'closeSync', 'lstatSync', 'fstatSync', 'writeSync', 'readFileSync'] as const)
+  for (const name of ['openSync', 'closeSync', 'lstatSync', 'fstatSync', 'writeSync', 'readFileSync', 'renameSync'] as const)
     Object.assign(fs, { [name]: original[name] });
   fs.promises.lstat = promises.lstat; fs.promises.open = promises.open; syncBuiltinESMExports();
   cleanups.splice(0).reverse().forEach(cleanup => cleanup());
@@ -114,12 +114,64 @@ describe.each(['process', 'file-sync'] as const)('%s locked journal', durability
     syncBuiltinESMExports();
     const reader = f.journal();
     f.store.transaction(() => reader.load());
-    expect(open.size).toBe(durability === 'process' ? 1 : 0);
+    expect(open.size).toBe(durability === 'process' && process.platform !== 'win32' ? 1 : 0);
     reader.close(); expect(open.size).toBe(0);
     f.store.transaction(() => reader.reload());
-    expect(open.size).toBe(durability === 'process' ? 1 : 0);
+    expect(open.size).toBe(durability === 'process' && process.platform !== 'win32' ? 1 : 0);
     await reader.compactInBackground(new Set(), change => f.store.transaction(change), new AbortController().signal);
     expect(open.size).toBe(0);
+  });
+  it('Windows closes readers and writers between operations so another instance can replace the journal', async () => {
+    const f = fixture(durability);
+    // Exercise the Windows descriptor policy on every CI platform, with real file I/O.
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+    cleanups.push(() => Object.defineProperty(process, 'platform', platform));
+    const open = new Set<number>();
+    let replacements = 0, reads = 0;
+    fs.openSync = (...args) => {
+      const fd = original.openSync(...args); if (String(args[0]) === f.path) open.add(fd); return fd;
+    };
+    fs.closeSync = fd => { open.delete(fd); original.closeSync(fd); };
+    fs.readFileSync = ((...args: Parameters<typeof fs.readFileSync>) => {
+      if (typeof args[0] === 'number' && open.has(args[0])) reads++;
+      return original.readFileSync(...args);
+    }) as typeof fs.readFileSync;
+    fs.promises.open = async (...args) => {
+      const handle = await promises.open(...args);
+      if (String(args[0]) === f.path) {
+        open.add(handle.fd);
+        const fd = handle.fd, close = handle.close.bind(handle);
+        handle.close = async () => { await close(); open.delete(fd); };
+      }
+      return handle;
+    };
+    fs.renameSync = (from, to) => {
+      if (String(to) === f.path) {
+        expect(open.size).toBe(0); replacements++;
+      }
+      original.renameSync(from, to);
+    };
+    syncBuiltinESMExports();
+    const writer = f.journal(), reader = f.journal();
+    f.store.transaction(() => writer.save(f.record));
+    expect(open.size).toBe(0);
+    f.otherStore.transaction(() => reader.load());
+    expect(open.size).toBe(0);
+    const beforeReload = reads;
+    f.otherStore.transaction(() => reader.reload());
+    expect(reads).toBe(beforeReload + 1); // Matching stat fields alone cannot reuse an unpinned cache.
+    expect(open.size).toBe(0);
+    f.store.transaction(() => { writer.reload(); writer.save({ ...f.record, phase: 'accepted' }); });
+    expect(open.size).toBe(0);
+    f.otherStore.transaction(() => reader.compact(new Set()));
+    expect(open.size).toBe(0);
+    await reader.compactInBackground(new Set(), change => f.otherStore.transaction(change), new AbortController().signal);
+    expect(open.size).toBe(0);
+    expect(replacements).toBe(2);
+    f.store.transaction(() => { writer.reload(); writer.save({ ...f.record, taskId: 'task_two' }); });
+    expect(open.size).toBe(0);
+    expect(f.records().map(r => r.phase)).toEqual(['accepted', 'received']);
   });
   it('A: reload preserves a same-size tail repair in one timestamp tick', () => {
     const f = fixture(durability); freezeTimes(f.path); tornAppend(f);
