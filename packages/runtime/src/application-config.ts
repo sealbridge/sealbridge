@@ -71,11 +71,12 @@ function readConfig(options: ApplicationConfigOptions): { config: ApplicationCon
   let observed = false;
   let raw: string;
   try {
-    try { inspectPrivateDirectory(root, io, platform); }
-    catch (error) { if (errno(error) !== 'ENOENT') throw error; }
     checkPrivatePath(path, io, platform);
     const before = io.lstatSync(path);
     observed = true;
+    // An installer-only data root need not have private-file permissions yet.
+    // Apply the directory policy only when a config file is actually present.
+    inspectPrivateDirectory(root, io, platform);
     checkPrivateStat(before);
     fd = io.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) |
       (fs.constants.O_NONBLOCK ?? 0));
