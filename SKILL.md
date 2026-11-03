@@ -58,10 +58,10 @@ import/open discovery require releases exposing those commands and tools.
 
 ## Manifest protocol versions / マニフェストのプロトコル版
 
-Live paths negotiate manifest 0.1.0/0.2.0 and prefer 0.2.0 when advertised. The release clock is unset for pre-release builds. Packaging permits this state; public publishing requires a configured instant and `pnpm run check:protocol-release`.
+Live paths negotiate manifest 0.1.0/0.2.0 and prefer 0.2.0 when advertised. The protocol release clock is set to `2026-11-03T12:22:18Z`, intended as the 0.3.0 npm publish time. Public publishing requires `pnpm run check:protocol-release`.
 See [protocol versions](docs/connections/protocol-versions.md) for explicit policy and storage behavior.
 
-ライブ経路は対応版を選び、相手が対応すれば0.2.0を優先します。公開前は時刻未設定でもパッケージを作成できます。公開時はリリース時刻を設定し、`pnpm run check:protocol-release` を実行します。
+ライブ経路は対応版を選び、相手が対応すれば0.2.0を優先します。リリース時計は0.3.0のnpm公開時刻を意図した `2026-11-03T12:22:18Z` に設定されています。公開時は `pnpm run check:protocol-release` を実行します。
 明示的な方針と保存動作は[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
 
 ## Relay retention / 中継器の保持

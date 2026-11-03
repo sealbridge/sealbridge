@@ -17,7 +17,7 @@
 
 純粋関数 `supportedSendVersions`・`supportedReceiveVersions`・`selectProtocolVersion`・
 `assertInboundProtocolVersion` は `ProtocolCompatibilityPolicy` とミリ秒の時計を受け取ります。
-公開プロトコル 0.2.0 のリリース時刻は呼び出し側が指定し、この PR で日付は設定しません。
+公開プロトコル 0.2.0 のリリース時刻は呼び出し側が指定し、ライブ経路の設定値は後述します。
 1日は 86,400,000 ms、リリースから90日未満は両版を送受信、90日以降は送信を0.2.0のみ、
 180日以降は受信も0.2.0のみにします。境界の瞬間から切り替わります。
 不正な方針・リリース前の時計は `PROTOCOL_POLICY_INVALID` です。
@@ -44,10 +44,10 @@ Windows は親ACLを継承し、その内容は検証しません。
 明示的な保留再送は版を選び直します。0.1.0の依頼は接続があっても接続由来の入場を認めません。
 過去の監査検証にリリース時計は適用しません。
 
-`packages/runtime/src/protocol-release.ts` の `PROTOCOL_020_RELEASED_AT` は現在 `null` です。
-これは公開前の状態を表し、両版を受け付け、相互に対応する最新の版で送ります。今日を起点にはしません。
-`npm pack` を含むパッケージ作成は、公開前の未設定状態でも実行できます。
-保守者は0.2.0の公開を有効にする実際のUTC時刻を設定し、公開前に `pnpm run check:protocol-release` を実行します。
+`packages/runtime/src/protocol-release.ts` の `PROTOCOL_020_RELEASED_AT` は
+`2026-11-03T12:22:18Z` に設定されています。これは 0.3.0 の npm 公開時刻を意図した
+プロトコル 0.2.0 のリリース時刻で、ライブ経路の互換期間はこの時刻を起点に計算します。
+公開前に `pnpm run check:protocol-release` を実行します。
 このコマンドはビルド後に `assertProtocolReleaseConfigured` を呼び、未設定・不正な時刻を拒否します。
 `npm publish`（`--dry-run` を含む）でも `prepublishOnly` により同じ確認を実行します。
 ホスト・テストは `protocolPolicy` と `now` を

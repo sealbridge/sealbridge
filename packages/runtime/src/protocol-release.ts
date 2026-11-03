@@ -4,8 +4,8 @@ import { assertInboundProtocolVersion, compareProtocolVersions, protocolCompatib
 import type { ManifestProtocolVersion, ProtocolCompatibilityPolicy, SignedAgentCard } from '@acp/core';
 import type { ProtocolPeerStore } from './protocol-peer-store.js';
 
-/** Maintainers set this UTC release instant before publishing the public 0.2.0 release. */
-export const PROTOCOL_020_RELEASED_AT: string | null = null;
+/** UTC release instant for the public 0.2.0 protocol, intended as the 0.3.0 npm publish time. */
+export const PROTOCOL_020_RELEASED_AT: string | null = '2026-11-03T12:22:18Z';
 export interface ProtocolReleaseOptions {
   /** Host/test injection; CLI installations do not choose their own release epoch. */
   protocolPolicy?: ProtocolCompatibilityPolicy;

@@ -18,7 +18,7 @@ and skill `taskTypes`. New cards omit retired operational mode fields; historica
 The pure helpers `supportedSendVersions`, `supportedReceiveVersions`,
 `selectProtocolVersion` and `assertInboundProtocolVersion` take an explicit
 `ProtocolCompatibilityPolicy` and a millisecond clock. The caller supplies the public
-0.2.0 protocol release instant; no release date is assigned here. Days are exactly
+0.2.0 protocol release instant, configured below for live paths. Days are exactly
 86,400,000 ms. From release to day 90, both versions can be sent and received;
 from day 90 to day 180 only 0.2.0 can be sent; from day 180 only 0.2.0 can be received.
 Cutoffs include the boundary instant. Invalid policy inputs and clocks before release
@@ -48,12 +48,10 @@ incompatible, never silently rewritten. Explicit pending resubmission negotiates
 All 0.1.0 requests are held without connection-derived admission, including requests
 from peers with a current connection. Offline audit verification remains timeless.
 
-`PROTOCOL_020_RELEASED_AT` in `packages/runtime/src/protocol-release.ts` is currently
-`null`: a pre-release build accepts both versions and selects the newest common
-version without starting a retirement clock. It never interprets unset as today.
-Maintainers must set the exact UTC release instant when enabling public 0.2.0 semantics.
-Packaging, including `npm pack`, permits the unset pre-release state. Before publishing,
-run `pnpm run check:protocol-release`; it builds the runtime and calls
+`PROTOCOL_020_RELEASED_AT` in `packages/runtime/src/protocol-release.ts` is set to
+`2026-11-03T12:22:18Z`, the protocol 0.2.0 release instant intended as the 0.3.0 npm
+publish time. Live compatibility phases are measured from this instant.
+Before publishing, run `pnpm run check:protocol-release`; it builds the runtime and calls
 `assertProtocolReleaseConfigured`, rejecting unset or invalid instants. npm also runs
 this check through `prepublishOnly` for `npm publish` (including `--dry-run`).
 Host/tests may inject `protocolPolicy` and `now`; CLI/MCP installations
