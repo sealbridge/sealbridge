@@ -772,24 +772,35 @@ describe('issue 20: requester relay URL switch', () => {
   });
 
   it('settles delegates on two relay URLs from one requester', async () => {
-    const servers = [await startLocalRelay(), await startLocalRelay()];
+    const servers: Awaited<ReturnType<typeof startLocalRelay>>[] = [];
+    const delegates: Promise<unknown>[] = [];
+    const controller = new AbortController();
+    const workerOutcomes: Array<{ status: string; reason?: { code: unknown; message: string } }> = [];
+    const terminated: Promise<never>[] = [];
+    function reason(error: unknown) {
+      return { code: (error as { code?: unknown } | null)?.code,
+        message: error instanceof Error ? error.message : String(error) };
+    }
     const workers: WorkerNode[] = [];
     const running: Array<Promise<unknown>> = [];
     const requesterKey = generateKeyPair();
     const requester = new RequesterClient({
       owner: requesterKey,
-      timeoutMs: 2000,
       allowPrivateRelay: true,
       approvalProvider: new PolicyAutoApprovalProvider(requesterKey),
     });
     try {
-      for (const server of servers) {
+      servers.push(await startLocalRelay());
+      servers.push(await startLocalRelay());
+      for (const [index, server] of servers.entries()) {
+        let listening!: () => void;
+        const ready = new Promise<void>(resolve => { listening = resolve; });
         const owner = generateKeyPair();
         const worker = new WorkerNode({ checkPeer: () => 'trusted',
           owner,
           relay: server.url,
+          onStatus: status => { if (status === 'connected') listening(); },
           allowPrivateRelay: true,
-          timeoutMs: 2000,
           adapter: {
             id: 'echo',
             name: 'echo',
@@ -799,47 +810,63 @@ describe('issue 20: requester relay URL switch', () => {
           approvalProvider: new PolicyAutoApprovalProvider(owner),
         });
         workers.push(worker);
-        running.push(worker.start());
+        const run = worker.start();
+        running.push(run);
+        workerOutcomes[index] = { status: 'running' };
+        const ended = run.then(() => {
+          workerOutcomes[index] = { status: 'fulfilled' };
+          throw new Error(`worker ${index} terminated before the expected relay event: fulfilled`);
+        }, error => {
+          workerOutcomes[index] = { status: 'rejected', reason: reason(error) };
+          throw new Error(`worker ${index} terminated before the expected relay event: ${JSON.stringify(reason(error))}`);
+        });
+        void ended.catch(() => undefined);
+        terminated.push(ended);
+        // A completed HTTP inbox poll establishes that this worker is listening.
+        await Promise.race([ready, ended]);
       }
       async function call(client: RequesterClient, index: number) {
         try {
-          const result = await client.delegate({
+          const delegate = client.delegate({
+            signal: controller.signal,
             to: workers[index]!.invite(),
             title: 'relay switch',
             description: 'synthetic',
             input: { index },
           });
+          delegates.push(delegate);
+          const result = await Promise.race([delegate, terminated[index]!]);
           return { relay: index, state: result.state };
         } catch (error) {
-          return { relay: index, error: error instanceof Error ? error.message : String(error) };
+          return { relay: index, status: 'rejected', reason: reason(error) };
         }
       }
       const relaySwitch = [await call(requester, 0), await call(requester, 1)];
       const fresh = new RequesterClient({
         owner: requesterKey,
-        timeoutMs: 2000,
         allowPrivateRelay: true,
         approvalProvider: new PolicyAutoApprovalProvider(requesterKey),
       });
       const relaySwitchFreshControl = await call(fresh, 1);
-      expect(relaySwitch).toEqual([
+      expect(relaySwitch, JSON.stringify(workerOutcomes)).toEqual([
         { relay: 0, state: 'SETTLED' },
         { relay: 1, state: 'SETTLED' },
       ]);
-      expect(relaySwitchFreshControl).toEqual({ relay: 1, state: 'SETTLED' });
+      expect(relaySwitchFreshControl, JSON.stringify(workerOutcomes)).toEqual({ relay: 1, state: 'SETTLED' });
       const concurrent = await Promise.all([call(requester, 0), call(requester, 1)]);
-      expect(concurrent).toEqual([
+      expect(concurrent, JSON.stringify(workerOutcomes)).toEqual([
         { relay: 0, state: 'SETTLED' },
         { relay: 1, state: 'SETTLED' },
       ]);
       const sameUrl = await Promise.all([call(requester, 0), call(requester, 0)]);
-      expect(sameUrl).toEqual([
+      expect(sameUrl, JSON.stringify(workerOutcomes)).toEqual([
         { relay: 0, state: 'SETTLED' },
         { relay: 0, state: 'SETTLED' },
       ]);
     } finally {
       for (const worker of workers) worker.stop();
-      await Promise.allSettled(running);
+      controller.abort('TEST_CLEANUP');
+      await Promise.allSettled([...running, ...delegates]);
       for (const server of servers) await server.close();
     }
   });
