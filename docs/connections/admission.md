@@ -11,8 +11,15 @@ Workers use four owner-local states: `none`, `pending`, `connected`, and `blocke
 Connected means limited consent with no expiry. Every limited task requires a
 completed inspection and a separate human opening before acceptance, for every
 adapter. Automatic contract policy does not replace that opening. The default
-inspection provider reports `unavailable`, so content remains held. An inspection
-provider is required before public release.
+inspection provider reports `unavailable`, so content remains held.
+
+Task inspection is an embedder-only integration: use an embedding app configured
+with a task inspection provider for worker receipt and held-task review. The
+standalone CLI cannot inspect tasks and has no task inspection provider setting.
+`requests show` and default `requests approve` return `INSPECTION_INCOMPLETE`
+until inspection completes; use `requests list` to check pending metadata.
+Human confirmation separately requires an interactive TTY in the CLI.
+`--auto-accept` provides neither inspection nor connection consent.
 
 Valid requests from unconnected peers are held as encrypted envelopes for at most
 24 hours or the task deadline. They return terminal `PENDING_OWNER_APPROVAL`,
@@ -26,6 +33,7 @@ Plaintext inbox files and receive hooks run only after inspection and opening.
 sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
+# These two operations require task inspection in an embedding app:
 sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge requests discard REQUEST_ID
@@ -153,6 +161,19 @@ consent without changing that binding. Delivery failure returns connected with
 `CONNECTION_DELIVERY_PENDING`; the existing control outbox handles delivery.
 `reject(id)` uses the existing peer-wide rejection/cooldown and discards that
 peer's held content. Repeated or stale decisions return `CONNECTION_NOT_PENDING`.
+
+A plain task creates only a pending task-derived item in connection metadata,
+not a reviewable signed connection offer. If `connections review approve` returns
+`CONNECTION_NOT_PENDING`, run `connections review list` with the same role/key and
+use a listed ID. If the list is empty, exchange a signed offer through the
+invitation/connect flow: import an invite with `accept --paste --alias reviewer`,
+then have the owner run `connections confirm-invite reviewer --role requester`.
+Receive the exchange with the worker listener or `connections sync --once --role worker`, then
+check `connections review list --role worker` on the receiving side.
+Connection review only covers connection metadata; it does not inspect or open
+tasks. After connection consent, task completion still requires an embedding app
+with a task inspection provider and owner opening of a fresh task. Do not retry
+the held task automatically.
 
 ```sh
 sealbridge connections review list --role worker

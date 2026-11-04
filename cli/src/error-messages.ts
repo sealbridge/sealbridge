@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 const reasons: [RegExp, string][] = [
   [/ACCESS_MODE_REMOVED/, '旧モードの指定は廃止しました。connections と一般の --max-*、--allow-task-type を使ってください。'],
-  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, '検査が完了していません。内容は保留し、検査プロバイダーの状態を確認してください。'],
+  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'タスク検査プロバイダーを設定した組み込みアプリで検査してください。単体 CLI はタスクを検査できず、requests show と既定の approve は検査完了まで使えません。requests list で保留情報を確認できます。接続申し込みは connections review list で確認してください。接続審査だけではタスクを検査・開封しません。所有者の確認には別途対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。'],
+  [/CONNECTION_NOT_PENDING/, 'この ID に一致する審査可能な署名付き接続申し込みはありません。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要で、--auto-accept は検査や接続同意を代替しません。'],
   [/CONNECTION_REQUIRED/, 'この操作には選択した所有者 DID の接続が必要です。connections を確認してください。'],
   [/CONNECTION_OPENING_REQUIRED/, 'limited の依頼には検査と所有者が開く操作が必要です。alwaysAsk:true にしてください。'],
   [/PROTOCOL_VERSION_UNSUPPORTED|PROTOCOL_DOWNGRADE_REFUSED/, '相手の署名済み対応版とリリース方針を確認してください。別の版へ自動で再送しません。'],
@@ -33,6 +34,11 @@ const reasons: [RegExp, string][] = [
   [/RELAY|CONNECT|ECONN|FETCH|NETWORK/i, '中継器に接続できません。URL、ネットワーク、相手の稼働状況を確認してください。'],
 ];
 
+const nextSteps: [RegExp, string][] = [
+  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'Use an embedding app configured with a task inspection provider. The standalone CLI cannot inspect tasks; requests show and default requests approve require completed inspection. Use sealbridge requests list to check pending metadata. For signed connection offers, check sealbridge connections review list; connection review does not inspect or open tasks. Human confirmation separately requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
+  [/CONNECTION_NOT_PENDING/, 'No reviewable signed connection offer matches this ID. A plain task creates only a pending task-derived item, not a reviewable connection offer. Run sealbridge connections review list with the same role/key and use a listed ID. If the list is empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
+];
+
 export function japaneseErrorReason(message: string): string | undefined {
   return reasons.find(([pattern]) => pattern.test(message))?.[1];
 }
@@ -42,6 +48,8 @@ export function formatCliError(error: unknown): string {
     pendingId: pending.pendingId, originalTaskId: pending.originalTaskId, pendingStoreError: pending.pendingStoreError,
     nextStep: pending.nextStep ?? 'After worker owner review, explicitly submit a fresh task. Do not retry automatically.' });
   const message = String(error);
-  const reason = japaneseErrorReason(error instanceof Error ? error.message : message);
-  return message + (reason ? '\n' + reason : '');
+  const detail = error instanceof Error ? error.message : message;
+  const nextStep = nextSteps.find(([pattern]) => pattern.test(detail))?.[1];
+  const reason = japaneseErrorReason(detail);
+  return message + (nextStep ? '\n' + nextStep : '') + (reason ? '\n' + reason : '');
 }

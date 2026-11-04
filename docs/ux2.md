@@ -82,7 +82,14 @@ Candidates verify signatures, expiry, skill and relay, then display the poster's
 local relationship and reasons. Claims and dispatch require connected peers;
 otherwise they return `CONNECTION_REQUIRED`. Connection consent does not approve a
 claim, task or lease. Serve uses the poster's actual requester DID, persistent
-intake and held-content review. Dispatch checks connection and protocol before
+intake and held-content review. Task inspection requires an embedding app configured
+with a task inspection provider; the standalone CLI cannot inspect tasks. Use
+`requests list` for pending metadata and `connections review list` for signed
+connection offers. A plain task creates only a pending task-derived item; an
+empty connection review list calls for the invitation/connect flow
+(`connections confirm-invite`). Connection review does not inspect or open tasks.
+CLI human confirmation requires an interactive TTY; `--auto-accept` does not
+supply inspection or connection consent. Dispatch checks connection and protocol before
 consuming the lease, and consumes before transmission. Ambiguous transmission does
 not cause automatic retry. One-time tickets and a separate application queue are deferred.
 

@@ -14,9 +14,9 @@ export async function requestsCommand(args: string[], options: {
   output?: (value: string) => void; inspectionProvider?: HeldContentReviewProvider;
   transportFactory?: ConnectionsCommandOptions['transportFactory'];
 } = {}): Promise<void> {
-  const usage = 'Usage: sealbridge requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default approve offers limited connection consent; inspection and human confirmation required. / 既定の承認は limited の接続同意です。検査と所有者の確認が必要です。';
+  const usage = 'Usage: sealbridge requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default approve offers limited connection consent. For show and default approve, use an embedding app configured with a task inspection provider; the standalone CLI cannot inspect tasks and returns INSPECTION_INCOMPLETE until inspection completes. You can list pending metadata with requests list. For signed connection offers, check connections review list or use the invitation/connect flow (connections confirm-invite); connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / show と既定の approve にはタスク検査プロバイダーを設定した組み込みアプリが必要です。単体 CLI はタスクを検査できず、検査完了までは INSPECTION_INCOMPLETE を返します。requests list で保留情報を確認できます。署名付き接続申し込みは connections review list で確認するか、招待・接続フロー（connections confirm-invite）を使ってください。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
   const output = options.output ?? console.log;
-  if (args.length === 1 && args[0] === '--help') { output(usage); return; }
+  if (args.includes('--help')) { output(usage); return; }
   const [action, ...rest] = args, flags = new Map<string, string>(), ids: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
