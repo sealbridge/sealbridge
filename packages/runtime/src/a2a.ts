@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { AgentCard, Task, Message, Artifact, TaskState } from '@a2a-js/sdk';
+import {
+  AgentCard, Task, Message, Artifact, TaskState, Role, A2A_PROTOCOL_VERSION,
+} from '@a2a-js/sdk';
 import { signEnvelope, verifyEnvelope } from '@acp/core';
 import type { Json, KeyPair, SignedEnvelope, State } from '@acp/core';
 export type { AgentCard, Task, Message, Artifact } from '@a2a-js/sdk';
+// SDK-native helper; the relay's discovery projection is core.toA2AAgentCard.
 export function agentCard(name: string, url: string): AgentCard {
-  return {
+  return AgentCard.fromJSON({
     name,
     description: 'Sealbridge owner gateway',
-    url,
+    supportedInterfaces: [{ url, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION }],
     version: '0.3.1',
-    protocolVersion: '0.3.0',
     capabilities: { streaming: false },
     defaultInputModes: ['application/json'],
     defaultOutputModes: ['application/json'],
@@ -21,43 +23,42 @@ export function agentCard(name: string, url: string): AgentCard {
         tags: ['acp'],
       },
     ],
-  };
+  });
 }
 const states: Record<State, TaskState> = {
-  PROPOSED: 'submitted',
-  ACCEPTED: 'submitted',
-  IN_PROGRESS: 'working',
-  DELIVERED: 'input-required',
-  VERIFY_ACCEPT: 'input-required',
-  VERIFY_REJECT: 'rejected',
-  SETTLED: 'completed',
-  CANCELLED: 'canceled',
-  DISPUTED: 'input-required',
+  PROPOSED: TaskState.TASK_STATE_SUBMITTED,
+  ACCEPTED: TaskState.TASK_STATE_SUBMITTED,
+  IN_PROGRESS: TaskState.TASK_STATE_WORKING,
+  DELIVERED: TaskState.TASK_STATE_INPUT_REQUIRED,
+  VERIFY_ACCEPT: TaskState.TASK_STATE_INPUT_REQUIRED,
+  VERIFY_REJECT: TaskState.TASK_STATE_REJECTED,
+  SETTLED: TaskState.TASK_STATE_COMPLETED,
+  CANCELLED: TaskState.TASK_STATE_CANCELED,
+  DISPUTED: TaskState.TASK_STATE_INPUT_REQUIRED,
 };
 export function a2aTask(taskId: string, state: State, data?: Record<string, unknown>): Task {
-  return {
-    kind: 'task',
+  // The SDK codecs supply the 1.x model defaults without inventing a status message or time.
+  return Task.fromJSON({
     id: taskId,
     contextId: taskId,
     status: { state: states[state] },
     ...(data
-      ? { artifacts: [{ artifactId: taskId + '-report', parts: [{ kind: 'data', data }] }] }
+      ? { artifacts: [{ artifactId: taskId + '-report', parts: [{ data }] }] }
       : {}),
-  };
+  });
 }
 export function a2aMessage(
   taskId: string,
   messageId: string,
   data: Record<string, unknown>,
 ): Message {
-  return {
-    kind: 'message',
+  return Message.fromJSON({
     messageId,
     taskId,
     contextId: taskId,
-    role: 'agent',
-    parts: [{ kind: 'data', data }],
-  };
+    role: Role.ROLE_AGENT,
+    parts: [{ data }],
+  });
 }
 export function wrapA2A(
   wire: Task | Message | Artifact,
@@ -66,8 +67,12 @@ export function wrapA2A(
   seq: number,
   key: KeyPair,
 ): SignedEnvelope {
+  // Sign protocol JSON, not the protobuf model (numeric enums, oneofs and undefined fields).
+  const payload = 'id' in wire
+    ? Task.toJSON(wire)
+    : 'messageId' in wire ? Message.toJSON(wire) : Artifact.toJSON(wire);
   return signEnvelope(
-    { taskId, recipientDid, seq, eventType: 'A2A', payload: wire as unknown as Json },
+    { taskId, recipientDid, seq, eventType: 'A2A', payload: payload as Json },
     key,
   );
 }
@@ -77,12 +82,18 @@ export function unwrapA2A(
 ): Task | Message | Artifact {
   if (!verifyEnvelope(envelope, recipientDid) || envelope.payload.eventType !== 'A2A')
     throw new Error('INVALID_A2A_ENVELOPE');
-  const p = envelope.payload.payload as unknown as Task | Message | Artifact;
-  if (!p || typeof p !== 'object' || (!('kind' in p) && !('artifactId' in p)))
+  const p = envelope.payload.payload;
+  if (!p || typeof p !== 'object' || Array.isArray(p))
     throw new Error('INVALID_A2A_WIRE');
-  if ('kind' in p && p.kind === 'task' && (p.id !== envelope.payload.taskId || !p.status))
-    throw new Error('INVALID_A2A_TASK');
-  if ('kind' in p && p.kind === 'message' && p.taskId !== envelope.payload.taskId)
-    throw new Error('INVALID_A2A_MESSAGE');
-  return p;
+  // A2A 1.0 removes the top-level kind discriminator.
+  if ('id' in p) {
+    if (p.id !== envelope.payload.taskId || !p.status) throw new Error('INVALID_A2A_TASK');
+    return Task.fromJSON(p);
+  }
+  if ('messageId' in p) {
+    if (p.taskId !== envelope.payload.taskId) throw new Error('INVALID_A2A_MESSAGE');
+    return Message.fromJSON(p);
+  }
+  if ('artifactId' in p) return Artifact.fromJSON(p);
+  throw new Error('INVALID_A2A_WIRE');
 }

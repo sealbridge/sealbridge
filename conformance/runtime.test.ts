@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest';
+import { TaskState } from '@a2a-js/sdk';
 import {
   ApprovalGate,
   QuotaMeter,
@@ -316,7 +317,7 @@ describe('A2A and blind relay wire integration', () => {
       message = a2aMessage(taskId, 'msg-1', { event: 'DELIVER' });
     for (const wire of [task, message, task.artifacts![0]])
       expect(unwrapA2A(wrapA2A(wire, taskId, other.did, 0, owner), other.did)).toEqual(wire);
-    expect(task.status.state).toBe('completed');
+    expect(task.status!.state).toBe(TaskState.TASK_STATE_COMPLETED);
   });
   it('pins gateway sender, task and sequence independently of relay replay state', () => {
     const inbox = new EnvelopeInbox(other.did, owner.did, 'task_relay001');

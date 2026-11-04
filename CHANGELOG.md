@@ -2,6 +2,12 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [Unreleased]
+
+### Changed
+
+- Updated `@a2a-js/sdk` to 1.3.0; SDK-backed A2A helpers and signed A2A payloads now use A2A 1.0 card, message, and task shapes.
+
 ## [0.3.1] - 2026-11-04
 
 ### Changed
@@ -56,5 +62,6 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[Unreleased]: https://github.com/sealbridge/sealbridge/compare/v0.3.1...HEAD
 [0.3.1]: https://github.com/sealbridge/sealbridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sealbridge/sealbridge/compare/v0.2.2...v0.3.0
