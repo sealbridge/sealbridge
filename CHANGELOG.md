@@ -2,6 +2,17 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [0.3.1] - Unreleased
+
+### Changed
+
+- Dated the 0.3.0 changelog entry. (#169)
+- Updated stale documentation version notes to state availability from 0.3.0. (#171)
+
+### Fixed
+
+- In a fresh environment with no configuration and no keys, `doctor` warned with `APP_CONFIG_INVALID` or `IDENTITY_INVALID`; missing keys are now reported as optional. (#170)
+
 ## [0.3.0] - 2026-11-03
 
 ### Added
@@ -45,4 +56,5 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.3.1]: https://github.com/sealbridge/sealbridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sealbridge/sealbridge/compare/v0.2.2...v0.3.0
