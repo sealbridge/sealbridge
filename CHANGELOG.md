@@ -8,6 +8,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 - Updated `@a2a-js/sdk` to 1.3.0; SDK-backed A2A helpers and signed A2A payloads now use A2A 1.0 card, message, and task shapes.
 
+### Fixed
+
+- `keygen`, `validate`, and `demo` now print usage and exit successfully for standalone `--help` or `-h`; `keygen` rejects option-like output paths before generating or writing keys. (#179)
+
 ## [0.3.1] - 2026-11-04
 
 ### Changed
