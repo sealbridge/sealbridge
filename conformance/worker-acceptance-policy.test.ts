@@ -17,7 +17,11 @@ import type { AgentAdapter, WorkerAcceptancePolicy } from '../packages/runtime/s
 import { networkCommand } from '../cli/src/network.js';
 
 const cleanup: (() => Promise<unknown>)[] = [];
+const cliRelays: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  // Finish every CLI worker before any key/audit directory is removed, even
+  // when setup fails between creating a directory and starting another worker.
+  await Promise.all(cliRelays.splice(0).map(close => close()));
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const fn of cleanup.splice(0).reverse()) await fn();
@@ -294,17 +298,23 @@ describe('acp worker CLI acceptance guard', () => {
 
   async function relay() {
     const server = await startLocalRelay();
-    let closed = false;
-    const close = async () => {
-      if (closed) return;
-      closed = true;
-      // Network outages are now retried. Terminate CLI readers with a permanent auth error.
+    const runs: Promise<unknown>[] = [];
+    let closing: Promise<void> | undefined;
+    const close = () => closing ??= (async () => {
+      // Network outages are retried. Keep the relay open until the CLI readers exit
+      // after the intentional permanent auth error, including bounded auth recovery.
       server.relay.openInbox = () => { throw new Error('RELAY_UNAUTHORIZED'); };
-      await new Promise(resolve => setTimeout(resolve, 1100));
-      await server.close();
-    };
-    cleanup.push(() => close());
-    return { url: server.url, close };
+      try { await Promise.allSettled(runs); }
+      finally { await server.close(); }
+    })();
+    function worker(args: string[]) {
+      const run = networkCommand('worker', args);
+      runs.push(run);
+      void run.catch(() => undefined);
+      return run;
+    }
+    cliRelays.push(close);
+    return { url: server.url, close, worker };
   }
 
   it.each(['claude', 'codex', 'openai'])(
@@ -312,7 +322,7 @@ describe('acp worker CLI acceptance guard', () => {
     async (adapter) => {
       const bob = await keyFile('bob.private.json');
       const server = await relay();
-      const pending = networkCommand('worker', [
+      const pending = server.worker([
         'start',
         '--key',
         bob.path,
@@ -345,7 +355,7 @@ describe('acp worker CLI acceptance guard', () => {
       });
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
       let failure: unknown;
-      const pending = networkCommand('worker', [
+      const pending = server.worker([
         'start',
         '--key',
         bob.path,
@@ -388,7 +398,7 @@ describe('acp worker CLI acceptance guard', () => {
     });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const audit = join(bob.dir, 'worker.jsonl');
-    const pending = networkCommand('worker', [
+    const pending = server.worker([
       'start',
       '--key',
       bob.path,
@@ -460,7 +470,7 @@ describe('acp worker CLI acceptance guard', () => {
     vi.spyOn(console, 'log').mockImplementation((line) => {
       commaLines.push(String(line));
     });
-    const comma = networkCommand('worker', [
+    const comma = server.worker([
       'start',
       '--key',
       commaBob.path,
@@ -513,7 +523,7 @@ describe('acp worker CLI acceptance guard', () => {
       lines.push(String(line));
     });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const hidden = networkCommand('worker', [
+    const hidden = server.worker([
       'start',
       '--key',
       bob.path,
@@ -542,7 +552,7 @@ describe('acp worker CLI acceptance guard', () => {
     vi.spyOn(console, 'log').mockImplementation((line) => {
       publishedLines.push(String(line));
     });
-    const published = networkCommand('worker', [
+    const published = publishedServer.worker([
       'start',
       '--key',
       bob.path,

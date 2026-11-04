@@ -28,33 +28,89 @@ it.each(['human', 'policy'] as const)('applies owner opening to an inspected con
   const f = fixture(), relay = new InMemoryRelay();
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: f.root } };
   const store = new WorkerTrustStore(f.owner, { path: workerIntakePath(f.owner.did, identityOptions) });
+  function event() {
+    let resolve!: () => void;
+    const promise = new Promise<void>(done => { resolve = done; });
+    return { promise, resolve };
+  }
+  const inspected = event(), ownerApproved = event(), leaseAccepted = event(), listening = event();
   const policy = new PolicyAutoApprovalProvider(f.owner);
-  const human = { kind, approve: vi.fn(policy.approve.bind(policy)) };
+  const human = { kind, approve: vi.fn(async (...args: Parameters<typeof policy.approve>) => {
+    const receipt = await policy.approve(...args);
+    ownerApproved.resolve();
+    return receipt;
+  }) };
   const connected = (did: string) => store.connectionState(did) === 'connected';
   const host = boardHost(f.post, f.owner, f.path, human, connected);
+  const review = new HeldRequestReview(f.owner, { ...identityOptions, provider: completeInspection });
+  const inspect = review.inspect.bind(review);
+  vi.spyOn(review, 'inspect').mockImplementation(async (...args) => {
+    const summary = await inspect(...args);
+    expect(summary.inspectionStatus).toBe('complete');
+    inspected.resolve();
+    return summary;
+  });
   const worker = new WorkerNode({ owner: f.owner, relay, relayUrl: f.card.payload.relayEndpoint,
-    ...host, ownerApprovalProvider: host.approvalProvider, intakeStore: store, requireConnection: true,
-    heldReview: new HeldRequestReview(f.owner, { ...identityOptions, provider: completeInspection }), timeoutMs: 2000 });
+    ...host, adapter: { ...host.adapter, async executeTask(ctx) {
+      const result = await host.adapter.executeTask(ctx);
+      leaseAccepted.resolve();
+      return result;
+    } }, ownerApprovalProvider: host.approvalProvider, intakeStore: store, requireConnection: true,
+    heldReview: review, onStatus: status => { if (status === 'connected') listening.resolve(); } });
   store.redeemTaskInvite(parseAndVerifyInviteToken(worker.invite()),
     { peerOwnerDid: f.peer.did, relayUrl: f.card.payload.relayEndpoint }, connectionIdFor(f.owner.did, f.peer.did));
-  await worker.register();
-  const client = new RequesterClient({ owner: f.peer, relay, timeoutMs: 2000,
+  const client = new RequesterClient({ owner: f.peer, relay,
     approvalProvider: new PolicyAutoApprovalProvider(f.peer) });
+  const controller = new AbortController();
+  const runs: Promise<unknown>[] = [];
+  function observe<T>(run: Promise<T>) {
+    runs.push(run);
+    return run.then(value => ({ status: 'fulfilled' as const, value }), error => ({ status: 'rejected' as const,
+      reason: { code: (error as { code?: unknown } | null)?.code,
+        message: error instanceof Error ? error.message : String(error) } }));
+  }
+  function untilEvent(name: string, ready: Promise<void>, sides: Record<string, Promise<unknown>>) {
+    return Promise.race([ready, ...Object.entries(sides).map(([side, run]) => run.then(result => {
+      throw new Error(`${side} terminated before ${name}: ${JSON.stringify(result)}`);
+    }))]);
+  }
   try {
-    const results = await Promise.allSettled([client.delegate({ to: f.owner.did, title: 'Claim',
-      description: JSON.stringify({ postId: f.post.payload.id, card: f.card }), input: { postId: f.post.payload.id } }),
-      worker.start({ once: true })]);
+    await worker.register();
+    const workerResult = observe(worker.start({ once: true }));
+    await untilEvent('worker listening', listening.promise, { worker: workerResult });
+    const requesterResult = observe(client.delegate({ to: f.owner.did, title: 'Claim', signal: controller.signal,
+      description: JSON.stringify({ postId: f.post.payload.id, card: f.card }), input: { postId: f.post.payload.id } }));
+    const sides = { worker: workerResult, requester: requesterResult };
+    await untilEvent('persisted inspection', inspected.promise, sides);
     if (kind === 'human') {
-      expect(results[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED', deliverable: { payload: { accepted: true } } } });
+      await untilEvent('owner approval', ownerApproved.promise, sides);
+      await untilEvent('accepted lease', leaseAccepted.promise, sides);
+    }
+    const results = await Promise.all([requesterResult, workerResult]);
+    // Include both sides in each failure, including code/message fields on Error objects.
+    const diagnostic = JSON.stringify({ requester: results[0], worker: results[1] });
+    if (kind === 'human') {
+      expect(results, diagnostic).toMatchObject([
+        { status: 'fulfilled', value: { state: 'SETTLED', deliverable: { payload: { accepted: true } } } },
+        { status: 'fulfilled', value: { state: 'SETTLED' } },
+      ]);
       expect(human.approve.mock.calls.some(([request]) => request.gate === 'contract_acceptance')).toBe(true);
       expect(JSON.parse(readFileSync(f.path, 'utf8')).payload).toMatchObject({ accepted: true, consumed: false });
     } else {
-      expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'APPROVAL_CHANNEL_UNAVAILABLE' } });
+      expect(results, diagnostic).toMatchObject([
+        { status: 'rejected', reason: { code: 'APPROVAL_CHANNEL_UNAVAILABLE' } },
+        { status: 'rejected', reason: { message: expect.stringContaining('APPROVAL_CHANNEL_UNAVAILABLE') } },
+      ]);
       expect(human.approve).not.toHaveBeenCalled();
       expect(existsSync(f.path)).toBe(false);
     }
-  } finally { worker.stop(); }
+  } finally {
+    worker.stop();
+    controller.abort('TEST_CLEANUP');
+    await Promise.allSettled(runs);
+  }
 });
+
 it('requires task approval after a connected claim and rechecks the connection before consumption', () => {
   const f = fixture();let connected = true;
   const lease = claimPost(f.path,f.owner,f.post,f.card,f.peer.did,'claim',Date.now(),()=>connected);
