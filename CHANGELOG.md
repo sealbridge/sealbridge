@@ -2,7 +2,7 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
-## [0.3.1] - Unreleased
+## [0.3.1] - 2026-11-04
 
 ### Changed
 
