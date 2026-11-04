@@ -455,8 +455,13 @@ CLI は `connections review list|approve ID|reject ID` で、判断には本人�
 2. Delegate using the complete invite token and the owner's task:
 
    ```text
-   pnpm sealbridge delegate --to "<acp-invite:...>" --title "..." --description "..." --input '<json>' [--output-schema '<json_or_file>'] [--auto-approve] --audit ~/.acp/audit-<taskId>.jsonl --out ./deliverable.json [--allow-private-relay]
+   pnpm sealbridge delegate --to "<acp-invite:...>" --title "..." --description "..." (--input '<json>' | --input-file <path>) [--output-schema '<json_or_file>'] [--auto-approve] --audit ~/.acp/audit-<taskId>.jsonl --out ./deliverable.json [--allow-private-relay]
    ```
+
+   `--title`, `--description`, and exactly one input source are required.
+   `--invite` is an alias of `--to` with the same validation; if both are given,
+   their values must match. `--title`・`--description`・入力元のどちらか一方は必須です。
+   `--invite` は `--to` の別名で、両方を指定する場合は同じ値にしてください。
 
    With a DID instead of an invite, use `--to "<DID>" --relay <URL>`.
    On the public relay that flag is

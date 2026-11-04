@@ -542,6 +542,10 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
 pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
 ```
 
+`delegate` には `--title`、`--description` と、`--input '<json>'` または
+`--input-file <path>` のどちらか一方が必要です。`--invite` は `--to` と同じ検証を行う別名です。
+両方を指定する場合は同じ値にしてください。使用法は `sealbridge delegate --help` で確認できます。
+
 受付と所有者が開く操作を経た後の結果は、双方の `SETTLED`、JSON の成果物、`"valid":true` と `"status":"VALID"` です。トラストアンカーファイルも `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count` も無いとき、`statusLabel` は `VALID (no trust anchor: truncation not checked)` です。ハッシュ鎖は検証できていますが、より古い妥当な接頭辞は排除していません。Alice は署名・ダイジェスト・予算、JSON Schema、登録済みの隔離チェックを検証し、最後に署名付きの最終承認を取ります。`--auto-approve` は最終検収をポリシー承認にする明示的な選択です。人間が確認するときは外してください。`acp://invite?token=...` も受け付けます。招待の代わりに `--to <Bob の DID> --relay <URL>` も使えます。Bob は手元の `/tmp/bob-audit.jsonl` を自分で検証できます。
 
 **アダプタを選ぶ**
