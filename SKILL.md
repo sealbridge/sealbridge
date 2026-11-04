@@ -217,7 +217,7 @@ For the optional audit paths below, create the audit directory first:
    `--allow-private-relay` is required for that loopback URL. Private and
    loopback relays are blocked by default. Metadata and unspecified addresses
    stay blocked even with the flag. Pass the same flag to `delegate`,
-   `discover`, and `mcp-server` when the invite or relay URL is loopback.
+   `discover`, `accept`, and `mcp-server` when the invite or relay URL is loopback.
 
    Default behavior waits for successive tasks; `--once` exits after one session
    attempt. Ctrl-C stops the worker. Use a fresh audit path on startup; subsequent
@@ -296,6 +296,12 @@ sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 sealbridge invites remove reviewer
 ```
+
+For loopback/private relay invitations, add `--allow-private-relay` to `accept`
+with a link, `--paste`, or `--stdin`. These relays are blocked by default;
+the flag applies only to this import.
+ループバック・プライベート中継器の招待には `accept --allow-private-relay` を使います。
+リンク・`--paste`・`--stdin` に対応し、今回の保存だけに適用します。既定の拒否は変わりません。
 
 Then call `acp_list_invites {}` and `acp_delegate_task` with `workerRef` set to the
 returned saved reference or exact alias. Do not ask a refusing model to run a

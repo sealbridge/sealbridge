@@ -8,6 +8,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 - Updated `@a2a-js/sdk` to 1.3.0; SDK-backed A2A helpers and signed A2A payloads now use A2A 1.0 card, message, and task shapes.
 
+### Fixed
+
+- `sealbridge accept` recognizes `--allow-private-relay` for importing loopback/private relay invitations through positional links, `--paste`, and `--stdin`; imports remain blocked by default. (#181)
+
 ## [0.3.1] - 2026-11-04
 
 ### Changed

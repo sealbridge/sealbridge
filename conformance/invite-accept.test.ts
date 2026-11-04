@@ -59,6 +59,47 @@ it('imports and lists/removes locally without printing invitation material', asy
   expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ removed: false });
   expect(JSON.stringify(log.mock.calls)).not.toContain(token);
 });
+it.each(['http://127.0.0.1:8787', 'http://192.168.1.10:8787'].flatMap(relayUrl =>
+  (['positional', 'paste', 'stdin'] as const).map(source => ({ relayUrl, source }))))
+('requires an explicit private relay opt-in for $source imports from $relayUrl', async ({ relayUrl, source }) => {
+  const owner = generateKeyPair();
+  const card = createSignedAgentCard({ name: 'Local Worker', agentDid: owner.did, relayEndpoint: relayUrl, skills: [] }, owner);
+  const privateToken = createInviteToken({ agentCard: card, expiresInSeconds: 60 }, owner);
+  const link = 'https://sealbridge.app/i#' + privateToken;
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('UNEXPECTED_NETWORK'));
+  async function importInvite(allowPrivateRelay: boolean) {
+    const input = Object.assign(new PassThrough(), { isTTY: source === 'paste' });
+    const args = source === 'positional' ? [link] : ['--' + source];
+    if (allowPrivateRelay) args.push('--allow-private-relay');
+    args.push('--alias', 'reviewer');
+    const pending = acceptCommand('accept', args, {
+      ...options, input, output: new PassThrough(), readPaste: async () => link,
+    });
+    if (source === 'stdin') input.end(link + '\n');
+    return pending;
+  }
+  await expect(importInvite(false)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+  expect(log).not.toHaveBeenCalled();
+  await acceptCommand('invites', ['list'], options);
+  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [] });
+
+  await importInvite(true);
+  const saved = JSON.parse(log.mock.calls.at(-1)![0]);
+  expect(saved).toMatchObject({ alias: 'reviewer', workerRef: expect.stringMatching(/^saved:/),
+    agentDid: owner.did, displayName: 'Local Worker', relayUrl });
+  await acceptCommand('invites', ['list'], options);
+  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [saved] });
+  await expect(importInvite(false)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+  expect(fetch).not.toHaveBeenCalled();
+  expect(JSON.stringify(log.mock.calls)).not.toContain(privateToken);
+});
+it('documents the private relay opt-in in accept help', async () => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await acceptCommand('accept', ['--help'], options);
+  expect(log.mock.calls[0][0]).toContain('--allow-private-relay');
+  expect(existsSync(join(home, 'data'))).toBe(false);
+});
 it('requires a human TTY for paste, prompts on stderr adapter, and accepts CRLF input', async () => {
   const readPaste = vi.fn(async () => token + '\r\n');
   const input = Object.assign(new PassThrough(), { isTTY: false }), output = new PassThrough();

@@ -9,7 +9,7 @@ interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
   output?: Writable;
   readPaste?: () => Promise<string>;
 }
-const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] | accept --paste [--alias <slug>] | accept --stdin [--alias <slug>] | invites list | invites remove <alias-or-ref>';
+const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] [--allow-private-relay] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
 // Allow the existing 64 KiB token bound plus link framing and whitespace.
 const MAX_STDIN_BYTES = 68 * 1024;
 const STDIN_TIMEOUT_MS = 10_000;
@@ -74,7 +74,7 @@ async function paste(options: AcceptOptions): Promise<string> {
 export async function acceptCommand(command: 'accept' | 'invites', args: string[], options: AcceptOptions = {}): Promise<void> {
   if (args.length === 1 && args[0] === '--help') {
     console.log(USAGE + (command === 'accept'
-      ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON.' : ''));
+      ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.' : ''));
     return;
   }
   if (command === 'invites') {
@@ -86,12 +86,13 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
       ? { invites: store?.list() ?? [] } : { removed: store?.remove(args[1]) ?? false }));
     return;
   }
-  let alias: string | undefined, link: string | undefined, usePaste = false, useStdin = false;
+  let alias: string | undefined, link: string | undefined, usePaste = false, useStdin = false, allowPrivateRelay = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--alias' && alias === undefined && args[i + 1] && !args[i + 1].startsWith('--')) alias = args[++i];
     else if (arg === '--paste' && !usePaste) usePaste = true;
     else if (arg === '--stdin' && !useStdin) useStdin = true;
+    else if (arg === '--allow-private-relay' && !allowPrivateRelay) allowPrivateRelay = true;
     else if (!arg.startsWith('--') && link === undefined) link = arg;
     else throw new Error(USAGE);
   }
@@ -99,5 +100,7 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
   const owner = await resolveStoredIdentity('requester', options);
-  console.log(JSON.stringify((await InviteStore.open(owner, options)).import(link!, alias)));
+  console.log(JSON.stringify((await InviteStore.open(owner, {
+    ...options, relayPolicy: { ...options.relayPolicy, allowPrivateRelay },
+  })).import(link!, alias)));
 }
