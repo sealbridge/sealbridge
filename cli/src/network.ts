@@ -99,6 +99,11 @@ function sessionTimeouts(parsed: Map<string, string | true>): SessionTimeoutOpti
     heartbeatIntervalMs: optionalCount(parsed, 'heartbeat-interval-ms'),
   };
 }
+const DELEGATE_USAGE = 'Usage: sealbridge delegate ' +
+  '(--to <invite|link|did> | --invite <invite|link|did> | --discover <skill> | --task-type <type>) ' +
+  '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
+  '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
+  '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
 const TIMEOUT_HELP = `Timeout options (positive integer milliseconds):
   --execution-timeout-ms <n>       Execution/AI-step wall-clock limit; delegate proposes this budget (default: 60000).
   --task-timeout-ms <n>            Overall task, including approvals and settlement (default: 600000).
@@ -111,6 +116,7 @@ const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
   --to <invite|link|did>          Delegate: accepts https://sealbridge.app/i#acp-invite:... links.
+  --invite <invite|link|did>      Delegate: alias of --to; if both are given, values must match.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
   --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (POSIX only, n > 2).
@@ -166,6 +172,8 @@ export async function networkCommand(command: string, args: string[], applicatio
 } = {}): Promise<void> {
   if (args.some(a => a === '--open' || a.startsWith('--open=') || a === '--access-mode' || a.startsWith('--open-') || a.startsWith('--access-mode=') || a === '--allow-any-requester' || a.startsWith('--allow-any-requester=')))
     throw new Error('ACCESS_MODE_REMOVED: Use connections; replace old budget flags with --max-input-tokens, --max-output-tokens, --max-tool-invocations, --max-wall-clock-seconds, --allow-task-type and --max-requests-per-minute.');
+  if (command === 'delegate' && args.length === 0 && !application.pendingRequest)
+    throw new Error(DELEGATE_USAGE);
   if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
     console.log(command === 'relay' ? `Relay notification options:
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
@@ -179,7 +187,8 @@ export async function networkCommand(command: string, args: string[], applicatio
   --max-queue-size <n>           Queued envelopes per recipient (default: 256).
   --max-queue-bytes <n>          Queued JSON bytes per recipient (default: 4194304).
   --max-envelope-bytes <n>       Signed envelope JSON bytes (default: 262144).
-  --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` : TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
+  --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` :
+      (command === 'delegate' ? DELEGATE_USAGE + '\n\n' : '') + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   connections list|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
@@ -208,6 +217,12 @@ export async function networkCommand(command: string, args: string[], applicatio
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
     throw new Error('Expected ' + command + ' start');
   const f = flags(args);
+  if (command === 'delegate' && f.has('--invite')) {
+    const invite = text(f, 'invite');
+    if (f.has('--to') && text(f, 'to') !== invite)
+      throw new Error('CONFLICTING_TARGET_OPTIONS: --to and --invite must match');
+    f.set('--to', invite);
+  }
   const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
   const authRecovery = relayAuthOptions(f);
   const allowPrivateRelay = f.has('--allow-private-relay');

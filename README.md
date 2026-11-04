@@ -379,6 +379,10 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
 pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
 ```
 
+`delegate` requires `--title`, `--description`, and exactly one of `--input '<json>'`
+or `--input-file <path>`. `--invite` is an alias of `--to` with the same validation;
+if both are given, their values must match. See `sealbridge delegate --help` for usage.
+
 After those admission and opening steps: `SETTLED`, a JSON deliverable, and `"valid":true` with `"status":"VALID"` on both owners. Without a trust-anchor file or `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count`, `statusLabel` is `VALID (no trust anchor: truncation not checked)`: the chain is intact, and an older valid prefix was not ruled out. Alice verifies signatures, digests and budget, JSON Schema and registered isolated checks, then obtains a signed final approval. `--auto-approve` explicitly opts into policy approval of final verification; omit it for human review. `acp://invite?token=...` is also accepted. Alternatively, use `--to <Bob DID> --relay <URL>`. Bob can verify his own `/tmp/bob-audit.jsonl` locally.
 
 **Ask another person’s AI to review a diff**
