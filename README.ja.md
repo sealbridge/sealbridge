@@ -343,7 +343,7 @@ pnpm sealbridge worker start --key /tmp/bob.private.json \
   --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
 ```
 
-表示された `acp-invite:...` の1行をコピーします。このローカル例は、制限付き子プロセスで入力 JSON をそのまま返します。`--auto-accept` は契約受諾だけを許します。外部副作用と予算増額は、明示的な承認が引き続き必要です。対話式の `[y/N]` にするには、このフラグを外します。鍵と監査ログの出力先は、未使用のパスにしてください。
+表示された `acp-invite:...` の1行をコピーします。このローカル例は、制限付き子プロセスで入力 JSON を返すアダプターを設定します。受付には後述の検査と所有者の操作が必要です。`--auto-accept` は契約受諾だけを許します。外部副作用と予算増額は、明示的な承認が引き続き必要です。対話式の `[y/N]` にするには、このフラグを外します。鍵と監査ログの出力先は、未使用のパスにしてください。
 
 `sealbridge worker` は `--publish` を付けない限り、公開リレーのディレクトリへ AgentCard を登録しません。招待トークンを直接渡してください。`sealbridge discover` に出るのは `--publish` したワーカーだけです。
 
@@ -397,8 +397,14 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
 検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
-既定の検査器は `unavailable` を返すため、内容は保留のままです。公開リリース前に
-検査プロバイダーが必要です。
+既定の検査器は `unavailable` を返すため、内容は保留のままです。
+
+タスク検査は組み込みアプリ専用の連携です。ワーカーの受信と保留タスクの審査には、
+タスク検査プロバイダーを設定した組み込みアプリを使ってください。単体 CLI はタスクを
+検査できず、タスク検査プロバイダーの設定もありません。`requests show` と既定の
+`requests approve` は検査完了まで `INSPECTION_INCOMPLETE` を返します。
+保留情報は `requests list` で確認できます。CLI の所有者確認には別途対話式 TTY が必要です。
+`--auto-accept` は検査や接続同意を代替しません。
 
 未接続の相手からの有効な依頼は、暗号化済み封筒として最大24時間または依頼の期限まで
 保存し、終端の `PENDING_OWNER_APPROVAL`・`retryable:false`・CLI 終了値3を返します。
@@ -411,6 +417,7 @@ connected は期限なしの limited 同意です。すべてのアダプター�
 sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
+# 次の2操作には組み込みアプリでのタスク検査が必要です:
 sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge requests discard REQUEST_ID
@@ -526,8 +533,12 @@ MCP は `acp_list_pending_requests {}` と `acp_resubmit_pending_request {pendin
 
 既定の検査プロバイダーは利用不可のため、この例は終端の `PENDING_OWNER_APPROVAL`
 （終了値3）を返し、成果物や検収済み監査は作りません。自動再試行はしません。
-完了には検査プロバイダーを設定し、接続の審査後に新しい依頼を所有者が開く必要があります。
-`--auto-accept` ではこれらの操作を省略できません。
+完了にはタスク検査プロバイダーを設定した組み込みアプリが必要で、単体 CLI はタスクを検査できません。
+保留情報は `requests list`、署名付き接続申し込みは `connections review list` で確認します。
+通常のタスクはタスク由来の保留項目だけを作るため、審査一覧が空なら招待・接続フロー
+（`connections confirm-invite`）を使ってください。接続審査だけではタスクを検査・開封しません。
+接続同意後も組み込みアプリで所有者が新しい依頼を開く必要があります。CLI の所有者確認には
+対話式 TTY が必要で、`--auto-accept` は検査や接続同意を代替しません。
 
 ```sh
 pnpm sealbridge keygen /tmp/alice.private.json
@@ -732,6 +743,16 @@ APIとストアの互換性は[つながりの状態と永続化](docs/connectio
 CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
 組み込み検査は接続情報だけが対象です。既定の受信・タスク検査は `unavailable` のままで、
 タスクは開きません。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
+
+通常のタスクが接続情報に作るのはタスク由来の保留項目だけで、審査可能な署名付き接続
+申し込みではありません。`connections review approve` が `CONNECTION_NOT_PENDING` を
+返したら、同じ役割・鍵で `connections review list` を確認し、一覧の ID を使ってください。
+空なら招待・接続フローで署名付き申し込みを交換します。`accept --paste --alias reviewer`
+で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
+ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
+`connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
+タスクを検査・開封しません。接続同意後も、タスクの完了にはタスク検査プロバイダーを設定した
+組み込みアプリと、所有者が新しいタスクを開く操作が必要です。保留タスクは自動再試行しません。
 
 
 ## ローカルの M0–M1 実装

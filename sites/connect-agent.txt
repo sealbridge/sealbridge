@@ -121,8 +121,24 @@ saved invite separately, checking the selected role/DID and peer owner DID:
   sealbridge connections list --role requester
   sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
 Connected means limited with no expiry. Every limited task requires inspection and
-human opening. Inspection is unavailable by default; an inspection provider is
-needed before public release. Unknown requests return PENDING_OWNER_APPROVAL with
+human opening. Inspection is unavailable by default. Task inspection is embedder-only:
+use an embedding app configured with a task inspection provider for worker receipt
+and held-task review. The standalone CLI cannot inspect tasks and has no task
+inspection provider setting. requests show and default requests approve return
+INSPECTION_INCOMPLETE until inspection completes; use requests list for pending
+metadata. CLI human confirmation separately requires an interactive TTY;
+--auto-accept provides neither inspection nor connection consent.
+
+A plain task creates only a pending task-derived item, not a reviewable signed
+connection offer. On CONNECTION_NOT_PENDING, check connections review list with
+the same role/key and use a listed ID. If empty, use the invitation/connect flow
+above (accept, then connections confirm-invite). Receive the exchange with the
+worker listener or connections sync --once --role worker, then check
+connections review list --role worker on the receiving side. Connection review does not inspect or open
+tasks; completion still requires an embedding app with a task inspection provider
+and owner opening of a fresh task.
+
+Unknown requests return PENDING_OWNER_APPROVAL with
 retryable:false (CLI exit 3). Do not retry automatically. Review then explicitly
 start a fresh task; sync never resubmits tasks. Block is silent and affects future
 admission; accepted work continues until explicitly cancelled. Invite expiry does
@@ -140,6 +156,15 @@ starts from the release instant configured by maintainers, never install time.
 
 依頼の承認と接続への同意は別の判断です。明示的な同意がなければ申し込みを添付しません。
 接続は期限なしの limited で、毎回の検査と所有者が開く操作が必要です。既定の検査は利用不可です。
+タスク検査にはプロバイダーを設定した組み込みアプリを使います。単体 CLI はタスクを検査できず、
+検査プロバイダーの設定もありません。requests show と既定の requests approve が
+INSPECTION_INCOMPLETE なら requests list で保留情報を確認してください。
+通常のタスクはタスク由来の保留項目だけを作り、審査可能な署名付き接続申し込みにはなりません。
+CONNECTION_NOT_PENDING なら同じ役割・鍵で connections review list を確認し、一覧の ID を使います。
+空なら上記の招待・接続フロー（accept、connections confirm-invite）で申し込みを交換してください。
+待受または connections sync --once --role worker で受信し、受信側で connections review list --role worker を確認します。
+接続審査だけではタスクを検査・開封しません。完了には組み込みアプリでのタスク検査と所有者が新しい
+タスクを開く操作が必要です。CLI の所有者確認には対話式 TTY が必要で、--auto-accept は検査や接続同意を代替しません。
 保留時は自動再試行せず、所有者の確認後に新しい依頼を明示的に始めます。sync は再送しません。
 招待の取り込み・プレビューだけでは接続しません。役割・ローカル DID・相手の所有者 DID を確認してください。
 

@@ -37,6 +37,16 @@ await admission.approve(requests[0].id);
 既存の制御 outbox が配達を扱います。`reject(id)` は既存の相手単位の拒否・クールダウンを使い、
 その相手の保留内容を破棄します。判断済みや無効な ID は `CONNECTION_NOT_PENDING` です。
 
+通常のタスクが接続情報に作るのはタスク由来の保留項目だけで、審査可能な署名付き接続
+申し込みではありません。`connections review approve` が `CONNECTION_NOT_PENDING` を
+返したら、同じ役割・鍵で `connections review list` を確認し、一覧の ID を使ってください。
+空なら招待・接続フローで署名付き申し込みを交換します。`accept --paste --alias reviewer`
+で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
+ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
+`connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
+タスクを検査・開封しません。接続同意後も、タスクの完了にはタスク検査プロバイダーを設定した
+組み込みアプリと、所有者が新しいタスクを開く操作が必要です。保留タスクは自動再試行しません。
+
 ```sh
 sealbridge connections review list --role worker
 sealbridge connections review approve REQUEST_ID --role worker
@@ -63,8 +73,14 @@ CLI の判断には人間の TTY または既存の確認コールバックが�
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
 検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
-既定の検査器は `unavailable` を返すため、内容は保留のままです。公開リリース前に
-検査プロバイダーが必要です。
+既定の検査器は `unavailable` を返すため、内容は保留のままです。
+
+タスク検査は組み込みアプリ専用の連携です。ワーカーの受信と保留タスクの審査には、
+タスク検査プロバイダーを設定した組み込みアプリを使ってください。単体 CLI はタスクを
+検査できず、タスク検査プロバイダーの設定もありません。`requests show` と既定の
+`requests approve` は検査完了まで `INSPECTION_INCOMPLETE` を返します。
+保留情報は `requests list` で確認できます。CLI の所有者確認には別途対話式 TTY が必要です。
+`--auto-accept` は検査や接続同意を代替しません。
 
 未接続の相手からの有効な依頼は、暗号化済み封筒として最大24時間または依頼の期限まで
 保存し、終端の `PENDING_OWNER_APPROVAL`・`retryable:false`・CLI 終了値3を返します。
@@ -77,6 +93,7 @@ connected は期限なしの limited 同意です。すべてのアダプター�
 sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
+# 次の2操作には組み込みアプリでのタスク検査が必要です:
 sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge requests discard REQUEST_ID

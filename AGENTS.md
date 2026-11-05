@@ -399,6 +399,15 @@ Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatical
 Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.
 Task approval and durable connection consent are separate; without explicit consent, attach no connection request.
 Connected is indefinite limited, with inspection and owner opening for every task. The default inspection provider is unavailable.
+
+Task inspection is an embedder-only integration: use an embedding app configured
+with a task inspection provider for worker receipt and held-task review. The
+standalone CLI cannot inspect tasks and has no task inspection provider setting.
+`requests show` and default `requests approve` return `INSPECTION_INCOMPLETE`
+until inspection completes; use `requests list` to check pending metadata.
+Human confirmation separately requires an interactive TTY in the CLI.
+`--auto-accept` provides neither inspection nor connection consent.
+
 `requests approve --trust trusted` is a separate legacy 24-hour grant path. Connections never create trusted authority.
 
 未接続の依頼は終端の保留で、自動再試行しません。人間の接続確認には所有者本人が答えます。
@@ -406,9 +415,17 @@ Connected is indefinite limited, with inspection and owner opening for every tas
 依頼の承認と接続への同意を別に確認し、接続に同意がなければ申し込みを添付しません。
 接続は期限なしの limited で、毎回の検査と所有者が開く操作が必要です。既定の検査は利用不可です。
 
+タスク検査は組み込みアプリ専用の連携です。ワーカーの受信と保留タスクの審査には、
+タスク検査プロバイダーを設定した組み込みアプリを使ってください。単体 CLI はタスクを
+検査できず、タスク検査プロバイダーの設定もありません。`requests show` と既定の
+`requests approve` は検査完了まで `INSPECTION_INCOMPLETE` を返します。
+保留情報は `requests list` で確認できます。CLI の所有者確認には別途対話式 TTY が必要です。
+`--auto-accept` は検査や接続同意を代替しません。
+
 ```sh
 sealbridge connections list --role worker
 sealbridge requests list --role worker
+# Requires task inspection in an embedding app / 組み込みアプリでのタスク検査が必要:
 sealbridge requests show REQUEST_ID
 sealbridge requests approve REQUEST_ID
 sealbridge connections confirm-invite reviewer --role requester
@@ -438,12 +455,35 @@ decisions still require human confirmation. Built-in inspection covers connectio
 metadata only. Default inbound and task inspection remain `unavailable`; no task
 is opened. See [admission review](docs/connections/admission.md#owner-admission-review).
 
+A plain task creates only a pending task-derived item in connection metadata,
+not a reviewable signed connection offer. If `connections review approve` returns
+`CONNECTION_NOT_PENDING`, run `connections review list` with the same role/key and
+use a listed ID. If the list is empty, exchange a signed offer through the
+invitation/connect flow: import an invite with `accept --paste --alias reviewer`,
+then have the owner run `connections confirm-invite reviewer --role requester`.
+Receive the exchange with the worker listener or `connections sync --once --role worker`, then
+check `connections review list --role worker` on the receiving side.
+Connection review only covers connection metadata; it does not inspect or open
+tasks. After connection consent, task completion still requires an embedding app
+with a task inspection provider and owner opening of a fresh task. Do not retry
+the held task automatically.
+
 
 組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
 一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
 CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
 組み込み検査は接続情報だけが対象です。既定の受信・タスク検査は `unavailable` のままで、
 タスクは開きません。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
+
+通常のタスクが接続情報に作るのはタスク由来の保留項目だけで、審査可能な署名付き接続
+申し込みではありません。`connections review approve` が `CONNECTION_NOT_PENDING` を
+返したら、同じ役割・鍵で `connections review list` を確認し、一覧の ID を使ってください。
+空なら招待・接続フローで署名付き申し込みを交換します。`accept --paste --alias reviewer`
+で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
+ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
+`connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
+タスクを検査・開封しません。接続同意後も、タスクの完了にはタスク検査プロバイダーを設定した
+組み込みアプリと、所有者が新しいタスクを開く操作が必要です。保留タスクは自動再試行しません。
 
 ## Requester flow / 発注側
 

@@ -113,7 +113,11 @@ JSON の metadata・イベントを受け取ります。`now`・`transportFactor
 相手側の完了を示しません。署名付き交換を受信した後に
 `WorkerTrustStore.listConnections()` を読み取るか、明示的に `syncConnections` を
 使います。接続後も limited で、各タスクは検査と所有者が開く操作を必要とします。
-既定の検査 provider は利用不可です。[接続交換](connections/connection-exchange.ja.md)と
+既定の検査 provider は利用不可です。タスク検査は組み込みアプリ専用で、ワーカーの受信と
+保留タスクの審査にタスク検査プロバイダーを設定します。単体 CLI はタスク検査も
+プロバイダーの設定もできません。接続審査の対象は署名付き接続申し込みだけで、
+タスク由来の保留項目やタスク内容は対象外です。CLI の所有者確認には対話式 TTY が必要で、
+`--auto-accept` は検査を代替しません。[接続交換](connections/connection-exchange.ja.md)と
 [保留内容の審査](connections/held-content.ja.md)を参照してください。
 
 `ConnectionAdmissionReview` は保留中の受信接続に `list()`・`approve(id)`・`reject(id)` を

@@ -7,6 +7,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 ### Changed
 
 - Updated `@a2a-js/sdk` to 1.3.0; SDK-backed A2A helpers and signed A2A payloads now use A2A 1.0 card, message, and task shapes.
+- Clarified CLI errors, help, and quickstarts with next steps for embedder-only task inspection and signed connection offer review. (#178)
 
 ### Fixed
 

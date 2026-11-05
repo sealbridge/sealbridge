@@ -24,7 +24,11 @@ leave files intact. Retention is the earlier of the deadline and 24 hours. Bound
 record; live records are not evicted. POSIX paths use 0700/0600; Windows inherits
 the parent DACL without ACL verification. Supply `workspaceDir` when known to
 reject storage within an adapter workspace. A real provider is a separate host
-integration. Application transport and UI are deferred.
+integration. Task inspection stays embedder-only: configure a task inspection
+provider in the embedding app for worker receipt and held-task review. The
+standalone CLI cannot inspect tasks or configure that provider; its built-in
+connection review covers signed connection metadata only. Human confirmation
+and `--auto-accept` do not supply task inspection. Application transport and UI are deferred.
 
 Gateway task sends use a signer-scoped persistent envelope outbox and worker receipt/default
 checkpoint records under `<data-root>/delivery/<sha256-local-signer-DID>/`. A repeated

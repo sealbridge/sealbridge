@@ -118,6 +118,11 @@ consent and sends a request; it does not establish remote completion. Read
 `WorkerTrustStore.listConnections()` after receiving the signed exchange, or use
 explicit `syncConnections`. Connected remains limited; each task requires
 inspection and owner opening. The default inspection provider is unavailable.
+Task inspection is embedder-only: configure a task inspection provider in the
+embedding app for worker receipt and held-task review. The standalone CLI cannot
+inspect tasks or configure that provider. Connection review only covers signed
+connection offers, not pending task-derived items or task content. CLI human
+confirmation needs an interactive TTY; `--auto-accept` does not supply inspection.
 See [connection exchange](connections/connection-exchange.md) and
 [held-content review](connections/held-content.md).
 
