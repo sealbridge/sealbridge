@@ -101,6 +101,7 @@ export interface BudgetSpec {
   onOverrun: 'hard_stop' | 'request_hitl_amendment';
 }
 export interface TaskManifest {
+  contextGrant?: ContextGrant;
   protocolVersion: string;
   taskId: string;
   createdAt: string;
@@ -147,4 +148,26 @@ export interface TaskManifest {
   };
   hitlPolicy: { requiredGates: string[] };
   signatures?: Record<string, Signature>;
+}
+export type DeliveryMode = 'view_only' | 'approval_redelegation' | 'hand_over';
+export interface ContextGrant {
+  deliveryMode: DeliveryMode;
+  /** Opaque selection declarations; CP1 does not extract data from a source. */
+  selectors: string[];
+  fieldsAllowed?: string[];
+  fieldsDenied?: string[];
+  angle: string;
+  expiresAt: string;
+  maxBytes: number;
+  retention: 'ephemeral_view' | 'keep_deliverable';
+  inputRetentionAllowed?: boolean;
+  outputSchema?: Schema;
+}
+export type ContextGrantOptions = Pick<ContextGrant, 'selectors' | 'angle'> &
+  Partial<Omit<ContextGrant, 'selectors' | 'angle'>>;
+export type ContextGrantAuditEventType = 'CONTEXT_GRANT' | 'CONTEXT_OPENED' | 'CONTEXT_DISCARDED' |
+  'CONTEXT_DELETION_ATTEMPTED' | 'CONTEXT_MODE';
+export interface ContextGrantAuditPayload {
+  grantDigest: string;
+  deliveryMode: 'view_only' | 'hand_over';
 }

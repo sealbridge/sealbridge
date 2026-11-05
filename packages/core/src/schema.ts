@@ -4,6 +4,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import formats from 'ajv-formats';
 import type { TaskManifest, Schema } from './types.js';
 import { isManifestProtocolVersion } from './protocol.js';
+import { validateManifestContextGrant } from './context-grant.js';
 export function createAjv() {
   const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: true });
   (formats as unknown as (a: Ajv2020) => void)(ajv);
@@ -13,6 +14,7 @@ export const specDirectory = new URL('../../../spec/', import.meta.url);
 export const SCHEMA_NAMES = [
   'task-manifest', 'task-manifest.0.1.0', 'task-manifest.0.2.0', 'agent-card',
   'delivery-status', 'envelope', 'usage-receipt', 'ack-receipt', 'capability-token', 'approval-receipt', 'audit-entry',
+  'context-grant', 'context-grant-audit-payload',
 ] as const;
 export function loadSchema(name: string): Schema {
   if (!SCHEMA_NAMES.some(known => known === name)) throw new Error('INVALID_SCHEMA_NAME');
@@ -40,6 +42,7 @@ export function validateManifest(value: unknown): asserts value is TaskManifest 
   if (version !== undefined && !isManifestProtocolVersion(version))
     throw new Error('PROTOCOL_VERSION_UNSUPPORTED');
   validateSchema(isManifestProtocolVersion(version) ? 'task-manifest.' + version : 'task-manifest', value);
+  validateManifestContextGrant(value as TaskManifest);
 }
 export function assertSynchronousSchema(schema: unknown): void {
   if (!schema || typeof schema !== 'object') return;

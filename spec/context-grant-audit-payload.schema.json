@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.2/context-grant-audit-payload.schema.json",
+  "title": "ContextGrantAuditPayload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "grantDigest",
+    "deliveryMode"
+  ],
+  "properties": {
+    "grantDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "deliveryMode": {
+      "enum": [
+        "view_only",
+        "hand_over"
+      ]
+    }
+  }
+}

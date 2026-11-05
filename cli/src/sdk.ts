@@ -9,6 +9,7 @@ export {
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider,
   AcpMcpServer,
+  buildTaskManifest, appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS,
 } from '@acp/runtime';
 export type {
   SavedInvite, InviteStoreOptions, SecretStore,
@@ -28,9 +29,14 @@ export {
   generateKeyPair, createSignedAgentCard, verifySignedAgentCard,
   createInviteToken, inviteTokenFromUri, isInviteTarget, parseAndVerifyInviteToken,
   discoverAgentCards, findDiscoveredAgentCard,
+  buildContextGrant, validateContextGrant, validateManifest, validateContextGrantUse,
+  contextGrantAuditPayload, CONTEXT_GRANT_MAX_BYTES, CONTEXT_GRANT_MAX_LIFETIME_MS,
+  CONTEXT_GRANT_DEFAULT_LIFETIME_MS,
 } from '@acp/core';
 export type {
   KeyPair, Json, Signed, SignedEnvelope,
+  ContextGrant, ContextGrantOptions, DeliveryMode, TaskManifest,
+  ContextGrantAuditEventType, ContextGrantAuditPayload,
   Invite, AgentSkill, DiscoveryAgentCard, CreateAgentCardOptions, SignedAgentCard, RelayEndpointPolicy,
   ConnectionRequest, ConnectionAccepted, ConnectionAck, ConnectionControl,
 } from '@acp/core';

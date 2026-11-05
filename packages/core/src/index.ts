@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './context-grant.js';
 export * from './crypto.js';
 export * from './schema.js';
 export * from './protocol.js';

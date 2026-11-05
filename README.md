@@ -1,5 +1,7 @@
 # Sealbridge
 
+Optional context selections and delivery modes: [Context grants (CP1)](docs/context-grants.md).
+
 ## Install
 
 macOS / Linux:

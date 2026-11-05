@@ -65,7 +65,8 @@
     "README.md",
     "README.ja.md",
     "docs/sdk.md",
-    "docs/sdk.ja.md"
+    "docs/sdk.ja.md",
+    "docs/context-grants.md"
   ],
   "publishConfig": {
     "access": "public"

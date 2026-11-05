@@ -9,7 +9,10 @@ import {
   verifyEnvelope,
   verifySigned,
   verifySignature,
+  contextGrantAuditPayload,
 } from '@acp/core';
+import type { ContextGrant, ContextGrantAuditEventType } from '@acp/core';
+import { appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS, contextSessionAuditPayload } from './context-grant-audit.js';
 import type { AckReceipt, Json, KeyPair, Signed, SignedEnvelope, Transition } from '@acp/core';
 import { JsonlStore, verifyAudit } from '@acp/ledger';
 import type { AuditBody, AuditBundle, AuditEntry, Checkpoint } from '@acp/ledger';
@@ -158,6 +161,7 @@ export class SessionWire {
     /** Worker admission may await inspection before seeding the initial PROPOSE. */
     private awaitingInitial = false,
     readonly delivery?: WireDelivery,
+    readonly contextGrant?: ContextGrant,
   ) {
     if (!this.awaitingInitial) { this.startPump(); void this.dispatch(); }
   }
@@ -270,6 +274,13 @@ export class SessionWire {
       for (;;) {
         const envelope = await this.nextEnvelope();
         const type = envelope.payload.eventType;
+        if (CONTEXT_GRANT_AUDIT_EVENTS.includes(type as ContextGrantAuditEventType)) {
+          validateSchema('context-grant-audit-payload', envelope.payload.payload);
+          if (!this.contextGrant || digest(envelope.payload.payload) !== digest(contextGrantAuditPayload(this.contextGrant)))
+            throw new Error('CONTEXT_GRANT_AUDIT_CONFLICT');
+          await this.acknowledgeControl(envelope);
+          continue;
+        }
         if (type === 'HEARTBEAT') {
           const sentAt = (envelope.payload.payload as { sentAt?: number }).sentAt;
           if (typeof sentAt !== 'number' || !Number.isSafeInteger(sentAt) || sentAt > Date.now() + 5000)
@@ -486,7 +497,7 @@ export class SessionWire {
       actorDid,
       receiverDid,
       eventType,
-      payload,
+      payload: this.contextGrant ? contextSessionAuditPayload(eventType, payload, this.contextGrant) : payload,
     };
   }
   private async acknowledgeControl(event: SignedEnvelope): Promise<void> {
@@ -539,6 +550,10 @@ export class SessionWire {
       () => undefined,
     );
     return run;
+  }
+  async contextEvent(eventType: ContextGrantAuditEventType): Promise<void> {
+    if (!this.contextGrant) return;
+    await appendContextGrantAuditEvent((type, payload) => this.sendEvent(type, payload), eventType, this.contextGrant);
   }
   private async transmit(eventType: string, payload: unknown): Promise<void> {
     const data = asJson(payload),
