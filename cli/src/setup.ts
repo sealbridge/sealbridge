@@ -160,7 +160,7 @@ export async function runSetup(options: SetupOptions = {}) {
 }
 
 export async function setupCommand(args: string[]) {
-  if (args.length === 1 && args[0] === '--help') {
+  if (args.includes('--help') || args.includes('-h')) {
     console.log(SETUP_USAGE + '\nHosts: claude-desktop (macOS/Windows), cursor, claude-code (explicit --project only).\nLocal only. Close host settings before applying; reload the host afterward.\nDefault: mcp-server --require-approval requests host form elicitation before sending and for final verification.\nHosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending; support cannot be detected offline.\n--no-require-approval selects automatic approval: the host can send without per-request confirmation and accept final results automatically.\n--update-existing replaces only a differing Sealbridge entry, retaining a backup of the original file.\n--dry-run reads and validates; --print outputs proposed entries. Neither writes files.\nUse a persistent installation or a built checkout; setup does not install dependencies.');
     return;
   }

@@ -6,6 +6,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- CLI `--help` and `-h` print help without creating identities, invitations, or stores; missing required arguments are checked before local writes.
 - Fixed delegation to connected peers by DID, saved invitation alias, or workerRef, retaining the observed protocol version when no directory card is available.
 
 ## [0.4.1] - 2026-11-05

@@ -7,7 +7,7 @@ const USAGE = 'Usage: sealbridge config key-store [file|keychain]';
 
 /** Read or persist selection without moving or creating identities. */
 export async function configCommand(args: string[], options: IdentityStoreOptions = {}): Promise<void> {
-  if (args.length === 1 && args[0] === '--help') { console.log(USAGE); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
   if (args[0] !== 'key-store' || args.length > 2) throw new Error(USAGE);
   const value = args[1];
   if (value !== undefined) {

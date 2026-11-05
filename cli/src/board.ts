@@ -140,7 +140,15 @@ export function boardHost(post: Signed<BoardPost>, key: KeyPair, path: string, i
 }
 
 export async function boardCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
+  const usage = 'Usage: sealbridge board list --dir <directory>\n' +
+    '       sealbridge board post --relay <url> --what <text> --skill <id> --task-type <type> --deadline <time> --max-input-tokens <n> --max-output-tokens <n> --max-tool-calls <n> --max-wall-seconds <n> --input-file <file> --out <file> [--key <file>]\n' +
+    '       sealbridge board candidates --post <file> [--key <file>]\n' +
+    '       sealbridge board serve --post <file> --state <file> --audit <file> [--key <file>]\n' +
+    '       sealbridge board claim --post <file> --card <file> --audit <file> --out <file> [--key <file>]\n' +
+    '       sealbridge board dispatch --post <file> --state <file> --input-file <file> --audit <file> --out <file> [--key <file>]';
+  if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
   const [action, ...rest] = args;
+  if (!['list', 'post', 'candidates', 'serve', 'claim', 'dispatch'].includes(action)) throw new Error(usage);
   const f = new Map<string, string>();
   const allowed = ['--key','--post','--dir','--input-file','--what','--skill','--task-type','--deadline','--relay',
     '--max-input-tokens','--max-output-tokens','--max-tool-calls','--max-wall-seconds','--card','--state','--out','--audit'];
@@ -150,6 +158,14 @@ export async function boardCommand(args: string[], identityOptions: IdentityStor
     f.set(rest[i], rest[i + 1]);
   }
   const need = (n: string) => { const v = f.get('--' + n); if (!v) throw new Error('Missing --' + n); return v; };
+  const required: Record<string, string[]> = {
+    list: ['dir'],
+    post: ['relay', 'what', 'skill', 'task-type', 'deadline', 'max-input-tokens', 'max-output-tokens',
+      'max-tool-calls', 'max-wall-seconds', 'input-file', 'out'],
+    candidates: ['post'], serve: ['post', 'state', 'audit'],
+    claim: ['post', 'card', 'audit', 'out'], dispatch: ['post', 'state', 'input-file', 'audit', 'out'],
+  };
+  for (const name of required[action]) need(name);
   const read = <T>(n: string): T => JSON.parse(readFileSync(need(n), 'utf8')) as T;
   const save = (n: string, v: unknown) => writeFileSync(need(n), JSON.stringify(v, null, 2), { flag: 'wx', mode: 0o600 });
   if (action === 'list') {

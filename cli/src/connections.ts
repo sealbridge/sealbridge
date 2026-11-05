@@ -32,7 +32,7 @@ export interface ConnectionsCommandOptions {
 const USAGE = 'Usage: sealbridge connections list | status workerRef-or-DID | review list|approve ID|reject ID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Review uses built-in inspection of signed connection offer metadata only. A plain task creates only a pending task-derived item, not a reviewable connection offer. On CONNECTION_NOT_PENDING, check connections review list with the same role/key and use a listed ID; if empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Use tasks list/show/approve/reject for individual held-task review and an interactive worker for live task approval. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / review の組み込み検査は署名付き接続申し込みの情報だけが対象です。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。CONNECTION_NOT_PENDING なら同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。単体 CLI の tasks list/show/approve/reject で個別タスクを確認し、対話式ワーカーで実行を承認します。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
 export async function connectionsCommand(args: string[], options: ConnectionsCommandOptions = {}): Promise<void> {
   const output = options.output ?? console.log;
-  if (args.includes('--help')) { output(USAGE); return; }
+  if (args.includes('--help') || args.includes('-h')) { output(USAGE); return; }
   const reviewAction = args[0] === 'review';
   const [action, ...rest] = reviewAction ? ['review-' + args[1], ...args.slice(2)] : args;
   if (!reviewAction && action?.startsWith('review-')) throw new Error(USAGE);
@@ -50,8 +50,11 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
       ids.length !== (['list','prior-approved','review-list','request','sync'].includes(action) ? 0 : 1)) throw new Error(USAGE);
   const role = flags.get('--role') ?? (['confirm-invite', 'status'].includes(action) ? 'requester' : 'worker');
   if (role !== 'worker' && role !== 'requester') throw new Error('INVALID_IDENTITY_ROLE');
+  if (action === 'request' && (!flags.has('--to') || !flags.has('--relay'))) throw new Error('RELAY_REQUIRED');
   const identityOptions = { ...options.identityOptions, explicitKeyPath: flags.get('--key') };
-  const key = readOnly ? (await inspectStoredIdentity(role, identityOptions)).key : await resolveStoredIdentity(role, identityOptions);
+  const needsSavedRelay = ['approve', 'connect-prior', 'sync'].includes(action) && !flags.has('--relay');
+  const key = readOnly || needsSavedRelay ? (await inspectStoredIdentity(role, identityOptions)).key : await resolveStoredIdentity(role, identityOptions);
+  if (!key && needsSavedRelay) throw new Error('RELAY_REQUIRED');
   if (!key) { output(JSON.stringify(action === 'status' ? { role, status: 'none', state: 'none' } : reviewAction ? { requests: [] } : { connections: [], priorApprovedPeers: [] })); return; }
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, identityOptions),
     fs: identityOptions.fs, platform: identityOptions.platform, now: options.now });
