@@ -314,6 +314,8 @@ The file is created or restricted to mode `0600`; rejected proposals are omitted
 and write failures stop execution. Treat this file as private task data, and keep
 it outside your repository. This also works with the default sandbox echo worker.
 
+Workers can opt into PROPOSE-only local interruption terminals with `--audit-interruption-format 1` (`WorkerNodeOptions.auditInterruptionFormat: 1`) after updating readers. A verified worker-only terminal is `UNILATERALLY_CLOSED`, `valid:false`, and `audit-verify` exit 2; it does not establish bilateral completion. See [audit interruption format and recovery](docs/audit-interruption.md).
+
 Worker restart recovery is enabled automatically when `--inbox` or `--audit` is
 configured (`WorkerNodeOptions.inboxPath` / `auditPath`). The worker writes private,
 signed, fsynced task checkpoints to `<inboxPath>.tasks.jsonl`, or

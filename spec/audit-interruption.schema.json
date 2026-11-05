@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.1/audit-interruption.schema.json",
+  "title": "audit-interruption",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "formatVersion",
+        "taskId",
+        "actors",
+        "seq",
+        "prevEntryHash",
+        "acknowledgedPrefix",
+        "phase",
+        "reason",
+        "observedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "AuditInterruption"
+        },
+        "formatVersion": {
+          "const": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+          }
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "prevEntryHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "acknowledgedPrefix": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count",
+            "lastSeq",
+            "head",
+            "entriesDigest"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "lastSeq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "head": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "entriesDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "phase": {
+          "enum": [
+            "OWNER_APPROVAL",
+            "ACCEPT_ACK_WAIT"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "SESSION_TIMEOUT",
+            "WORKER_STOPPED",
+            "WORKER_RESTART_OBSERVED"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
+      }
+    },
+    "signature": {
+      "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json#/properties/actorSignature"
+    }
+  }
+}
