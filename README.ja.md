@@ -14,7 +14,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-インストーラーは npm で公開待ちの sealbridge 0.4.0 を固定指定しています。更新したインストーラーは sealbridge@0.4.0 の npm 公開後にのみデプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
+インストーラーは 2026-11-05 UTC に npm で公開された sealbridge 0.4.0 を固定指定しています。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
@@ -49,7 +49,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 
 30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
 
-> **ステータス**: Sealbridge `v0.4.0` を npm パッケージ `sealbridge` としてリリース準備中で、公開待ちです。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
+> **ステータス**: Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
