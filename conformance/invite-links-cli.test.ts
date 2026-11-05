@@ -63,7 +63,7 @@ it('keeps token as the offline default, supports output files and adds verificat
   await createInviteCommand(['--key',s.key,'--output','file:' + file], s.options);
   expect(s.logs).toHaveLength(0); expect(s.sent).toHaveLength(0);
   const token = fs.readFileSync(file, 'utf8').trim(); expect(token).toMatch(/^acp-invite:/);
-  expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   await acceptCommand('accept', [token, '--no-network'], { ...s.options.identityOptions, fetch: s.options.fetch });
   expect(JSON.parse(s.logs[0])).toMatchObject({ relayContacted: false, verificationNumber: JSON.parse(s.errors[0]).verificationNumber });
   expect(s.sent).toHaveLength(0);
@@ -100,7 +100,9 @@ it('routes link output to private files/fds, makes 0600 QR files and suppresses 
   const link = fs.readFileSync(linkFile,'utf8').trim(), k = parseInviteLink(link).k;
   expect(s.logs).toHaveLength(0); expect(s.errors).toHaveLength(2); expect(s.errors[1]).toBe('QR は端末でだけ出します');
   expect(s.errors.join('')).not.toContain(k);
-  for (const path of [linkFile,png,svg]) expect(fs.statSync(path).mode & 0o777).toBe(0o600);
+  if (process.platform !== 'win32') {
+    for (const path of [linkFile,png,svg]) expect(fs.statSync(path).mode & 0o777).toBe(0o600);
+  }
   expect(fs.readFileSync(png).subarray(0,8).toString('hex')).toBe('89504e470d0a1a0a');
   expect(fs.readFileSync(svg,'utf8')).toContain('<svg');
   const fdFile = join(s.root,'fd.txt'), fd = fs.openSync(fdFile, 'wx', 0o600);
