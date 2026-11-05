@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createMemoryInviteHandler } from './invites.js';
 import {
   verifySigned,
   generateKeyPair,
@@ -1385,7 +1386,9 @@ export function createRelayFetchHandler(
     }
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   }
+  const inviteHandler = createMemoryInviteHandler();
   return async (request) => {
+    if (new URL(request.url).pathname.startsWith('/v1/invites') || new URL(request.url).pathname === '/v1/capabilities') return inviteHandler(request);
     try {
       relay.evictExpired();
       const url = new URL(request.url),

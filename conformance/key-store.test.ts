@@ -385,7 +385,10 @@ describe('embedding and application entry points', () => {
 
     const token = worker.invite();
     await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
-    const imported = JSON.parse(output.mock.calls.at(-1)![0]);
+    const { verificationNumber, relayContacted, ...imported } = JSON.parse(output.mock.calls.at(-1)![0]);
+    expect(verificationNumber).toMatch(/^\d{6}$/);
+    expect(relayContacted).toBe(false);
+    expect(Object.keys(imported)).toHaveLength(9);
     expect(await call(server, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
     expect(approvalProvider.approve).not.toHaveBeenCalled();
     // Signing initializes the cached asynchronous owner before the next alias lookup.

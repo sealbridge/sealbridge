@@ -87,7 +87,8 @@ describe('imported invitation string storage', () => {
     const token = worker.invite(), log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const server = new AcpMcpServer({ identityOptions: options, relay, approvalProvider: approve(local) });
     await acceptCommand('accept', [token, '--alias', 'reviewer'], options);
-    const saved = JSON.parse(log.mock.calls.at(-1)![0]);
+    const { verificationNumber, relayContacted, ...saved } = JSON.parse(log.mock.calls.at(-1)![0]);
+    expect(verificationNumber).toMatch(/^\d{6}$/); expect(relayContacted).toBe(false);
     const store = await InviteStore.open(local, options), metadata = raw(store).payload.entries[0];
     expect(metadata.inviteToken).toBeUndefined();
     expect(metadata.inviteSecret).toBe('invite:' + saved.workerRef.slice(6));

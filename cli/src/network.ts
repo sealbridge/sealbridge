@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createInviteCommand, inviteLinksCommand, SHORT_INVITE_USAGE, linkRevocations } from './invite-links.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inviteShareCommand } from './invite-share.js';
 import { connectionHumanReview } from './connections.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema } from '@acp/core';
-import { createSignedAgentCard, createInviteToken, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
+import { discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
@@ -228,7 +229,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (command === 'invite') {
       if (['open', 'share', 'request-reissue', 'reissue'].includes(args[0]))
         return inviteShareCommand(args[0], args.slice(1), application.identityOptions);
-      console.log(INVITE_USAGE); return;
+      console.log(SHORT_INVITE_USAGE + '\n' + INVITE_USAGE); return;
     }
     if (command === 'discover') { console.log(DISCOVER_USAGE); return; }
     console.log(command === 'relay' ? RELAY_USAGE + '\n\n' + `Relay notification options:
@@ -274,6 +275,8 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     return networkCommand('worker', ['start', ...args, ...generated], application);
   }
+  if (command === 'invite' && sub === 'links') return inviteLinksCommand(args, application);
+  if (command === 'invite' && sub === 'create') return createInviteCommand(args, application);
   if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args, application.identityOptions);
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
     throw new Error(command === 'worker' ? WORKER_USAGE : RELAY_USAGE);
@@ -332,31 +335,6 @@ export async function networkCommand(command: string, args: string[], applicatio
     ...application.identityOptions,
     explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined,
   });
-  if (command === 'invite') {
-    // Local signing retains the explicit URL; connection policy applies when dialing.
-    const relayUrl = text(f, 'relay', fallbackCandidates[0]);
-    const name = text(f, 'name', 'Sealbridge Worker');
-    const expiresInSeconds = optionalCount(f, 'expires-in') ?? 3600;
-    if (expiresInSeconds > 2592000) throw new Error('INVALID_EXPIRES_IN');
-    const key = await getKey();
-    const card = createSignedAgentCard(
-      {
-        name,
-        agentDid: key.did,
-        relayEndpoint: relayUrl,
-        skills: [{ id: 'json-task', name: 'JSON task' }],
-        protocolVersions: new LiveProtocol().receiveVersions(),
-      },
-      key,
-    );
-    console.log(
-      createInviteToken(
-        { agentCard: card, expiresInSeconds },
-        key,
-      ),
-    );
-    return;
-  }
   const automatic = ['yes', 'auto-accept', 'auto-approve'].some((name) => f.has('--' + name));
   if (command === 'worker') {
     const onInboxRecord = f.has('--on-receive')
@@ -420,6 +398,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
       requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
     const worker = new WorkerNode({
+      revocation: linkRevocations(key, application.identityOptions),
       ...authRecovery,
       ...(f.has('--max-tasks-per-day') ? { dailyLimit: {
         path: join(dirname(contactsPath()), 'daily-tasks.json'),

@@ -49,7 +49,10 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   const token = worker.invite();
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   await acceptCommand('accept', ['https://sealbridge.app/i#' + token, '--alias', 'reviewer'], identityOptions);
-  const imported = JSON.parse(log.mock.calls.at(-1)![0]);
+  const { verificationNumber, relayContacted, ...imported } = JSON.parse(log.mock.calls.at(-1)![0]);
+  expect(verificationNumber).toMatch(/^\d{6}$/);
+  expect(relayContacted).toBe(false);
+  expect(Object.keys(imported)).toHaveLength(9);
   const listed = await call(server, 'acp_list_invites');
   expect(listed.value.invites).toEqual([imported]);
   expect(approval.approve).not.toHaveBeenCalled(); expect(workerApproval.approve).not.toHaveBeenCalled();

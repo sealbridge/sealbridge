@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { claimInviteLink } from './invite-links.js';
+import { digest, parseAndVerifyInviteToken, inviteLinkVerificationNumber } from '@acp/core';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { InviteStore, inspectStoredIdentity, resolveStoredIdentity } from '@acp/runtime';
@@ -7,9 +9,10 @@ import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
   input?: Readable & { isTTY?: boolean; unref?: () => unknown };
   output?: Writable;
+  fetch?: typeof fetch;
   readPaste?: () => Promise<string>;
 }
-const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] [--allow-private-relay] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
+const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] [--allow-private-relay] [--no-network] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
 // Allow the existing 64 KiB token bound plus link framing and whitespace.
 const MAX_STDIN_BYTES = 68 * 1024;
 const STDIN_TIMEOUT_MS = 10_000;
@@ -70,11 +73,11 @@ async function paste(options: AcceptOptions): Promise<string> {
     reader.once('error', () => { reject(new Error('INVITE_INPUT_UNAVAILABLE')); reader.close(); });
   });
 }
-/** User-operated import; no relay, DNS, or contact operations. */
+/** User-operated import. Only short links contact the relay; import grants no consent. */
 export async function acceptCommand(command: 'accept' | 'invites', args: string[], options: AcceptOptions = {}): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(USAGE + (command === 'accept'
-      ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.' : ''));
+      ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON with verificationNumber and relayContacted. --no-network refuses short links requiring relay access.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.' : ''));
     return;
   }
   if (command === 'invites') {
@@ -86,12 +89,13 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
       ? { invites: store?.list() ?? [] } : { removed: store?.remove(args[1]) ?? false }));
     return;
   }
-  let alias: string | undefined, link: string | undefined, usePaste = false, useStdin = false, allowPrivateRelay = false;
+  let alias: string | undefined, link: string | undefined, usePaste = false, useStdin = false, allowPrivateRelay = false, noNetwork = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--alias' && alias === undefined && args[i + 1] && !args[i + 1].startsWith('--')) alias = args[++i];
     else if (arg === '--paste' && !usePaste) usePaste = true;
     else if (arg === '--stdin' && !useStdin) useStdin = true;
+    else if (arg === '--no-network' && !noNetwork) noNetwork = true;
     else if (arg === '--allow-private-relay' && !allowPrivateRelay) allowPrivateRelay = true;
     else if (!arg.startsWith('--') && link === undefined) link = arg;
     else throw new Error(USAGE);
@@ -99,8 +103,13 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
   if (Number(usePaste) + Number(useStdin) + Number(link !== undefined) !== 1) throw new Error(USAGE);
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
+  const shortLink = /^(?:https:\/\/sealbridge\.app\/j|sealbridge:\/\/join)/.test(link!);
+  if (shortLink && noNetwork) throw new Error('INVITE_LINK_NETWORK_REQUIRED: this invitation requires the relay; --no-network refused it');
+  const relayPolicy = { ...options.relayPolicy, allowPrivateRelay };
+  if (shortLink) link = await claimInviteLink(link!, { ...options, relayPolicy });
+  const invite = parseAndVerifyInviteToken(link!, options.now?.() ?? Date.now(), relayPolicy);
+  const verificationNumber = inviteLinkVerificationNumber(digest(invite));
   const owner = await resolveStoredIdentity('requester', options);
-  console.log(JSON.stringify((await InviteStore.open(owner, {
-    ...options, relayPolicy: { ...options.relayPolicy, allowPrivateRelay },
-  })).import(link!, alias)));
+  const result = await (await InviteStore.open(owner, { ...options, relayPolicy })).import(link!, alias, shortLink ? { pendingConfirmation: true } : undefined);
+  console.log(JSON.stringify({ ...result, verificationNumber, relayContacted: shortLink }));
 }
