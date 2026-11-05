@@ -14,7 +14,7 @@ export const specDirectory = new URL('../../../spec/', import.meta.url);
 export const SCHEMA_NAMES = [
   'task-manifest', 'task-manifest.0.1.0', 'task-manifest.0.2.0', 'agent-card',
   'delivery-status', 'envelope', 'usage-receipt', 'ack-receipt', 'capability-token', 'approval-receipt', 'audit-entry',
-  'context-grant', 'context-grant-audit-payload',
+  'context-grant', 'context-grant-audit-payload', 'delegation-link', 'delegation-attachment',
   'audit-interruption', 'audit-evidence', 'audit-file-record',
 ] as const;
 export function loadSchema(name: string): Schema {

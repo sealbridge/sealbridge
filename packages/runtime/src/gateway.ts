@@ -85,7 +85,7 @@ export class OwnerGateway {
     envelope: SignedEnvelope,
     engine: VerificationEngine,
     approval?: ApprovalReceipt | (() => Promise<ApprovalReceipt>),
-    options?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void },
+    options?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void; ownerDecision?: true },
   ) {
     if (
       this.owner.did !== this.contract.manifest.requester.ownerDid ||

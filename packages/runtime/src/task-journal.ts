@@ -10,6 +10,8 @@ import { checkPath, checkStat, readPrivateFile, writePrivateFile } from './local
 import { signPayload, verifySigned, validateSchema } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
 import type { AuditInterruption } from '@acp/ledger';
+import { validateTaskDelegation } from './delegation.js';
+import type { TaskDelegationState } from './delegation.js';
 import type { SessionResult } from './session.js';
 
 export interface TaskOutcome {
@@ -17,6 +19,7 @@ export interface TaskOutcome {
   result?: SessionResult;
 }
 export interface TaskCheckpoint {
+  delegation?: TaskDelegationState;
   version: 1;
   taskId: string;
   requesterDid: string;
@@ -203,6 +206,7 @@ export class TaskJournal {
           throw new Error();
       } catch { throw new Error('INVALID_TASK_JOURNAL'); }
     }
+    if (record.delegation !== undefined) validateTaskDelegation(record.delegation, record.taskId, record.requesterDid, this.owner.did);
     return record;
   }
 
@@ -243,6 +247,7 @@ export class TaskJournal {
   save(record: TaskCheckpoint): void {
     this.load();
     const snapshot = JSON.parse(JSON.stringify(record)) as TaskCheckpoint;
+    if (snapshot.delegation !== undefined) validateTaskDelegation(snapshot.delegation, snapshot.taskId, snapshot.requesterDid, this.owner.did);
     const line = Buffer.from(JSON.stringify(signPayload(snapshot, this.owner)) + '\n');
     if (line.length > this.maxRecordBytes) throw new Error('OUTBOX_FULL');
     const fd = this.writer ?? this.open(constants.O_WRONLY | constants.O_CREAT);

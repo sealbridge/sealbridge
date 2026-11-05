@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://acp-spec.local/schemas/v0.2/context-grant.schema.json",
   "title": "ContextGrant",
-  "description": "CP1 context selection and retention declarations. approval_redelegation is reserved and refused by active validation.",
+  "description": "Context selection and retention declarations; CP5a approval_redelegation requires owner-approved child dispatch.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -117,6 +117,25 @@
           "retention": {
             "const": "keep_deliverable"
           },
+          "inputRetentionAllowed": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deliveryMode": {
+            "const": "approval_redelegation"
+          }
+        },
+        "required": [
+          "deliveryMode"
+        ]
+      },
+      "then": {
+        "properties": {
           "inputRetentionAllowed": {
             "const": false
           }

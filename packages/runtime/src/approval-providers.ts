@@ -125,11 +125,13 @@ export interface ApprovalRequest {
   deadline?: string;
 }
 export interface ApprovalProvider {
+  readonly ownerDecision?: true;
   readonly kind?: 'human' | 'policy';
   approve(request: ApprovalRequest): Promise<ApprovalReceipt>;
 }
 export class InteractiveCliApprovalProvider implements ApprovalProvider {
   readonly kind = 'human' as const;
+  readonly ownerDecision = true as const;
   constructor(
     readonly owner: KeyPair,
     readonly options: { input?: Readable; output?: Writable; formatRequest?: (request: ApprovalRequest) => string } = {},
@@ -248,6 +250,7 @@ function approvalReason(request: ApprovalRequest): string {
   return request.gate;
 }
 export class WebhookApprovalProvider implements ApprovalProvider {
+  get ownerDecision(): true | undefined { return this.options.response === 'owner-decision' ? true : undefined; }
   constructor(
     readonly owner: KeyPair,
     readonly options: WebhookApprovalProviderOptions,
@@ -324,6 +327,7 @@ export class WebhookApprovalProvider implements ApprovalProvider {
 
 /** Host form decisions are serialized per MCP connection and never use terminal IO. */
 export class McpFormApprovalProvider implements ApprovalProvider {
+  readonly ownerDecision = true as const;
   private queue: Promise<void> = Promise.resolve();
   constructor(
     readonly owner: KeyPair,
