@@ -14,7 +14,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers pin sealbridge 0.4.0, published on npm on 2026-11-05 UTC. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
+The installers pin sealbridge 0.4.1, pending publication on npm. Deploy the updated installers only after sealbridge@0.4.1 is on npm. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
@@ -51,7 +51,7 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 
 30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
 
-> **Status**: Sealbridge `v0.4.0` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
+> **Status**: Sealbridge `v0.4.1` is being prepared for release on npm as `sealbridge`; publication is pending. Sealbridge `v0.4.0` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
 

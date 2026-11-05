@@ -2,7 +2,7 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
-## [Unreleased]
+## [0.4.1] - 2026-11-05
 
 ### Fixed
 
@@ -75,6 +75,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.4.1]: https://github.com/sealbridge/sealbridge/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sealbridge/sealbridge/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/sealbridge/sealbridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sealbridge/sealbridge/compare/v0.2.2...v0.3.0
