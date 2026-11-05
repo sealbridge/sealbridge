@@ -58,7 +58,7 @@ export interface WorkerIntakeStore {
   pendingTask(did: string, taskId: string, proposalDigest: string): boolean;
 }
 const ceiling = 1024 * 1024;
-export const PENDING_MESSAGE = 'The worker owner must review this requester. No task was accepted. Do not retry automatically.';
+export const PENDING_MESSAGE = 'Task inspection and live worker owner approval are required separately from connection consent. No task was accepted. Review with tasks list/show; check connections review list for connection consent. Explicitly submit a fresh task after review. Do not retry automatically.';
 export function workerIntakePath(ownerDid: string, options: LocalIdentityOptions = {}): string {
   return join(resolveDataRoot(options), 'workers', createHash('sha256').update(ownerDid).digest('hex'), 'intake.json');
 }

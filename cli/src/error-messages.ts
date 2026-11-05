@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 const reasons: [RegExp, string][] = [
   [/ACCESS_MODE_REMOVED/, '旧モードの指定は廃止しました。connections と一般の --max-*、--allow-task-type を使ってください。'],
-  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'タスク検査プロバイダーを設定した組み込みアプリで検査してください。単体 CLI はタスクを検査できず、requests show と既定の approve は検査完了まで使えません。requests list で保留情報を確認できます。接続申し込みは connections review list で確認してください。接続審査だけではタスクを検査・開封しません。所有者の確認には別途対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。'],
+  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, '単体 CLI の tasks list/show で個別タスクを確認してください。表示完了で検査記録を保存します。tasks approve/reject は終端の保留内容だけを閉じます。新しいタスクは対話式ワーカーで改めて確認・承認してください。requests list は依頼者ごとの保留情報です。接続申し込みは connections review list で確認してください。接続審査だけではタスクを検査・開封しません。所有者の確認には別途対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。'],
   [/CONNECTION_NOT_PENDING/, 'この ID に一致する審査可能な署名付き接続申し込みはありません。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要で、--auto-accept は検査や接続同意を代替しません。'],
   [/CONNECTION_REQUIRED/, 'この操作には選択した所有者 DID の接続が必要です。connections を確認してください。'],
   [/CONNECTION_OPENING_REQUIRED/, 'limited の依頼には検査と所有者が開く操作が必要です。alwaysAsk:true にしてください。'],
@@ -12,7 +12,7 @@ const reasons: [RegExp, string][] = [
   [/SETUP_APPROVAL_MODE_CONFLICT/, '既存の Sealbridge 登録は承認モードが異なります。--update-existing --dry-run で確認し、--update-existing でバックアップ付きで置換してください。従来の自動承認は --no-require-approval で選択できます。'],
   [/SETUP_ENTRY_CONFLICT/, '既存の Sealbridge 登録が異なります。--update-existing --dry-run で確認し、--update-existing でその登録だけをバックアップ付きで置換してください。'],
   [/SETUP_/, 'ホストの設定画面を閉じ、設定とバックアップを確認してから再実行してください。'],
-  [/PENDING_OWNER_APPROVAL/, 'ワーカー所有者による依頼者の審査待ちです。タスクは受諾されていません。自動再試行せず、審査後に所有者が新しい依頼を開始してください。'],
+  [/PENDING_OWNER_APPROVAL/, 'タスクの検査と実行承認は接続同意とは別です。tasks list/show で内容を確認し、接続同意は connections review list または招待フローで確認してください。終端の保留タスクは実行されません。自動再試行せず、新しいタスクを明示的に送信し、対話式ワーカーで改めて承認してください。'],
   [/RELAY_AUTH_RECOVERY_EXHAUSTED/, 'システム時計が同期されていることと、鍵が登録された DID と一致することを確認してください。'],
   [/ADAPTER_PROXY_NOT_USED/, 'Codex からタスク用プロキシへの認証済みリクエストを確認できないため、成果物を返せません。プロバイダー設定とワーカーログを確認してください。'],
   [/CODEX_PROXY_/, 'Codex のプロキシ設定を確認できません。@openai/codex の 0.163.0 以降をインストールし、プロバイダー設定を変更する追加オプションを外して再実行してください。'],
@@ -35,18 +35,31 @@ const reasons: [RegExp, string][] = [
 ];
 
 const nextSteps: [RegExp, string][] = [
-  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'Use an embedding app configured with a task inspection provider. The standalone CLI cannot inspect tasks; requests show and default requests approve require completed inspection. Use sealbridge requests list to check pending metadata. For signed connection offers, check sealbridge connections review list; connection review does not inspect or open tasks. Human confirmation separately requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
+  [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'Use sealbridge tasks list/show for individual held-task inspection in the standalone CLI. Display completion records an inspection receipt. tasks approve/reject close a terminal held attempt only. Explicitly submit a fresh task for live interactive worker owner approval. Use sealbridge requests list for peer intake metadata. For signed connection offers, check sealbridge connections review list; connection review does not inspect or open tasks. Human confirmation separately requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
   [/CONNECTION_NOT_PENDING/, 'No reviewable signed connection offer matches this ID. A plain task creates only a pending task-derived item, not a reviewable connection offer. Run sealbridge connections review list with the same role/key and use a listed ID. If the list is empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
 ];
 
 export function japaneseErrorReason(message: string): string | undefined {
   return reasons.find(([pattern]) => pattern.test(message))?.[1];
 }
+function pendingGate(error: unknown): string {
+  // PeerRejectedError already includes the wire reason in its message. Project only known gates.
+  try {
+    const message = error instanceof Error ? error.message : '';
+    if (!message.startsWith('PEER_REJECTED: ')) return '';
+    const body = JSON.parse(message.slice('PEER_REJECTED: '.length)) as { reason?: unknown };
+    if (typeof body.reason !== 'string') return '';
+    if (body.reason.startsWith('Task inspection is incomplete.')) return 'Task inspection is incomplete; connection consent alone does not approve execution. ';
+    if (body.reason.startsWith('Connection consent is missing.')) return 'Connection consent is missing; task inspection and live approval remain separate. ';
+    if (body.reason.startsWith('This task attempt is terminal pending.')) return 'This attempt is terminal pending; review cannot resume it. ';
+  } catch { /* A peer's free-form text is not CLI guidance. */ }
+  return '';
+}
 export function formatCliError(error: unknown): string {
   const pending = error as { code?: string; pendingId?: string; pendingStoreError?: string; originalTaskId?: string; nextStep?: string } | null;
   if (pending?.code === 'PENDING_OWNER_APPROVAL') return JSON.stringify({ error: pending.code, retryable: false,
     pendingId: pending.pendingId, originalTaskId: pending.originalTaskId, pendingStoreError: pending.pendingStoreError,
-    nextStep: pending.nextStep ?? 'After worker owner review, explicitly submit a fresh task. Do not retry automatically.' });
+    nextStep: pendingGate(error) + (pending.nextStep ?? 'Use tasks list/show for task inspection and connections review list for connection consent. Explicitly submit a fresh task for live worker owner approval. Do not retry automatically.') });
   const message = String(error);
   const detail = error instanceof Error ? error.message : message;
   const nextStep = nextSteps.find(([pattern]) => pattern.test(detail))?.[1];

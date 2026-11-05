@@ -117,12 +117,14 @@ service. Import/preview grants no consent. Confirming an invitation records loca
 consent and sends a request; it does not establish remote completion. Read
 `WorkerTrustStore.listConnections()` after receiving the signed exchange, or use
 explicit `syncConnections`. Connected remains limited; each task requires
-inspection and owner opening. The default inspection provider is unavailable.
-Task inspection is embedder-only: configure a task inspection provider in the
-embedding app for worker receipt and held-task review. The standalone CLI cannot
-inspect tasks or configure that provider. Connection review only covers signed
-connection offers, not pending task-derived items or task content. CLI human
-confirmation needs an interactive TTY; `--auto-accept` does not supply inspection.
+inspection and owner opening. The library default inspection provider is unavailable; interactive CLI workers supply display inspection.
+The standalone CLI provides literal task display through `tasks list/show` and
+interactive workers. A display inspection receipt grants no execution approval;
+every fresh limited task requires live owner approval. Terminal held decisions
+(`tasks approve/reject`) close only that attempt locally. Custom embedding hosts
+still supply their own inspection provider. Connection review covers signed
+connection offers separately; unaccepted offers remain selectable for connected
+peers. CLI owner confirmation requires an interactive TTY.
 See [connection exchange](connections/connection-exchange.md) and
 [held-content review](connections/held-content.md).
 

@@ -33,6 +33,6 @@ export function publicProfileSummary(card: SignedAgentCard, rate?: number, daily
   return { name: card.payload.name, access: 'Connection-based intake; unconnected requests held',
     jobs: card.payload.skills.flatMap(s => s.taskTypes ?? []),
     hostLimits: { perPersonPerMinute: rate ?? null, perDay: daily ?? null, dayReset: '00:00 UTC' },
-    approval: 'Inspection and owner opening required for limited peers', inspection: 'unavailable',
+    approval: 'Inspection and owner opening required for limited peers', inspection: 'CLI display with interactive stdin/stderr; otherwise unavailable',
     perJob: budgets, automaticPolicy: automatic, signedCard: card };
 }

@@ -6,6 +6,7 @@ import { inspectStoredIdentity } from '@acp/runtime/key-store';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 import { WorkerTrustStore, workerIntakePath, HeldRequestReview } from '@acp/runtime';
 import type { HeldContentReviewProvider } from '@acp/runtime';
+import { literalText } from './task-review.js';
 import { confirmOwner, connectionsCommand } from './connections.js';
 import type { ConnectionsCommandOptions } from './connections.js';
 
@@ -14,7 +15,7 @@ export async function requestsCommand(args: string[], options: {
   output?: (value: string) => void; inspectionProvider?: HeldContentReviewProvider;
   transportFactory?: ConnectionsCommandOptions['transportFactory'];
 } = {}): Promise<void> {
-  const usage = 'Usage: sealbridge requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default approve offers limited connection consent. For show and default approve, use an embedding app configured with a task inspection provider; the standalone CLI cannot inspect tasks and returns INSPECTION_INCOMPLETE until inspection completes. You can list pending metadata with requests list. For signed connection offers, check connections review list or use the invitation/connect flow (connections confirm-invite); connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / show と既定の approve にはタスク検査プロバイダーを設定した組み込みアプリが必要です。単体 CLI はタスクを検査できず、検査完了までは INSPECTION_INCOMPLETE を返します。requests list で保留情報を確認できます。署名付き接続申し込みは connections review list で確認するか、招待・接続フロー（connections confirm-invite）を使ってください。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
+  const usage = 'Usage: sealbridge requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default requests approve retains limited connection consent; it never approves task execution. Use tasks list/show/approve/reject for individual held-task review. Legacy requests show and default approve require a completed inspection receipt (INSPECTION_INCOMPLETE otherwise); tasks show records display inspection. For signed connection offers, check connections review list or use the invitation/connect flow (connections confirm-invite); connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / 単体 CLI の tasks list/show/approve/reject で個別タスクを確認します。requests list は依頼者ごとの一覧です。既定の requests approve は接続同意で、タスク実行の承認ではありません。署名付き接続申し込みは connections review list または招待・接続フロー（connections confirm-invite）で確認します。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
   const output = options.output ?? console.log;
   if (args.includes('--help')) { output(usage); return; }
   const [action, ...rest] = args, flags = new Map<string, string>(), ids: string[] = [];
@@ -45,7 +46,7 @@ export async function requestsCommand(args: string[], options: {
     if (!held) throw new Error('INSPECTION_INCOMPLETE');
     const inspected = await review.inspect(held.id);
     if (inspected.inspectionStatus !== 'complete') throw new Error('INSPECTION_INCOMPLETE: ' + inspected.inspectionStatus);
-    if (action === 'show') { output(JSON.stringify(review.showReviewedContent(held.id))); return; }
+    if (action === 'show') { output(literalText(review.showReviewedContent(held.id))); return; }
   }
   if (action === 'approve' && trust === 'limited') {
     // A task without separate signed sender consent initiates an offer; it cannot infer reciprocal consent.

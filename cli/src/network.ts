@@ -42,8 +42,11 @@ import { approvalSummary } from './approval-summary.js';
 import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 import { parseInviteOutput, deliverInvite } from './invite-output.js';
 import { emitWorkerJson, inviteDigest } from './worker-json.js';
+import { cliTaskInspection, literalText } from './task-review.js';
 const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--allow-task-type']);
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
+// One stdin answer must decide only the task/gate currently displayed.
+let approvalQueue: Promise<unknown> = Promise.resolve();
 function flags(args: string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();
   for (let i = 0; i < args.length; i++) {
@@ -74,10 +77,18 @@ function approval(
   acceptance?: WorkerAcceptancePolicy,
   verbose = false,
 ): ApprovalProvider {
-  return automatic
-    ? new PolicyAutoApprovalProvider(key, undefined, { acceptance })
-    : new InteractiveCliApprovalProvider(key, { output: process.stderr,
-      ...(verbose ? {} : { formatRequest: approvalSummary }) });
+  if (automatic) return new PolicyAutoApprovalProvider(key, undefined, { acceptance });
+  const interactive = new InteractiveCliApprovalProvider(key, { output: process.stderr,
+    formatRequest: verbose ? request => literalText({ taskId: request.taskId, gate: request.gate,
+      target: request.target, details: request.details ?? null }) : approvalSummary });
+  return { kind: 'human', approve(request) {
+    const pending = approvalQueue.catch(() => {}).then(() => {
+      if (request.signal?.aborted) throw new Error('APPROVAL_ABORTED');
+      return interactive.approve(request);
+    });
+    approvalQueue = pending;
+    return pending;
+  } };
 }
 function optionalCount(parsed: Map<string, string | true>, name: string): number | undefined {
   if (!parsed.has('--' + name)) return undefined;
@@ -125,6 +136,9 @@ const REVIEW_HELP = `
                                  Stderr invite_ready JSON contains metadata only in every mode.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
+With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
+Use tasks list/show/approve/reject for individual terminal held attempts; connection consent stays on connections.
+Without an interactive TTY, limited tasks remain held; --auto-accept never supplies their owner approval.
 Task HOME is fresh: host CLI login directories are not exposed. --cmd overrides manage their own authentication.`;
 function allowRequesterDids(parsed: Map<string, string | true>): string[] {
   const raw = parsed.get('--allow-requester');
@@ -191,8 +205,9 @@ export async function networkCommand(command: string, args: string[], applicatio
       (command === 'delegate' ? DELEGATE_USAGE + '\n\n' : '') + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
+  tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
   connections list|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
-                                 Separate human connection consent; inspection unavailable by default.
+                                 Separate human connection consent; tasks use their own inspection and live approval.
   --allow-task-type <type>       Repeatable/comma-separated advertised task types.
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
                                  The local relay CLI provides channel "default".`);
@@ -377,7 +392,10 @@ export async function networkCommand(command: string, args: string[], applicatio
           if (normalizeRelayUrl(url) !== normalizeRelayUrl(relayUrl)) throw new Error('RELAY_ENDPOINT_MISMATCH');
           return workerRelay;
         } },
-      heldReview: new HeldRequestReview(key, application.identityOptions),
+      heldReview: new HeldRequestReview(key, { ...application.identityOptions,
+        ...(process.stdin.isTTY && process.stderr.isTTY ? { provider: cliTaskInspection(text => new Promise<void>((resolve, reject) => {
+          process.stderr.write(text + '\n', error => error ? reject(error) : resolve());
+        })) } : {}) }),
       protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
       connectionReview: connectionHumanReview(undefined, 'worker'),
       onConnectionEvent: event => console.error(JSON.stringify(event)),

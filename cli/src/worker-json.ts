@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createHash } from 'node:crypto';
 import { relayDiagnostic } from '@acp/relay';
+import { PENDING_MESSAGE } from '@acp/runtime';
 import { japaneseErrorReason } from './error-messages.js';
 
 const REDACTED = '[redacted]';
@@ -22,7 +23,11 @@ function reason(value: unknown): string {
   const did = 'did:key:z[1-9A-HJ-NP-Za-km-z]{1,100}';
   const field = '(?:maxInputTokens|maxOutputTokens|maxToolInvocations|maxWallClockSeconds|timeoutSeconds)';
   const number = '-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?';
-  if (value === 'The worker owner must review this requester. No task was accepted. Do not retry automatically.' ||
+  if ([PENDING_MESSAGE,
+      'Task inspection is incomplete. Use tasks list/show, then explicitly submit a fresh task to an interactive worker for live owner approval. Connection consent is separate. Do not retry automatically.',
+      'Connection consent is missing. Check connections review list or the invitation flow. A fresh task still needs inspection and live owner approval. Do not retry automatically.',
+      'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.',
+      'The worker owner must review this requester. No task was accepted. Do not retry automatically.'].includes(value) ||
       /^(?:manifest|budget) is missing$/.test(value) ||
       new RegExp('^' + field + ' is missing or not a finite number$').test(value) ||
       new RegExp('^' + field + ' ' + number + ' exceeds worker limit ' + number + '$').test(value) ||

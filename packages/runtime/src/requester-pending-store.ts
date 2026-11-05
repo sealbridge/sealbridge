@@ -16,7 +16,7 @@ const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_RECORD_BYTES = 256 * 1024;
 const MAX_RECORDS = 100;
 const TTL_MS = 24 * 60 * 60_000;
-export const PENDING_NEXT_STEP = 'Use sealbridge pending list or acp_list_pending_requests; after worker owner approval, explicitly use sealbridge pending resubmit ID or acp_resubmit_pending_request. Listing shows local observations only; do not retry automatically.';
+export const PENDING_NEXT_STEP = 'Use sealbridge pending list or acp_list_pending_requests; after task inspection (tasks list/show) and separate connection consent when needed, explicitly use sealbridge pending resubmit ID or acp_resubmit_pending_request. The fresh task requires its own live worker owner approval. Listing shows local observations only; do not retry automatically.';
 export interface PendingSummary {
   id: string; workerDid: string; originalTaskId: string; lastTaskId: string;
   state: 'pending' | 'resolved' | 'failed' | 'expired';

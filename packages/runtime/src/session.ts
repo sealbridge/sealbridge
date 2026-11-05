@@ -1308,7 +1308,7 @@ export class WorkerNode {
       const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
       this.deliveryService?.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
-      if (previouslyPending && peerTrust === 'trusted') throw new Error('PENDING_OWNER_APPROVAL');
+      if (previouslyPending && peerTrust === 'trusted') throw new PendingTaskError('This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
       if (peerTrust !== 'trusted') {
         inspection ??= await this.holdTask(first, m, data.input);
         if (previouslyPending || peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
@@ -1322,7 +1322,11 @@ export class WorkerNode {
                 receivedAt, expiresAt: receivedAt + 14 * 86400000 } }); }
             catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
           }
-          throw new Error('PENDING_OWNER_APPROVAL');
+          throw new PendingTaskError(inspection.inspectionStatus !== 'complete'
+            ? 'Task inspection is incomplete. Use tasks list/show, then explicitly submit a fresh task to an interactive worker for live owner approval. Connection consent is separate. Do not retry automatically.'
+            : peerTrust === 'unknown' && this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected'
+              ? 'Connection consent is missing. Check connections review list or the invitation flow. A fresh task still needs inspection and live owner approval. Do not retry automatically.'
+              : 'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
         }
       }
       const contractProvider = peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider;
@@ -2004,10 +2008,14 @@ export interface ErrorDiagnostic { code: string; detail?: ErrorDetail }
 class DiagnosticError extends Error {
   constructor(code: string, readonly detail: ErrorDetail) { super(code); }
 }
+class PendingTaskError extends Error {
+  constructor(readonly reason: string) { super('PENDING_OWNER_APPROVAL'); }
+}
 function diagnosticError(code: string, field: string, expected: unknown, actual: unknown, hint: string): Error {
   return new DiagnosticError(code, { field, expected: digest(expected), actual: digest(actual), hint });
 }
 function rejectionBody(error: unknown): ErrorDiagnostic & { reason?: string } {
+  if (error instanceof PendingTaskError) return { code: 'PENDING_OWNER_APPROVAL', reason: error.reason };
   if (error instanceof DiagnosticError) return { code: safeError(error), detail: error.detail };
   if (error instanceof ProposalRejectedError) return { code: error.code, reason: error.reason };
   if (safeError(error) === 'PENDING_OWNER_APPROVAL') return { code: 'PENDING_OWNER_APPROVAL', reason: PENDING_MESSAGE };

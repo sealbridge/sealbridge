@@ -82,8 +82,8 @@ Candidates verify signatures, expiry, skill and relay, then display the poster's
 local relationship and reasons. Claims and dispatch require connected peers;
 otherwise they return `CONNECTION_REQUIRED`. Connection consent does not approve a
 claim, task or lease. Serve uses the poster's actual requester DID, persistent
-intake and held-content review. Task inspection requires an embedding app configured
-with a task inspection provider; the standalone CLI cannot inspect tasks. Use
+intake and held-content review. Use tasks list/show for held task display and the interactive worker for live
+execution approval. Board claim serving retains its separate inspection integration. Use
 `requests list` for pending metadata and `connections review list` for signed
 connection offers. A plain task creates only a pending task-derived item; an
 empty connection review list calls for the invitation/connect flow
