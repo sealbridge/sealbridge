@@ -67,11 +67,24 @@ it('selects newest common signed capabilities, refuses supplied versions and per
   const card = createSignedAgentCard({ name: 'Peer', agentDid: peer.did, relayEndpoint: 'https://relay.example', skills: [], protocolVersions: ['0.2.0','0.1.0'] }, peer);
   let protocol = new LiveProtocol({ protocolPolicy: policy, now: () => now, protocolPeers: new ProtocolPeerStore(owner, options) });
   expect(protocol.outbound(card)).toBe('0.2.0'); expect(() => protocol.outbound(card,'0.1.0')).toThrow('PROTOCOL_VERSION_UNSUPPORTED');
-  expect(() => protocol.outbound(undefined, undefined, peer.did, peer.did)).toThrow('PROTOCOL_DOWNGRADE_REFUSED');
+  expect(protocol.outbound(undefined, undefined, peer.did, peer.did)).toBe('0.2.0');
+  expect(() => protocol.outbound(undefined, '0.1.0', peer.did, peer.did)).toThrow('PROTOCOL_VERSION_UNSUPPORTED');
+  // A present card still supplies its own declarations, including legacy omission.
+  for (const protocolVersions of [undefined, ['0.1.0']]) {
+    const legacy = createSignedAgentCard({ name: 'Peer', agentDid: peer.did,
+      relayEndpoint: 'https://relay.example', skills: [], protocolVersions }, peer);
+    expect(() => protocol.outbound(legacy)).toThrow('PROTOCOL_DOWNGRADE_REFUSED');
+  }
+  const unknown = createSignedAgentCard({ name: 'Peer', agentDid: peer.did,
+    relayEndpoint: 'https://relay.example', skills: [], protocolVersions: ['9.0.0'] }, peer);
+  expect(() => protocol.outbound(unknown)).toThrow('PROTOCOL_VERSION_UNSUPPORTED');
+  expect(protocol.outbound(undefined, undefined, owner.did, peer.did)).toBe('0.1.0');
+  expect(protocol.outbound(undefined, undefined, peer.did, owner.did)).toBe('0.1.0');
   now += 90 * 86400000; expect(() => protocol.outbound()).toThrow('PROTOCOL_VERSION_UNSUPPORTED');
   now = epoch + 86400000;
   protocol = new LiveProtocol({ protocolPolicy: policy, now: () => now, protocolPeers: new ProtocolPeerStore(owner, options) });
   expect(() => protocol.outbound()).toThrow('PROTOCOL_VERSION_UNSUPPORTED');
+  expect(protocol.outbound(undefined, undefined, peer.did, peer.did)).toBe('0.2.0');
 });
 it('verifies legacy cards before ignoring retired fields', () => {
   const owner = generateKeyPair(), card = createSignedAgentCard({ name: 'Peer', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] }, owner);
