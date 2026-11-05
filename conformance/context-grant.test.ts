@@ -75,14 +75,14 @@ describe('ContextGrant contract', () => {
       protocolVersion: '0.1.0', contextGrant: selection })).toThrow();
   });
 
-  it('reserves the redelegation shape but refuses active creation, proposal and acceptance', () => {
-    const m = manifest(); m.contextGrant!.deliveryMode = 'approval_redelegation';
-    validateSchema('context-grant', m.contextGrant);
-    expect(() => buildContextGrant({ ...selection, deliveryMode: 'approval_redelegation' })).toThrow('CONTEXT_GRANT_MODE_UNAVAILABLE');
-    m.permissions.maxDelegationDepth = 1;
-    validateSchema('task-manifest.0.2.0', m);
-    expect(() => validateManifest(m)).toThrow('CONTEXT_GRANT_MODE_UNAVAILABLE');
-    expect(() => createContract(m, signPayload(m, requester), worker)).toThrow('CONTEXT_GRANT_MODE_UNAVAILABLE');
+  it('enables approval mode only with its existing depth and workspace declarations', () => {
+    const m = manifest('approval_redelegation');
+    expect(m.permissions.maxDelegationDepth).toBe(1);
+    expect(m.hitlPolicy.requiredGates).toContain('GATE_SUB_DELEGATION');
+    validateManifest(m);
+    expect(verifyContract(createContract(m, signPayload(m, requester), worker))).toBe(true);
+    m.permissions.maxDelegationDepth = 0;
+    expect(() => validateManifest(m)).toThrow();
   });
 
   it.each([
@@ -126,7 +126,7 @@ it('appends all lifecycle events with only digest and mode and rejects extra pay
   for (const event of CONTEXT_GRANT_AUDIT_EVENTS) {
     await appendContextGrantAuditEvent((type, payload) => { ledger.append(type, payload, worker, requester); }, event, grant);
     expect(() => ledger.append(event, { ...contextGrantAuditPayload(grant), angle: 'body' }, worker, requester)).toThrow('SCHEMA_VIOLATION');
-    expect(() => ledger.append(event, { grantDigest: digest(grant), deliveryMode: 'approval_redelegation' }, worker, requester)).toThrow();
+    validateSchema('context-grant-audit-payload', { grantDigest: digest(grant), deliveryMode: 'approval_redelegation' });
   }
   const bundle = ledger.bundle(worker, requester);
   expect(verifyAudit(bundle).valid).toBe(true);

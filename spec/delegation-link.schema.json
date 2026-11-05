@@ -1,0 +1,141 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "parentTaskId",
+        "parentContractDigest",
+        "childTaskId",
+        "childContractDigest",
+        "delegatorOwnerDid",
+        "delegateeOwnerDid",
+        "depthRemaining",
+        "limits",
+        "issuedAt",
+        "prevLinkDigest"
+      ],
+      "properties": {
+        "type": {
+          "const": "DelegationLink"
+        },
+        "parentTaskId": {
+          "type": "string",
+          "pattern": "^task_[a-zA-Z0-9_-]{8,64}$",
+          "description": "Globally unique task identifier."
+        },
+        "parentContractDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "childTaskId": {
+          "type": "string",
+          "pattern": "^task_[a-zA-Z0-9_-]{8,64}$",
+          "description": "Globally unique task identifier."
+        },
+        "childContractDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "delegatorOwnerDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "delegateeOwnerDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "depthRemaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 0
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deadline",
+            "expiresAt",
+            "budget",
+            "sandboxPolicy",
+            "verification",
+            "depthRemaining"
+          ],
+          "properties": {
+            "deadline": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "budget": {
+              "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json#/properties/budget"
+            },
+            "sandboxPolicy": {
+              "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json#/properties/sandboxPolicy"
+            },
+            "verification": {
+              "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json#/properties/verification"
+            },
+            "depthRemaining": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 0
+            }
+          }
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "prevLinkDigest": {
+          "type": "null"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signerDid",
+        "canonicalization",
+        "payloadDigest",
+        "signedAt",
+        "signature"
+      ],
+      "properties": {
+        "signerDid": {
+          "type": "string",
+          "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+        },
+        "canonicalization": {
+          "const": "RFC8785-JCS"
+        },
+        "payloadDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "signedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^ed25519:[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.2/delegation-link.schema.json",
+  "title": "DelegationLink"
+}

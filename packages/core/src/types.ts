@@ -169,5 +169,37 @@ export type ContextGrantAuditEventType = 'CONTEXT_GRANT' | 'CONTEXT_OPENED' | 'C
   'CONTEXT_DELETION_ATTEMPTED' | 'CONTEXT_MODE';
 export interface ContextGrantAuditPayload {
   grantDigest: string;
-  deliveryMode: 'view_only' | 'hand_over';
+  deliveryMode: DeliveryMode;
+}
+
+/** Cross-task provenance, distinct from the same-task capability chain. */
+export interface DelegationLimits {
+  deadline: string;
+  expiresAt: string;
+  budget: TaskManifest['budget'];
+  sandboxPolicy: TaskManifest['sandboxPolicy'];
+  verification: TaskManifest['verification'];
+  depthRemaining: number;
+}
+export interface DelegationLinkPayload {
+  type: 'DelegationLink';
+  parentTaskId: string;
+  parentContractDigest: string;
+  childTaskId: string;
+  childContractDigest: string;
+  delegatorOwnerDid: string;
+  delegateeOwnerDid: string;
+  depthRemaining: number;
+  limits: DelegationLimits;
+  issuedAt: string;
+  prevLinkDigest: string | null;
+}
+export type DelegationLink = Signed<DelegationLinkPayload>;
+export interface DelegationProof {
+  link: DelegationLink;
+  childContract: import('./contract.js').TaskContract;
+}
+export interface DelegationAttachment {
+  parentContract: import('./contract.js').TaskContract;
+  children: DelegationProof[];
 }

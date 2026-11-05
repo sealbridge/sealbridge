@@ -16,7 +16,8 @@
     "deliveryMode": {
       "enum": [
         "view_only",
-        "hand_over"
+        "hand_over",
+        "approval_redelegation"
       ]
     }
   }

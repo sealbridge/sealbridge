@@ -1,0 +1,413 @@
+{
+  "parentContract": {
+    "manifest": {
+      "protocolVersion": "0.2.0",
+      "taskId": "task_a45981fcff6c47f8a7aeb855e4831ddd",
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "deadline": "2030-01-01T00:10:00.000Z",
+      "requester": {
+        "ownerDid": "did:key:z6MkqBZCzjeUN8JSvCWw1EP8JqpNxEVgrute2sdtVgVJJjFS",
+        "agentDid": "did:key:z6MkqBZCzjeUN8JSvCWw1EP8JqpNxEVgrute2sdtVgVJJjFS"
+      },
+      "worker": {
+        "ownerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+        "agentDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi"
+      },
+      "task": {
+        "title": "Review selected dimensions",
+        "description": "Collect one partial feasibility review.",
+        "acceptanceCriteria": [
+          {
+            "id": "ac_schema",
+            "description": "Output satisfies the agreed JSON schema",
+            "required": true
+          }
+        ]
+      },
+      "io": {
+        "inputSchema": {},
+        "outputSchema": {}
+      },
+      "verification": {
+        "mode": "hybrid",
+        "requireUsageReceipt": true,
+        "requireExecutionAttestation": true,
+        "maxRetries": 0
+      },
+      "budget": {
+        "costBearer": "worker_byok",
+        "maxInputTokens": 50000,
+        "maxOutputTokens": 10000,
+        "maxToolInvocations": 10,
+        "maxWallClockSeconds": 60,
+        "onOverrun": "hard_stop"
+      },
+      "permissions": {
+        "maxDelegationDepth": 1,
+        "grantedCapabilities": []
+      },
+      "sandboxPolicy": {
+        "isolationLevel": "subprocess_restricted",
+        "networkAccess": "none",
+        "filesystemScope": "ephemeral_workspace_only"
+      },
+      "hitlPolicy": {
+        "requiredGates": [
+          "GATE_CONTRACT_ACCEPT",
+          "GATE_DELIVERY_ACCEPT",
+          "GATE_SUB_DELEGATION"
+        ]
+      },
+      "contextGrant": {
+        "deliveryMode": "approval_redelegation",
+        "selectors": [
+          "dimensions",
+          "material"
+        ],
+        "fieldsAllowed": [
+          "width",
+          "height",
+          "material"
+        ],
+        "fieldsDenied": [
+          "customerName"
+        ],
+        "angle": "Review feasibility of the selection.",
+        "expiresAt": "2030-01-02T00:00:00.000Z",
+        "maxBytes": 65536,
+        "retention": "ephemeral_view",
+        "inputRetentionAllowed": false
+      }
+    },
+    "proposal": {
+      "payload": {
+        "protocolVersion": "0.2.0",
+        "taskId": "task_a45981fcff6c47f8a7aeb855e4831ddd",
+        "createdAt": "2030-01-01T00:00:00.000Z",
+        "deadline": "2030-01-01T00:10:00.000Z",
+        "requester": {
+          "ownerDid": "did:key:z6MkqBZCzjeUN8JSvCWw1EP8JqpNxEVgrute2sdtVgVJJjFS",
+          "agentDid": "did:key:z6MkqBZCzjeUN8JSvCWw1EP8JqpNxEVgrute2sdtVgVJJjFS"
+        },
+        "worker": {
+          "ownerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+          "agentDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi"
+        },
+        "task": {
+          "title": "Review selected dimensions",
+          "description": "Collect one partial feasibility review.",
+          "acceptanceCriteria": [
+            {
+              "id": "ac_schema",
+              "description": "Output satisfies the agreed JSON schema",
+              "required": true
+            }
+          ]
+        },
+        "io": {
+          "inputSchema": {},
+          "outputSchema": {}
+        },
+        "verification": {
+          "mode": "hybrid",
+          "requireUsageReceipt": true,
+          "requireExecutionAttestation": true,
+          "maxRetries": 0
+        },
+        "budget": {
+          "costBearer": "worker_byok",
+          "maxInputTokens": 50000,
+          "maxOutputTokens": 10000,
+          "maxToolInvocations": 10,
+          "maxWallClockSeconds": 60,
+          "onOverrun": "hard_stop"
+        },
+        "permissions": {
+          "maxDelegationDepth": 1,
+          "grantedCapabilities": []
+        },
+        "sandboxPolicy": {
+          "isolationLevel": "subprocess_restricted",
+          "networkAccess": "none",
+          "filesystemScope": "ephemeral_workspace_only"
+        },
+        "hitlPolicy": {
+          "requiredGates": [
+            "GATE_CONTRACT_ACCEPT",
+            "GATE_DELIVERY_ACCEPT",
+            "GATE_SUB_DELEGATION"
+          ]
+        },
+        "contextGrant": {
+          "deliveryMode": "approval_redelegation",
+          "selectors": [
+            "dimensions",
+            "material"
+          ],
+          "fieldsAllowed": [
+            "width",
+            "height",
+            "material"
+          ],
+          "fieldsDenied": [
+            "customerName"
+          ],
+          "angle": "Review feasibility of the selection.",
+          "expiresAt": "2030-01-02T00:00:00.000Z",
+          "maxBytes": 65536,
+          "retention": "ephemeral_view",
+          "inputRetentionAllowed": false
+        }
+      },
+      "signature": {
+        "signerDid": "did:key:z6MkqBZCzjeUN8JSvCWw1EP8JqpNxEVgrute2sdtVgVJJjFS",
+        "canonicalization": "RFC8785-JCS",
+        "payloadDigest": "sha256:bb5e8a2236019ff249e86fe515ce8a02eae414bc853117706e82b89b4f553994",
+        "signedAt": "2030-01-01T00:00:00.000Z",
+        "signature": "ed25519:LohqMY--CZm2LihJFM0kfgRumkZF3SEGcjkegMTFYRsFU5CYSiH-jO5WMyMDGCsx8FbQf-gaWcnKe-ttKXm5CQ"
+      }
+    },
+    "acceptance": {
+      "payload": {
+        "type": "ACCEPT",
+        "manifestDigest": "sha256:bb5e8a2236019ff249e86fe515ce8a02eae414bc853117706e82b89b4f553994",
+        "taskId": "task_a45981fcff6c47f8a7aeb855e4831ddd"
+      },
+      "signature": {
+        "signerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+        "canonicalization": "RFC8785-JCS",
+        "payloadDigest": "sha256:95bfd1bee27de1afc78b4a0617778e7f26dd841d3af60ce9791a57729c86e0e8",
+        "signedAt": "2030-01-01T00:00:01.000Z",
+        "signature": "ed25519:B6lWDG-iK09m3mPys8lD1N-Sy9aV3FlNbWv3qm4YPHNC8pDmImLhKDJcXaOjDGU3umJbUcLmqo2JP4MJR7-8Aw"
+      }
+    },
+    "contractDigest": "sha256:b52ac1f0b63a0001e32ff83ab484015278fe59834ac5cefe32a780c06b80ff8c"
+  },
+  "children": [
+    {
+      "link": {
+        "payload": {
+          "type": "DelegationLink",
+          "parentTaskId": "task_a45981fcff6c47f8a7aeb855e4831ddd",
+          "parentContractDigest": "sha256:b52ac1f0b63a0001e32ff83ab484015278fe59834ac5cefe32a780c06b80ff8c",
+          "childTaskId": "task_62a1fd0bb07643249b51ee9aae9a65ce",
+          "childContractDigest": "sha256:eba7bae5cf4ba6062c2f808894e35ffe0a8ac1c4f84f697158a22844f61ec576",
+          "delegatorOwnerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+          "delegateeOwnerDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk",
+          "depthRemaining": 0,
+          "limits": {
+            "deadline": "2030-01-01T00:08:21.000Z",
+            "expiresAt": "2030-01-02T00:00:00.000Z",
+            "budget": {
+              "costBearer": "worker_byok",
+              "maxInputTokens": 50000,
+              "maxOutputTokens": 10000,
+              "maxToolInvocations": 10,
+              "maxWallClockSeconds": 60,
+              "onOverrun": "hard_stop"
+            },
+            "sandboxPolicy": {
+              "isolationLevel": "subprocess_restricted",
+              "networkAccess": "none",
+              "filesystemScope": "ephemeral_workspace_only"
+            },
+            "verification": {
+              "mode": "hybrid",
+              "requireUsageReceipt": true,
+              "requireExecutionAttestation": true,
+              "maxRetries": 0
+            },
+            "depthRemaining": 0
+          },
+          "issuedAt": "2030-01-01T00:00:03.000Z",
+          "prevLinkDigest": null
+        },
+        "signature": {
+          "signerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+          "canonicalization": "RFC8785-JCS",
+          "payloadDigest": "sha256:987f390e68986b5e88733ef4917cc8f1db8f90c55ae5e1a1b3a46329d0c14f86",
+          "signedAt": "2030-01-01T00:00:03.000Z",
+          "signature": "ed25519:fcRyAVoJTSFeygiBpVYPp-YinbbXCz_MyG_pnMLbkZQ1JSiKfM56cohQGC_FwYY2fxtOAs_Pbiwun09mp-woCQ"
+        }
+      },
+      "childContract": {
+        "manifest": {
+          "protocolVersion": "0.2.0",
+          "taskId": "task_62a1fd0bb07643249b51ee9aae9a65ce",
+          "createdAt": "2030-01-01T00:00:01.000Z",
+          "deadline": "2030-01-01T00:08:21.000Z",
+          "requester": {
+            "ownerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+            "agentDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi"
+          },
+          "worker": {
+            "ownerDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk",
+            "agentDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk"
+          },
+          "task": {
+            "title": "Review dimensions",
+            "description": "Review the selected dimensions.",
+            "acceptanceCriteria": [
+              {
+                "id": "ac_schema",
+                "description": "Output satisfies the agreed JSON schema",
+                "required": true
+              }
+            ]
+          },
+          "io": {
+            "inputSchema": {},
+            "outputSchema": {}
+          },
+          "verification": {
+            "mode": "hybrid",
+            "requireUsageReceipt": true,
+            "requireExecutionAttestation": true,
+            "maxRetries": 0
+          },
+          "budget": {
+            "costBearer": "worker_byok",
+            "maxInputTokens": 50000,
+            "maxOutputTokens": 10000,
+            "maxToolInvocations": 10,
+            "maxWallClockSeconds": 60,
+            "onOverrun": "hard_stop"
+          },
+          "permissions": {
+            "maxDelegationDepth": 0,
+            "grantedCapabilities": []
+          },
+          "sandboxPolicy": {
+            "isolationLevel": "subprocess_restricted",
+            "networkAccess": "none",
+            "filesystemScope": "ephemeral_workspace_only"
+          },
+          "hitlPolicy": {
+            "requiredGates": [
+              "GATE_CONTRACT_ACCEPT",
+              "GATE_DELIVERY_ACCEPT"
+            ]
+          },
+          "contextGrant": {
+            "selectors": [
+              "dimensions"
+            ],
+            "fieldsAllowed": [
+              "width",
+              "height"
+            ],
+            "fieldsDenied": [
+              "customerName"
+            ],
+            "angle": "Review feasibility of the dimensions.",
+            "expiresAt": "2030-01-02T00:00:00.000Z",
+            "deliveryMode": "view_only",
+            "maxBytes": 65536,
+            "retention": "ephemeral_view",
+            "inputRetentionAllowed": false
+          }
+        },
+        "proposal": {
+          "payload": {
+            "protocolVersion": "0.2.0",
+            "taskId": "task_62a1fd0bb07643249b51ee9aae9a65ce",
+            "createdAt": "2030-01-01T00:00:01.000Z",
+            "deadline": "2030-01-01T00:08:21.000Z",
+            "requester": {
+              "ownerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+              "agentDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi"
+            },
+            "worker": {
+              "ownerDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk",
+              "agentDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk"
+            },
+            "task": {
+              "title": "Review dimensions",
+              "description": "Review the selected dimensions.",
+              "acceptanceCriteria": [
+                {
+                  "id": "ac_schema",
+                  "description": "Output satisfies the agreed JSON schema",
+                  "required": true
+                }
+              ]
+            },
+            "io": {
+              "inputSchema": {},
+              "outputSchema": {}
+            },
+            "verification": {
+              "mode": "hybrid",
+              "requireUsageReceipt": true,
+              "requireExecutionAttestation": true,
+              "maxRetries": 0
+            },
+            "budget": {
+              "costBearer": "worker_byok",
+              "maxInputTokens": 50000,
+              "maxOutputTokens": 10000,
+              "maxToolInvocations": 10,
+              "maxWallClockSeconds": 60,
+              "onOverrun": "hard_stop"
+            },
+            "permissions": {
+              "maxDelegationDepth": 0,
+              "grantedCapabilities": []
+            },
+            "sandboxPolicy": {
+              "isolationLevel": "subprocess_restricted",
+              "networkAccess": "none",
+              "filesystemScope": "ephemeral_workspace_only"
+            },
+            "hitlPolicy": {
+              "requiredGates": [
+                "GATE_CONTRACT_ACCEPT",
+                "GATE_DELIVERY_ACCEPT"
+              ]
+            },
+            "contextGrant": {
+              "selectors": [
+                "dimensions"
+              ],
+              "fieldsAllowed": [
+                "width",
+                "height"
+              ],
+              "fieldsDenied": [
+                "customerName"
+              ],
+              "angle": "Review feasibility of the dimensions.",
+              "expiresAt": "2030-01-02T00:00:00.000Z",
+              "deliveryMode": "view_only",
+              "maxBytes": 65536,
+              "retention": "ephemeral_view",
+              "inputRetentionAllowed": false
+            }
+          },
+          "signature": {
+            "signerDid": "did:key:z6Mkjow37BAvG8Z51c6prrUjSgCJiCermxwvFJDRNoP6mzmi",
+            "canonicalization": "RFC8785-JCS",
+            "payloadDigest": "sha256:7c4f0916e5d76cf379ae64d68ce6d80de8ead06c5b74c7d804ae56a40266aaf1",
+            "signedAt": "2030-01-01T00:00:01.000Z",
+            "signature": "ed25519:xF08DeOJf0Nzpvag6c_gdSURo30-Am_6B3m0vaCYp7rCuLRV5wFL3-7ywfnfuPlmx_YwCYEYYi7RlzPfrpdWAw"
+          }
+        },
+        "acceptance": {
+          "payload": {
+            "type": "ACCEPT",
+            "manifestDigest": "sha256:7c4f0916e5d76cf379ae64d68ce6d80de8ead06c5b74c7d804ae56a40266aaf1",
+            "taskId": "task_62a1fd0bb07643249b51ee9aae9a65ce"
+          },
+          "signature": {
+            "signerDid": "did:key:z6MkhLZrYrNVhvcBdZqusaiSqZaTh4E5dkLF1VAQk48XVyTk",
+            "canonicalization": "RFC8785-JCS",
+            "payloadDigest": "sha256:064c709e194ba3f3283c101652b736894d3f547ca9fe307ed9122b11b0dbd5c4",
+            "signedAt": "2030-01-01T00:00:02.000Z",
+            "signature": "ed25519:RxzuHrRjQvFs9gAGICLfuJ75ohKl0LjrlVISfEUmgOJGX4AARP7uuyWuCDqb_gYykJH-8KNWKHdOvZK0iUzKAw"
+          }
+        },
+        "contractDigest": "sha256:eba7bae5cf4ba6062c2f808894e35ffe0a8ac1c4f84f697158a22844f61ec576"
+      }
+    }
+  ]
+}

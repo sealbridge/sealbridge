@@ -469,6 +469,40 @@
           }
         ]
       }
+    },
+    {
+      "if": {
+        "required": [
+          "contextGrant"
+        ],
+        "properties": {
+          "contextGrant": {
+            "properties": {
+              "deliveryMode": {
+                "const": "approval_redelegation"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "properties": {
+              "maxDelegationDepth": {
+                "const": 1
+              }
+            }
+          },
+          "sandboxPolicy": {
+            "properties": {
+              "filesystemScope": {
+                "const": "ephemeral_workspace_only"
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

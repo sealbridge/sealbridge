@@ -1,0 +1,167 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "parentContract",
+    "children"
+  ],
+  "properties": {
+    "parentContract": {
+      "$ref": "#/$defs/contract"
+    },
+    "children": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "link",
+          "childContract"
+        ],
+        "properties": {
+          "link": {
+            "$ref": "https://acp-spec.local/schemas/v0.2/delegation-link.schema.json"
+          },
+          "childContract": {
+            "$ref": "#/$defs/contract"
+          }
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.2/delegation-attachment.schema.json",
+  "title": "DelegationAttachment",
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "proposal",
+        "acceptance",
+        "contractDigest"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json"
+        },
+        "proposal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "payload",
+            "signature"
+          ],
+          "properties": {
+            "payload": {
+              "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json"
+            },
+            "signature": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "signerDid",
+                "canonicalization",
+                "payloadDigest",
+                "signedAt",
+                "signature"
+              ],
+              "properties": {
+                "signerDid": {
+                  "type": "string",
+                  "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+                },
+                "canonicalization": {
+                  "const": "RFC8785-JCS"
+                },
+                "payloadDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "signedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signature": {
+                  "type": "string",
+                  "pattern": "^ed25519:[A-Za-z0-9_-]{86}$"
+                }
+              }
+            }
+          }
+        },
+        "acceptance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "payload",
+            "signature"
+          ],
+          "properties": {
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "manifestDigest",
+                "taskId"
+              ],
+              "properties": {
+                "type": {
+                  "const": "ACCEPT"
+                },
+                "manifestDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "taskId": {
+                  "type": "string",
+                  "pattern": "^task_[a-zA-Z0-9_-]{8,64}$",
+                  "description": "Globally unique task identifier."
+                }
+              }
+            },
+            "signature": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "signerDid",
+                "canonicalization",
+                "payloadDigest",
+                "signedAt",
+                "signature"
+              ],
+              "properties": {
+                "signerDid": {
+                  "type": "string",
+                  "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+                },
+                "canonicalization": {
+                  "const": "RFC8785-JCS"
+                },
+                "payloadDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "signedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "signature": {
+                  "type": "string",
+                  "pattern": "^ed25519:[A-Za-z0-9_-]{86}$"
+                }
+              }
+            }
+          }
+        },
+        "contractDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

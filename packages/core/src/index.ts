@@ -13,3 +13,4 @@ export * from './connection.js';
 export * from './relay-auth.js';
 export * from './revocation.js';
 export * from './delivery-status.js';
+export * from './delegation.js';

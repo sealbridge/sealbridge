@@ -11,7 +11,6 @@ export const CONTEXT_GRANT_DEFAULT_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export function validateContextGrant(grant: unknown, createdAt: string): asserts grant is ContextGrant {
   validateSchema('context-grant', grant);
   const g = grant as ContextGrant;
-  if (g.deliveryMode === 'approval_redelegation') throw new Error('CONTEXT_GRANT_MODE_UNAVAILABLE: approval_redelegation requires CP5a');
   if (g.inputRetentionAllowed === true) throw new Error('CONTEXT_GRANT_INPUT_RETENTION_UNAVAILABLE');
   const start = Date.parse(createdAt), end = Date.parse(g.expiresAt);
   if (!Number.isFinite(start) || end <= start || end - start > CONTEXT_GRANT_MAX_LIFETIME_MS)
@@ -25,8 +24,8 @@ export function validateManifestContextGrant(manifest: TaskManifest): void {
   if (!grant) return;
   validateContextGrant(grant, manifest.createdAt);
   if (manifest.protocolVersion !== '0.2.0') throw new Error('CONTEXT_GRANT_PROTOCOL_UNSUPPORTED');
-  if (manifest.permissions.maxDelegationDepth !== 0) throw new Error('CONTEXT_GRANT_DEPTH_CONFLICT');
-  if (grant.deliveryMode === 'view_only' && manifest.sandboxPolicy.filesystemScope !== 'ephemeral_workspace_only')
+  if (manifest.permissions.maxDelegationDepth !== (grant.deliveryMode === 'approval_redelegation' ? 1 : 0)) throw new Error('CONTEXT_GRANT_DEPTH_CONFLICT');
+  if (grant.deliveryMode !== 'hand_over' && manifest.sandboxPolicy.filesystemScope !== 'ephemeral_workspace_only')
     throw new Error('CONTEXT_GRANT_FILESYSTEM_CONFLICT');
 }
 
@@ -61,6 +60,5 @@ export function buildContextGrant(options: ContextGrantOptions, createdAt = new 
 /** Only these two fields enter context lifecycle audit payloads. */
 export function contextGrantAuditPayload(grant: ContextGrant): ContextGrantAuditPayload {
   validateSchema('context-grant', grant);
-  if (grant.deliveryMode === 'approval_redelegation') throw new Error('CONTEXT_GRANT_MODE_UNAVAILABLE: approval_redelegation requires CP5a');
   return { grantDigest: digest(grant), deliveryMode: grant.deliveryMode };
 }

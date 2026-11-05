@@ -11,6 +11,7 @@ import {
   verifyContract,
 } from '@acp/core';
 import type {
+  DelegationAttachment,
   Json,
   KeyPair,
   Signed,
@@ -21,6 +22,7 @@ import type {
 } from '@acp/core';
 import { runSandbox } from '@acp/sandbox';
 import type { SandboxBoundaryMetadata } from '@acp/sandbox';
+import { verifyDelegationAttachment } from './delegation.js';
 import { ApprovalGate } from './policy.js';
 import { verifyUsage } from './quota.js';
 export interface ContentArtifact {
@@ -47,6 +49,7 @@ export interface Attestation {
   sandboxBoundary?: SandboxBoundaryMetadata;
 }
 export interface Delivery {
+  delegation?: DelegationAttachment;
   artifact: Signed<ContentArtifact>;
   usage: UsageReceipt;
   attestation: Signed<Attestation>;
@@ -58,12 +61,14 @@ export function createDelivery(
   usage: UsageReceipt,
   worker: KeyPair,
   execution?: { effectiveIsolationLevel: string; sandboxBoundary?: SandboxBoundaryMetadata },
+  delegation?: DelegationAttachment,
 ): Delivery {
   const artifact = signPayload(
     { type: 'Artifact' as const, taskId, name: 'report.json', digest: digest(data), data },
     worker,
   );
   return {
+    ...(delegation !== undefined ? { delegation: structuredClone(delegation) } : {}),
     artifact,
     usage,
     attestation: signPayload(
@@ -99,6 +104,7 @@ export interface VerifyDeliverableInput {
   approval?: ApprovalReceipt | (() => Promise<ApprovalReceipt>);
   recipient?: KeyPair;
   allowUnencryptedEnvelopes?: boolean;
+  ownerDecision?: true;
 }
 export class VerificationEngine {
   private checks = new Map<string, string>();
@@ -113,9 +119,9 @@ export class VerificationEngine {
       input.gate,
       input.approval,
       input.recipient,
-      input.allowUnencryptedEnvelopes === undefined
-        ? undefined
-        : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes },
+      input.ownerDecision === undefined
+        ? input.allowUnencryptedEnvelopes === undefined ? undefined : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes }
+        : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes, ownerDecision: input.ownerDecision },
     );
   }
   async verify(
@@ -124,7 +130,7 @@ export class VerificationEngine {
     gate: ApprovalGate,
     approval?: ApprovalReceipt | (() => Promise<ApprovalReceipt>),
     recipient?: KeyPair,
-    verifyOptions?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void },
+    verifyOptions?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void; ownerDecision?: true },
   ): Promise<VerificationResult> {
     const stages: string[] = [];
     try {
@@ -161,6 +167,13 @@ export class VerificationEngine {
         !verifyUsage(d.usage, worker, m.taskId, m.budget)
       )
         throw new Error('CRYPTO_ARTIFACT_OR_BUDGET');
+      if (m.contextGrant) {
+        verifyDelegationAttachment(d.delegation, contract);
+        if (m.permissions.maxDelegationDepth === 1) {
+          stages.push('delegation_chain');
+          if (verifyOptions?.ownerDecision !== true) throw new Error('DELEGATION_APPROVAL_REQUIRED');
+        }
+      }
       // `subprocess_restricted` is not accepted for an `oci_container` contract.
       // Node's permission model does not provide that kernel boundary, and a
       // `sandboxBoundary` object cannot upgrade `effectiveIsolationLevel`.

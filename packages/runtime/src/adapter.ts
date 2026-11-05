@@ -29,6 +29,7 @@ export interface ProtocolEnvelope<T> {
   payload: T;
 }
 export interface AgentTaskContext {
+  redelegate?: (request: import('./session.js').ChildDelegationRequest) => Promise<import('./session.js').SessionResult>;
   taskId: string;
   manifest: TaskManifest;
   input: Json;
