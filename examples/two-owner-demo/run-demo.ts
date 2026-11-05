@@ -446,7 +446,10 @@ export async function tamperScenario() {
     relay.send(s.deliver({ summary: 'valid', findings: [] }).envelope);
     expectBlock(() => relay.receive(s.alice.did), 'TAMPERING');
     detected++;
+    // Record live rejections before sealing; audit tampering uses copies of the bundle.
+    s.record('VERIFY_REJECT', { detected });
     const bundle = s.ledger.bundle(s.alice, s.bob);
+    assert.equal(verifyAudit(bundle).valid, true);
     const variants: AuditBundle[] = [
       structuredClone(bundle),
       structuredClone(bundle),
@@ -461,7 +464,6 @@ export async function tamperScenario() {
       assert.equal(verifyAudit(v).status, 'INVALID');
       detected++;
     }
-    s.record('VERIFY_REJECT', { detected });
     return { scenario: 'tampering', detected, event: 'VERIFY_REJECT', audit: 'INVALID' };
   } finally {
     await s.close();

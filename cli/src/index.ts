@@ -3,8 +3,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { generateKeyPair, validateSchema, signApproval } from '@acp/core';
 import type { KeyPair, Gate } from '@acp/core';
-import { parseJsonl, verifyAudit } from '@acp/ledger';
-import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
+import { parseAuditJsonl, verifyAuditEvidence } from '@acp/ledger';
+import type { AuditEvidenceVerificationOptions } from '@acp/ledger';
 import { runDemo } from '@acp/two-owner-demo';
 import { networkCommand } from './network.js';
 import { mcpServerCommand } from './mcp.js';
@@ -33,7 +33,8 @@ function parseAuditJson(text: string): unknown {
 const USAGE = 'Usage: sealbridge <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
-  '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>]';
+  '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>] [--expect-closure-kind bilateral|interruption] [--expect-interruption-hash <hash>]\n' +
+  'Exit codes: 0 bilateral VALID; 2 UNILATERALLY_CLOSED (valid:false); 1 invalid or unreadable.';
 function auditVerifyFlag(args: string[], index: number, name: string): string {
   const value = args[index + 1];
   if (!value || value.startsWith('--')) throw new Error('Missing ' + name);
@@ -45,11 +46,15 @@ function parseAuditVerifyArgs(args: string[]): {
   expectedFinalState?: string;
   expectedLastEntryHash?: string;
   expectedEntryCount?: number;
+  expectedClosureKind?: 'bilateral' | 'interruption';
+  expectedInterruptionHash?: string;
 } {
   const positionals: string[] = [];
   let expectedFinalState: string | undefined;
   let expectedLastEntryHash: string | undefined;
   let expectedEntryCount: number | undefined;
+  let expectedClosureKind: 'bilateral' | 'interruption' | undefined;
+  let expectedInterruptionHash: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--expect-final-state') {
@@ -62,6 +67,18 @@ function parseAuditVerifyArgs(args: string[]): {
       if (expectedLastEntryHash !== undefined) throw new Error('Duplicate option: ' + arg);
       expectedLastEntryHash = auditVerifyFlag(args, i, arg);
       i++;
+      continue;
+    }
+    if (arg === '--expect-closure-kind') {
+      if (expectedClosureKind !== undefined) throw new Error('Duplicate option: ' + arg);
+      const value = auditVerifyFlag(args, i++, arg);
+      if (value !== 'bilateral' && value !== 'interruption') throw new Error('INVALID_EXPECT_CLOSURE_KIND');
+      expectedClosureKind = value;
+      continue;
+    }
+    if (arg === '--expect-interruption-hash') {
+      if (expectedInterruptionHash !== undefined) throw new Error('Duplicate option: ' + arg);
+      expectedInterruptionHash = auditVerifyFlag(args, i++, arg);
       continue;
     }
     if (arg === '--expect-entry-count') {
@@ -84,6 +101,8 @@ function parseAuditVerifyArgs(args: string[]): {
     expectedFinalState,
     expectedLastEntryHash,
     expectedEntryCount,
+    expectedClosureKind,
+    expectedInterruptionHash,
   };
 }
 function save(path: string, value: unknown, privateFile = false) {
@@ -218,20 +237,22 @@ async function main(args: string[]) {
       const parsed = parseAuditVerifyArgs(rest);
       const input = readFileSync(parsed.input, 'utf8');
       const bundle = parsed.input.endsWith('.jsonl')
-        ? parseJsonl(input)
-        : (parseAuditJson(input) as AuditBundle);
-      const options: AuditVerificationOptions = {};
+        ? parseAuditJsonl(input)
+        : parseAuditJson(input);
+      const options: AuditEvidenceVerificationOptions = {};
       if (parsed.anchorPath) {
-        const file = parseAuditJson(readFileSync(parsed.anchorPath, 'utf8')) as AuditVerificationOptions;
+        const file = parseAuditJson(readFileSync(parsed.anchorPath, 'utf8')) as AuditEvidenceVerificationOptions;
         if (!file || typeof file !== 'object' || Array.isArray(file))
           throw new Error('INVALID_TRUST_ANCHOR');
         // A positional trust-anchor file still pins taskId and actors, as before.
         options.trustAnchor = file;
-        options.taskId = typeof file.taskId === 'string' ? file.taskId : '';
-        options.actors =
-          Array.isArray(file.actors) && file.actors.length === 2
-            ? (file.actors as [string, string])
-            : ['', ''];
+        if (!bundle || typeof bundle !== 'object' || !('interruption' in bundle)) {
+          options.taskId = typeof file.taskId === 'string' ? file.taskId : '';
+          options.actors =
+            Array.isArray(file.actors) && file.actors.length === 2
+              ? (file.actors as [string, string])
+              : ['', ''];
+        }
         if (typeof file.head === 'string') options.head = file.head;
       }
       if (parsed.expectedFinalState !== undefined)
@@ -240,14 +261,16 @@ async function main(args: string[]) {
         options.expectedLastEntryHash = parsed.expectedLastEntryHash;
       if (parsed.expectedEntryCount !== undefined)
         options.expectedEntryCount = parsed.expectedEntryCount;
+      options.expectedClosureKind = parsed.expectedClosureKind;
+      options.expectedInterruptionHash = parsed.expectedInterruptionHash;
       const anchored =
         parsed.anchorPath !== undefined ||
         parsed.expectedFinalState !== undefined ||
         parsed.expectedLastEntryHash !== undefined ||
-        parsed.expectedEntryCount !== undefined;
-      const result = verifyAudit(bundle, anchored ? options : undefined);
+        parsed.expectedEntryCount !== undefined || parsed.expectedClosureKind !== undefined || parsed.expectedInterruptionHash !== undefined;
+      const result = verifyAuditEvidence(bundle, anchored ? options : undefined);
       console.log(JSON.stringify(result));
-      if (!result.valid) process.exitCode = 1;
+      if (!result.valid) process.exitCode = result.status === 'UNILATERALLY_CLOSED' ? 2 : 1;
       break;
     }
     case 'demo': {

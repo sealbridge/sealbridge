@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readFileSync, writeFileSync } from 'node:fs';
-import { parseJsonl, verifyAudit } from '@acp/ledger';
-import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
+import { parseAuditJsonl, verifyAuditEvidence } from '@acp/ledger';
+import type { AuditEvidence, AuditEvidenceVerificationOptions } from '@acp/ledger';
 
 const object = (v: unknown): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const safeId = (v: unknown) => typeof v === 'string' && /^(?:task_[a-zA-Z0-9_-]{1,100}|did:key:z[1-9A-HJ-NP-Za-km-z]{20,100})$/.test(v) ? v : '[redacted]';
 const time = (v: unknown) => typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null;
 const count = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
-export function createReceipt(raw: string, anchor?: AuditVerificationOptions) {
-  let bundle: AuditBundle | undefined;
-  let verification: ReturnType<typeof verifyAudit>;
+export function createReceipt(raw: string, anchor?: AuditEvidenceVerificationOptions) {
+  let bundle: AuditEvidence | undefined;
+  let verification: ReturnType<typeof verifyAuditEvidence>;
   try {
-    bundle = parseJsonl(raw);
-    verification = verifyAudit(bundle, anchor);
+    bundle = parseAuditJsonl(raw);
+    verification = verifyAuditEvidence(bundle, anchor);
   } catch {
     verification = { valid: false, status: 'INVALID', statusLabel: 'INVALID', trustAnchorVerified: false, truncationChecked: false };
   }
@@ -35,11 +35,12 @@ export function createReceipt(raw: string, anchor?: AuditVerificationOptions) {
     version: 1, status,
     message: status === 'COMPLETED' ? 'Completed. Both sides signed this record.' :
       status === 'UNCONFIRMED' ? 'Settlement recorded; completeness unconfirmed without an independent audit head.' :
+      verification.status === 'UNILATERALLY_CLOSED' ? 'Worker-only signed interruption; no peer terminal signature. Completion not established.' :
       status === 'INCOMPLETE' ? 'Incomplete record; completion not established.' : 'Invalid record; completion not established.',
     paymentNotice: 'SETTLED is not proof of payment. Sealbridge settlement records work, not money.',
     verification: checked,
     taskId: entries.length ? safeId(entries[0].body.taskId) : null,
-    who: entries.length ? bundle!.checkpoint.actor.payload.actors.map(safeId) : [],
+    who: entries.length && bundle && 'checkpoint' in bundle ? bundle.checkpoint.actor.payload.actors.map(safeId) : [],
     what: 'Task content redacted for privacy; inspect the original audit locally for details.',
     when: { firstSignedAt: time(entries[0]?.actorSignature.signedAt), lastSignedAt: time(entries.at(-1)?.actorSignature.signedAt),
       timeSource: 'Participant signing clocks; not an independent timestamp authority', timezone: 'UTC' },
@@ -79,7 +80,7 @@ export function receiptCommand(args: string[]): void {
     if (!['--out', '--trust-anchor'].includes(args[i]) || options.has(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('INVALID_RECEIPT_OPTION');
     options.set(args[i], args[i + 1]);
   }
-  const anchor = options.has('--trust-anchor') ? JSON.parse(readFileSync(options.get('--trust-anchor')!, 'utf8')) as AuditVerificationOptions : undefined;
+  const anchor = options.has('--trust-anchor') ? JSON.parse(readFileSync(options.get('--trust-anchor')!, 'utf8')) as AuditEvidenceVerificationOptions : undefined;
   if (anchor !== undefined && (!anchor || typeof anchor !== 'object' || Array.isArray(anchor))) throw new Error('INVALID_TRUST_ANCHOR');
   const receipt = createReceipt(readFileSync(input, 'utf8'), anchor);
   const prefix = options.get('--out') ?? input + '.receipt';

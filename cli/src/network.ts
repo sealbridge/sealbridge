@@ -136,7 +136,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--contacts', '--allowed-peer', '--allow-requester', '--allow-task-type', '--skill', '--task-type',
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
-      '--audit', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
+      '--audit', '--audit-interruption-format', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
     delegate: [...timeouts, '--to', '--invite', '--discover', '--task-type', '--title', '--description',
       '--input', '--input-file', '--output-schema', '--save-contact', '--contacts', '--audit', '--out',
       '--yes', '--auto-accept', '--auto-approve', '--verbose'],
@@ -148,7 +148,11 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
     if (!boolean.has(name) && typeof value !== 'string') throw new Error('Missing ' + name);
   }
   if (command === 'worker' || command === 'delegate') sessionTimeouts(parsed);
-  if (command === 'worker') optionalCount(parsed, 'max-tasks-per-day');
+  if (command === 'worker') {
+    optionalCount(parsed, 'max-tasks-per-day');
+    if (parsed.has('--audit-interruption-format') && parsed.get('--audit-interruption-format') !== '1')
+      throw new Error('UNSUPPORTED_AUDIT_INTERRUPTION_FORMAT');
+  }
 }
 const TIMEOUT_HELP = `Timeout options (positive integer milliseconds):
   --execution-timeout-ms <n>       Execution/AI-step wall-clock limit; delegate proposes this budget (default: 60000).
@@ -169,6 +173,7 @@ const REVIEW_HELP = `
                                  File: unused path in an existing private directory; token + newline.
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
+  --audit-interruption-format 1  Opt in to worker-only PROPOSE interruption terminals; update audit readers first.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
 With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
@@ -455,6 +460,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       name: text(f, 'name', adapter.name),
       approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
+      auditInterruptionFormat: f.has('--audit-interruption-format') ? 1 : undefined,
       inboxPath: f.has('--inbox') ? text(f, 'inbox') : undefined,
       onInboxRecord,
       onStatus: (status, error) => emitWorkerJson({ status, error }),

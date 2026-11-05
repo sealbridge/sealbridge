@@ -136,3 +136,7 @@ JSON の metadata・イベントを受け取ります。`now`・`transportFactor
 無指定時の policy-auto の既定値は変わりません。送信前の承認と最終検収は別です。
 接続の審査には別の `connectionReview` を使います。[MCP の説明](../README.ja.md)も
 参照してください。
+
+## 監査の中断証拠
+
+`parseJsonl` / `verifyAudit` は双方署名の形式専用を維持します。`parseAuditJsonl` / `verifyAuditEvidence` は `AuditEvidence`（`AuditBundle | InterruptedAuditBundle`）を扱い、ワーカー単独の形式 1 の終端は、外部ピンが一致しても `UNILATERALLY_CLOSED`・`valid:false` です。`createAuditInterruption`・対応ストア・関連公開型も `sealbridge/sdk` から利用できます。[保存形式・ピン・永続化・依頼者との照合規則（英語）](audit-interruption.md)を参照してください。

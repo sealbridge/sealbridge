@@ -69,14 +69,25 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       AcpMcpServer, ConnectionService, ConnectionRouter, StoredConnectionExchange, ConnectionAdmissionReview, InviteStore,
       WorkerTrustStore, HeldRequestReview, KeychainSecretStore, resolveStoredIdentity, resolveDataRoot,
       connectionsCommand, connectionHumanReview, mcpServerCommand, parseMcpServerArgs,
-      mcpServerOptionsFromArgs, parseAndVerifyInviteToken,
+      mcpServerOptionsFromArgs, parseAndVerifyInviteToken, parseJsonl, verifyAudit, parseAuditJsonl, verifyAuditEvidence, createAuditInterruption,
     } from 'sealbridge/sdk';
     import type {
       SavedInvite, SecretStore, KeyStore, IdentityStoreOptions, DataRootOptions, KeyringModule,
       ConnectionServiceOptions, ConnectionHumanReviewProvider, ConnectionRouterOptions,
       ConnectionAdmissionReviewOptions, InboundConnectionSummary,
       ConnectionsCommandOptions, AcpMcpServerOptions, HeldContentReviewProvider, RelayTransport,
+      AuditBundle, AuditEvidence, AuditInterruption, InterruptedAuditBundle, AuditEvidenceVerificationResult, InterruptionStore,
     } from 'sealbridge/sdk';
+    function audit(text: string, store: InterruptionStore, interrupted: InterruptedAuditBundle) {
+      const bilateral: AuditBundle = parseJsonl(text);
+      const evidence: AuditEvidence = parseAuditJsonl(text);
+      const report: AuditEvidenceVerificationResult = verifyAuditEvidence(evidence, { expectedClosureKind: 'interruption' });
+      const observation: AuditInterruption = interrupted.interruption.payload;
+      store.closeInterrupted(interrupted, () => {});
+      // @ts-expect-error The old bundle still requires its bilateral checkpoint.
+      const oldBundle: AuditBundle = interrupted;
+      return { report, observation, oldReport: verifyAudit(bilateral) };
+    }
     function admission(options: ConnectionAdmissionReviewOptions): InboundConnectionSummary[] {
       const queue = new ConnectionAdmissionReview(options);
       const rows = queue.list();

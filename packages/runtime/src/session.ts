@@ -62,7 +62,8 @@ import type {
   Invite,
   SignedRevocationNotice,
 } from '@acp/core';
-import { parseJsonl, verifyAudit, type AuditBundle, type AuditEntry } from '@acp/ledger';
+import { parseJsonl, verifyAudit, createAuditInterruption, JsonlStore,
+  type AuditInterruption, type AuditBundle, type AuditEntry } from '@acp/ledger';
 import type { SandboxBoundaryMetadata } from '@acp/sandbox';
 import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayAuthRecoveryOptions, RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
@@ -485,6 +486,8 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   approvalProvider?: ApprovalProvider;
   /** Bilateral audit path; enables adjacent task checkpoints when inboxPath is absent. */
   auditPath?: string;
+  /** Opt in to local worker-only PROPOSE interruption terminals. Update readers before enabling. */
+  auditInterruptionFormat?: 1;
   /** Append accepted messages as private JSONL; also enables adjacent task checkpoints. */
   inboxPath?: string;
   /** Best-effort notification after a successful inbox append; never awaited. */
@@ -584,6 +587,8 @@ export class WorkerNode {
     assertConnectionsOptions(options);
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
+    if (options.auditInterruptionFormat !== undefined && options.auditInterruptionFormat !== 1)
+      throw new Error('UNSUPPORTED_AUDIT_INTERRUPTION_FORMAT');
     this.protocol = new LiveProtocol(options);
     this.intakeStore = options.intakeStore ?? new WorkerTrustStore(options.owner, {
       path: options.identityOptions ? workerIntakePath(options.owner.did, options.identityOptions) : undefined,
@@ -855,6 +860,30 @@ export class WorkerNode {
       this.deliveryService.store.transaction(() => { this.taskJournal!.reload(); this.taskJournal!.save(record); });
     } else this.taskJournal.save(record);
   }
+  /** Intent is durable before audit append; retries reuse the entire original signed record. */
+  private closeInterruptedAudit(record: TaskCheckpoint, reason: AuditInterruption['reason'], expectedEntries?: AuditEntry[],
+    save: (record: TaskCheckpoint) => void = record => this.saveTaskCheckpoint(record)): TaskCheckpoint {
+    if (!record.auditPath || !record.auditStage || record.auditStage === 'OUT_OF_SCOPE') return record;
+    const store = new JsonlStore(record.auditPath);
+    const entries = store.read();
+    if (expectedEntries && digest(entries) !== digest(expectedEntries)) throw new Error('AUDIT_PREFIX_MISMATCH');
+    const proposal = entries[0]?.body.payload as unknown as Proposal | undefined;
+    if (!proposal || digest({ manifest: proposal.proposal.payload, input: proposal.input }) !== record.proposalDigest)
+      throw new Error('AUDIT_PREFIX_MISMATCH');
+    if (!record.auditClosure) {
+      const interruption = createAuditInterruption(entries, this.options.owner, record.auditStage, reason);
+      record = { ...record, auditClosure: { state: 'pending', interruption } };
+    }
+    store.closeInterrupted({ entries, interruption: record.auditClosure!.interruption }, () => save(record));
+    const written: TaskCheckpoint = { ...record, auditClosure: { ...record.auditClosure!, state: 'written' } };
+    save(written);
+    return written;
+  }
+  private reportInterruptionFailure(taskId: string): void {
+    // Keep the original task outcome separately; never expose arbitrary I/O exception text.
+    try { this.reportRejection(taskId, new Error('AUDIT_INTERRUPTION_WRITE_FAILED')); }
+    catch { try { this.options.onEvent?.('REJECTED', taskId, { code: 'AUDIT_INTERRUPTION_WRITE_FAILED' }); } catch {} }
+  }
   private async reconcileTasks(): Promise<void> {
     if (this.reconciled || !this.taskJournal) return;
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath)
@@ -862,7 +891,15 @@ export class WorkerNode {
     else this.taskJournal.load();
     for (const saved of [...this.taskJournal.tasks.values()]) {
       let record = saved;
-      const pending = this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
+      // Pending intents are retried even if the business outcome was already made terminal.
+      // Old files have no explicit auditStage and are never backfilled, even with opt-in enabled.
+      if (record.auditStage && record.auditStage !== 'OUT_OF_SCOPE' &&
+          !record.outcome?.result && record.auditClosure?.state !== 'written' &&
+          (record.phase !== 'terminal' || record.outcome?.code === 'TASK_INTERRUPTED' || record.auditClosure?.state === 'pending')) {
+        try { record = this.closeInterruptedAudit(record, 'WORKER_RESTART_OBSERVED'); }
+        catch { record = this.taskJournal.tasks.get(record.taskId) ?? record; this.reportInterruptionFailure(record.taskId); }
+      }
+      const pending = !record.auditClosure && this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
       if (record.phase !== 'terminal') {
         const result = this.sealedTaskResult(record);
         // Adapters expose executeTask only. Unknown execution/tool results cannot be retried safely.
@@ -1097,6 +1134,7 @@ export class WorkerNode {
     let m!: TaskManifest;
     let auditPath: string | undefined;
     let checkpoint: TaskCheckpoint | undefined;
+    let auditStage: TaskCheckpoint['auditStage'];
     const saveCheckpoint = (patch: Partial<TaskCheckpoint>): void => {
       if (!checkpoint || !this.taskJournal) return;
       checkpoint = { ...checkpoint, ...patch };
@@ -1105,6 +1143,11 @@ export class WorkerNode {
     const saveOutcome = (outcome: TaskOutcome): void => {
       saveCheckpoint({ phase: 'terminal', outcome, notificationPending: true });
       this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'terminal', outcome.code);
+    };
+    const setAuditStage = (stage: NonNullable<TaskCheckpoint['auditStage']>): void => {
+      if (this.options.auditInterruptionFormat !== 1 || !auditPath) return;
+      auditStage = stage;
+      saveCheckpoint({ auditStage: stage });
     };
     const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
       this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
@@ -1334,6 +1377,7 @@ export class WorkerNode {
           contractProvider === this.approvalProvider && contractProvider.kind !== 'human'))
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       await wire.receiveEvent('PROPOSE', first);
+      setAuditStage('OWNER_APPROVAL');
       const contract = createContract(m, data.proposal, this.options.owner);
       const approval = await abortable(contractProvider.approve({
         taskId: m.taskId,
@@ -1348,6 +1392,7 @@ export class WorkerNode {
         },
         signal: activeSignal,
       }), activeSignal);
+      setAuditStage('OUT_OF_SCOPE');
       if (this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
@@ -1394,7 +1439,9 @@ export class WorkerNode {
           // Synchronous notification failures are also best effort.
         }
       }
+      setAuditStage('ACCEPT_ACK_WAIT');
       await wire.sendEvent('ACCEPT', { contract, transition: accepted, approval });
+      setAuditStage('OUT_OF_SCOPE');
       this.options.onEvent?.('ACCEPT', m.taskId);
       await wire.sendEvent('START', gateway.transition('START'));
       heartbeat = setTimeout(() => void sendHeartbeat(), this.options.heartbeatIntervalMs ?? 15_000);
@@ -1655,6 +1702,23 @@ export class WorkerNode {
       }
       await progressTail;
       preserveWorkspace = activeSignal.aborted || idleSignal.aborted;
+      const timeoutReason = activeSignal.reason instanceof Error ? activeSignal.reason.message : activeSignal.reason;
+      const interruptionReason = idleSignal.aborted ? 'WORKER_STOPPED' :
+        activeSignal.aborted && ['TASK_TIMEOUT', 'PEER_WAIT_TIMEOUT'].includes(String(timeoutReason)) ? 'SESSION_TIMEOUT' : undefined;
+      if (interruptionReason && auditStage && auditStage !== 'OUT_OF_SCOPE' && auditPath) {
+        const entries = await wire.quiesceAudit();
+        try {
+          // No journal is available only to embedders without persisted task checkpoints.
+          const record = checkpoint ?? { version: 1, taskId: m.taskId, requesterDid: m.requester.ownerDid,
+            envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
+            phase: 'received', auditPath, auditStage, invocations: [] } as TaskCheckpoint;
+          this.closeInterruptedAudit(record, interruptionReason, entries, saved => {
+            checkpoint = saved;
+            this.saveTaskCheckpoint(saved);
+          });
+        } catch { this.reportInterruptionFailure(m.taskId); }
+        saveOutcome({ code: 'TASK_INTERRUPTED' });
+      } else if (auditStage && !preserveWorkspace) setAuditStage('OUT_OF_SCOPE');
       if (idleSignal.aborted) throw e;
       const diagnostic = preserveWorkspace ? { code: 'TASK_INTERRUPTED' } : rejectionBody(progressFailure ?? e);
       saveOutcome(diagnostic);
@@ -2025,7 +2089,7 @@ function safeError(e: unknown): string {
   const s = String(e);
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
   if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
-    'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT'].includes(exact)) return exact;
+    'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT', 'AUDIT_INTERRUPTION_WRITE_FAILED'].includes(exact)) return exact;
   if (/^(PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;

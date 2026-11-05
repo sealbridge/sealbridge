@@ -7,8 +7,9 @@ import { dirname } from 'node:path';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { checkPath, checkStat, readPrivateFile, writePrivateFile } from './local-identity.js';
-import { signPayload, verifySigned } from '@acp/core';
+import { signPayload, verifySigned, validateSchema } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
+import type { AuditInterruption } from '@acp/ledger';
 import type { SessionResult } from './session.js';
 
 export interface TaskOutcome {
@@ -23,6 +24,9 @@ export interface TaskCheckpoint {
   proposalDigest: string;
   phase: 'received' | 'accepted' | 'running' | 'delivered' | 'terminal';
   auditPath?: string;
+  /** Present only for new-format attempts; never inferred for legacy journal records. */
+  auditStage?: AuditInterruption['phase'] | 'OUT_OF_SCOPE';
+  auditClosure?: { state: 'pending' | 'written'; interruption: Signed<AuditInterruption> };
   workspace?: string;
   invocations: Array<{ id: string; tool: string; argsDigest: string; completed: boolean }>;
   outcome?: TaskOutcome;
@@ -183,6 +187,22 @@ export class TaskJournal {
         !['received', 'accepted', 'running', 'delivered', 'terminal'].includes(record.phase) ||
         !Array.isArray(record.invocations) || (record.phase === 'terminal' && !record.outcome))
       throw new Error('INVALID_TASK_JOURNAL');
+    if (record.auditStage !== undefined && !['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT', 'OUT_OF_SCOPE'].includes(record.auditStage))
+      throw new Error('INVALID_TASK_JOURNAL');
+    if (record.auditClosure !== undefined) {
+      const closure = record.auditClosure;
+      try {
+        if (!closure || !['pending', 'written'].includes(closure.state) || Object.keys(closure).length !== 2 || !record.auditPath ||
+            record.auditStage === undefined || record.auditStage === 'OUT_OF_SCOPE') throw new Error();
+        validateSchema('audit-interruption', closure.interruption);
+        const p = closure.interruption.payload;
+        if (!verifySigned(closure.interruption, this.owner.did) || p.taskId !== record.taskId ||
+            p.actors[0] !== record.requesterDid || p.actors[1] !== this.owner.did || p.phase !== record.auditStage ||
+            p.seq !== 1 || p.acknowledgedPrefix.count !== 1 || p.acknowledgedPrefix.lastSeq !== 0 ||
+            p.prevEntryHash !== p.acknowledgedPrefix.head || p.observedAt !== closure.interruption.signature.signedAt)
+          throw new Error();
+      } catch { throw new Error('INVALID_TASK_JOURNAL'); }
+    }
     return record;
   }
 
