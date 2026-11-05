@@ -35,6 +35,67 @@ export interface AuditBundle {
   entries: AuditEntry[];
   checkpoint: { actor: Signed<Checkpoint>; receiver: Signed<Signed<Checkpoint>> };
 }
+// Source locations are diagnostic metadata only: never serialize them into a bundle.
+const jsonlLocations = new WeakMap<AuditBundle, { entryLines: number[]; checkpointLine: number }>();
+type AuditRecord = { entry?: AuditEntry; checkpoint?: AuditBundle['checkpoint'] };
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+function diagnosticText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (/acp-invite:/i.test(value)) return '[redacted]';
+  return value.length > 160 ? value.slice(0, 160) + '...' : value;
+}
+function diagnosticJson(value: unknown): string {
+  // JSON escaping covers C0 controls; also escape DEL, C1 and Unicode display controls.
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
+    char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+function entryLocation(entry: unknown, locationKind: 'entry' | 'last-entry', index?: number, line?: number) {
+  const e = object(entry), body = object(e?.body);
+  return {
+    locationKind,
+    taskId: diagnosticText(body?.taskId),
+    seq: typeof body?.seq === 'number' && Number.isSafeInteger(body.seq) && body.seq >= 0
+      ? body.seq : undefined,
+    entryHash: diagnosticText(e?.entryHash),
+    line,
+    index,
+    verified: false,
+  };
+}
+function checkpointLocation(bundle: AuditBundle) {
+  const checkpoint = object(bundle?.checkpoint), payload = object(object(checkpoint?.actor)?.payload);
+  const entries = Array.isArray(bundle?.entries) ? bundle.entries : [];
+  const source = jsonlLocations.get(bundle);
+  return {
+    locationKind: 'checkpoint',
+    taskId: diagnosticText(payload?.taskId),
+    head: diagnosticText(payload?.head),
+    line: source?.checkpointLine,
+    lastEntry: entries.length
+      ? entryLocation(entries.at(-1), 'last-entry', entries.length - 1, source?.entryLines.at(-1)) : undefined,
+    verified: false,
+  };
+}
+function parseRecords(text: string): Array<{ record: AuditRecord; line: number }> {
+  // Keep the existing trim/filter rules while counting physical lines before filtering.
+  const start = text.length - text.trimStart().length;
+  const firstLine = text.slice(0, start).split('\n').length;
+  return text.trim().split('\n').flatMap((line, index) => {
+    if (!line) return [];
+    const physicalLine = firstLine + index;
+    let record: AuditRecord;
+    try {
+      record = JSON.parse(line) as AuditRecord;
+    } catch {
+      // Engine JSON errors can quote the input, including task payloads or invitations.
+      throw new SyntaxError('Invalid JSON; auditLocation=' + diagnosticJson({ line: physicalLine, verified: false }));
+    }
+    return [{ record, line: physicalLine }];
+  });
+}
 export interface AuditStore {
   read(): AuditEntry[];
   append(entry: AuditEntry, checkpoint: AuditBundle['checkpoint']): void;
@@ -53,11 +114,7 @@ export class JsonlStore implements AuditStore {
   constructor(readonly path: string) {}
   private records(): { entry?: AuditEntry; checkpoint?: AuditBundle['checkpoint'] }[] {
     try {
-      return readFileSync(this.path, 'utf8')
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((l) => JSON.parse(l));
+      return parseRecords(readFileSync(this.path, 'utf8')).map(({ record }) => record);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw e;
@@ -83,15 +140,29 @@ export class JsonlStore implements AuditStore {
   }
 }
 export function parseJsonl(text: string): AuditBundle {
-  const records = text
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as { entry?: AuditEntry; checkpoint?: AuditBundle['checkpoint'] });
-  const last = records.pop();
-  if (!last?.checkpoint || last.entry || records.some((r) => !r.entry || r.checkpoint))
-    throw new Error('MISSING_OR_MISPLACED_CHECKPOINT');
-  return { entries: records.map((r) => r.entry!), checkpoint: last.checkpoint };
+  const records = parseRecords(text);
+  const last = records.at(-1);
+  const misplaced = records.slice(0, -1).find(({ record }) => !object(record)?.entry || object(record)?.checkpoint);
+  if (!object(last?.record)?.checkpoint || object(last?.record)?.entry || misplaced) {
+    const offending = misplaced ?? last;
+    const entry = object(offending?.record)?.entry;
+    const checkpoint = object(offending?.record)?.checkpoint;
+    const payload = object(object(object(checkpoint)?.actor)?.payload);
+    const lastEntry = !entry && !checkpoint
+      ? records.findLast(({ record }) => object(record)?.entry) : undefined;
+    const location = entry
+      ? entryLocation(entry, !misplaced && !object(last?.record)?.checkpoint ? 'last-entry' : 'entry')
+      : { locationKind: checkpoint ? 'checkpoint' : 'record', taskId: diagnosticText(payload?.taskId),
+        head: diagnosticText(payload?.head), verified: false };
+    throw new Error('MISSING_OR_MISPLACED_CHECKPOINT; auditLocation=' + diagnosticJson({
+      ...location, line: offending?.line,
+      lastEntry: lastEntry ? { ...entryLocation(lastEntry.record.entry, 'last-entry'), line: lastEntry.line } : undefined,
+    }));
+  }
+  const entryRecords = records.slice(0, -1);
+  const bundle = { entries: entryRecords.map(({ record }) => record.entry!), checkpoint: last!.record.checkpoint! };
+  jsonlLocations.set(bundle, { entryLines: entryRecords.map(({ line }) => line), checkpointLine: last!.line });
+  return bundle;
 }
 export class BilateralLedger {
   constructor(
@@ -293,11 +364,22 @@ function auditResult(supplied: boolean, error?: unknown): AuditVerificationResul
     truncationChecked: true,
   };
 }
+function verificationError(error: unknown): string {
+  // Retain existing verifier codes and schema explanations, without forwarding arbitrary exceptions.
+  if (error instanceof Error && (/^(checkpoint|trust anchor|entry \d+|[A-Z][A-Z0-9_]{0,79})$/.test(error.message)
+    || error.message.startsWith('SCHEMA_VIOLATION: '))) {
+    const message = error.message;
+    const bounded = message.length > 1024 ? message.slice(0, 1024) + '...' : message;
+    return 'Error: ' + diagnosticJson(bounded).slice(1, -1);
+  }
+  return error instanceof TypeError ? 'TypeError' : 'Error';
+}
 export function verifyAudit(
   bundle: AuditBundle,
   expected?: AuditVerificationOptions,
 ): AuditVerificationResult {
   const supplied = anchorSupplied(expected);
+  let location: unknown = checkpointLocation(bundle);
   try {
     const { entries, checkpoint } = bundle,
       c = checkpoint.actor.payload;
@@ -318,6 +400,7 @@ export function verifyAudit(
       throw new Error('checkpoint');
     assertTrustAnchor(resolveAnchor(expected), c, entries);
     for (let i = 0; i < entries.length; i++) {
+      location = entryLocation(entries[i], 'entry', i, jsonlLocations.get(bundle)?.entryLines[i]);
       const e = entries[i],
         b = e.body,
         a = e.counterSignature;
@@ -341,6 +424,6 @@ export function verifyAudit(
     }
     return auditResult(supplied);
   } catch (e) {
-    return auditResult(supplied, e);
+    return auditResult(supplied, verificationError(e) + '; auditLocation=' + diagnosticJson(location));
   }
 }

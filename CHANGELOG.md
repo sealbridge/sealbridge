@@ -2,6 +2,12 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [Unreleased]
+
+### Fixed
+
+- Audit parsing and verification diagnostics identify task IDs, entry sequences and hashes, and JSONL physical lines where available, including the last entry when a checkpoint is missing. Related to #194.
+
 ## [0.4.2] - 2026-11-05
 
 ### Fixed
