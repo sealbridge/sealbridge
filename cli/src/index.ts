@@ -22,6 +22,14 @@ import { acceptCommand } from './accept.js';
 import { invitesMigrateCommand } from './invites-migrate.js';
 import { formatCliError } from './error-messages.js';
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as unknown;
+function parseAuditJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Parser messages may quote input. JSON bundles and anchors have no JSONL location.
+    throw new SyntaxError('Invalid JSON');
+  }
+}
 const USAGE = 'Usage: sealbridge <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
@@ -211,10 +219,10 @@ async function main(args: string[]) {
       const input = readFileSync(parsed.input, 'utf8');
       const bundle = parsed.input.endsWith('.jsonl')
         ? parseJsonl(input)
-        : (JSON.parse(input) as AuditBundle);
+        : (parseAuditJson(input) as AuditBundle);
       const options: AuditVerificationOptions = {};
       if (parsed.anchorPath) {
-        const file = read(parsed.anchorPath) as AuditVerificationOptions;
+        const file = parseAuditJson(readFileSync(parsed.anchorPath, 'utf8')) as AuditVerificationOptions;
         if (!file || typeof file !== 'object' || Array.isArray(file))
           throw new Error('INVALID_TRUST_ANCHOR');
         // A positional trust-anchor file still pins taskId and actors, as before.
