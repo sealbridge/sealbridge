@@ -28,11 +28,18 @@ export {
   generateKeyPair, createSignedAgentCard, verifySignedAgentCard,
   createInviteToken, inviteTokenFromUri, isInviteTarget, parseAndVerifyInviteToken,
   discoverAgentCards, findDiscoveredAgentCard,
+  generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkAad,
+  padInviteLinkToken, unpadInviteLinkToken, encryptInviteLink, decryptInviteLink,
+  packInviteLinkCiphertext, unpackInviteLinkCiphertext, parseInviteLink, inviteLinkExpiry,
+  inviteLinkVerificationNumber,
+  INVITE_LINK_CONTEXT, INVITE_LINK_HKDF_INFO, INVITE_LINK_PAD_BLOCK_BYTES, INVITE_LINK_MAX_PADDED_BYTES,
+  INVITE_LINK_DEFAULT_TTL_MS, INVITE_LINK_MAX_TTL_MS, INVITE_LINK_TOKEN_GRACE_MS,
 } from '@acp/core';
 export type {
   KeyPair, Json, Signed, SignedEnvelope,
   Invite, AgentSkill, DiscoveryAgentCard, CreateAgentCardOptions, SignedAgentCard, RelayEndpointPolicy,
   ConnectionRequest, ConnectionAccepted, ConnectionAck, ConnectionControl,
+  InviteLinkKeys, InviteLinkCiphertext, InviteLinkStorage, InviteLinkRelayPolicy, ParsedInviteLink,
 } from '@acp/core';
 export type { RelayTransport } from '@acp/relay';
 export { connectionsCommand, connectionHumanReview } from './connections.js';

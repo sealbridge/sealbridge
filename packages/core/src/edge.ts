@@ -2,5 +2,7 @@
 export * from './types.js';
 export * from './crypto.js';
 export * from './discovery.js';
+export * from './invite-link.js';
+export * from './invite-sas.js';
 export * from './relay-auth.js';
 export * from './delivery-status.js';
