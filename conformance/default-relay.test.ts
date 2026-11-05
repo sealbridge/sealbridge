@@ -197,7 +197,10 @@ describe('multiple local candidates, one active route', () => {
     createApplicationConfig({ version: 1, relays }, identityOptions);
     return { home, identityOptions };
   }
-  it.each(['absent', 'candidates'])('signs an explicit loopback invite locally without connection opt-in with %s config', async form => {
+  it.each([
+    ['absent', 'default'], ['candidates', 'default'],
+    ['absent', 'token'], ['candidates', 'token'],
+  ])('signs an explicit loopback invite locally without connection opt-in with %s config and %s share mode', async (form, share) => {
     const home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-loopback-invite-'));
     roots.push(home);
     const identityOptions = { home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') } };
@@ -212,7 +215,8 @@ describe('multiple local candidates, one active route', () => {
     }) as typeof fetch);
     const application = { identityOptions, fetch: fetcher };
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await networkCommand('invite', ['create', '--key', keyPath, '--relay', loopback], application);
+    await networkCommand('invite', ['create', '--key', keyPath, '--relay', loopback,
+      ...(share === 'token' ? ['--share', 'token'] : [])], application);
     const token = log.mock.calls.at(-1)![0] as string;
     expect(parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true }))
       .toMatchObject({ ownerDid: owner.did, relayUrl: loopback, agentCard: { payload: { relayEndpoint: loopback } } });

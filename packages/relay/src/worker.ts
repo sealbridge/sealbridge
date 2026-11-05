@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
+import { routeInvite, routeInviteClaim } from './invites.js';
+import type { InviteNamespace } from './invites.js';
+export { InviteDurableObject } from './invites.js';
 import { resolveDid, generateKeyPair } from '@acp/core/edge';
 import type { SignedEnvelope, KeyPair } from '@acp/core/edge';
 import {
@@ -313,6 +316,7 @@ interface RelayNamespace {
 }
 export interface RelayEdgeEnv {
   RELAY?: RelayNamespace;
+  INVITES?: InviteNamespace;
   RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   [key: string]: unknown;
 }
@@ -473,6 +477,19 @@ export async function handleRelayEdge(
   const path = canonicalRelayPath(url.pathname);
   if (request.method === 'GET' && path === '/health')
     return Response.json({ status: 'ok' }, { headers: relayHttpHeaders('json') });
+  if (request.method === 'GET' && url.pathname === '/v1/capabilities')
+    return Response.json(env?.RELAY && !env.INVITES ? {} : { inviteLinks: 1 }, { headers: relayHttpHeaders('json') });
+  if (url.pathname.startsWith('/v1/invites')) {
+    const claim = request.method === 'POST' && url.pathname === '/v1/invites/claim';
+    if (claim && env?.RATE_LIMITER) {
+      try { if (!(await env.RATE_LIMITER.limit({ key: clientIp(request) + ':invite-claim' })).success) return tooMany(60); }
+      catch { return Response.json({ error: 'RATE_LIMITER_UNAVAILABLE' }, { status: 503, headers: relayHttpHeaders('json') }); }
+    }
+    if (env?.RELAY && !env.INVITES) return Response.json({ error: 'INVITE_LINK_UNAVAILABLE' }, { status: 503, headers: relayHttpHeaders('json') });
+    return env?.INVITES
+      ? claim ? routeInviteClaim(request, env.INVITES, clientIp(request)) : routeInvite(request, env.INVITES)
+      : localHandler(request);
+  }
   const bucket = rateBucket(request.method, path);
   if (bucket) {
     const limited = await applyRateLimit(request, env, bucket);

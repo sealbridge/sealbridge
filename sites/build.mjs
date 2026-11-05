@@ -123,6 +123,11 @@ export async function buildSites() {
     await cp(path.join(directory, 'style.css'), path.join(directory, 'dist', target, 'style.css'));
     await cp(path.join(directory, '_headers'), path.join(directory, 'dist', target, '_headers'));
   }
+  const joinPage = await readFile(path.join(directory, 'join.html'));
+  for (const target of ['site', 'invite']) {
+    await put(path.join(directory, 'dist', target, 'j/index.html'), joinPage);
+    await build({ ...browserOptions, entryPoints: ['browser/join.mjs'], outfile: path.join(directory, 'dist', target, 'join.js'), minify: true });
+  }
   const invite = await readFile(path.join(directory, 'invite.html'));
   await put(path.join(directory, 'dist/invite/i/index.html'), invite);
   await put(path.join(directory, 'dist/invite/index.html'), invite);

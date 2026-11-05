@@ -52,7 +52,9 @@ it('imports and lists/removes locally without printing invitation material', asy
   await acceptCommand('accept', ['https://sealbridge.app/i#' + token, '--alias', 'reviewer'], options);
   const first = JSON.parse(log.mock.calls.at(-1)![0]);
   await acceptCommand('invites', ['list'], options);
-  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [first] });
+  const { verificationNumber, relayContacted, ...firstSaved } = first;
+  expect(verificationNumber).toMatch(/^\d{6}$/); expect(relayContacted).toBe(false);
+  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [firstSaved] });
   await acceptCommand('invites', ['remove', first.workerRef], options);
   expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ removed: true });
   await acceptCommand('invites', ['remove', 'reviewer'], options);
@@ -89,7 +91,9 @@ it.each(['http://127.0.0.1:8787', 'http://192.168.1.10:8787'].flatMap(relayUrl =
   expect(saved).toMatchObject({ alias: 'reviewer', workerRef: expect.stringMatching(/^saved:/),
     agentDid: owner.did, displayName: 'Local Worker', relayUrl });
   await acceptCommand('invites', ['list'], options);
-  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [saved] });
+  const { verificationNumber, relayContacted, ...savedEntry } = saved;
+  expect(verificationNumber).toMatch(/^\d{6}$/); expect(relayContacted).toBe(false);
+  expect(JSON.parse(log.mock.calls.at(-1)![0])).toEqual({ invites: [savedEntry] });
   await expect(importInvite(false)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
   expect(fetch).not.toHaveBeenCalled();
   expect(JSON.stringify(log.mock.calls)).not.toContain(privateToken);

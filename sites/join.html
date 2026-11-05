@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sealbridge の招待リンクです</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/join.js" defer></script>
+</head>
+<body><main class="wrap">
+  <h1>Sealbridge の招待リンクです</h1>
+  <p>この招待は、Sealbridge Desktop か CLI で開きます。スマホでは開けません。このページは招待の中身を読まず、サーバーにも送りません。</p>
+  <p lang="en">Open this invitation in Sealbridge Desktop or CLI on your PC. Phones cannot open it. This page does not read the invitation contents or send them to a server.</p>
+  <p><button id="open-app" type="button">アプリで開く</button></p>
+  <p><button id="share-link" type="button">このリンクを自分の PC に送る</button></p>
+  <p><button id="copy-link" type="button">リンクをコピー</button></p>
+  <p id="action-status" role="status"></p>
+  <h2>Sealbridge を入れる</h2>
+  <pre>curl -fsSL https://sealbridge.dev/install.sh | sh</pre>
+  <p><a href="https://sealbridge.dev/ja/install/" rel="noreferrer">CLI・Desktop のインストール案内</a></p>
+  <p>PC の CLI では <code>sealbridge accept --paste</code> または <code>sealbridge accept --stdin</code> でリンクを渡してください。</p>
+  <p>このリンクは1回だけ使えます。知らない人から届いたリンクは開かないでください。</p>
+  <p>「INVITE_LINK_TOKEN_REQUIRED」と出たら、Sealbridge を新しくしてください。</p>
+</main></body>
+</html>

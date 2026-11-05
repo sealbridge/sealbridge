@@ -29,12 +29,12 @@ export function parseInviteOutput(value: string | true | undefined): InviteOutpu
 }
 
 /** The caller owns inherited descriptors and the existing destination directory. */
-export function deliverInvite(output: InviteOutput, token: string): void {
+export function deliverInvite(output: InviteOutput, token: string, singleLine = false): void {
   if (output.kind === 'fd') requireFdOutputSupport();
   if (output.kind === 'none') return;
   if (output.kind === 'stdout') {
     console.log(token);
-    console.log('https://sealbridge.app/i#' + token);
+    if (!singleLine) console.log('https://sealbridge.app/i#' + token);
     return;
   }
   try {
