@@ -9,6 +9,7 @@ export {
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider,
   AcpMcpServer,
+  buildTaskManifest, appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS,
 } from '@acp/runtime';
 export type {
   SavedInvite, InviteStoreOptions, SecretStore,
@@ -34,9 +35,14 @@ export {
   inviteLinkVerificationNumber,
   INVITE_LINK_CONTEXT, INVITE_LINK_HKDF_INFO, INVITE_LINK_PAD_BLOCK_BYTES, INVITE_LINK_MAX_PADDED_BYTES,
   INVITE_LINK_DEFAULT_TTL_MS, INVITE_LINK_MAX_TTL_MS, INVITE_LINK_TOKEN_GRACE_MS,
+  buildContextGrant, validateContextGrant, validateManifest, validateContextGrantUse,
+  contextGrantAuditPayload, CONTEXT_GRANT_MAX_BYTES, CONTEXT_GRANT_MAX_LIFETIME_MS,
+  CONTEXT_GRANT_DEFAULT_LIFETIME_MS,
 } from '@acp/core';
 export type {
   KeyPair, Json, Signed, SignedEnvelope,
+  ContextGrant, ContextGrantOptions, DeliveryMode, TaskManifest,
+  ContextGrantAuditEventType, ContextGrantAuditPayload,
   Invite, AgentSkill, DiscoveryAgentCard, CreateAgentCardOptions, SignedAgentCard, RelayEndpointPolicy,
   ConnectionRequest, ConnectionAccepted, ConnectionAck, ConnectionControl,
   InviteLinkKeys, InviteLinkCiphertext, InviteLinkStorage, InviteLinkRelayPolicy, ParsedInviteLink,

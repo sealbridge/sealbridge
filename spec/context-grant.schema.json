@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.2/context-grant.schema.json",
+  "title": "ContextGrant",
+  "description": "CP1 context selection and retention declarations. approval_redelegation is reserved and refused by active validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "deliveryMode",
+    "selectors",
+    "angle",
+    "expiresAt",
+    "maxBytes",
+    "retention"
+  ],
+  "properties": {
+    "deliveryMode": {
+      "enum": [
+        "view_only",
+        "approval_redelegation",
+        "hand_over"
+      ],
+      "default": "view_only"
+    },
+    "selectors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "fieldsAllowed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
+    "fieldsDenied": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "uniqueItems": true
+    },
+    "angle": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "maxBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65536
+    },
+    "retention": {
+      "enum": [
+        "ephemeral_view",
+        "keep_deliverable"
+      ]
+    },
+    "inputRetentionAllowed": {
+      "type": "boolean",
+      "default": false
+    },
+    "outputSchema": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "deliveryMode": {
+            "const": "view_only"
+          }
+        },
+        "required": [
+          "deliveryMode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "retention": {
+            "const": "ephemeral_view"
+          },
+          "inputRetentionAllowed": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deliveryMode": {
+            "const": "hand_over"
+          }
+        },
+        "required": [
+          "deliveryMode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "retention": {
+            "const": "keep_deliverable"
+          },
+          "inputRetentionAllowed": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

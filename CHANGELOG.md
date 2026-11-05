@@ -7,6 +7,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 ### Added
 
 - Core and SDK invite-link primitives for key derivation, padded token encryption, strict fragment parsing, relay storage encoding, and six-digit verification numbers; relay authentication accepts the additional `invite-manage` action. CLI and relay invite endpoints follow in later batches.
+- Optional ContextGrant declarations on 0.2.0 task manifests for depth-zero view-only and hand-over delivery, with consistency checks, opt-in SDK builders, and digest-only context lifecycle audit events.
 
 ### Fixed
 

@@ -1,0 +1,94 @@
+{
+  "protocolVersion": "0.2.0",
+  "taskId": "task_context_hand_over",
+  "createdAt": "2030-01-01T00:00:00.000Z",
+  "deadline": "2030-01-01T00:10:00.000Z",
+  "requester": {
+    "ownerDid": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+    "agentDid": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+  },
+  "worker": {
+    "ownerDid": "did:key:z6MkjchhfUsD6mmvni8mCdXHw216Xrm9bQe2mBH1P5RDjVJG",
+    "agentDid": "did:key:z6MkjchhfUsD6mmvni8mCdXHw216Xrm9bQe2mBH1P5RDjVJG"
+  },
+  "task": {
+    "title": "Production feasibility",
+    "description": "Review only the selected dimensions and material; report feasibility and missing dimensions.",
+    "acceptanceCriteria": [
+      {
+        "id": "ac_schema",
+        "description": "Output satisfies the agreed JSON schema",
+        "required": true
+      }
+    ]
+  },
+  "io": {
+    "inputSchema": {},
+    "outputSchema": {
+      "type": "object",
+      "required": [
+        "feasible",
+        "missingDimensions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "feasible": {
+          "type": "boolean"
+        },
+        "missingDimensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "verification": {
+    "mode": "hybrid",
+    "requireUsageReceipt": true,
+    "requireExecutionAttestation": true,
+    "maxRetries": 0
+  },
+  "budget": {
+    "costBearer": "worker_byok",
+    "maxInputTokens": 50000,
+    "maxOutputTokens": 10000,
+    "maxToolInvocations": 10,
+    "maxWallClockSeconds": 60,
+    "onOverrun": "hard_stop"
+  },
+  "permissions": {
+    "maxDelegationDepth": 0,
+    "grantedCapabilities": []
+  },
+  "sandboxPolicy": {
+    "isolationLevel": "subprocess_restricted",
+    "networkAccess": "none",
+    "filesystemScope": "ephemeral_workspace_only"
+  },
+  "hitlPolicy": {
+    "requiredGates": [
+      "GATE_CONTRACT_ACCEPT",
+      "GATE_DELIVERY_ACCEPT"
+    ]
+  },
+  "contextGrant": {
+    "deliveryMode": "hand_over",
+    "selectors": [
+      "$.items[*]"
+    ],
+    "fieldsAllowed": [
+      "dimensions",
+      "material"
+    ],
+    "fieldsDenied": [
+      "customerName"
+    ],
+    "angle": "Report production feasibility and missing dimensions.",
+    "expiresAt": "2030-01-02T00:00:00Z",
+    "maxBytes": 65536,
+    "retention": "keep_deliverable",
+    "inputRetentionAllowed": false
+  }
+}

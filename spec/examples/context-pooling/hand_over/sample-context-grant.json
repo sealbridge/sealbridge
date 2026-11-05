@@ -1,0 +1,18 @@
+{
+  "deliveryMode": "hand_over",
+  "selectors": [
+    "$.items[*]"
+  ],
+  "fieldsAllowed": [
+    "dimensions",
+    "material"
+  ],
+  "fieldsDenied": [
+    "customerName"
+  ],
+  "angle": "Report production feasibility and missing dimensions.",
+  "expiresAt": "2030-01-02T00:00:00Z",
+  "maxBytes": 65536,
+  "retention": "keep_deliverable",
+  "inputRetentionAllowed": false
+}

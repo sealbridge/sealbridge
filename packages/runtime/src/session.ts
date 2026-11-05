@@ -44,6 +44,8 @@ import {
   DEFAULT_CLOCK_SKEW_MS,
   assertConnectionsOptions,
   isConnectionEvent,
+  buildContextGrant,
+  validateContextGrantUse,
 } from '@acp/core';
 import type {
   Json,
@@ -61,7 +63,9 @@ import type {
   RevocationList,
   Invite,
   SignedRevocationNotice,
+  ContextGrantOptions,
 } from '@acp/core';
+import { CONTEXT_GRANT_AUDIT_EVENTS, proposalAuditDigest, verifyContextAcceptanceAudit } from './context-grant-audit.js';
 import { parseJsonl, verifyAudit, createAuditInterruption, JsonlStore,
   type AuditInterruption, type AuditBundle, type AuditEntry } from '@acp/ledger';
 import type { SandboxBoundaryMetadata } from '@acp/sandbox';
@@ -264,6 +268,7 @@ const WORKER_BOUND_EVENTS: ReadonlySet<string> = new Set([
   'CHECKPOINT',
 ]);
 const REQUESTER_BOUND_EVENTS: ReadonlySet<string> = new Set([
+  ...CONTEXT_GRANT_AUDIT_EVENTS,
   'ACCEPT',
   'ATTEST',
   'START',
@@ -928,7 +933,7 @@ export class WorkerNode {
       if (!verifyAudit(bundle, { taskId: record.taskId, actors: [record.requesterDid, this.options.owner.did] }).valid)
         return;
       const proposal = bundle.entries.find((entry) => entry.body.eventType === 'PROPOSE')?.body.payload as unknown as Proposal;
-      if (!proposal || digest({ manifest: proposal.proposal.payload, input: proposal.input }) !== record.proposalDigest) return;
+      if (proposalAuditDigest(proposal) !== record.proposalDigest) return;
       const last = bundle.entries.at(-1)?.body.eventType;
       if (last === 'CANCEL') return { taskId: record.taskId, state: 'CANCELLED', deliverable: null, bundle };
       const delivery = bundle.entries.find((entry) => entry.body.eventType === 'DELIVER')?.body.payload as unknown as Delivery;
@@ -1146,6 +1151,9 @@ export class WorkerNode {
     };
     const setAuditStage = (stage: NonNullable<TaskCheckpoint['auditStage']>): void => {
       if (this.options.auditInterruptionFormat !== 1 || !auditPath) return;
+      // Format 1 requires a full, PROPOSE-only prefix. Grant audits use compact
+      // proposal evidence and bilateral lifecycle entries, outside that scope.
+      if (m.contextGrant) return;
       auditStage = stage;
       saveCheckpoint({ auditStage: stage });
     };
@@ -1176,6 +1184,8 @@ export class WorkerNode {
         throw new Error('INVALID_PROPOSAL');
       this.assertPeer(first.payload.senderDid);
       validateManifest(manifest);
+      validateContextGrantUse(manifest, data.input, this.protocol.now());
+      if (manifest.contextGrant && this.options.inboxPath) throw new Error('CONTEXT_GRANT_INPUT_RETENTION_CONFLICT');
       m = manifest;
       auditPath = this.options.auditPath
         ? this.completed++ === 0 && !existsSync(this.options.auditPath)
@@ -1235,6 +1245,7 @@ export class WorkerNode {
         relayUrl: this.options.relayUrl ?? (typeof this.options.relay === 'string' ? this.options.relay : this.agentCard.payload.relayEndpoint),
         deliveryDeadline: Date.parse(m.deadline),
       } } : undefined,
+      m.contextGrant,
     );
     const cancelController = new AbortController();
     wire.earlyCancel = () => cancelController.abort('CANCELLED');
@@ -1249,6 +1260,24 @@ export class WorkerNode {
     };
     let gateway: OwnerGateway | undefined, workspace: string | undefined;
     let preserveWorkspace = false;
+    let proposalAudited = false;
+    const cleanupWorkspace = async (): Promise<void> => {
+      if (!workspace) return;
+      const path = workspace;
+      try {
+        await rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        workspace = undefined;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException)?.code ?? 'WORKSPACE_CLEANUP_FAILED';
+        // Reporting residual files must not replace settlement or the execution error.
+        try {
+          if (this.options.onWorkspaceCleanupError)
+            void Promise.resolve(this.options.onWorkspaceCleanupError({ taskId: m.taskId, workspaceDir: path, code }))
+              .catch(() => {});
+          else console.warn('Workspace cleanup incomplete (' + code + '): ' + path);
+        } catch {}
+      }
+    };
     let trackedTaskId: string | undefined;
     // Progress metrics are applied synchronously. The tail only serializes wire frames.
     let progressTail: Promise<void> = Promise.resolve();
@@ -1289,6 +1318,7 @@ export class WorkerNode {
       const reason = earlyRejection ?? (decision.approved ? undefined : decision.reason);
       if (reason) throw new ProposalRejectedError(reason);
       validateManifest(m);
+      validateContextGrantUse(m, data.input, this.protocol.now());
       if (!validateOutput(m.io.inputSchema, data.input)) throw new Error('INVALID_PROPOSAL');
       if (this.options.executionTimeoutMs !== undefined && m.budget.maxWallClockSeconds * 1000 > this.options.executionTimeoutMs)
         throw diagnosticError('INCOMPATIBLE_TIMEOUTS', 'budget.maxWallClockSeconds',
@@ -1377,6 +1407,9 @@ export class WorkerNode {
           contractProvider === this.approvalProvider && contractProvider.kind !== 'human'))
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       await wire.receiveEvent('PROPOSE', first);
+      proposalAudited = true;
+      await wire.contextEvent('CONTEXT_GRANT');
+      await wire.contextEvent('CONTEXT_MODE');
       setAuditStage('OWNER_APPROVAL');
       const contract = createContract(m, data.proposal, this.options.owner);
       const approval = await abortable(contractProvider.approve({
@@ -1401,6 +1434,8 @@ export class WorkerNode {
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
+      validateContextGrantUse(m, data.input, this.protocol.now());
+      await wire.contextEvent('CONTEXT_OPENED');
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
       saveCheckpoint({ phase: 'accepted' });
       if (inspection?.inspectionStatus === 'complete') this.deliveryService?.recipientStatus.observe(first.payload.envelopeId, 'opened');
@@ -1439,6 +1474,7 @@ export class WorkerNode {
           // Synchronous notification failures are also best effort.
         }
       }
+      validateContextGrantUse(m, data.input, this.protocol.now());
       setAuditStage('ACCEPT_ACK_WAIT');
       await wire.sendEvent('ACCEPT', { contract, transition: accepted, approval });
       setAuditStage('OUT_OF_SCOPE');
@@ -1633,6 +1669,7 @@ export class WorkerNode {
       };
       this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
+      validateContextGrantUse(m, data.input, this.protocol.now());
       this.deliveryService?.recipientStatus.handoff(first, m);
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
       if (!this.options.inboxPath) await acknowledgeProposal(executionSignal);
@@ -1655,6 +1692,10 @@ export class WorkerNode {
           ...(sandboxBoundary ? { sandboxBoundary } : {}),
         },
       );
+      if (m.contextGrant && workspace) {
+        await cleanupWorkspace();
+        await wire.contextEvent('CONTEXT_DELETION_ATTEMPTED');
+      }
       const transition = gateway.transition('DELIVER');
       saveCheckpoint({ phase: 'delivered' });
       await wire.sendEvent('DELIVER', { ...delivery, transition });
@@ -1728,6 +1769,8 @@ export class WorkerNode {
       this.reportRejection(m.taskId, progressFailure ?? e);
       if (!wireFailureSent) {
         wireFailureSent = true;
+        if (proposalAudited && !preserveWorkspace && diagnostic.code !== 'PENDING_OWNER_APPROVAL')
+          await wire.contextEvent('CONTEXT_DISCARDED').catch(() => {});
         await wire.rawSend('ERROR', diagnostic)
           .then(async () => {
             saveCheckpoint({ notificationPending: false });
@@ -1754,20 +1797,7 @@ export class WorkerNode {
       if (trackedTaskId) this.liveChains.delete(trackedTaskId);
       gateway?.close();
       if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
-      if (workspace && !preserveWorkspace) {
-        try {
-          await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException)?.code ?? 'WORKSPACE_CLEANUP_FAILED';
-          // Reporting residual files must not replace settlement or the execution error.
-          try {
-            if (this.options.onWorkspaceCleanupError)
-              void Promise.resolve(this.options.onWorkspaceCleanupError({ taskId: m.taskId, workspaceDir: workspace, code }))
-                .catch(() => {});
-            else console.warn('Workspace cleanup incomplete (' + code + '): ' + workspace);
-          } catch {}
-        }
-      }
+      if (workspace && !preserveWorkspace) await cleanupWorkspace();
     }
   }
   /**
@@ -2090,7 +2120,7 @@ function safeError(e: unknown): string {
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
   if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
     'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT', 'AUDIT_INTERRUPTION_WRITE_FAILED'].includes(exact)) return exact;
-  if (/^(PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
+  if (/^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
   if (s.includes('TOKEN_REVOKED')) return 'TOKEN_REVOKED';
@@ -2159,6 +2189,7 @@ function freezeApprovalAction<T>(value: T): T {
   return value;
 }
 export interface DelegateOptions extends SessionTimeoutOptions {
+  contextGrant?: ContextGrantOptions;
   idempotencyKey?: string;
   /** @internal Host operation shared by prepared fan-out children. */
   idempotencyOperation?: IdempotencyOperation;
@@ -2246,6 +2277,7 @@ export interface DelegateMultiResult {
   cancelled: string[];
 }
 export interface DelegateMultiOptions extends SessionTimeoutOptions {
+  contextGrant?: ContextGrantOptions;
   idempotencyKey?: string;
   /** @internal Host operation covering this ordered fan-out. */
   idempotencyOperation?: IdempotencyOperation;
@@ -2334,7 +2366,7 @@ export class RequesterClient {
   private keyedAction(options: DelegateOptions | DelegateMultiOptions): Json {
     const allowed = ['idempotencyKey', 'idempotencyOperation', 'idempotencyChildIndex', 'workerRef', 'pendingId', 'pendingRelayUrl',
       'renegotiateProtocol', 'beforePropose', 'beforeTransmit', 'to', 'discover', 'relay', 'title', 'description', 'input',
-      'outputSchema', 'budget', 'manifest', 'auditPath', 'signal', 'capabilities', 'capabilityChains', 'minimumIsolationLevel',
+      'outputSchema', 'contextGrant', 'budget', 'manifest', 'auditPath', 'signal', 'capabilities', 'capabilityChains', 'minimumIsolationLevel',
       'onProgress', 'workers', 'mode', 'quorumSize', 'completionTimeoutMs', 'timeoutMs', 'executionTimeoutMs', 'taskTimeoutMs',
       'waitTimeoutMs', 'connectTimeoutMs', 'transportIdleTimeoutMs', 'heartbeatIntervalMs'];
     if (Object.keys(options).some(k => !allowed.includes(k))) throw new Error('INVALID_IDEMPOTENCY_ARGUMENT');
@@ -2440,6 +2472,7 @@ export class RequesterClient {
       validateIdempotencyKey(options.idempotencyKey);
       options = { ...options, input: structuredClone(options.input),
         outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+        contextGrant: options.contextGrant && structuredClone(options.contextGrant),
         budget: options.budget && structuredClone(options.budget),
         capabilities: options.capabilities && structuredClone(options.capabilities) };
       options = { ...options, manifest: options.manifest && structuredClone(options.manifest),
@@ -2454,6 +2487,7 @@ export class RequesterClient {
     // Retain the reviewed values even if the caller changes its objects while awaiting consent.
     if (options.beforePropose) options = { ...options,
       input: structuredClone(options.input), manifest: options.manifest && structuredClone(options.manifest),
+      contextGrant: options.contextGrant && structuredClone(options.contextGrant),
       budget: options.budget && structuredClone(options.budget),
       outputSchema: options.outputSchema && structuredClone(options.outputSchema),
       capabilities: options.capabilities && structuredClone(options.capabilities),
@@ -2525,6 +2559,7 @@ export class RequesterClient {
         options.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs)
       throw new Error('INCOMPATIBLE_TIMEOUTS: requested budget exceeds executionTimeoutMs');
     validateManifest(manifest);
+    validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
     if (
       manifest.requester.ownerDid !== owner.did ||
       manifest.worker?.ownerDid !== peer ||
@@ -2607,6 +2642,7 @@ export class RequesterClient {
       this.options.allowUnencryptedEnvelopes === true,
       false,
       wireDelivery,
+      manifest.contextGrant,
     );
     if (onProgress) {
       wire.onProgress = async (progress, envelope) => {
@@ -2700,6 +2736,7 @@ export class RequesterClient {
       // Recheck the live phase immediately before transmission; owner review may cross a boundary.
       this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid);
       options.beforeTransmit?.();
+      validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       await wire.sendEvent('PROPOSE', {
         proposal: signPayload(manifest, owner),
         input: options.input,
@@ -2725,6 +2762,7 @@ export class RequesterClient {
         )
       )
         throw new Error('INVALID_ACCEPTANCE');
+      validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       gateway = new OwnerGateway(owner, accept.contract, policy);
       gateway.machine.apply(accept.transition);
       gateway.machine.apply(
@@ -2814,8 +2852,9 @@ export class RequesterClient {
               ?.body.payload as unknown as Delivery | undefined;
             if (cached.taskId !== manifest.taskId || !['SETTLED', 'CANCELLED'].includes(cached.state) ||
                 !verifyAudit(cached.bundle, { taskId: manifest.taskId, actors: [owner.did, peer] }).valid ||
-                !proposed || digest({ manifest: proposed.proposal.payload, input: proposed.input }) !== e.recovery.proposalDigest ||
-                !accepted || !verifyContract(accepted.contract) || digest(accepted.contract.manifest) !== digest(manifest) ||
+                proposalAuditDigest(proposed) !== e.recovery.proposalDigest ||
+                !(manifest.contextGrant ? verifyContextAcceptanceAudit(accepted, manifest) :
+                  accepted && verifyContract(accepted.contract) && digest(accepted.contract.manifest) === digest(manifest)) ||
                 (cached.state === 'CANCELLED' && (e.code !== 'TASK_CANCELLED' || cached.deliverable !== null ||
                   cached.bundle.entries.at(-1)?.body.eventType !== 'CANCEL')) ||
                 (cached.state === 'SETTLED' && (!delivered ||
@@ -2865,6 +2904,7 @@ export class RequesterClient {
       validateIdempotencyKey(options.idempotencyKey);
       options = { ...options, input: structuredClone(options.input),
         outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+        contextGrant: options.contextGrant && structuredClone(options.contextGrant),
         budget: options.budget && structuredClone(options.budget),
         capabilities: options.capabilities && structuredClone(options.capabilities) };
       options = { ...options, workers: structuredClone(options.workers) };
@@ -2935,6 +2975,7 @@ export class RequesterClient {
           description: options.description,
           input: options.input,
           outputSchema: options.outputSchema,
+          contextGrant: options.contextGrant,
           executionTimeoutMs: options.executionTimeoutMs,
           timeoutMs: options.timeoutMs,
           taskTimeoutMs: options.taskTimeoutMs,
@@ -3081,7 +3122,8 @@ function verifiedWorkerDid(bundle: AuditBundle, expectedDid: string): string {
   const payload = accept?.body.payload;
   const worker =
     payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as { contract?: { manifest?: TaskManifest } }).contract?.manifest?.worker
+      ? (payload as { contract?: { manifest?: TaskManifest }; worker?: TaskManifest['worker'] }).contract?.manifest?.worker ??
+        (payload as { worker?: TaskManifest['worker'] }).worker
       : undefined;
   const actors = bundle.checkpoint.actor.payload.actors;
   if (
@@ -3136,6 +3178,7 @@ async function canonicalizeDiscoveredWorkers(
   );
 }
 export function buildTaskManifest(options: {
+  contextGrant?: ContextGrantOptions;
   ownerDid: string;
   workerDid: string;
   agentDid?: string;
@@ -3153,7 +3196,7 @@ export function buildTaskManifest(options: {
   const now = (options.now ?? Date.now)();
   const createdAt = new Date(now).toISOString(),
     deadline = new Date(now + (options.taskTimeoutMs ?? 600000)).toISOString();
-  return {
+  const manifest: TaskManifest = {
     protocolVersion: options.protocolVersion ?? '0.2.0',
     taskId: 'task_' + randomUUID().replaceAll('-', ''),
     createdAt,
@@ -3193,4 +3236,9 @@ export function buildTaskManifest(options: {
     },
     hitlPolicy: { requiredGates: ['GATE_CONTRACT_ACCEPT', 'GATE_DELIVERY_ACCEPT'] },
   };
+  if (options.contextGrant) {
+    manifest.contextGrant = buildContextGrant(options.contextGrant, createdAt);
+    validateManifest(manifest);
+  }
+  return manifest;
 }

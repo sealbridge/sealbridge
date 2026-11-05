@@ -20,6 +20,7 @@ export {
   parseAndVerifyInviteToken,
 } from '@acp/core';
 export * from './session.js';
+export { appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS } from './context-grant-audit.js';
 export * from './delivery-records.js';
 export * from './delivery-store.js';
 export * from './message-status.js';

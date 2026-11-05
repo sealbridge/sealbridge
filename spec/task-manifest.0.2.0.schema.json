@@ -20,6 +20,7 @@
     "hitlPolicy"
   ],
   "properties": {
+    "contextGrant": { "$ref": "https://acp-spec.local/schemas/v0.2/context-grant.schema.json" },
     "protocolVersion": {
       "type": "string",
       "const": "0.2.0",
@@ -418,5 +419,56 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["contextGrant"],
+        "properties": {
+          "contextGrant": {
+            "properties": {
+              "deliveryMode": { "enum": ["view_only", "hand_over"] }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "properties": {
+              "maxDelegationDepth": {
+                "const": 0
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "contextGrant": {
+                  "properties": {
+                    "deliveryMode": {
+                      "const": "view_only"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "sandboxPolicy": {
+                  "properties": {
+                    "filesystemScope": {
+                      "const": "ephemeral_workspace_only"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
 }
