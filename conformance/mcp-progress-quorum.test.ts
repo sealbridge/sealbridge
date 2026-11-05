@@ -228,7 +228,7 @@ describe('Sealbridge MCP server', () => {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'sealbridge-mcp-server', version: '0.4.1' },
+        serverInfo: { name: 'sealbridge-mcp-server', version: '0.4.2' },
       },
     });
     expect((init as { result: { instructions: string } }).result.instructions.length).toBeGreaterThan(
