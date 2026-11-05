@@ -144,13 +144,22 @@ async function main(args: string[]) {
       await mcpServerCommand(rest);
       break;
     case 'keygen': {
+      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+        console.log('Usage: sealbridge keygen <owner.private.json>');
+        break;
+      }
       if (rest.length !== 1) throw new Error('Usage: sealbridge keygen <owner.private.json>');
+      if (rest[0].startsWith('-')) throw new Error('Unknown option: ' + rest[0]);
       const key = generateKeyPair();
       save(rest[0], key, true);
       console.log(JSON.stringify({ did: key.did, keyFile: rest[0] }));
       break;
     }
     case 'validate': {
+      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+        console.log('Usage: sealbridge validate [schema-name] <file.json>');
+        break;
+      }
       const schema = rest.length === 1 ? 'task-manifest' : rest[0],
         path = rest.length === 1 ? rest[0] : rest[1];
       if (!schema || !path) throw new Error('Usage: sealbridge validate [schema-name] <file.json>');
@@ -222,6 +231,10 @@ async function main(args: string[]) {
       break;
     }
     case 'demo': {
+      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+        console.log('Usage: sealbridge demo [--audit-dir <directory>]');
+        break;
+      }
       const index = rest.indexOf('--audit-dir'),
         directory = index >= 0 ? rest[index + 1] : undefined;
       if (index >= 0 && !directory) throw new Error('Missing --audit-dir value');
