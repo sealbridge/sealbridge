@@ -13,7 +13,7 @@ export async function tasksCommand(args: string[], options: {
   const output = options.output ?? ((text: string) => new Promise<void>((resolve, reject) => {
     process.stdout.write(text + '\n', error => error ? reject(error) : resolve());
   }));
-  if (args.includes('--help')) { await output(USAGE); return; }
+  if (args.includes('--help') || args.includes('-h')) { await output(USAGE); return; }
   const [action, ...rest] = args, ids: string[] = [], flags = new Map<string, string>();
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];

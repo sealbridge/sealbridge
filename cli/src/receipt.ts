@@ -68,6 +68,10 @@ export function receiptHtml(receipt: ReturnType<typeof createReceipt>): string {
     escape(JSON.stringify(receipt, null, 2)) + '</pre></details></html>\n';
 }
 export function receiptCommand(args: string[]): void {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Usage: sealbridge receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
+    return;
+  }
   const input = args.shift();
   if (!input || input.startsWith('--')) throw new Error('Usage: sealbridge receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
   const options = new Map<string, string>();

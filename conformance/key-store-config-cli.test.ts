@@ -232,7 +232,8 @@ describe('CLI identity stores', () => {
     const peer = generateKeyPair(), cardPath = join(home, 'card.json');
     put(cardPath, JSON.stringify(createSignedAgentCard({ name: 'Peer', agentDid: peer.did,
       relayEndpoint: 'https://relay.example', skills: [] }, peer)));
-    await expect(boardCommand(['claim', '--post', post.out, '--card', cardPath], options))
+    await expect(boardCommand(['claim', '--post', post.out, '--card', cardPath,
+      '--audit', join(home, 'claim-audit.jsonl'), '--out', join(home, 'claim.json')], options))
       .rejects.toThrow('INVALID_BOARD_CLAIM');
     expect((await inspectStoredIdentity('worker', options)).present).toBe(true);
     expect(entries.size).toBe(2);

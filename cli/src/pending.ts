@@ -10,7 +10,7 @@ export async function pendingCommand(args: string[], application: {
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
 } = {}): Promise<void> {
   const usage = 'Usage: sealbridge pending list [--key FILE] | resubmit ID [delegate approval/relay/audit/output options] | remove ID [--key FILE]';
-  if (args.length === 1 && args[0] === '--help') { console.log(usage); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
   const [action, ...rest] = args;
   if (!['list', 'remove', 'resubmit'].includes(action)) throw new Error(usage);
   const id = action === 'list' ? undefined : rest.shift();

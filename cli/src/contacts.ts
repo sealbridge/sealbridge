@@ -95,6 +95,8 @@ export function contactsApproval(path: string, key: KeyPair, automatic: boolean,
   } };
 }
 export function contactsCommand(args: string[], identityOptions: IdentityStoreOptions = {}): void | Promise<void> {
+  const usage = 'Usage: sealbridge contacts list|add <invite>|allow <ownerDid>|revoke <ownerDid>|remove <ownerDid> [--key <key>] [--file <contacts.json>] [--name <name>] [--allow-private-relay]';
+  if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
   const [action, ...rest] = args;
   const options = new Map<string, string>();
   const positional: string[] = [];
@@ -108,7 +110,7 @@ export function contactsCommand(args: string[], identityOptions: IdentityStoreOp
     options.set(flag, value);
   }
   if (!['list', 'add', 'allow', 'revoke', 'remove'].includes(action) || positional.length !== (action === 'list' ? 0 : 1))
-    throw new Error('Usage: sealbridge contacts list|add <invite>|allow <ownerDid>|revoke <ownerDid>|remove <ownerDid> --key <key> [--file <contacts.json>] [--name <name>]');
+    throw new Error(usage);
   const run = (key: KeyPair | undefined) => {
     if (!key) { console.log(JSON.stringify({ version: 1, contacts: [] })); return; }
     const path = options.get('--file') ?? contactsPath();

@@ -115,6 +115,41 @@ const DELEGATE_USAGE = 'Usage: sealbridge delegate ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
+const WORKER_USAGE = 'Usage: sealbridge worker start [--adapter sandbox|command|claude|codex|openai] [options] | public --settings <file> [options]';
+const RELAY_USAGE = 'Usage: sealbridge relay start [--port <n>] [--host <address>] [options]';
+const INVITE_USAGE = 'Usage: sealbridge invite create [--key <file>] [--relay <url>] [--name <text>] [--expires-in <seconds>]\n' +
+  '       sealbridge invite open|share|request-reissue|reissue --file <invite> [options]';
+const DISCOVER_USAGE = 'Usage: sealbridge discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
+// Validate option names and required values before identities or stores are opened.
+function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
+  const boolean = new Set(['--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
+    '--once', '--publish', '--preview', '--verbose']);
+  const timeouts = ['--execution-timeout-ms', '--task-timeout-ms', '--wait-timeout-ms',
+    '--connect-timeout-ms', '--transport-idle-timeout-ms', '--heartbeat-interval-ms'];
+  const options: Record<string, string[]> = {
+    invite: ['--name', '--expires-in'],
+    discover: ['--skill', '--task-type', '--did'],
+    relay: ['--port', '--host', '--notification-key', '--notification-ttl-ms', '--envelope-ttl-ms',
+      '--max-queue-size', '--max-queue-bytes', '--max-envelope-bytes', '--max-envelopes-per-sender',
+      '--wake-command', '--wake-relay', '--wake-max-attempts', '--wake-retry-base-ms', '--wake-timeout-ms'],
+    worker: [...timeouts, '--adapter', '--cmd', '--model', '--endpoint', '--name', '--invite-ttl', '--invite-output',
+      '--contacts', '--allowed-peer', '--allow-requester', '--allow-task-type', '--skill', '--task-type',
+      '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
+      '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
+      '--audit', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
+    delegate: [...timeouts, '--to', '--invite', '--discover', '--task-type', '--title', '--description',
+      '--input', '--input-file', '--output-schema', '--save-contact', '--contacts', '--audit', '--out',
+      '--yes', '--auto-accept', '--auto-approve', '--verbose'],
+  };
+  const known = new Set(['--key', '--relay', '--allow-private-relay', '--relay-auth-retries',
+    '--relay-auth-recovery-timeout-ms', ...options[command]]);
+  for (const [name, value] of parsed) {
+    if (!known.has(name)) throw new Error('Unknown option: ' + name);
+    if (!boolean.has(name) && typeof value !== 'string') throw new Error('Missing ' + name);
+  }
+  if (command === 'worker' || command === 'delegate') sessionTimeouts(parsed);
+  if (command === 'worker') optionalCount(parsed, 'max-tasks-per-day');
+}
 const TIMEOUT_HELP = `Timeout options (positive integer milliseconds):
   --execution-timeout-ms <n>       Execution/AI-step wall-clock limit; delegate proposes this budget (default: 60000).
   --task-timeout-ms <n>            Overall task, including approvals and settlement (default: 600000).
@@ -184,12 +219,14 @@ export async function networkCommand(command: string, args: string[], applicatio
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   onDelegated?: () => void;
 } = {}): Promise<void> {
-  if (args.some(a => a === '--open' || a.startsWith('--open=') || a === '--access-mode' || a.startsWith('--open-') || a.startsWith('--access-mode=') || a === '--allow-any-requester' || a.startsWith('--allow-any-requester=')))
-    throw new Error('ACCESS_MODE_REMOVED: Use connections; replace old budget flags with --max-input-tokens, --max-output-tokens, --max-tool-invocations, --max-wall-clock-seconds, --allow-task-type and --max-requests-per-minute.');
-  if (command === 'delegate' && args.length === 0 && !application.pendingRequest)
-    throw new Error(DELEGATE_USAGE);
-  if (args.includes('--help') && ['delegate', 'worker', 'relay'].includes(command)) {
-    console.log(command === 'relay' ? `Relay notification options:
+  if (args.includes('--help') || args.includes('-h')) {
+    if (command === 'invite') {
+      if (['open', 'share', 'request-reissue', 'reissue'].includes(args[0]))
+        return inviteShareCommand(args[0], args.slice(1), application.identityOptions);
+      console.log(INVITE_USAGE); return;
+    }
+    if (command === 'discover') { console.log(DISCOVER_USAGE); return; }
+    console.log(command === 'relay' ? RELAY_USAGE + '\n\n' + `Relay notification options:
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
   --wake-relay <url>             Advertised relay URL; required with --wake-command.
   --wake-max-attempts <n>        Maximum wake attempts (default: 5).
@@ -202,7 +239,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   --max-queue-bytes <n>          Queued JSON bytes per recipient (default: 4194304).
   --max-envelope-bytes <n>       Signed envelope JSON bytes (default: 262144).
   --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` :
-      (command === 'delegate' ? DELEGATE_USAGE + '\n\n' : '') + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
+      (command === 'delegate' ? DELEGATE_USAGE : WORKER_USAGE) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
@@ -213,6 +250,10 @@ export async function networkCommand(command: string, args: string[], applicatio
                                  The local relay CLI provides channel "default".`);
     return;
   }
+  if (args.some(a => a === '--open' || a.startsWith('--open=') || a === '--access-mode' || a.startsWith('--open-') || a.startsWith('--access-mode=') || a === '--allow-any-requester' || a.startsWith('--allow-any-requester=')))
+    throw new Error('ACCESS_MODE_REMOVED: Use connections; replace old budget flags with --max-input-tokens, --max-output-tokens, --max-tool-invocations, --max-wall-clock-seconds, --allow-task-type and --max-requests-per-minute.');
+  if (command === 'delegate' && args.length === 0 && !application.pendingRequest)
+    throw new Error(DELEGATE_USAGE);
   const sub = ['relay', 'worker', 'invite'].includes(command) ? args.shift() : undefined;
   if (command === 'worker' && sub === 'public') {
     const index = args.indexOf('--settings');
@@ -230,16 +271,17 @@ export async function networkCommand(command: string, args: string[], applicatio
   }
   if (command === 'invite' && sub !== 'create') return inviteShareCommand(sub ?? '', args, application.identityOptions);
   if ((command === 'relay' || command === 'worker') && sub !== 'start')
-    throw new Error('Expected ' + command + ' start');
+    throw new Error(command === 'worker' ? WORKER_USAGE : RELAY_USAGE);
   const f = flags(args);
+  const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
+  const authRecovery = relayAuthOptions(f);
+  checkNetworkOptions(command, f);
   if (command === 'delegate' && f.has('--invite')) {
     const invite = text(f, 'invite');
     if (f.has('--to') && text(f, 'to') !== invite)
       throw new Error('CONFLICTING_TARGET_OPTIONS: --to and --invite must match');
     f.set('--to', invite);
   }
-  const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
-  const authRecovery = relayAuthOptions(f);
   const allowPrivateRelay = f.has('--allow-private-relay');
   if (command === 'relay') {
     const port = Number(text(f, 'port', '8787'));
@@ -281,16 +323,20 @@ export async function networkCommand(command: string, args: string[], applicatio
     }), null, 2));
     return;
   }
-  const key = await resolveStoredIdentity(command === 'delegate' ? 'requester' : 'worker', {
+  const getKey = () => resolveStoredIdentity(command === 'delegate' ? 'requester' : 'worker', {
     ...application.identityOptions,
     explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined,
   });
   if (command === 'invite') {
     // Local signing retains the explicit URL; connection policy applies when dialing.
     const relayUrl = text(f, 'relay', fallbackCandidates[0]);
+    const name = text(f, 'name', 'Sealbridge Worker');
+    const expiresInSeconds = optionalCount(f, 'expires-in') ?? 3600;
+    if (expiresInSeconds > 2592000) throw new Error('INVALID_EXPIRES_IN');
+    const key = await getKey();
     const card = createSignedAgentCard(
       {
-        name: text(f, 'name', 'Sealbridge Worker'),
+        name,
         agentDid: key.did,
         relayEndpoint: relayUrl,
         skills: [{ id: 'json-task', name: 'JSON task' }],
@@ -300,7 +346,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     );
     console.log(
       createInviteToken(
-        { agentCard: card, expiresInSeconds: Number(text(f, 'expires-in', '3600')) },
+        { agentCard: card, expiresInSeconds },
         key,
       ),
     );
@@ -315,24 +361,11 @@ export async function networkCommand(command: string, args: string[], applicatio
     const inviteTtl = optionalCount(f, 'invite-ttl') ?? 86400;
     if (inviteTtl > 2592000) throw new Error('INVALID_INVITE_TTL: expected 1–2592000 seconds');
     const acceptance = workerAcceptance(f);
-    const contactFile = f.has('--contacts') ? text(f, 'contacts') : contactsPath();
-    const explicitAcceptance = { ...acceptance };
-    acceptance.allowedRequesterDids = [...new Set([
-      ...(acceptance.allowedRequesterDids ?? []),
-      ...loadContacts(contactFile, key.did).filter(c => c.allow && !c.revoked).map(c => c.ownerDid),
-    ])];
     const allowedTaskTypes = f.has('--allow-task-type')
       ? [...new Set(text(f, 'allow-task-type').split(',').map(value => value.trim()))] : undefined;
     if (allowedTaskTypes?.some(value => !value)) throw new Error('INVALID_ALLOW_TASK_TYPE');
     if (allowedTaskTypes && f.has('--task-type') && !allowedTaskTypes.includes(text(f, 'task-type')))
       throw new Error('CONFLICTING_TASK_TYPE');
-    const intakeStore = new WorkerTrustStore(key, {
-      path: workerIntakePath(key.did, application.identityOptions),
-      fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
-    });
-    assertLlmAutoAccept(adapterName, automatic, acceptance, intakeStore.hasTrustedGrant());
-    if (adapterName === 'claude' || adapterName === 'codex')
-      assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
     let adapter: AgentAdapter;
     switch (adapterName) {
       case 'command':
@@ -365,6 +398,20 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (allowedTaskTypes)
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
     const relayUrl = selectedRelay();
+    const key = await getKey();
+    const contactFile = f.has('--contacts') ? text(f, 'contacts') : contactsPath();
+    const explicitAcceptance = { ...acceptance };
+    acceptance.allowedRequesterDids = [...new Set([
+      ...(acceptance.allowedRequesterDids ?? []),
+      ...loadContacts(contactFile, key.did).filter(c => c.allow && !c.revoked).map(c => c.ownerDid),
+    ])];
+    const intakeStore = new WorkerTrustStore(key, {
+      path: workerIntakePath(key.did, application.identityOptions),
+      fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
+    });
+    assertLlmAutoAccept(adapterName, automatic, acceptance, intakeStore.hasTrustedGrant());
+    if (adapterName === 'claude' || adapterName === 'codex')
+      assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
     const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
       requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
     const worker = new WorkerNode({
@@ -447,10 +494,6 @@ export async function networkCommand(command: string, args: string[], applicatio
       throw new Error('INVALID_INPUT_OPTIONS: use exactly one of --input and --input-file');
     const input = application.pendingRequest ? application.pendingRequest.input : f.has('--input-file')
       ? readTaskInputFile(text(f, 'input-file')) : JSON.parse(text(f, 'input'));
-    if (f.has('--save-contact')) addContact(
-      f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
-      text(f, 'save-contact'), allowPrivateRelay,
-    );
     let outputSchema: Schema = {};
     if (f.has('--output-schema')) {
       const value = text(f, 'output-schema');
@@ -458,12 +501,21 @@ export async function networkCommand(command: string, args: string[], applicatio
         value.trim().startsWith('{') ? value : readFileSync(value, 'utf8'),
       ) as Schema;
     }
+    const title = application.pendingRequest?.title ?? text(f, 'title');
+    const description = application.pendingRequest?.description ?? text(f, 'description');
+    if (!application.pendingRequest && !f.has('--discover') && !f.has('--task-type')) text(f, 'to');
+    if (f.has('--save-contact')) text(f, 'to');
+    const key = await getKey();
     const workerRef = application.pendingRequest?.workerRef;
     const to = workerRef
       ? (await InviteStore.open(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } })).resolve(workerRef).inviteToken
       : application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
     const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
+    if (f.has('--save-contact')) addContact(
+      f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
+      text(f, 'save-contact'), allowPrivateRelay,
+    );
     const client = new RequesterClient({
       ...authRecovery,
       ...sessionTimeouts(f),
@@ -491,8 +543,8 @@ export async function networkCommand(command: string, args: string[], applicatio
         ...(f.has('--discover') ? { skillId: text(f, 'discover') } : {}),
         ...(f.has('--task-type') ? { taskType: text(f, 'task-type') } : {}),
       } } : {}),
-      title: application.pendingRequest?.title ?? text(f, 'title'),
-      description: application.pendingRequest?.description ?? text(f, 'description'),
+      title,
+      description,
       input,
       outputSchema,
       ...application.pendingRequest,
