@@ -2,19 +2,19 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
-## [Unreleased]
+## [0.5.0] - 2026-11-06
 
 ### Added
 
-- CP5a signed DelegationLink delivery attachments for one approved child edge, literal declaration narrowing, owner-reviewed SDK child dispatch, and child-attempt recovery records. Depth-one proof checks apply to contracts carrying a ContextGrant; contracts without a ContextGrant retain their existing behavior. Manifest required fields and protocol versions are unchanged.
-- Core and SDK invite-link primitives for key derivation, padded token encryption, strict fragment parsing, relay storage encoding, and six-digit verification numbers; relay authentication accepts the additional `invite-manage` action. CLI and relay invite endpoints follow in later batches.
-- Relay invite-link creation, single-winner claims with 120-second same-nonce recovery, owner status/cancellation, expiry cleanup, and per-link, IP, and owner limits. CLI adds `invite create --share link`, output/QR options, `invite links list|cancel`, short-link import with `--no-network`, and verification numbers on create/accept; the default remains the offline token. A static `/j` page provides app, copy, and sharing actions without contacting the relay. Hosted endpoints require a separate operator update.
-- Optional ContextGrant declarations on 0.2.0 task manifests for depth-zero view-only and hand-over delivery, with consistency checks, opt-in SDK builders, and digest-only context lifecycle audit events.
+- CP5a signed DelegationLink delivery attachments for one approved child edge, literal declaration narrowing, owner-reviewed SDK child dispatch, and child-attempt recovery records. Depth-one proof checks apply to contracts carrying a ContextGrant; contracts without a ContextGrant retain their existing behavior. Manifest required fields and protocol versions are unchanged. (#200)
+- SI1 core and SDK short-invite link primitives for key derivation, padded token encryption, strict fragment parsing, relay storage encoding, and six-digit verification numbers; relay authentication accepts the additional `invite-manage` action. (#198)
+- SI1 relay short-invite link creation, single-winner claims with 120-second same-nonce recovery, owner status/cancellation, expiry cleanup, and per-link, IP, and owner limits. CLI adds `invite create --share link`, output/QR options, `invite links list|cancel`, short-link import with `--no-network`, and verification numbers on create/accept; the default remains the offline token. A static `/j` page provides app, copy, and sharing actions without contacting the relay. Hosted endpoints require a separate operator update. (#199)
+- CP1 optional ContextGrant declarations on 0.2.0 task manifests for depth-zero view-only and hand-over delivery, with consistency checks, opt-in SDK builders, and digest-only context lifecycle audit events. (#197)
 
 ### Fixed
 
-- Added opt-in worker audit interruption terminals for PROPOSE-only approval waits, with separate offline verification and restart recovery; bilateral audit results remain distinct. Related to #194.
-- Audit parsing and verification diagnostics identify task IDs, entry sequences and hashes, and JSONL physical lines where available, including the last entry when a checkpoint is missing. Related to #194.
+- Added opt-in worker AuditInterruption terminals for PROPOSE-only approval waits, with separate offline verification and restart recovery; bilateral audit results remain distinct. (#196; related to #194)
+- Audit parsing and verification diagnostics identify task IDs, entry sequences and hashes, and JSONL physical lines where available, including the last entry when a checkpoint is missing. (#195; related to #194)
 
 ## [0.4.2] - 2026-11-05
 
@@ -96,6 +96,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.5.0]: https://github.com/sealbridge/sealbridge/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sealbridge/sealbridge/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sealbridge/sealbridge/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sealbridge/sealbridge/compare/v0.3.1...v0.4.0
