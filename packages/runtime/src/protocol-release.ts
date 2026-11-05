@@ -50,8 +50,11 @@ export class LiveProtocol {
   }
   outbound(card?: SignedAgentCard, supplied?: string, owner = '', agent = ''): ManifestProtocolVersion {
     const policy = this.policy(), floor = this.floor(card?.payload.ownerDid ?? owner, card?.payload.agentDid ?? agent);
-    const version = policy ? selectProtocolVersion(card?.payload.protocolVersions, floor, policy, this.now())
-      : understoodProtocolVersions(card?.payload.protocolVersions)[0];
+    // No directory card is different from a card that omits version declarations.
+    // A bare DID can reuse the version already observed for this exact peer pair.
+    const peerVersions = card ? card.payload.protocolVersions : floor ? [floor] : undefined;
+    const version = policy ? selectProtocolVersion(peerVersions, floor, policy, this.now())
+      : understoodProtocolVersions(peerVersions)[0];
     if (!version) throw new Error('PROTOCOL_VERSION_UNSUPPORTED: Peer upgrade required.');
     if (floor && compareProtocolVersions(version, floor) < 0) throw new Error('PROTOCOL_DOWNGRADE_REFUSED');
     if (supplied !== undefined && supplied !== version) throw new Error('PROTOCOL_VERSION_UNSUPPORTED: Supplied manifest does not match negotiated version.');

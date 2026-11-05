@@ -2,6 +2,12 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed delegation to connected peers by DID, saved invitation alias, or workerRef, retaining the observed protocol version when no directory card is available.
+
 ## [0.4.1] - 2026-11-05
 
 ### Fixed

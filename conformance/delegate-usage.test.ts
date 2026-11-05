@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, generateKeyPair } from '../packages/core/src/index.js';
+import { createInviteToken, createSignedAgentCard, generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
+import { InviteStore } from '../packages/runtime/src/invite-store.js';
 import type { DelegateOptions } from '../packages/runtime/src/index.js';
 
 const captured = vi.hoisted(() => ({ delegate: vi.fn() }));
@@ -48,7 +49,7 @@ it('prints the same delegate synopsis for --help and an empty invocation', async
   const help = String(vi.mocked(console.log).mock.calls[0][0]);
   const usage = help.split('\n')[0];
   expect(usage).toMatch(/^Usage: sealbridge delegate /);
-  expect(usage).toContain('--to <invite|link|did> | --invite <invite|link|did>');
+  expect(usage).toContain('--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef>');
   expect(usage).toContain('--discover <skill> | --task-type <type>');
   expect(usage).toContain('--title <text> --description <text>');
   expect(usage).toContain('(--input <json> | --input-file <path>)');
@@ -116,4 +117,37 @@ it.each(['--title', '--description', '--input'])('keeps %s required', async flag
   args.splice(args.indexOf(flag), 2);
   await expect(networkCommand('delegate', args, { transportFactory })).rejects.toThrow('Missing ' + flag);
   expect(captured.delegate).not.toHaveBeenCalled();
+});
+
+it.each(['alias', 'workerRef'])('retains the saved %s selector for pending requests and resolves it again on resubmission', async form => {
+  const owner = JSON.parse(readFileSync(key, 'utf8'));
+  const identityOptions = { env: { SEALBRIDGE_DATA_DIR: dir } };
+  const token = target('token');
+  const saved = new InviteStore(owner, identityOptions).import(token, 'reviewer');
+  const workerRef = form === 'alias' ? saved.alias : saved.workerRef;
+  await networkCommand('delegate', [...taskArgs(), '--to', workerRef], { identityOptions, transportFactory });
+  expect(captured.delegate.mock.calls[0][0]).toMatchObject({ to: token, workerRef });
+  await networkCommand('delegate', ['--key', key], { identityOptions, transportFactory,
+    pendingRequest: { to: workerRef, workerRef, title: 'Echo', description: 'Echo JSON', input: {} },
+  });
+  expect(captured.delegate.mock.calls[1][0]).toMatchObject({ to: token, workerRef });
+  expect(transportFactory.mock.calls.map(args => args[0])).toEqual([relayUrl, relayUrl]);
+});
+
+it('rejects missing, unconfirmed, expired and conflicting saved targets before transport construction', async () => {
+  const owner = JSON.parse(readFileSync(key, 'utf8'));
+  const identityOptions = { env: { SEALBRIDGE_DATA_DIR: dir } };
+  const store = new InviteStore(owner, identityOptions), token = target('token');
+  const saved = store.import(token, 'reviewer', { pendingConfirmation: true });
+  const run = (to: string, extra: string[] = []) => networkCommand('delegate',
+    [...taskArgs(), '--to', to, ...extra], { identityOptions, transportFactory });
+  await expect(run('missing')).rejects.toThrow('INVITE_NOT_FOUND');
+  await expect(run(saved.workerRef)).rejects.toThrow('INVITE_CONFIRMATION_REQUIRED');
+  store.retain(saved.workerRef);
+  await expect(run(saved.alias, ['--relay', 'https://other.example'])).rejects.toThrow('CONFLICTING_RELAY');
+  const invite = parseAndVerifyInviteToken(token);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(invite.expiresAt));
+  await expect(run(saved.alias)).rejects.toThrow('INVITE_EXPIRED');
+  expect(captured.delegate).not.toHaveBeenCalled();
+  expect(transportFactory).not.toHaveBeenCalled();
 });

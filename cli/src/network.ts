@@ -111,7 +111,7 @@ function sessionTimeouts(parsed: Map<string, string | true>): SessionTimeoutOpti
   };
 }
 const DELEGATE_USAGE = 'Usage: sealbridge delegate ' +
-  '(--to <invite|link|did> | --invite <invite|link|did> | --discover <skill> | --task-type <type>) ' +
+  '(--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef> | --discover <skill> | --task-type <type>) ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
@@ -126,8 +126,8 @@ Worker execution limit defaults to the agreed budget. Heartbeats do not renew ta
 const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
-  --to <invite|link|did>          Delegate: accepts https://sealbridge.app/i#acp-invite:... links.
-  --invite <invite|link|did>      Delegate: alias of --to; if both are given, values must match.
+  --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
+  --invite <invite|link|did|alias|workerRef>  Delegate: alias of --to; if both are given, values must match.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
   --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (POSIX only, n > 2).
@@ -458,10 +458,14 @@ export async function networkCommand(command: string, args: string[], applicatio
         value.trim().startsWith('{') ? value : readFileSync(value, 'utf8'),
       ) as Schema;
     }
-    const workerRef = application.pendingRequest?.workerRef;
+    const target = application.pendingRequest
+      ? application.pendingRequest.to ?? ''
+      : text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
+    const workerRef = application.pendingRequest?.workerRef ??
+      (target && !isInviteTarget(target) && !target.startsWith('did:') ? target : undefined);
     const to = workerRef
       ? (await InviteStore.open(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } })).resolve(workerRef).inviteToken
-      : application.pendingRequest?.to ?? text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
+      : target;
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
     const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
     const client = new RequesterClient({
@@ -497,6 +501,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       outputSchema,
       ...application.pendingRequest,
       to,
+      ...(workerRef ? { workerRef } : {}),
       ...Object.fromEntries(Object.entries(sessionTimeouts(f)).filter(([, value]) => value !== undefined)),
     }); } finally { client.stopDelivery(); }
     application.onDelegated?.();
