@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { signPayload, verifySigned } from './crypto.js';
 import type { KeyPair, Signed } from './types.js';
 
-export type RelayAuthAction = 'receive' | 'stream' | 'subscribe';
+export type RelayAuthAction = 'receive' | 'stream' | 'subscribe' | 'invite-manage';
 export interface RelayAuthPayload {
   type: 'RelayAuth';
   recipientDid: string;
@@ -35,7 +35,7 @@ export interface RelayAuthVerification {
   error?: string;
   reason?: string;
 }
-const RELAY_AUTH_ACTIONS = new Set<RelayAuthAction>(['receive', 'stream', 'subscribe']);
+const RELAY_AUTH_ACTIONS = new Set<RelayAuthAction>(['receive', 'stream', 'subscribe', 'invite-manage']);
 
 /**
  * Canonical origin for HTTP, SSE, and WebSocket on the same host:port.

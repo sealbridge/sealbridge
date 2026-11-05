@@ -70,6 +70,9 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       WorkerTrustStore, HeldRequestReview, KeychainSecretStore, resolveStoredIdentity, resolveDataRoot,
       connectionsCommand, connectionHumanReview, mcpServerCommand, parseMcpServerArgs,
       mcpServerOptionsFromArgs, parseAndVerifyInviteToken, parseJsonl, verifyAudit, parseAuditJsonl, verifyAuditEvidence, createAuditInterruption,
+      generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkExpiry,
+      encryptInviteLink, decryptInviteLink, packInviteLinkCiphertext, unpackInviteLinkCiphertext,
+      parseInviteLink, inviteLinkVerificationNumber,
     } from 'sealbridge/sdk';
     import type {
       SavedInvite, SecretStore, KeyStore, IdentityStoreOptions, DataRootOptions, KeyringModule,
@@ -77,7 +80,23 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       ConnectionAdmissionReviewOptions, InboundConnectionSummary,
       ConnectionsCommandOptions, AcpMcpServerOptions, HeldContentReviewProvider, RelayTransport,
       AuditBundle, AuditEvidence, AuditInterruption, InterruptedAuditBundle, AuditEvidenceVerificationResult, InterruptionStore,
+      InviteLinkKeys, InviteLinkCiphertext, InviteLinkStorage, InviteLinkRelayPolicy, ParsedInviteLink,
     } from 'sealbridge/sdk';
+    function inviteLink(token: string, inviteDigest: string) {
+      const k = generateInviteLinkKey();
+      const keys: InviteLinkKeys = deriveInviteLinkKeys(k);
+      const deadlines = inviteLinkExpiry();
+      const encrypted: InviteLinkCiphertext = encryptInviteLink(token, k, {
+        relayOrigin: 'https://relay.sealbridge.dev', expiresAt: deadlines.expiresAt,
+      });
+      const storage: InviteLinkStorage = packInviteLinkCiphertext(encrypted);
+      const policy: InviteLinkRelayPolicy = { allowedRelayUrls: ['https://relay.sealbridge.dev'] };
+      const parsed: ParsedInviteLink = parseInviteLink('https://sealbridge.app/j#v=1&k=' + k, policy);
+      return {
+        token: decryptInviteLink(unpackInviteLinkCiphertext(storage), k, parsed.relayOrigin),
+        tag: inviteLinkClaimTag(keys.accessKey, keys.id), number: inviteLinkVerificationNumber(inviteDigest),
+      };
+    }
     function audit(text: string, store: InterruptionStore, interrupted: InterruptedAuditBundle) {
       const bilateral: AuditBundle = parseJsonl(text);
       const evidence: AuditEvidence = parseAuditJsonl(text);
