@@ -6,7 +6,7 @@ const USAGE = 'Usage: sealbridge invites migrate --to keychain [--dry-run] [--ke
 
 /** Selects the existing requester independently of the migration destination. */
 export async function invitesMigrateCommand(args: string[], options: InviteStoreOptions = {}): Promise<void> {
-  if (args.length === 1 && args[0] === '--help') { console.log(USAGE); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
   let target: string | undefined, key: string | undefined, dryRun = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--to' && target === undefined && args[i + 1]) target = args[++i];

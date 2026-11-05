@@ -2,6 +2,12 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [Unreleased]
+
+### Fixed
+
+- CLI `--help` and `-h` print help without creating identities, invitations, or stores; missing required arguments are checked before local writes.
+
 ## [0.4.1] - 2026-11-05
 
 ### Fixed

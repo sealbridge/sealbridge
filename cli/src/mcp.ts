@@ -109,7 +109,7 @@ export function mcpServerOptionsFromArgs(
 
 /** `acp mcp-server` speaks MCP over stdio with an outbound allowlist and approval policy. */
 export async function mcpServerCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
-  if (args.includes('--help')) { console.log(USAGE + '\n' + RELAY_AUTH_HELP); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n' + RELAY_AUTH_HELP); return; }
   const parsed = parseMcpServerArgs(args);
   const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, parsed.keyFile
     ? await resolveStoredIdentity('requester', { ...identityOptions, explicitKeyPath: parsed.keyFile }) : undefined, identityOptions));

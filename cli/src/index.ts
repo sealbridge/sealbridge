@@ -101,7 +101,7 @@ async function main(args: string[]) {
       console.log(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
       break;
     case 'doctor':
-      if (rest.length === 1 && rest[0] === '--help')
+      if (rest.includes('--help') || rest.includes('-h'))
         console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
       break;
@@ -148,7 +148,7 @@ async function main(args: string[]) {
       await mcpServerCommand(rest);
       break;
     case 'keygen': {
-      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+      if (rest.includes('--help') || rest.includes('-h')) {
         console.log('Usage: sealbridge keygen <owner.private.json>');
         break;
       }
@@ -160,7 +160,7 @@ async function main(args: string[]) {
       break;
     }
     case 'validate': {
-      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+      if (rest.includes('--help') || rest.includes('-h')) {
         console.log('Usage: sealbridge validate [schema-name] <file.json>');
         break;
       }
@@ -172,8 +172,12 @@ async function main(args: string[]) {
       break;
     }
     case 'approve': {
+      if (rest.includes('--help') || rest.includes('-h')) {
+        console.log('Usage: sealbridge approve <key.private.json> <gate> <taskId> <target.json> <approval.json>');
+        break;
+      }
       const [keyFile, gate, taskId, targetFile, outputFile] = rest;
-      if (!keyFile || !gate || !taskId || !targetFile || !outputFile)
+      if (rest.length !== 5 || !keyFile || !gate || !taskId || !targetFile || !outputFile)
         throw new Error(
           'Usage: sealbridge approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
         );
@@ -199,6 +203,10 @@ async function main(args: string[]) {
       break;
     }
     case 'audit-verify': {
+      if (rest.includes('--help') || rest.includes('-h')) {
+        console.log(AUDIT_VERIFY_USAGE);
+        break;
+      }
       const parsed = parseAuditVerifyArgs(rest);
       const input = readFileSync(parsed.input, 'utf8');
       const bundle = parsed.input.endsWith('.jsonl')
@@ -235,13 +243,14 @@ async function main(args: string[]) {
       break;
     }
     case 'demo': {
-      if (rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+      if (rest.includes('--help') || rest.includes('-h')) {
         console.log('Usage: sealbridge demo [--audit-dir <directory>]');
         break;
       }
-      const index = rest.indexOf('--audit-dir'),
-        directory = index >= 0 ? rest[index + 1] : undefined;
-      if (index >= 0 && !directory) throw new Error('Missing --audit-dir value');
+      if (rest.length && rest[0] !== '--audit-dir') throw new Error('Unknown option: ' + rest[0]);
+      const directory = rest[1];
+      if (rest.length && (!directory || directory.startsWith('-'))) throw new Error('Missing --audit-dir value');
+      if (rest.length > 2) throw new Error('Usage: sealbridge demo [--audit-dir <directory>]');
       if (directory) mkdirSync(directory, { recursive: true, mode: 0o700 });
       console.log(JSON.stringify(await runDemo(directory), null, 2));
       break;

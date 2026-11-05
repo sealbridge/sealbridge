@@ -72,7 +72,7 @@ async function paste(options: AcceptOptions): Promise<string> {
 }
 /** User-operated import; no relay, DNS, or contact operations. */
 export async function acceptCommand(command: 'accept' | 'invites', args: string[], options: AcceptOptions = {}): Promise<void> {
-  if (args.length === 1 && args[0] === '--help') {
+  if (args.includes('--help') || args.includes('-h')) {
     console.log(USAGE + (command === 'accept'
       ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.' : ''));
     return;

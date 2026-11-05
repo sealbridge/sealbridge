@@ -101,6 +101,14 @@ async function confirm(message: string): Promise<void> {
   finally { rl.close(); }
 }
 export async function inviteShareCommand(action: string, args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
+  const usage = 'Usage: sealbridge invite open --file <invite> [--key <file>] [--contacts <file>] [--out <file>] [--save-contact <name>]\n' +
+    '       sealbridge invite share --file <invite> --host <https-url> [--png <file>] [--svg <file>]\n' +
+    '       sealbridge invite request-reissue --file <invite> --out <file> [--key <file>]\n' +
+    '       sealbridge invite reissue --file <invite> --out <file> [--key <file>] [--agent-key <file>] [--request <file>]';
+  if (action === '--help' || action === '-h' || args.includes('--help') || args.includes('-h')) {
+    console.log(usage); return;
+  }
+  if (!['open', 'share', 'request-reissue', 'reissue'].includes(action)) throw new Error(usage);
   const allowed = ['--file', '--host', '--png', '--svg', '--save-contact', '--key', '--agent-key', '--contacts', '--out', '--request'];
   const flags = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
@@ -109,6 +117,8 @@ export async function inviteShareCommand(action: string, args: string[], identit
     flags.set(args[i], args[i + 1]);
   }
   const need = (name: string) => { const v = flags.get('--' + name); if (!v) throw new Error('Missing --' + name); return v; };
+  if (action === 'request-reissue' || action === 'reissue') need('out');
+  if (action === 'share') need('host');
   const value = readFileSync(need('file'), 'utf8').trim();
   if (action === 'open') {
     const p = openInvite(value);
