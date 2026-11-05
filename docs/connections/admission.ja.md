@@ -44,8 +44,9 @@ await admission.approve(requests[0].id);
 で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
 ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
 `connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
-タスクを検査・開封しません。接続同意後も、タスクの完了にはタスク検査プロバイダーを設定した
-組み込みアプリと、所有者が新しいタスクを開く操作が必要です。保留タスクは自動再試行しません。
+タスクを検査・開封しません。接続同意後は新しいタスクを明示的に送信し、対話式 CLI
+ワーカーで内容を確認して実行を承認します。招待で接続済みでも未承認の署名付き申し込みは
+審査一覧に残ります。保留タスクは自動再試行しません。
 
 ```sh
 sealbridge connections review list --role worker
@@ -64,7 +65,9 @@ CLI の判断には人間の TTY または既存の確認コールバックが�
 ツールはありません。一覧と拒否は relay に接続せず、一覧は鍵も作りません。組み込み側は所有者の
 明示操作だけに判断 API を公開してください。キューの生成・一覧は同意になりません。
 既存の `connections approve` は注入された検査を引き続き必要とし、`connections review approve` が
-組み込みの接続情報検査を明示選択します。既定の受信・タスク検査は `unavailable` のままです。
+組み込みの接続情報検査を明示選択します。ライブラリ既定の検査は `unavailable` ですが、
+対話式 CLI ワーカーは別途タスク内容を表示して検査します。接続済みでも未承認の署名付き
+申し込みは審査一覧に残ります。
 タスクの検査と所有者が開く操作は別途必要で、この審査からアダプターへタスクを渡しません。
 既存のファイル形式・通信形式、所有者専用の権限とアトミックな保存を維持し、relay の配備は不要です。
 
@@ -73,14 +76,19 @@ CLI の判断には人間の TTY または既存の確認コールバックが�
 状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
 connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
 検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
-既定の検査器は `unavailable` を返すため、内容は保留のままです。
+ライブラリの既定の検査器は `unavailable` です。対話式 CLI ワーカーは表示による検査を行います。
 
-タスク検査は組み込みアプリ専用の連携です。ワーカーの受信と保留タスクの審査には、
-タスク検査プロバイダーを設定した組み込みアプリを使ってください。単体 CLI はタスクを
-検査できず、タスク検査プロバイダーの設定もありません。`requests show` と既定の
-`requests approve` は検査完了まで `INSPECTION_INCOMPLETE` を返します。
-保留情報は `requests list` で確認できます。CLI の所有者確認には別途対話式 TTY が必要です。
-`--auto-accept` は検査や接続同意を代替しません。
+単体 CLI は検証済みの manifest・入力・能力を、端末制御文字をエスケープした
+JSON 文字列として表示します。`tasks list` は個別の保留 ID・タスク ID、`requests list` は
+依頼者ごとの受付を一覧します。`tasks show ID` の表示成功時だけ、既存の保留レコードに
+検査記録を保存します。表示は実行や接続同意の承認ではありません。
+`tasks approve ID` / `tasks reject ID` は対話式 TTY で所有者が確認し、その終端の保留内容だけを
+ローカルで閉じます。実行・終了済みセッションへの返信・次のタスクへの承認の保存は行いません。
+新しいタスクを明示的に送信するか `pending resubmit ID` を使い、稼働中の対話式ワーカーで
+新たな内容を確認し、所有者プロンプトで承認・拒否してください。新しい依頼は毎回確認します。
+TTY がなければ limited タスクは保留です。`--auto-accept` は検査や実行承認を代替しません。
+接続同意は `connections` で行います。従来の `requests approve` は検査済みの依頼に対する
+接続同意の意味を維持し、実行を承認しません。`--trust trusted` は別の従来の権限付与です。
 
 未接続の相手からの有効な依頼は、暗号化済み封筒として最大24時間または依頼の期限まで
 保存し、終端の `PENDING_OWNER_APPROVAL`・`retryable:false`・CLI 終了値3を返します。
@@ -93,9 +101,12 @@ connected は期限なしの limited 同意です。すべてのアダプター�
 sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
-# 次の2操作には組み込みアプリでのタスク検査が必要です:
-sealbridge requests show REQUEST_ID
-sealbridge requests approve REQUEST_ID
+# 受信ワーカーと同じ役割・鍵で個別の保留タスクを確認:
+sealbridge tasks list
+sealbridge tasks show HELD_ID
+sealbridge tasks approve HELD_ID
+# または sealbridge tasks reject HELD_ID
+# 明示的に再送し、対話式ワーカーで新しいタスクを承認します。
 sealbridge requests discard REQUEST_ID
 sealbridge requests deny REQUEST_ID
 ```

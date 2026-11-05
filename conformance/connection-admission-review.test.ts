@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInviteToken, createRevocationNotice, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken, RevocationRegistry, signEnvelope } from '../packages/core/src/index.js';
 import type { SignedEnvelope } from '../packages/core/src/index.js';
-import { ConnectionAdmissionReview, ConnectionRouter, HeldRequestReview, heldContentDigest, InviteStore, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
+import { ConnectionAdmissionReview, ConnectionRouter, HeldRequestReview, heldContentDigest, connectionIdFor, InviteStore, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionsCommand } from '../cli/src/connections.js';
 import type { ConnectionAdmissionReviewOptions, InboundConnectionSummary } from '../packages/runtime/src/index.js';
 
@@ -66,6 +66,23 @@ it('lists only public metadata without changing held receipts or default admissi
   expect(f.reviews[0].list()[0]).toMatchObject({ state: 'held', inspectionStatus: 'unavailable' });
   expect(f.options[0].store.connectionState(f.keys[1].did)).toBe('pending');
   expect(f.options[0].relay.send).not.toHaveBeenCalled();
+});
+
+it('keeps unaccepted signed offers reviewable when an invitation already connected the peer', async () => {
+  const f = fixture();
+  f.options[0].store.redeemTaskInvite(parseAndVerifyInviteToken(f.token, EPOCH), {
+    peerOwnerDid: f.keys[1].did, peerAgentDid: f.keys[1].did, relayUrl: RELAY,
+  }, connectionIdFor(f.keys[0].did, f.keys[1].did));
+  expect(f.options[0].store.connectionState(f.keys[1].did)).toBe('connected');
+  const { requested } = await f.incoming(1, undefined);
+  const key = join(f.root, 'worker.private.json');
+  writeFileSync(key, JSON.stringify(f.keys[0]), { mode: 0o600 });
+  const output = vi.fn();
+  await connectionsCommand(['review', 'list', '--key', key], { identityOptions: f.identityOptions, output, now: f.now });
+  expect(JSON.parse(output.mock.calls[0][0]).requests).toMatchObject([{ requestId: requested.requestId }]);
+  expect(f.options[0].store.controlSnapshot().find(c => c.direction === 'incoming')?.accepted).toBeUndefined();
+  expect(await f.queue().approve(requested.requestId)).toMatchObject({ status: 'connected' });
+  expect(f.queue().list()).toEqual([]);
 });
 
 it('approves after restart with limited consent and first-use binding while leaving tasks held', async () => {

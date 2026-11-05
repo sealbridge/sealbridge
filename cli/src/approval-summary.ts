@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ApprovalRequest } from '@acp/runtime';
+import { literalText } from './task-review.js';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -23,6 +24,8 @@ export function approvalSummary(request: ApprovalRequest): string {
       `Title: ${display(record(manifest.task).title)}`, `Input: ${size}`,
       `Time limit: ${display(budget.maxWallClockSeconds)} seconds`,
       `Budget: input ${display(budget.maxInputTokens)} tokens; output ${display(budget.maxOutputTokens)} tokens; tools ${display(budget.maxToolInvocations)}`);
+    lines.push('Task content (literal JSON):', literalText({ manifest, input,
+      capabilities: details.capabilities ?? [] }));
   } else if (request.gate === 'final_verification') {
     const data = record(record(record(request.target).artifact).payload).data;
     lines.push('Review result:', display(data));

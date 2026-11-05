@@ -398,36 +398,51 @@ Follow [connections admission](docs/connections/admission.md) and the [Japanese 
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
 Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.
 Task approval and durable connection consent are separate; without explicit consent, attach no connection request.
-Connected is indefinite limited, with inspection and owner opening for every task. The default inspection provider is unavailable.
+Connected is indefinite limited, with inspection and owner opening for every task. The library default inspection provider is unavailable; interactive CLI workers supply display inspection.
 
-Task inspection is an embedder-only integration: use an embedding app configured
-with a task inspection provider for worker receipt and held-task review. The
-standalone CLI cannot inspect tasks and has no task inspection provider setting.
-`requests show` and default `requests approve` return `INSPECTION_INCOMPLETE`
-until inspection completes; use `requests list` to check pending metadata.
-Human confirmation separately requires an interactive TTY in the CLI.
-`--auto-accept` provides neither inspection nor connection consent.
+The standalone CLI displays validated task manifest, input and capabilities as
+literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
+and task IDs while `requests list` retains intake coalesced per peer. Use
+`tasks show ID` to inspect one attempt; successful display records an inspection
+receipt in the existing held record. It grants no task or connection approval.
+`tasks approve ID` / `tasks reject ID` require interactive TTY owner confirmation
+and close only that terminal held attempt locally. They neither execute nor send
+a reply to its ended session, and store no approval for a later task. Explicitly
+submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
+inspect its content and approve or reject it at the live owner prompt. Every
+fresh submission needs its own decision. Without TTY, limited tasks remain held;
+`--auto-accept` does not replace inspection or live owner approval.
+Connection consent stays on `connections`; legacy `requests approve` retains its
+connection-consent meaning and requires completed inspection. It never approves
+task execution. `requests approve --trust trusted` remains a separate legacy grant.
 
 `requests approve --trust trusted` is a separate legacy 24-hour grant path. Connections never create trusted authority.
 
 未接続の依頼は終端の保留で、自動再試行しません。人間の接続確認には所有者本人が答えます。
 取り込み・プレビューは同意ではありません。接続の確認時はローカルの役割・DID と相手の所有者 DID を表示します。
 依頼の承認と接続への同意を別に確認し、接続に同意がなければ申し込みを添付しません。
-接続は期限なしの limited で、毎回の検査と所有者が開く操作が必要です。既定の検査は利用不可です。
+接続は期限なしの limited で、毎回の検査と所有者が開く操作が必要です。ライブラリの既定の検査は利用不可です。対話式 CLI ワーカーは表示による検査を行います。
 
-タスク検査は組み込みアプリ専用の連携です。ワーカーの受信と保留タスクの審査には、
-タスク検査プロバイダーを設定した組み込みアプリを使ってください。単体 CLI はタスクを
-検査できず、タスク検査プロバイダーの設定もありません。`requests show` と既定の
-`requests approve` は検査完了まで `INSPECTION_INCOMPLETE` を返します。
-保留情報は `requests list` で確認できます。CLI の所有者確認には別途対話式 TTY が必要です。
-`--auto-accept` は検査や接続同意を代替しません。
+単体 CLI は検証済みの manifest・入力・能力を、端末制御文字をエスケープした
+JSON 文字列として表示します。`tasks list` は個別の保留 ID・タスク ID、`requests list` は
+依頼者ごとの受付を一覧します。`tasks show ID` の表示成功時だけ、既存の保留レコードに
+検査記録を保存します。表示は実行や接続同意の承認ではありません。
+`tasks approve ID` / `tasks reject ID` は対話式 TTY で所有者が確認し、その終端の保留内容だけを
+ローカルで閉じます。実行・終了済みセッションへの返信・次のタスクへの承認の保存は行いません。
+新しいタスクを明示的に送信するか `pending resubmit ID` を使い、稼働中の対話式ワーカーで
+新たな内容を確認し、所有者プロンプトで承認・拒否してください。新しい依頼は毎回確認します。
+TTY がなければ limited タスクは保留です。`--auto-accept` は検査や実行承認を代替しません。
+接続同意は `connections` で行います。従来の `requests approve` は検査済みの依頼に対する
+接続同意の意味を維持し、実行を承認しません。`--trust trusted` は別の従来の権限付与です。
 
 ```sh
 sealbridge connections list --role worker
 sealbridge requests list --role worker
-# Requires task inspection in an embedding app / 組み込みアプリでのタスク検査が必要:
-sealbridge requests show REQUEST_ID
-sealbridge requests approve REQUEST_ID
+# Individual held-task review / 個別タスクの確認:
+sealbridge tasks list --role worker
+sealbridge tasks show HELD_ID
+sealbridge tasks approve HELD_ID
+# Explicitly resubmit and approve the fresh task in the live worker TTY.
 sealbridge connections confirm-invite reviewer --role requester
 sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
 sealbridge connections status reviewer --role requester
@@ -452,8 +467,8 @@ Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
 connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
 an owner action. The opt-in CLI is `connections review list|approve ID|reject ID`;
 decisions still require human confirmation. Built-in inspection covers connection
-metadata only. Default inbound and task inspection remain `unavailable`; no task
-is opened. See [admission review](docs/connections/admission.md#owner-admission-review).
+metadata only. Connection review never opens a task. Interactive CLI workers
+provide task display inspection separately. See [admission review](docs/connections/admission.md#owner-admission-review).
 
 A plain task creates only a pending task-derived item in connection metadata,
 not a reviewable signed connection offer. If `connections review approve` returns
@@ -464,16 +479,17 @@ then have the owner run `connections confirm-invite reviewer --role requester`.
 Receive the exchange with the worker listener or `connections sync --once --role worker`, then
 check `connections review list --role worker` on the receiving side.
 Connection review only covers connection metadata; it does not inspect or open
-tasks. After connection consent, task completion still requires an embedding app
-with a task inspection provider and owner opening of a fresh task. Do not retry
-the held task automatically.
+tasks. After connection consent, explicitly submit a fresh task to the interactive
+CLI worker for content display and live owner approval. Do not retry the held
+task automatically. Unaccepted signed offers remain in the review queue even
+when an invitation has already connected the peer.
 
 
 組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
 一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
 CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
-組み込み検査は接続情報だけが対象です。既定の受信・タスク検査は `unavailable` のままで、
-タスクは開きません。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
+接続審査の組み込み検査は接続情報だけが対象で、タスクを開きません。
+対話式 CLI ワーカーは別途タスク内容を表示して検査します。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
 
 通常のタスクが接続情報に作るのはタスク由来の保留項目だけで、審査可能な署名付き接続
 申し込みではありません。`connections review approve` が `CONNECTION_NOT_PENDING` を
@@ -482,8 +498,9 @@ CLI は `connections review list|approve ID|reject ID` で、判断には本人�
 で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
 ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
 `connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
-タスクを検査・開封しません。接続同意後も、タスクの完了にはタスク検査プロバイダーを設定した
-組み込みアプリと、所有者が新しいタスクを開く操作が必要です。保留タスクは自動再試行しません。
+タスクを検査・開封しません。接続同意後は新しいタスクを明示的に送信し、対話式 CLI
+ワーカーで内容を確認して実行を承認します。招待で接続済みでも未承認の署名付き申し込みは
+審査一覧に残ります。保留タスクは自動再試行しません。
 
 ## Requester flow / 発注側
 

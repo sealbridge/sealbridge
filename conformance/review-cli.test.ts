@@ -136,9 +136,9 @@ it.each(['delegate', 'worker'])('%s help documents input files, invite links, TT
 
 it.each([false, true])('CLI worker wires concise or verbose approval display (verbose=%s)', async verbose => {
   await networkCommand('worker', [...workerArgs(), ...(verbose ? ['--verbose'] : [])]);
-  expect(typeof captured.interactive?.formatRequest === 'function').toBe(!verbose);
+  expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
 });
 it.each([false, true])('CLI delegate wires concise or verbose approval display (verbose=%s)', async verbose => {
   await networkCommand('delegate', [...delegateArgs(), '--input', '{}', ...(verbose ? ['--verbose'] : [])]);
-  expect(typeof captured.interactive?.formatRequest === 'function').toBe(!verbose);
+  expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
 });

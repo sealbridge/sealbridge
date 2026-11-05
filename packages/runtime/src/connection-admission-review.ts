@@ -41,7 +41,7 @@ export class ConnectionAdmissionReview {
         const control = controls.find(c => c.direction === 'incoming' && c.active && !c.accepted &&
           c.offer.requestId === record.requestId && c.offer.relayUrl === this.options.relayUrl &&
           Date.parse(c.offer.expiresAt) > this.now());
-        if (!control || this.options.store.connectionState(control.offer.fromOwnerDid) !== 'pending') return [];
+        if (!control || !['pending', 'connected'].includes(this.options.store.connectionState(control.offer.fromOwnerDid))) return [];
         const frame = openConnectionFrame(record.envelope, this.options.owner);
         if (frame.event.payload.type !== 'ConnectionRequest' || digest(frame.event) !== control.offer.requestDigest ||
             frame.event.payload.fromOwnerDid !== record.senderOwnerDid ||

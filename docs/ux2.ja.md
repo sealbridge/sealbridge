@@ -60,8 +60,8 @@ sealbridge invite reissue --file old-invite.txt --key issuer.private.json --requ
 候補は署名・期限・スキル・中継器を確認し、選択した投稿者のローカル接続に照らして表示します。
 claim/dispatch は connected が必要で、未接続なら `CONNECTION_REQUIRED` です。接続だけでは
 依頼やリースを承認しません。serve は投稿者の requester DID と永続化ストアを使い、
-検査と所有者が開く操作を要求します。タスク検査にはプロバイダーを設定した組み込みアプリが
-必要で、単体 CLI はタスクを検査できません。保留情報は `requests list`、署名付き接続申し込みは
+検査と所有者が開く操作を要求します。保留タスクは tasks list/show で表示し、実行は対話式ワーカーで承認します。
+掲示板の claim 受信には別途検査の連携が必要です。保留情報は `requests list`、署名付き接続申し込みは
 `connections review list` で確認します。通常のタスクはタスク由来の保留項目だけを作るため、
 審査一覧が空なら招待・接続フロー（`connections confirm-invite`）を使ってください。
 接続審査だけではタスクを検査・開封しません。CLI の所有者確認には対話式 TTY が必要で、

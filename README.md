@@ -360,16 +360,13 @@ Worker listeners recover dropped relay connections with jittered backoff and rep
 
 **Terminal 3 — Alice, the requester**
 
-With the default unavailable inspection provider, this example returns terminal
-`PENDING_OWNER_APPROVAL` (exit 3). It produces no deliverable or settled audit.
-Do not retry automatically. Completion requires an embedding app configured with
-a task inspection provider; the standalone CLI cannot inspect tasks. Use
-`requests list` for pending metadata and `connections review list` for signed
-connection offers. A plain task creates only a pending task-derived item, so an
-empty review list calls for the invitation/connect flow (`connections confirm-invite`).
-Connection review does not inspect or open tasks. After connection consent, the
-owner must open a fresh task in the embedding app. CLI human confirmation needs
-an interactive TTY; `--auto-accept` provides neither inspection nor connection consent.
+Keep Bob's worker attached to an interactive TTY. It displays the complete
+validated task as literal JSON and asks Bob to approve that live task. The invite
+provides limited connection consent; task approval remains a separate decision.
+Without TTY or when connection consent is missing, the attempt returns terminal
+`PENDING_OWNER_APPROVAL` (exit 3). Use `tasks list/show` on Bob's selected worker
+identity and `connections review list` for signed offers. After review, explicitly
+submit a fresh task and approve it at Bob's live prompt. Do not retry automatically.
 
 ```sh
 pnpm sealbridge keygen /tmp/alice.private.json
@@ -725,8 +722,8 @@ Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
 connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
 an owner action. The opt-in CLI is `connections review list|approve ID|reject ID`;
 decisions still require human confirmation. Built-in inspection covers connection
-metadata only. Default inbound and task inspection remain `unavailable`; no task
-is opened. See [admission review](docs/connections/admission.md#owner-admission-review).
+metadata only. Connection review never opens a task. Interactive CLI workers
+provide task display inspection separately. See [admission review](docs/connections/admission.md#owner-admission-review).
 
 A plain task creates only a pending task-derived item in connection metadata,
 not a reviewable signed connection offer. If `connections review approve` returns
@@ -737,9 +734,10 @@ then have the owner run `connections confirm-invite reviewer --role requester`.
 Receive the exchange with the worker listener or `connections sync --once --role worker`, then
 check `connections review list --role worker` on the receiving side.
 Connection review only covers connection metadata; it does not inspect or open
-tasks. After connection consent, task completion still requires an embedding app
-with a task inspection provider and owner opening of a fresh task. Do not retry
-the held task automatically.
+tasks. After connection consent, explicitly submit a fresh task to the interactive
+CLI worker for content display and live owner approval. Do not retry the held
+task automatically. Unaccepted signed offers remain in the review queue even
+when an invitation has already connected the peer.
 
 
 ## Local M0–M1 implementation
@@ -814,16 +812,24 @@ they are not supported in CLI 0.2.2 and earlier:
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
 Connected means limited consent with no expiry. Every limited task requires a
 completed inspection and a separate human opening before acceptance, for every
-adapter. Automatic contract policy does not replace that opening. The default
-inspection provider reports `unavailable`, so content remains held.
+adapter. Automatic contract policy does not replace that opening. The library default provider reports `unavailable`. Interactive CLI workers supply
+built-in display inspection before the live owner gate.
 
-Task inspection is an embedder-only integration: use an embedding app configured
-with a task inspection provider for worker receipt and held-task review. The
-standalone CLI cannot inspect tasks and has no task inspection provider setting.
-`requests show` and default `requests approve` return `INSPECTION_INCOMPLETE`
-until inspection completes; use `requests list` to check pending metadata.
-Human confirmation separately requires an interactive TTY in the CLI.
-`--auto-accept` provides neither inspection nor connection consent.
+The standalone CLI displays validated task manifest, input and capabilities as
+literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
+and task IDs while `requests list` retains intake coalesced per peer. Use
+`tasks show ID` to inspect one attempt; successful display records an inspection
+receipt in the existing held record. It grants no task or connection approval.
+`tasks approve ID` / `tasks reject ID` require interactive TTY owner confirmation
+and close only that terminal held attempt locally. They neither execute nor send
+a reply to its ended session, and store no approval for a later task. Explicitly
+submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
+inspect its content and approve or reject it at the live owner prompt. Every
+fresh submission needs its own decision. Without TTY, limited tasks remain held;
+`--auto-accept` does not replace inspection or live owner approval.
+Connection consent stays on `connections`; legacy `requests approve` retains its
+connection-consent meaning and requires completed inspection. It never approves
+task execution. `requests approve --trust trusted` remains a separate legacy grant.
 
 Valid requests from unconnected peers are held as encrypted envelopes for at most
 24 hours or the task deadline. They return terminal `PENDING_OWNER_APPROVAL`,
@@ -837,9 +843,12 @@ Plaintext inbox files and receive hooks run only after inspection and opening.
 sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
-# These two operations require task inspection in an embedding app:
-sealbridge requests show REQUEST_ID
-sealbridge requests approve REQUEST_ID
+# Individual held attempts (same role/key as the receiving worker):
+sealbridge tasks list
+sealbridge tasks show HELD_ID
+sealbridge tasks approve HELD_ID
+# Or: sealbridge tasks reject HELD_ID
+# Then explicitly resubmit; approve the fresh task in the live worker TTY.
 sealbridge requests discard REQUEST_ID
 sealbridge requests deny REQUEST_ID
 ```

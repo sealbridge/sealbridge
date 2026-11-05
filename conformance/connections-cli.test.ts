@@ -21,9 +21,8 @@ async function cliError(command: Promise<void>): Promise<string> {
   throw new Error('Expected CLI command rejection');
 }
 function expectInspectionGuidance(text: string) {
-  expect(text).toContain('embedding app configured with a task inspection provider');
-  expect(text).toContain('standalone CLI cannot inspect tasks');
-  expect(text).toContain('単体 CLI はタスクを検査でき');
+  expect(text).toContain('tasks list/show');
+  expect(text).toContain('単体 CLI');
 }
 function expectConfirmationGuidance(text: string) {
   expect(text).toContain('interactive TTY');
