@@ -143,3 +143,7 @@ existing CLI lifecycle. For host-owned streams, construct `AcpMcpServer`, call
 inject an `approvalProvider`; the unflagged policy-auto default is unchanged.
 Approval before sending and final verification remain separate. Connection review
 is a separate `connectionReview` option. See [MCP integration](../README.md#mcp-live-progress-revocation-and-quorum).
+
+## Audit evidence
+
+`parseJsonl` / `verifyAudit` retain their bilateral-only contracts. Use `parseAuditJsonl` / `verifyAuditEvidence` for the `AuditEvidence` union (`AuditBundle | InterruptedAuditBundle`). Worker-only format-1 terminals return `UNILATERALLY_CLOSED` with `valid:false`, even with matching external pins; ordinary result APIs still require bilateral bundles. `createAuditInterruption`, the interruption-aware stores, and public evidence types are exported from `sealbridge/sdk`. See [storage, pins, durability, and requester comparison rules](audit-interruption.md).

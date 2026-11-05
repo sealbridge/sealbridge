@@ -95,6 +95,13 @@ keep their existing audit payloads. Delivery and progress evidence retain their
 existing shapes and may contain application data; CP1 is not a general content
 scrubber for adapter output.
 
+AuditInterruption local format 1 remains limited to one acknowledged PROPOSE
+containing the full signed manifest. Compact grant proposals and their lifecycle
+entries are outside that scope, including when `auditInterruptionFormat: 1` is
+enabled on the worker. Grant sessions keep their existing lifecycle and recovery
+behavior; sessions without grants retain format-1 interruption closure. The
+interruption verifier's manifest and prefix checks are unchanged.
+
 Embedders can use `appendContextGrantAuditEvent(append, eventType, grant)` from
 `sealbridge/sdk` for an actual local lifecycle action. The append port owns
 signing, countersigning and persistence; for example, it can call an existing

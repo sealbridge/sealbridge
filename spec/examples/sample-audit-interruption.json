@@ -1,0 +1,29 @@
+{
+  "payload": {
+    "type": "AuditInterruption",
+    "formatVersion": 1,
+    "taskId": "task_58ba4c65aebe441ca9d2b3f253fea677",
+    "actors": [
+      "did:key:z6Mkj6gKgj855yaUZd1FS1CcBv7C5VWSv9eJmmLfuxt3Ppqk",
+      "did:key:z6Mkvo3zuWyhTjVCMZMTVERfBUvyQM372AnuN1XvHVE61CfD"
+    ],
+    "seq": 1,
+    "prevEntryHash": "sha256:533936cbbede60ba3617394ed7b99babd3a56109cc5139db011ba56b780f0e51",
+    "acknowledgedPrefix": {
+      "count": 1,
+      "lastSeq": 0,
+      "head": "sha256:533936cbbede60ba3617394ed7b99babd3a56109cc5139db011ba56b780f0e51",
+      "entriesDigest": "sha256:4fb32f5f4591aba0759f49b85d839277f17ba15261446c40aa92bc54f9c34602"
+    },
+    "phase": "OWNER_APPROVAL",
+    "reason": "SESSION_TIMEOUT",
+    "observedAt": "2026-11-05T00:01:00.000Z"
+  },
+  "signature": {
+    "signerDid": "did:key:z6Mkvo3zuWyhTjVCMZMTVERfBUvyQM372AnuN1XvHVE61CfD",
+    "canonicalization": "RFC8785-JCS",
+    "payloadDigest": "sha256:9b3e500d642b0731f02ac523f976f6854e623a7c1cfcd5396f2bbb21f0167b06",
+    "signedAt": "2026-11-05T00:01:00.000Z",
+    "signature": "ed25519:vn43o4hIZCRT5R_8xjCeT-MLibvv9kLVrgzmj-LIa9N019cCWBGL6tkVEJGGXFMVBthvrPB4tgR9Qq0iOpdGDg"
+  }
+}

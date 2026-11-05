@@ -135,7 +135,7 @@ it('appends all lifecycle events with only digest and mode and rejects extra pay
   expect(JSON.stringify(bundle)).not.toContain(grant.angle);
 });
 
-async function sessionFixture(mode: DeliveryMode = 'view_only', relay = new InMemoryRelay()) {
+async function sessionFixture(mode: DeliveryMode = 'view_only', relay = new InMemoryRelay(), auditInterruptionFormat?: 1) {
   const owner = generateKeyPair(), clientOwner = generateKeyPair();
   const directory = mkdtempSync(join(tmpdir(), 'cp1-'));
   const approval = new PolicyAutoApprovalProvider(owner);
@@ -143,7 +143,8 @@ async function sessionFixture(mode: DeliveryMode = 'view_only', relay = new InMe
     expect(existsSync(ctx.workspaceDir)).toBe(true); return { ok: true };
   });
   const node = new WorkerNode({ owner, relay, now: () => Date.now(), checkPeer: () => 'trusted', timeoutMs: 4000,
-    approvalProvider: approval, auditPath: join(directory, 'worker.jsonl'), adapter: { id: 'cp1', name: 'CP1', skills: [], executeTask } });
+    approvalProvider: approval, auditPath: join(directory, 'worker.jsonl'), auditInterruptionFormat,
+    adapter: { id: 'cp1', name: 'CP1', skills: [], executeTask } });
   const client = new RequesterClient({ owner: clientOwner, relay, now: () => Date.now(), timeoutMs: 4000,
     approvalProvider: new PolicyAutoApprovalProvider(clientOwner) });
   const m = buildTaskManifest({ ownerDid: clientOwner.did, workerDid: owner.did,
@@ -152,8 +153,10 @@ async function sessionFixture(mode: DeliveryMode = 'view_only', relay = new InMe
   return { owner, clientOwner, directory, node, client, m, executeTask, approval, clean };
 }
 
-it.each(['view_only', 'hand_over'] as const)('settles %s with bilateral lifecycle evidence and no grant body in either ledger', async mode => {
-  const f = await sessionFixture(mode);
+it.each((['view_only', 'hand_over'] as const).flatMap(mode => [
+  { mode, auditInterruptionFormat: undefined }, { mode, auditInterruptionFormat: 1 as const },
+]))('settles $mode with interruption format $auditInterruptionFormat and compact bilateral lifecycle evidence', async ({ mode, auditInterruptionFormat }) => {
+  const f = await sessionFixture(mode, new InMemoryRelay(), auditInterruptionFormat);
   try {
     const run = f.node.start({ once: true });
     const result = await f.client.delegate({ to: f.node.invite(), manifest: f.m, title: 'Context', description: 'Context', input: { confidential: 'input-only-value' } });
@@ -170,6 +173,41 @@ it.each(['view_only', 'hand_over'] as const)('settles %s with bilateral lifecycl
     for (const body of [selection.angle, selection.selectors[0], 'input-only-value']) expect(text).not.toContain(body);
     expect(text).not.toContain('"contextGrant"');
   } finally { f.clean(); }
+});
+
+it.each(['view_only', 'hand_over'] as const)('preserves interrupted %s lifecycle evidence outside format-1 closure scope on stop and restart', async mode => {
+  const f = await sessionFixture(mode, new InMemoryRelay(), 1), controller = new AbortController();
+  let entered!: () => void;
+  const reviewing = new Promise<void>(resolve => { entered = resolve; });
+  vi.spyOn(f.approval, 'approve').mockImplementation(async ({ signal }) => {
+    entered();
+    await new Promise<void>((_resolve, reject) => {
+      signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
+    });
+    throw new Error('UNREACHABLE');
+  });
+  const running = f.node.start();
+  const attempt = f.client.delegate({ to: f.node.invite(), manifest: f.m,
+    title: 'Context', description: 'Context', input: { confidential: 'input-only-value' }, signal: controller.signal }).catch(e => e);
+  try {
+    await reviewing;
+    f.node.stop(); await running;
+    const path = join(f.directory, 'worker.jsonl'), before = readFileSync(path, 'utf8');
+    const entries = before.trim().split('\n').map(line => JSON.parse(line).entry);
+    expect(entries.map(e => e.body.eventType)).toEqual(['PROPOSE', 'CONTEXT_GRANT', 'CONTEXT_MODE']);
+    for (const body of [selection.angle, selection.selectors[0], 'input-only-value', 'interruption']) expect(before).not.toContain(body);
+    expect(f.executeTask).not.toHaveBeenCalled();
+    const records = readFileSync(path + '.tasks.jsonl', 'utf8').trim().split('\n').map(line => JSON.parse(line).payload);
+    expect(records.every(r => r.auditStage === undefined && r.auditClosure === undefined)).toBe(true);
+    const restarted = new WorkerNode({ ...f.node.options });
+    try { await restarted.start({ signal: AbortSignal.abort() }); } finally { restarted.stop(); }
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    expect(existsSync(path + '.errors.jsonl')).toBe(false);
+    expect(restarted.lastResult).toBeUndefined();
+    expect(f.executeTask).not.toHaveBeenCalled();
+  } finally {
+    controller.abort(); f.node.stop(); await Promise.allSettled([running, attempt]); f.clean();
+  }
 });
 
 it('rejects local contradictions before sending any proposal', async () => {

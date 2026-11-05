@@ -14,8 +14,8 @@ import {
 } from '@acp/core';
 import type { BudgetSpec, Invite, Json, KeyPair, Schema } from '@acp/core';
 import { RevocationRegistry } from '@acp/core';
-import type { AuditBundle, AuditVerificationOptions } from '@acp/ledger';
-import { verifyAudit } from '@acp/ledger';
+import type { AuditEvidenceVerificationOptions } from '@acp/ledger';
+import { verifyAudit, verifyAuditEvidence } from '@acp/ledger';
 import { HttpRelayClient, validateRelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayTransport } from '@acp/relay';
@@ -742,22 +742,24 @@ export class AcpMcpServer {
     };
   }
   private verifyBundle(args: Record<string, unknown>): Json {
-    const bundle = args.bundle as AuditBundle;
+    const bundle = args.bundle;
     if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle))
       throw new RpcError(-32602, 'Invalid params');
-    const options: AuditVerificationOptions = {};
+    const options: AuditEvidenceVerificationOptions = {};
     let anchored = false;
     if (args.anchor !== undefined) {
       if (!args.anchor || typeof args.anchor !== 'object' || Array.isArray(args.anchor))
         throw new RpcError(-32602, 'Invalid params');
-      const anchor = args.anchor as AuditVerificationOptions;
+      const anchor = args.anchor as AuditEvidenceVerificationOptions;
       // The legacy anchor object still pins taskId and actors, as before.
       options.trustAnchor = anchor;
-      options.taskId = typeof anchor.taskId === 'string' ? anchor.taskId : '';
-      options.actors =
-        Array.isArray(anchor.actors) && anchor.actors.length === 2
-          ? (anchor.actors as [string, string])
-          : ['', ''];
+      if (!('interruption' in bundle)) {
+        options.taskId = typeof anchor.taskId === 'string' ? anchor.taskId : '';
+        options.actors =
+          Array.isArray(anchor.actors) && anchor.actors.length === 2
+            ? (anchor.actors as [string, string])
+            : ['', ''];
+      }
       if (typeof anchor.head === 'string') options.head = anchor.head;
       anchored = true;
     }
@@ -783,7 +785,15 @@ export class AcpMcpServer {
       options.expectedEntryCount = args.expectedEntryCount;
       anchored = true;
     }
-    const report = verifyAudit(bundle, anchored ? options : undefined);
+    if (args.expectedClosureKind !== undefined) {
+      if (args.expectedClosureKind !== 'bilateral' && args.expectedClosureKind !== 'interruption') throw new RpcError(-32602, 'Invalid params');
+      options.expectedClosureKind = args.expectedClosureKind; anchored = true;
+    }
+    if (args.expectedInterruptionHash !== undefined) {
+      if (typeof args.expectedInterruptionHash !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(args.expectedInterruptionHash)) throw new RpcError(-32602, 'Invalid params');
+      options.expectedInterruptionHash = args.expectedInterruptionHash; anchored = true;
+    }
+    const report = verifyAuditEvidence(bundle, anchored ? options : undefined);
     return report as unknown as Json;
   }
   private async createInvite(args: Record<string, unknown>): Promise<Json> {

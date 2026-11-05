@@ -176,6 +176,12 @@ export class SessionWire {
     for (const wake of this.inboxWaiters.splice(0)) wake();
     for (const wake of this.waiterAdded.splice(0)) wake();
   }
+  /** Freeze audit mutation before a local terminal decision, including already-resolved ACKs. */
+  async quiesceAudit(): Promise<AuditEntry[]> {
+    this.close();
+    await Promise.all([this.sendTail, this.deliveryTail.catch(() => {})]);
+    return structuredClone(this.entries);
+  }
   /** Liveness is signed/encrypted but does not consume audit sequence numbers or extend quota. */
   async heartbeat(): Promise<void> {
     await this.relay.send(signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
@@ -370,6 +376,7 @@ export class SessionWire {
     return run;
   }
   private async dispatchBatch(envelopes: SignedEnvelope[]): Promise<void> {
+    if (this.stopped) throw new Error('SESSION_CLOSED');
     const signal = this.detached ? this.readController.signal : this.signal;
     signal.throwIfAborted();
     if (this.delivery) {
@@ -468,6 +475,7 @@ export class SessionWire {
     return envelope;
   }
   async rawReceive(expected: string | string[], initial?: SignedEnvelope): Promise<SignedEnvelope> {
+    if (this.stopped) throw new Error('SESSION_CLOSED');
     if (initial) {
       const envelope = this.acceptInitial(expected, initial);
       if (this.awaitingInitial) { this.awaitingInitial = false; this.startPump(); void this.dispatch(); }
@@ -485,9 +493,10 @@ export class SessionWire {
     return envelope;
   }
   private append(entry: AuditEntry): void {
+    if (this.stopped) throw new Error('SESSION_CLOSED');
     validateSchema('audit-entry', entry);
-    this.entries.push(entry);
     if (this.auditPath) new JsonlStore(this.auditPath).append(entry);
+    this.entries.push(entry);
   }
   private body(eventType: string, payload: Json, actorDid: string, receiverDid: string): AuditBody {
     return {
@@ -556,6 +565,7 @@ export class SessionWire {
     await appendContextGrantAuditEvent((type, payload) => this.sendEvent(type, payload), eventType, this.contextGrant);
   }
   private async transmit(eventType: string, payload: unknown): Promise<void> {
+    if (this.stopped) throw new Error('SESSION_CLOSED');
     const data = asJson(payload),
       body = this.body(eventType, data, this.owner.did, this.peerDid),
       draft = signPayload(body, this.owner);
@@ -602,6 +612,7 @@ export class SessionWire {
     };
   }
   private seal(checkpoint: AuditBundle['checkpoint']): AuditBundle {
+    if (this.stopped) throw new Error('SESSION_CLOSED');
     const bundle = { entries: this.entries, checkpoint };
     if (!verifyAudit(bundle, { taskId: this.taskId, actors: this.actors }).valid)
       throw new Error('INVALID_BILATERAL_AUDIT');

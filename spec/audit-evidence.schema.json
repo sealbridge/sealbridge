@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acp-spec.local/schemas/v0.1/audit-evidence.schema.json",
+  "title": "audit-evidence",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries",
+        "checkpoint"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json"
+          }
+        },
+        "checkpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actor",
+            "receiver"
+          ],
+          "properties": {
+            "actor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "payload",
+                "signature"
+              ],
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "taskId",
+                    "count",
+                    "head",
+                    "actors"
+                  ],
+                  "properties": {
+                    "type": {
+                      "const": "AuditCheckpoint"
+                    },
+                    "taskId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "head": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "actors": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+                      }
+                    }
+                  }
+                },
+                "signature": {
+                  "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json#/properties/actorSignature"
+                }
+              }
+            },
+            "receiver": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "payload",
+                "signature"
+              ],
+              "properties": {
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "payload",
+                    "signature"
+                  ],
+                  "properties": {
+                    "payload": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type",
+                        "taskId",
+                        "count",
+                        "head",
+                        "actors"
+                      ],
+                      "properties": {
+                        "type": {
+                          "const": "AuditCheckpoint"
+                        },
+                        "taskId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "head": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^sha256:[a-f0-9]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "actors": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "items": {
+                            "type": "string",
+                            "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
+                          }
+                        }
+                      }
+                    },
+                    "signature": {
+                      "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json#/properties/actorSignature"
+                    }
+                  }
+                },
+                "signature": {
+                  "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json#/properties/actorSignature"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries",
+        "interruption"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json"
+          }
+        },
+        "interruption": {
+          "$ref": "https://acp-spec.local/schemas/v0.1/audit-interruption.schema.json"
+        }
+      }
+    }
+  ]
+}

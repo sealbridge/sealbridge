@@ -167,6 +167,29 @@ const bundleSchema = objectSchema(
   ['entries', 'checkpoint'],
 );
 
+const interruptionPayloadSchema = objectSchema('Worker observation bound to the acknowledged PROPOSE prefix. Local format 1, not peer agreement.', {
+  type: described('Always AuditInterruption.', { const: 'AuditInterruption' }),
+  formatVersion: described('Local storage format version; unrelated to manifest versions.', { const: 1 }),
+  taskId: described('Task ID from the verified PROPOSE manifest.', { type: 'string' }),
+  actors: described('Owner DIDs ordered requester then worker.', { type: 'array', minItems: 2, maxItems: 2, items: { type: 'string' } }),
+  seq: described('Terminal position; exactly 1 in format 1.', { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+  prevEntryHash: described('Hash of the last acknowledged entry.', { type: 'string' }),
+  acknowledgedPrefix: objectSchema('Exact saved prefix, including both entry signatures.', {
+    count: described('Normal entry count, excluding the interruption.', { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+    lastSeq: described('Last normal entry sequence.', { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+    head: described('Hash of the last normal entry.', { type: 'string' }),
+    entriesDigest: described('JCS digest of the complete entries array.', { type: 'string' }),
+  }, ['count', 'lastSeq', 'head', 'entriesDigest']),
+  phase: described('Observed worker wait phase.', { enum: ['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT'] }),
+  reason: described('Worker observation, not a peer-confirmed explanation.', { enum: ['SESSION_TIMEOUT', 'WORKER_STOPPED', 'WORKER_RESTART_OBSERVED'] }),
+  observedAt: described('UTC observation time, equal to signature.signedAt.', { type: 'string' }),
+}, ['type', 'formatVersion', 'taskId', 'actors', 'seq', 'prevEntryHash', 'acknowledgedPrefix', 'phase', 'reason', 'observedAt']);
+const interruptedBundleSchema = objectSchema('PROPOSE-only prefix with one worker-only signed terminal, excluding checkpoint.', {
+  entries: described('Exactly one acknowledged PROPOSE; verifier checks its manifest and both signatures.', { type: 'array', items: auditEntrySchema }),
+  interruption: objectSchema('Worker-only signed AuditInterruption.', { payload: interruptionPayloadSchema, signature: signatureSchema }, ['payload', 'signature']),
+}, ['entries', 'interruption']);
+const evidenceSchema = { description: 'Exactly one terminal form; bilateral checkpoint or worker-only interruption.', oneOf: [bundleSchema, interruptedBundleSchema] };
+
 const taskTimeoutProperties = {
   executionTimeoutMs: { type: 'integer', minimum: 1000, maximum: 2147483647,
     description: 'Execution wall-clock ceiling in milliseconds; whole seconds are proposed as the contract budget. Default budget: 60000 ms.' },
@@ -228,8 +251,10 @@ const budgetSchema = objectSchema(
 );
 
 const anchorSchema = objectSchema(
-  'Legacy trust anchor. Setting taskId, actors, or head checks log truncation. Do not contradict the same fact with expectedFinalState, expectedLastEntryHash, or expectedEntryCount.',
+  'Independent expected facts. Bilateral identity anchors retain their existing truncation flag; interruption identity or closure-kind pins alone do not check the tail.',
   {
+    expectedClosureKind: described('Required terminal form; adds no peer agreement.', { enum: ['bilateral', 'interruption'] }),
+    expectedInterruptionHash: described('Independently retained digest of the interruption payload.', { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }),
     taskId: described('Expected checkpoint taskId. A different id returns valid false.', {
       type: 'string',
     }),
@@ -351,6 +376,20 @@ const verificationReportSchema = objectSchema(
   },
   ['valid', 'status', 'statusLabel', 'trustAnchorVerified', 'truncationChecked'],
 );
+
+const interruptedReportSchema = objectSchema('Worker-only evidence report. Never valid true, even with matching pins.', {
+  valid: described('Always false: no bilateral terminal checkpoint.', { const: false }),
+  status: described('UNILATERALLY_CLOSED for verified interruption evidence; otherwise INVALID.', { enum: ['UNILATERALLY_CLOSED', 'INVALID'] }),
+  statusLabel: described('Human-readable verification label.', { type: 'string' }),
+  reason: described('WORKER_ONLY_INTERRUPTION or bounded failure diagnostics.', { type: 'string' }),
+  prefixVerified: described('The PROPOSE prefix and manifest roles verified.', { type: 'boolean' }),
+  terminalSignatureVerified: described('Worker terminal signature and prefix bindings verified.', { type: 'boolean' }),
+  bilateralCheckpointVerified: described('Always false for interruption evidence.', { const: false }),
+  trustAnchorVerified: described('All supplied pins matched; adds no peer signature.', { type: 'boolean' }),
+  truncationChecked: described('A head, count, last hash, final event, or interruption hash was actually compared. Identity or closure-kind pins alone leave false.', { type: 'boolean' }),
+  closureKind: described('Worker-only interruption.', { const: 'interruption' }),
+}, ['valid', 'status', 'statusLabel', 'reason', 'prefixVerified', 'terminalSignatureVerified', 'bilateralCheckpointVerified', 'trustAnchorVerified', 'truncationChecked', 'closureKind']);
+const evidenceReportSchema = { description: 'Verification report for either terminal form; neither invalid nor worker-only evidence is a tool error.', oneOf: [verificationReportSchema, interruptedReportSchema] };
 
 const revocationPayloadSchema = objectSchema(
   'RevocationNotice body signed by the server owner.',
@@ -634,16 +673,18 @@ export const mcpTools: Json = [
     name: 'acp_verify_audit_bundle',
     title: 'Verify an audit bundle',
     description:
-      'Verify one bilateral AuditBundle locally and return valid, status, statusLabel, trustAnchorVerified, and truncationChecked. Use this for a bundle you already hold; use acp_delegate_task or acp_delegate_multi to produce one. With no anchor, expectedFinalState, expectedLastEntryHash, or expectedEntryCount, a valid chain is labeled VALID (no trust anchor: truncation not checked) and an older prefix is not ruled out. Any of those pins checks the tail: a match sets trustAnchorVerified and truncationChecked, and a truncated bundle returns valid false with status INVALID in the report rather than isError. The check is read-only, idempotent, and offline, and bad arguments are JSON-RPC -32602.',
+      'Verify one bilateral or interrupted audit bundle offline. Bilateral output retains VALID/true or INVALID/false and its existing anchor semantics. A verified PROPOSE-only worker terminal returns UNILATERALLY_CLOSED with valid:false, prefixVerified and terminalSignatureVerified true, and bilateralCheckpointVerified false; matching pins never promote it to VALID. For interruption, taskId/actors/closure-kind pins alone do not set truncationChecked; a head, count, last hash, final event or interruption hash must be compared. No result proves that a longer independent history does not exist. This tool does not approve work or contact a relay; invalid evidence is a normal report, while bad argument shapes are JSON-RPC -32602.',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
     inputSchema: objectSchema(
-      'Bundle plus optional tail pins. Supplying any pin enables truncation checks.',
+      'Either terminal form plus optional independent pins. For interruption, identity pins alone do not check truncation.',
       {
-        bundle: bundleSchema,
+        bundle: evidenceSchema,
         anchor: anchorSchema,
+        expectedClosureKind: described('Required terminal form, independent of final event.', { enum: ['bilateral', 'interruption'] }),
+        expectedInterruptionHash: described('Independently retained digest of the interruption payload.', { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }),
         expectedFinalState: described(
           'Event type required on the last audit entry, such as SETTLED. Setting it checks the tail, and a mismatch returns valid false.',
           { type: 'string' },
@@ -659,7 +700,7 @@ export const mcpTools: Json = [
       },
       ['bundle'],
     ),
-    outputSchema: verificationReportSchema,
+    outputSchema: evidenceReportSchema,
   }),
   tool({
     name: 'acp_create_invite',

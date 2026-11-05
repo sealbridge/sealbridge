@@ -45,3 +45,10 @@ export { connectionsCommand, connectionHumanReview } from './connections.js';
 export type { ConnectionsCommandOptions } from './connections.js';
 export { mcpServerCommand, parseMcpServerArgs, mcpServerOptionsFromArgs } from './mcp.js';
 export type { ParsedMcpServerArgs } from './mcp.js';
+
+export { parseJsonl, verifyAudit, parseAuditJsonl, verifyAuditEvidence, createAuditInterruption,
+  JsonlStore, MemoryStore, BilateralLedger } from '@acp/ledger';
+export type { AuditEntry, AuditBody, AuditBundle, Checkpoint, AuditStore, InterruptionStore,
+  AuditInterruption, InterruptedAuditBundle, AuditEvidence, AuditFileRecord,
+  AuditVerificationOptions, AuditTrustAnchor, AuditVerificationResult, AuditEvidenceTrustAnchor,
+  AuditEvidenceVerificationOptions, AuditEvidenceVerificationResult, InterruptedAuditVerificationResult } from '@acp/ledger';
