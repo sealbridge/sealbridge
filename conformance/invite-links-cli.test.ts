@@ -105,10 +105,14 @@ it('routes link output to private files/fds, makes 0600 QR files and suppresses 
   }
   expect(fs.readFileSync(png).subarray(0,8).toString('hex')).toBe('89504e470d0a1a0a');
   expect(fs.readFileSync(svg,'utf8')).toContain('<svg');
-  const fdFile = join(s.root,'fd.txt'), fd = fs.openSync(fdFile, 'wx', 0o600);
-  try { await createInviteCommand([...createArgs(s.key),'--output','fd:' + fd], s.options); fs.fstatSync(fd); }
-  finally { fs.closeSync(fd); }
-  expect(fs.readFileSync(fdFile, 'utf8')).toMatch(/^https:\/\/sealbridge\.app\/j#v=1&k=/);
+  if (process.platform === 'win32') {
+    await expect(createInviteCommand([...createArgs(s.key),'--output','fd:3'], s.options)).rejects.toThrow('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM');
+  } else {
+    const fdFile = join(s.root,'fd.txt'), fd = fs.openSync(fdFile, 'wx', 0o600);
+    try { await createInviteCommand([...createArgs(s.key),'--output','fd:' + fd], s.options); fs.fstatSync(fd); }
+    finally { fs.closeSync(fd); }
+    expect(fs.readFileSync(fdFile, 'utf8')).toMatch(/^https:\/\/sealbridge\.app\/j#v=1&k=/);
+  }
 });
 
 it('lists statuses without bearer material and cancellation revokes the inner invite for running workers', async () => {
