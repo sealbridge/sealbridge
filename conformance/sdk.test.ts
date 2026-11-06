@@ -4,12 +4,17 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  AcpMcpServer, InviteStore, inspectRuleContent, createRuleBasedContentReviewProvider, buildTaskManifest,
+  AcpMcpServer, InviteStore, inspectRuleContent, createRuleBasedContentReviewProvider,
   CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_LIMITS, CONTENT_INSPECTION_RULESET_VERSION, CONTENT_INSPECTION_RULESET_DIGEST, WorkerTrustStore, connectionsCommand, createInviteToken,
   createSignedAgentCard, discoverAgentCards, generateKeyPair, inviteTokenFromUri,
   keyStoreSelection, parseAndVerifyInviteToken, resolveDataRoot, resolveStoredIdentity, workerIntakePath,
+  buildTaskManifest, taskContent,
 } from '../cli/src/sdk.js';
-import type { InviteStoreOptions, KeyringModule, RelayTransport, SavedInvite } from '../cli/src/sdk.js';
+import type { HeldTaskContent, InviteStoreOptions, KeyringModule, RelayTransport, SavedInvite } from '../cli/src/sdk.js';
+import * as sdk from '../cli/src/sdk.js';
+import { digest, signEnvelope, signPayload } from '../packages/core/src/index.js';
+import { taskContent as runtimeTaskContent } from '../packages/runtime/dist/index.js';
+import { taskContent as cliTaskContent } from '../cli/src/task-review.js';
 
 const NOW = Date.parse('2030-01-01T00:00:00.000Z');
 let root: string;
@@ -19,6 +24,18 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network call'); }));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); rmSync(root, { recursive: true, force: true }); });
+
+it('exports the runtime task projection through the SDK and legacy CLI module', () => {
+  expect(taskContent).toBe(runtimeTaskContent); expect(cliTaskContent).toBe(taskContent);
+  expect(sdk).not.toHaveProperty('literalText'); expect(sdk).not.toHaveProperty('cliTaskInspection');
+  const owner = generateKeyPair(), requester = generateKeyPair();
+  const manifest = buildTaskManifest({ ownerDid: requester.did, workerDid: owner.did, title: 'Review', description: 'Content' });
+  const input = { text: 'Review content' };
+  const envelope = signEnvelope({ taskId: manifest.taskId, recipientDid: owner.did, seq: 0, eventType: 'PROPOSE',
+    payload: { proposal: signPayload(manifest, requester), input } as never }, requester, { encrypt: true });
+  const content: HeldTaskContent = taskContent(envelope, owner, digest({ manifest, input }), digest(envelope));
+  expect(content).toEqual({ manifest, input, capabilityChains: [] });
+});
 
 it('supports invitation references, identity selection and owner-reviewed confirmation through the SDK', async () => {
   const secrets = new Map<string, string>();

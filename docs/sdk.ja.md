@@ -37,6 +37,7 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
 | 接続交換 | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | 所有者の確認コマンド | `connectionsCommand`, `connectionHumanReview` |
 | 保留の審査 | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider` |
+| 検証済みタスク内容 | `taskContent` |
 | 検索・招待 | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | 鍵の生成 | `generateKeyPair` |
 | MCP のホスト | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
@@ -58,7 +59,7 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
   `ConnectionRouterOptions`, `ConnectedEvent`, `ConnectionsCommandOptions`。
 - 審査: `HeldRequestReviewOptions`, `HeldContentReviewProvider`,
   `HeldInspectionContext`, `InspectionCompletion`, `ConnectionAdmissionReviewOptions`,
-  `InboundConnectionSummary`。
+  `InboundConnectionSummary`, `HeldTaskContent`。
 - MCP: `AcpMcpServerOptions`, `ApprovalProvider`, `ParsedMcpServerArgs`。
 - core・転送: `KeyPair`, `Json`, `Signed`, `SignedEnvelope`, `Invite`,
   `AgentSkill`, `DiscoveryAgentCard`, `CreateAgentCardOptions`, `SignedAgentCard`,
@@ -126,6 +127,31 @@ JSON の metadata・イベントを受け取ります。`now`・`transportFactor
 提供します。判断は所有者の明示操作に結び付けます。`InboundConnectionSummary` は既知のとき
 任意の `peerDisplayName` を含み、表示名は情報として扱います。組み込み検査の対象は接続情報だけです。
 [受信接続の審査](connections/admission.ja.md#受信接続の審査)を参照してください。
+
+## 保留タスク内容の検証と取り出し
+
+`taskContent(envelope, owner, contentDigest, envelopeDigest?)` は
+`HeldTaskContent` として `{manifest, input, capabilityChains}` だけを返します。
+能力の既定値は `[]` です。復号前に封筒の署名と宛先を検証し、暗号化と自身の `input`
+欄を必須とします。manifest と提案の署名、PROPOSE・連番0・タスク・依頼者・
+ワーカー所有者・内容ダイジェストの対応も検証します。保留レコードの `envelopeDigest`
+を渡すと封筒全体との一致も検証します。招待・接続・転送用の欄は返しません。
+既存 CLI の内部パスからの import を含め、3引数の呼び出しも維持します。
+
+結果は機微な平文をメモリ内に含みます。ログや永続保存に入れず、文字列データとして
+表示してください。所有者向けに表示する呼び出し側は、`HeldRequestReview` による
+検査完了（所有者・内容・封筒に結び付いた受領書を含む）を別途必須にしてください。
+取り出し自体は検査状態を確認せず、開封・接続同意・実行を承認しません。
+検査 provider は検査中にこの関数を使えます。能力チェーンの権限・信頼・現在の grant や
+依頼期限の有効性は検証しません。期限を過ぎた終端タスクも内容を検証でき、
+ライブ受付は従来の別の検証を維持します。構造と署名などの検証であり、
+内容に対するヒューリスティックな検出・評価は行いません。
+
+検証失敗は `INVALID_PROPOSAL`、暗号化入力の失敗は従来の
+`UNENCRYPTED_ENVELOPE_REJECTED` または `ENVELOPE_DECRYPTION_FAILED` です。
+スキーマやネイティブパーサーの詳細は返しません。検査受領書の作成・ファイル書き込み・
+通信は行わず、プロトコル・スキーマ・必須欄・保存形式は変更しません。
+[保留内容の審査](connections/held-content.ja.md)を参照してください。
 
 ## MCP のライフサイクル
 
