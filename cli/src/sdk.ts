@@ -7,7 +7,7 @@ export {
   readApplicationConfig, setApplicationKeyStore,
   WorkerTrustStore, workerIntakePath,
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
-  HeldRequestReview, unavailableHeldContentReviewProvider,
+  HeldRequestReview, unavailableHeldContentReviewProvider, taskContent,
   AcpMcpServer,
   buildTaskManifest, appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS,
   RequesterClient, WorkerNode, verifyDelegationAttachment,
@@ -23,7 +23,7 @@ export type {
   ConnectionOutboxEntry, ConnectionAcceptanceCommit, ConnectionRedemptionCommit,
   ConnectionTransport, ConnectionFrame, ConnectionRouterOptions, ConnectedEvent,
   ConnectionAdmissionReviewOptions, InboundConnectionSummary,
-  HeldRequestReviewOptions, HeldContentReviewProvider, HeldInspectionContext, InspectionCompletion,
+  HeldRequestReviewOptions, HeldContentReviewProvider, HeldInspectionContext, InspectionCompletion, HeldTaskContent,
   AcpMcpServerOptions, ApprovalProvider, ChildDelegationRequest,
 } from '@acp/runtime';
 export {

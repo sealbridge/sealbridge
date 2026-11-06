@@ -40,6 +40,7 @@ All values are direct re-exports of existing implementations, without wrappers.
 | Connection exchange | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | Owner confirmation command | `connectionsCommand`, `connectionHumanReview` |
 | Held review | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
+| Verified task content | `taskContent` |
 | Discovery and invitations | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | Key creation | `generateKeyPair` |
 | MCP hosting | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
@@ -60,7 +61,7 @@ Named type exports:
   `ConnectionRouterOptions`, `ConnectedEvent`, `ConnectionsCommandOptions`.
 - Review: `HeldRequestReviewOptions`, `HeldContentReviewProvider`,
   `HeldInspectionContext`, `InspectionCompletion`, `ConnectionAdmissionReviewOptions`,
-  `InboundConnectionSummary`.
+  `InboundConnectionSummary`, `HeldTaskContent`.
 - MCP: `AcpMcpServerOptions`, `ApprovalProvider`, `ParsedMcpServerArgs`.
 - Core/transport: `KeyPair`, `Json`, `Signed`, `SignedEnvelope`, `Invite`,
   `AgentSkill`, `DiscoveryAgentCard`, `CreateAgentCardOptions`, `SignedAgentCard`,
@@ -133,6 +134,34 @@ inbound connections. Bind decisions to explicit owner actions. Its
 `InboundConnectionSummary` includes optional `peerDisplayName` when known; display
 names are informational data. Built-in inspection covers connection metadata only.
 See [owner admission review](connections/admission.md#owner-admission-review).
+
+## Verified held task content
+
+`taskContent(envelope, owner, contentDigest, envelopeDigest?)` returns a
+`HeldTaskContent` containing only `{manifest, input, capabilityChains}`;
+capabilities default to `[]`. It verifies the outer signature and recipient before
+decrypting, requires encrypted content and an own `input` field, validates the
+manifest and signed proposal, and checks PROPOSE/sequence-zero, task, requester,
+worker-owner and content-digest bindings. Supply the held record's `envelopeDigest`
+to also bind the exact envelope. Invitation, connection and transport fields are
+excluded. The three-argument form remains supported, including the existing CLI
+deep import of `taskContent`.
+
+The result is sensitive plaintext in memory. Keep it out of logs and persistent
+storage; render it as literal data. Owner-facing display callers must separately
+require completed review through `HeldRequestReview` (including its owner/content/
+envelope-bound receipt); extraction itself does not check inspection or authorize
+opening, connection consent or execution. Inspection providers may use the helper
+while inspecting content. It does not validate capability-chain authority, trust,
+or current grant/deadline usability. Expired terminal task content can still be
+verified; live admission retains its separate checks. This is structural and
+cryptographic verification, not a content heuristic or assessment.
+
+Verification failures use `INVALID_PROPOSAL`; encrypted-input failures retain
+`UNENCRYPTED_ENVELOPE_REJECTED` or `ENVELOPE_DECRYPTION_FAILED`. Schema and native
+parser details are excluded. The helper creates no inspection receipt, writes no
+files and makes no network requests. Protocol, schemas, required fields and stored
+record formats are unchanged. See [held-content review](connections/held-content.md).
 
 ## MCP lifecycle
 

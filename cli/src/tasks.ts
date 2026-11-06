@@ -38,7 +38,7 @@ export async function tasksCommand(args: string[], options: {
   // A cached receipt cannot stand in for display during this owner operation.
   if (held.inspectionStatus === 'complete') {
     const record = review.store.read(held.id)!;
-    await output(literalText({ heldId: held.id, ...taskContent(record.envelope, key, held.contentDigest) }));
+    await output(literalText({ heldId: held.id, ...taskContent(record.envelope, key, held.contentDigest, record.envelopeDigest) }));
   } else if ((await review.inspect(held.id)).inspectionStatus !== 'complete') throw new Error('INSPECTION_INCOMPLETE');
   if (action === 'show') return;
   if (!await confirmOwner(literalText({ action, heldId: held.id, taskId: held.taskId,

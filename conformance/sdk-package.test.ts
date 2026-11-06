@@ -44,6 +44,11 @@ it('resolves the SDK and legacy paths from the prepared package without import s
     const sdk = await import('sealbridge/sdk');
     const legacy = await import('sealbridge/dist/packages/runtime/dist/invite-store.js');
     if (sdk.InviteStore !== legacy.InviteStore) throw new Error('Export identity differs');
+    const runtimeTask = await import('sealbridge/dist/packages/runtime/dist/held-task-content.js');
+    const cliTask = await import('sealbridge/dist/cli/dist/task-review.js');
+    if (typeof sdk.taskContent !== 'function' || sdk.taskContent !== runtimeTask.taskContent || sdk.taskContent !== cliTask.taskContent)
+      throw new Error('Task content export identity differs');
+    if ('literalText' in sdk || 'cliTaskInspection' in sdk) throw new Error('Unexpected CLI display export');
     if (existsSync(process.env.SEALBRIDGE_DATA_DIR)) throw new Error('Import created application state');
     writeFileSync('sdk-exports.json.tmp', JSON.stringify(Object.keys(sdk).sort()), { mode: 0o600, flag: 'wx' });
     renameSync('sdk-exports.json.tmp', 'sdk-exports.json');
@@ -73,6 +78,7 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkExpiry,
       encryptInviteLink, decryptInviteLink, packInviteLinkCiphertext, unpackInviteLinkCiphertext,
       parseInviteLink, inviteLinkVerificationNumber,
+      taskContent,
     } from 'sealbridge/sdk';
     import type {
       SavedInvite, SecretStore, KeyStore, IdentityStoreOptions, DataRootOptions, KeyringModule,
@@ -81,7 +87,13 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       ConnectionsCommandOptions, AcpMcpServerOptions, HeldContentReviewProvider, RelayTransport,
       AuditBundle, AuditEvidence, AuditInterruption, InterruptedAuditBundle, AuditEvidenceVerificationResult, InterruptionStore,
       InviteLinkKeys, InviteLinkCiphertext, InviteLinkStorage, InviteLinkRelayPolicy, ParsedInviteLink,
+      HeldTaskContent, KeyPair, SignedEnvelope,
     } from 'sealbridge/sdk';
+    function task(envelope: SignedEnvelope, owner: KeyPair, contentDigest: string, envelopeDigest: string): HeldTaskContent {
+      const content: HeldTaskContent = taskContent(envelope, owner, contentDigest);
+      const bound: HeldTaskContent = taskContent(envelope, owner, contentDigest, envelopeDigest);
+      return { manifest: bound.manifest, input: content.input, capabilityChains: content.capabilityChains };
+    }
     function inviteLink(token: string, inviteDigest: string) {
       const k = generateInviteLinkKey();
       const keys: InviteLinkKeys = deriveInviteLinkKeys(k);

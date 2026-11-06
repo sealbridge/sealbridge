@@ -71,8 +71,26 @@ it('lists individual held IDs while intake coalesces per peer, and displays lite
     expect(text).not.toMatch(/[\x1b\u009b\u202e]/);
     expect(JSON.parse(text)).toMatchObject({ heldId: row.id, manifest: { taskId: row.taskId }, input: f.task.input });
     expect(f.review.store.read(row.id)?.inspectionReceipt?.payload).toMatchObject({ status: 'complete', v: 1 });
+    const receipt = f.review.store.read(row.id)?.inspectionReceipt;
+    output.mockClear();
+    await tasksCommand(['show', row.id, '--key', f.key], options);
+    expect(output).toHaveBeenCalledExactlyOnceWith(text);
+    expect(f.review.store.read(row.id)?.inspectionReceipt).toEqual(receipt);
   }
   expect(f.execute).not.toHaveBeenCalled(); expect(f.store.list()).toHaveLength(1);
+});
+
+it.each(['envelope digest', 'outer signature'] as const)('refuses CLI display on an invalid %s', async edit => {
+  const f = fixture(), manifest = f.manifest();
+  const envelope = signEnvelope({ taskId: manifest.taskId, recipientDid: f.owner.did, seq: 0, eventType: 'PROPOSE',
+    payload: { proposal: signPayload(manifest, f.requester), input: f.task.input } as never }, f.requester, { encrypt: true });
+  if (edit === 'outer signature') envelope.signature.signature = Buffer.alloc(64).toString('base64url');
+  const output = vi.fn();
+  await expect(cliTaskInspection(output).inspect(envelope, { owner: f.owner, recordId: 'held_test', kind: 'task',
+    contentDigest: digest({ manifest, input: f.task.input }),
+    envelopeDigest: edit === 'envelope digest' ? digest('other') : digest(envelope),
+  }, new AbortController().signal)).rejects.toThrow(/^INVALID_PROPOSAL$/);
+  expect(output).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
 });
 
 it.each(['approve', 'reject'])('per-task %s closes only the selected attempt with explicit confirmation, without a durable grant', async action => {

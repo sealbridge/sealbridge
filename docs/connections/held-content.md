@@ -39,6 +39,27 @@ no execution approval. A fresh task needs new inspection and live owner approval
 The library default provider and non-interactive workers remain unavailable.
 Connection metadata review remains separate.
 
+`taskContent(envelope, owner, contentDigest, envelopeDigest?)` is available from
+`@acp/runtime` and `sealbridge/sdk`, with the `HeldTaskContent` type. It verifies
+the outer envelope signature/recipient before decrypting and checks the manifest,
+proposal signature, PROPOSE/sequence-zero, task/requester/worker-owner bindings,
+an own input field and `digest({manifest,input})`. Pass the stored envelope digest
+to check the exact envelope as well. It returns only manifest/input/capabilities
+(default `[]`), excluding invitation, connection and transport fields.
+
+This sensitive in-memory result is inspection material. Display callers must
+separately require completed owner-bound review; the helper cannot establish that
+gate and does not create a receipt or authorize opening/execution. Inspection
+providers may use it before returning completion. Capability authority, trust and
+current grant/deadline usability remain live-admission checks; no wall-clock check
+prevents verification of terminal attempts. It performs no heuristic content
+assessment. Keep plaintext out of logs/storage and render literal data. Errors are
+fixed `INVALID_PROPOSAL`, `UNENCRYPTED_ENVELOPE_REJECTED` or
+`ENVELOPE_DECRYPTION_FAILED`, without plaintext or parser details. The helper has
+no file/network effects. Existing `showReviewedContent` and its completed-review
+gate remain unchanged; it returns the full proposal body, so use the task-only
+projection for task display. See the [SDK contract](../sdk.md#verified-held-task-content).
+
 Gateway task sends use a signer-scoped persistent envelope outbox and worker receipt/default
 checkpoint records under `<data-root>/delivery/<sha256-local-signer-DID>/`. A repeated
 proposal does not authorize another adapter invocation. Inspection and owner opening
