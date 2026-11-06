@@ -13,12 +13,12 @@ export const completeInspection: HeldContentReviewProvider = { async inspect(_en
   return { ownerDid: context.owner.did, contentDigest: context.contentDigest, envelopeDigest: context.envelopeDigest,
     kind: context.kind, status: 'complete', reportDigest: digest({ report: context.contentDigest }) };
 } };
-export function admissionFixture(options: Partial<WorkerNodeOptions> = {}, inspect = false) {
+export function admissionFixture(options: Partial<WorkerNodeOptions> = {}, inspect = false, inspectionProvider?: HeldContentReviewProvider) {
   const root = mkdtempSync(join(tmpdir(), 'connections-admission-'));
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root } };
   const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
   const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, identityOptions), now: options.now });
-  const review = new HeldRequestReview(owner, { ...identityOptions, now: options.now, provider: inspect ? completeInspection : undefined });
+  const review = new HeldRequestReview(owner, { ...identityOptions, now: options.now, provider: inspectionProvider ?? (inspect ? completeInspection : undefined) });
   const execute = vi.fn(async (c: { input: unknown }) => c.input as never);
   const automatic = new PolicyAutoApprovalProvider(owner), approve = vi.spyOn(automatic, 'approve');
   const human = { approve: vi.fn(automatic.approve.bind(automatic)) };

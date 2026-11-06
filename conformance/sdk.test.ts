@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  AcpMcpServer, InviteStore, WorkerTrustStore, connectionsCommand, createInviteToken,
+  AcpMcpServer, InviteStore, inspectRuleContent, createRuleBasedContentReviewProvider, buildTaskManifest,
+  CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_LIMITS, CONTENT_INSPECTION_RULESET_VERSION, CONTENT_INSPECTION_RULESET_DIGEST, WorkerTrustStore, connectionsCommand, createInviteToken,
   createSignedAgentCard, discoverAgentCards, generateKeyPair, inviteTokenFromUri,
   keyStoreSelection, parseAndVerifyInviteToken, resolveDataRoot, resolveStoredIdentity, workerIntakePath,
 } from '../cli/src/sdk.js';
@@ -72,4 +73,15 @@ it('supports invitation references, identity selection and owner-reviewed confir
   expect(JSON.stringify(result).includes(token)).toBe(false);
   expect(invites.remove(saved.workerRef)).toBe(true);
   expect([...secrets.values()].includes(token)).toBe(false);
+});
+
+it('exports the opt-in scanner and provider without installing them or making network calls', async () => {
+  const owner = generateKeyPair(), peer = generateKeyPair();
+  const manifest = buildTaskManifest({ ownerDid: peer.did, workerDid: owner.did, title: 'Review', description: 'Read text' });
+  const report = await inspectRuleContent({ manifest, input: 'system prompt' });
+  expect(report).toMatchObject({ inspectorVersion: CONTENT_INSPECTION_RULESET_VERSION, rulesetDigest: CONTENT_INSPECTION_RULESET_DIGEST,
+    limits: CONTENT_INSPECTION_LIMITS, status: 'ok', verdict: 'warn' });
+  expect(CONTENT_INSPECTION_RULES.length).toBeGreaterThan(0);
+  expect(typeof createRuleBasedContentReviewProvider().inspect).toBe('function');
+  expect(fetch).not.toHaveBeenCalled();
 });

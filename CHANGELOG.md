@@ -2,6 +2,12 @@
 
 Notable changes to Sealbridge are documented here, following Keep a Changelog conventions.
 
+## [Unreleased]
+
+### Added
+
+- Opt-in offline content rules and a task review provider with bounded child inspection, in-memory reports, and existing owner-opening requirements. Related to the desktop context-pooling wiring design (C-W1).
+
 ## [0.5.0] - 2026-11-06
 
 ### Added

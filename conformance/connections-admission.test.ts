@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSignedAgentCard, digest, generateKeyPair, signPayload, RevocationRegistry, createRevocationNotice } from '../packages/core/src/index.js';
 import { connectionIdFor } from '../packages/runtime/src/connection-service.js';
+import { createRuleBasedContentReviewProvider } from '../packages/runtime/src/index.js';
 import { admissionFixture } from './connections-fixture.js';
 const cleanups: Array<() => void> = [];
 // Admission checks use a fixed wall clock while relay polling and the test timeout use real timers.
@@ -157,4 +158,37 @@ it('rejects a mismatched attached consent before invitation binding and preserve
   await expect(f.worker.runOnce()).rejects.toThrow('INVALID_CONNECTION_REQUEST');
   expect(f.store.connectionState(f.requester.did)).toBe('none');expect(f.review.list()).toEqual([]);
   expect(openEnvelope(f.relay.receive(f.requester.did)!,f.requester)).toMatchObject({code:'INVALID_CONNECTION_REQUEST'});
+});
+
+it.each(['ordinary text', 'system prompt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]).toString('base64')])('requires live human opening after an actual rule scan: %s', async input => {
+  const onReport = vi.fn(), provider = createRuleBasedContentReviewProvider({ onReport });
+  const f = fixture({}, false, provider); await f.worker.register();
+  let reached!: () => void, release!: () => void;
+  const asked = new Promise<void>(resolve => { reached = resolve; });
+  const decision = new Promise<void>(resolve => { release = resolve; });
+  const original = f.human.approve.getMockImplementation()!;
+  f.human.approve.mockImplementation(async request => {
+    expect(request.gate).toBe('contract_acceptance'); reached(); await decision; return original(request);
+  });
+  const pending = f.attempt(f.worker.invite(), { input });
+  try {
+    await asked;
+    expect(onReport).toHaveBeenCalledOnce();
+    expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'complete', state: 'reviewable' });
+    expect(f.execute).not.toHaveBeenCalled();
+  } finally { release(); }
+  expect((await pending)[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+  expect(f.human.approve).toHaveBeenCalledOnce(); expect(f.execute).toHaveBeenCalledOnce();
+});
+it('leaves rule-inspection errors held without a human-opening or adapter call', async () => {
+  const f = fixture({}, false, createRuleBasedContentReviewProvider({ limits: { maxBytes: 10 } }));
+  expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'error', state: 'held' });
+  expect(f.human.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
+});
+it('does not open an unknown task after completed rule inspection', async () => {
+  const f = fixture({}, false, createRuleBasedContentReviewProvider());
+  await expect(f.raw()).rejects.toThrow('PENDING_OWNER_APPROVAL');
+  expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'complete', state: 'reviewable' });
+  expect(f.human.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
 });

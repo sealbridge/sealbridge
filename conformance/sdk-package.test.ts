@@ -45,6 +45,22 @@ it('resolves the SDK and legacy paths from the prepared package without import s
     const legacy = await import('sealbridge/dist/packages/runtime/dist/invite-store.js');
     if (sdk.InviteStore !== legacy.InviteStore) throw new Error('Export identity differs');
     if (existsSync(process.env.SEALBRIDGE_DATA_DIR)) throw new Error('Import created application state');
+    const core = await import('sealbridge/dist/packages/core/dist/index.js');
+    const owner = sdk.generateKeyPair(), requester = sdk.generateKeyPair();
+    const manifest = sdk.buildTaskManifest({ ownerDid: requester.did, workerDid: owner.did, title: 'Review', description: 'Read text' });
+    const input = 'system prompt';
+    const report = await sdk.inspectRuleContent({ manifest, input });
+    if (report.verdict !== 'warn' || report.rulesetDigest !== sdk.CONTENT_INSPECTION_RULESET_DIGEST) throw new Error('Scanner export differs');
+    let received = 0;
+    const provider = sdk.createRuleBasedContentReviewProvider({ onReport: (_id, report) => {
+      if (report.verdict !== 'warn') throw new Error('Child report differs'); received++;
+    } });
+    const body = { proposal: core.signPayload(manifest, requester), input };
+    const envelope = core.signEnvelope({ taskId: manifest.taskId, seq: 0, eventType: 'PROPOSE', recipientDid: owner.did, payload: body }, requester, { encrypt: true });
+    const result = await provider.inspect(envelope, { owner, recordId: 'packaged-review', kind: 'task',
+      contentDigest: core.digest({ manifest, input }), envelopeDigest: core.digest(envelope) }, new AbortController().signal);
+    if (result.status !== 'complete' || received !== 1) throw new Error('Packaged child did not complete');
+
     writeFileSync('sdk-exports.json.tmp', JSON.stringify(Object.keys(sdk).sort()), { mode: 0o600, flag: 'wx' });
     renameSync('sdk-exports.json.tmp', 'sdk-exports.json');
   `);
@@ -67,7 +83,8 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
   write(join(fixture, 'consumer.mts'), `
     import {
       AcpMcpServer, ConnectionService, ConnectionRouter, StoredConnectionExchange, ConnectionAdmissionReview, InviteStore,
-      WorkerTrustStore, HeldRequestReview, KeychainSecretStore, resolveStoredIdentity, resolveDataRoot,
+      WorkerTrustStore, HeldRequestReview, inspectRuleContent, createRuleBasedContentReviewProvider,
+      CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_LIMITS, CONTENT_INSPECTION_RULESET_VERSION, CONTENT_INSPECTION_RULESET_DIGEST, KeychainSecretStore, resolveStoredIdentity, resolveDataRoot,
       connectionsCommand, connectionHumanReview, mcpServerCommand, parseMcpServerArgs,
       mcpServerOptionsFromArgs, parseAndVerifyInviteToken, parseJsonl, verifyAudit, parseAuditJsonl, verifyAuditEvidence, createAuditInterruption,
       generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkExpiry,
@@ -79,9 +96,22 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       ConnectionServiceOptions, ConnectionHumanReviewProvider, ConnectionRouterOptions,
       ConnectionAdmissionReviewOptions, InboundConnectionSummary,
       ConnectionsCommandOptions, AcpMcpServerOptions, HeldContentReviewProvider, RelayTransport,
+      RuleInspectionInput, RuleInspectionOptions, RuleInspectionFinding, RuleInspectionReport, RuleInspectionRule,
+      RuleInspectionKind, RuleInspectionDiagnosticCode, RuleBasedContentReviewOptions,
       AuditBundle, AuditEvidence, AuditInterruption, InterruptedAuditBundle, AuditEvidenceVerificationResult, InterruptionStore,
       InviteLinkKeys, InviteLinkCiphertext, InviteLinkStorage, InviteLinkRelayPolicy, ParsedInviteLink,
     } from 'sealbridge/sdk';
+    async function rules(content: RuleInspectionInput) {
+      const limits: RuleInspectionOptions = { maxFindings: 20 };
+      const options: RuleBasedContentReviewOptions = { limits, timeoutMs: 5000,
+        onReport: (_id: string, report: RuleInspectionReport) => { const findings: RuleInspectionFinding[] = report.findings; } };
+      const provider: HeldContentReviewProvider = createRuleBasedContentReviewProvider(options);
+      const rules: readonly RuleInspectionRule[] = CONTENT_INSPECTION_RULES;
+      const kind: RuleInspectionKind = 'injection', diagnostic: RuleInspectionDiagnosticCode = 'ABORTED';
+      const report: RuleInspectionReport = await inspectRuleContent(content, limits, new AbortController().signal);
+      return { provider, report, rules, kind, diagnostic, version: CONTENT_INSPECTION_RULESET_VERSION,
+        digest: CONTENT_INSPECTION_RULESET_DIGEST, defaults: CONTENT_INSPECTION_LIMITS };
+    }
     function inviteLink(token: string, inviteDigest: string) {
       const k = generateInviteLinkKey();
       const keys: InviteLinkKeys = deriveInviteLinkKeys(k);

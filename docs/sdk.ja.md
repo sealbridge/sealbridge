@@ -36,10 +36,11 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
 | 接続の metadata | `WorkerTrustStore`（`listConnections` を含む）, `workerIntakePath` |
 | 接続交換 | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | 所有者の確認コマンド | `connectionsCommand`, `connectionHumanReview` |
-| 保留の審査 | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
+| 保留の審査 | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider` |
 | 検索・招待 | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | 鍵の生成 | `generateKeyPair` |
 | MCP のホスト | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
+| 内容のルール検査 | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS` |
 
 名前付きの型 exports:
 
@@ -140,3 +141,78 @@ JSON の metadata・イベントを受け取ります。`now`・`transportFactor
 ## 監査の中断証拠
 
 `parseJsonl` / `verifyAudit` は双方署名の形式専用を維持します。`parseAuditJsonl` / `verifyAuditEvidence` は `AuditEvidence`（`AuditBundle | InterruptedAuditBundle`）を扱い、ワーカー単独の形式 1 の終端は、外部ピンが一致しても `UNILATERALLY_CLOSED`・`valid:false` です。`createAuditInterruption`・対応ストア・関連公開型も `sealbridge/sdk` から利用できます。[保存形式・ピン・永続化・依頼者との照合規則（英語）](audit-interruption.md)を参照してください。
+
+## 明示的に選ぶオフラインの内容検査
+
+`inspectRuleContent({manifest,input,capabilityChains?}, limits?, signal?)` は
+core のメモリ上の検査器です。公開する型は `RuleInspectionInput`、
+`RuleInspectionOptions`、`RuleInspectionRule`、`RuleInspectionKind`、
+`RuleInspectionFinding`、`RuleInspectionDiagnosticCode`、`RuleInspectionReport`、
+`RuleBasedContentReviewOptions` です。ルールと走査は core、子プロセス管理は runtime
+が担当します。edge の入口は変えません。
+
+保留中のタスクには、プロバイダを明示的に渡します。
+
+```ts
+import { HeldRequestReview, WorkerNode, createRuleBasedContentReviewProvider } from 'sealbridge/sdk';
+
+const inspectionTimeoutMs = 5000;
+const heldReview = new HeldRequestReview(owner, {
+  ...identityOptions,
+  inspectionTimeoutMs,
+  provider: createRuleBasedContentReviewProvider({
+    timeoutMs: inspectionTimeoutMs,
+    onReport(recordId, report) {
+      // 所有者向けの資料として、メモリ上で文字どおり表示する。
+      renderInspection(recordId, report);
+    },
+  }),
+});
+const worker = new WorkerNode({ ...workerOptions, owner, heldReview });
+```
+
+`owner`・`identityOptions`・`workerOptions`・`renderInspection` は組み込み側が用意します。
+プロバイダの制限時間は review 以下にします。両方の既定は5秒、指定範囲は1〜45,000 ms
+です。中止、どちらかの時間切れ、失敗で子を終了します。コールバックの例外・拒否・中断・
+時間超過でも完了になりません。コールバックへ渡すレポートは複製なので、変更しても受領の
+内容は変わりません。これはホストの処理であり、任意のコードを隔離する口ではありません。
+
+外側の封筒署名、暗号化された宛先、署名付き proposal、manifest、タスク・送信者・
+ワーカーと保留ダイジェストの一致を確認してから、manifest・input・capabilities だけを
+固定のビルド済み検査器へ IPC で渡します。所有者の鍵と通信用の資格情報は渡しません。
+環境変数は許可リストから作り、結果は64 KiBまでとし、中止・時間切れ・失敗で子を終了します。
+平文ファイルやログを書かず、ネットワーク要求・DNS照会・実行・アーカイブの展開をしません。
+カーネルのネットワーク隔離ではなく、固定の信頼したコードです。外部プラグイン、ダウンロード
+したルール、呼び出し側の正規表現・ソースコードは受け付けません。
+
+変更不可の記述子・検出器の版・既定の上限から `CONTENT_INSPECTION_RULESET_DIGEST` を
+作ります。既定は直列化した内容256 KiB、深さ32、ノードとキー合計100,000、文字列ごと
+UTF-8で64 KiB、所見100件、base64復号合計64 KiBです。`limits` では下げることだけができます。
+作業量・出力の上限超過は `error` とし、切り詰めて成功にはしません。manifest の全欄・
+input・capabilities・文字列のキーを JSON Pointer 順で検査します。位置は元の文字列の
+UTF-16単位です。パスは `~0`・`~1` でエスケープし、機微な内容の可能性があるキーは
+`[redacted]` に置き換えます。所見の説明と診断は固定コードで、証拠の抜粋やURLの値は
+含めません。通常のキーは位置に含まれるため、レポートも確認用の資料として扱います。
+
+見えない文字・制御文字、英語と日本語の指示表現、URLの形、秘密を求める語と動詞の
+組み合わせ、資格情報の典型的な形、コードの目印、長いbase64を検出します。復号は上限を
+設けて1回だけ行い、実行形式・アーカイブの先頭バイトなら `block` にします。検出は
+ヒューリスティックです。通常の引用文にも反応し、未対応の表現は通ることがあります。
+資格情報をオンラインで確認しません。`pass` はこのルールで所見が出なかったことを示します。
+`pass`・`warn`・`block` の完了はいずれも既存受領の `complete` になり、`block` は
+所有者への最も強い注意です。実行許可や開封にはならず、その会期の人間による契約承認は
+引き続き必要です。失敗は途中の所見より優先し `error` になり、検査完了前の表示を許可しません。
+
+`contentDigest` は `digest({manifest,input})` です。capabilities と実効上限はレポートと
+正確な封筒を通じて結び付けます。core 単体で上限内の JSON 複製を作る前に失敗した場合は、
+不完全な値として `digest(null)` を返します。エラーレポートを内容の検証に使わないでください。
+runtime は認証できた保留のダイジェストにエラーレポートを結び付けます。既存受領の
+`reportDigest` は `{recordId,ownerDid,kind,contentDigest,envelopeDigest,report}` の
+ハッシュです。保存するのはこのダイジェストだけで、レポート全体は `onReport` のメモリ内に
+とどめます。既存受領に所見はなく、`HeldRequestReview.inspect` はキャッシュ済み完了を返す
+場合があります。再起動後にレポートが必要なら、保存済み封筒と対応する inspection context
+でプロバイダを明示的に再実行します。受領から所見なしと推定せず、ディスクにレポートの
+キャッシュを作らないでください。
+
+task 以外は `unavailable` です。既定の検査、CLI の表示、trusted の受付、MCP、自動承認の
+動作は変わりません。protocol・schema・manifest 必須欄・通信形式・保存形式を変えません。

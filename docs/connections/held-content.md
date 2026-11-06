@@ -8,7 +8,7 @@
 The store retains original encrypted signed envelopes with owner-signed metadata
 under `<dataRoot>/quarantine/<sha256-local-owner-DID>/<id>.json`; summaries omit
 input, titles and descriptions. The default provider returns `unavailable`, so
-content remains held. No inspection rules, detectors or subprocess are included.
+content remains held. An opt-in offline rule provider is available separately; it is never installed automatically.
 `hold`, `inspect`, `showReviewedContent`, `discard`, and `expire` are library APIs.
 Content display requires a completed receipt bound to the owner, kind, content,
 envelope and report digests; it does not approve execution or connection consent.
@@ -58,3 +58,45 @@ declarations retain 0.1.0 behavior. Status records use the fixed delivery deadli
 seven days; active maintenance deletes expired bytes. A handoff does not prove reading
 or execution. Both gateways need support; no relay deployment is required.
 See [relay reliability](../relay-reliability.md) for status sources, retention and lifecycle behavior.
+
+### Opt-in rule inspection
+
+`createRuleBasedContentReviewProvider` is exported by `@acp/runtime` and
+`sealbridge/sdk`; the pure scanner and immutable rule descriptors are exported by
+`@acp/core` and the SDK. Inject it through `new HeldRequestReview(owner,
+{provider: createRuleBasedContentReviewProvider(options)})`, then pass `heldReview`
+to `WorkerNode`. See the [SDK example and report contract](../sdk.md#opt-in-offline-content-rules).
+There are no new CLI or MCP options; display inspection and the default
+`unavailable` provider keep their existing behavior.
+
+The task-only provider authenticates the envelope/proposal and held bindings,
+projects the full manifest, input and capabilities, and scans them in a fixed
+compiled child using bounded JSON over IPC. It passes no keys or transport
+credentials, inherits an environment allowlist, writes no plaintext files/logs,
+and makes no network calls. It does not execute, unpack or recursively decode
+content; it does not provide kernel network isolation. Default timeout is 5 seconds
+(maximum 45 seconds); set it at or below `inspectionTimeoutMs`. Abort, timeout,
+malformed output, child failure, bound excess and callback failure cannot complete
+inspection. Errors leave content held, including the existing display gate.
+
+Rules identify size/format limits, invisible characters, instruction phrases,
+URL forms, secret requests/presence, code and bounded base64 binary/archive
+prefixes. The initial bounds are 256 KiB content, depth 32, 100,000 nodes/keys,
+64 KiB of UTF-8 per string, 100 findings, 64 KiB decoded bytes and 64 KiB child result.
+Limits may be lowered. These are heuristic findings with fixed codes, redacted
+sensitive path segments and no evidence snippets. Quoted text can match and
+unrecognized forms can pass. URLs and credential forms are never checked online.
+
+`pass`, `warn` and `block` all record existing `HeldContentInspection` v1
+`status:'complete'`; `block` is the strongest owner warning and adds no execution
+veto. Completion only supplies inspection material. Connected tasks still require
+live human contract opening; unknown tasks stay terminal pending. Inspection
+alone does not invoke an adapter or approve a connection.
+
+`onReport(recordId, report)` delivers a copy in memory. Only the existing
+`reportDigest` is stored, binding the report, effective limits, record, owner,
+kind, content and exact envelope. Reports have no new store, audit event or
+approval-detail field. A cached receipt has no findings; if a restarted host needs
+a report, explicitly recompute through the provider with the stored envelope and
+bound context. Do not fabricate a clean report from cached completion. No protocol,
+schema, required manifest field, wire or stored-record format changes are made.
