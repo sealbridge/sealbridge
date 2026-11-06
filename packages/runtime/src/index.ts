@@ -37,6 +37,7 @@ export * from './application-config.js';
 export * from './requester-pending-store.js';
 export * from './held-request-store.js';
 export * from './held-request-review.js';
+export * from './held-task-content.js';
 
 export * from './protocol-release.js';
 export * from './connection-router.js';
