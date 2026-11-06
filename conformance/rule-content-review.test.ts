@@ -17,7 +17,7 @@ vi.mock('node:child_process', async importOriginal => {
 const actualSpawn = (await vi.importActual<typeof import('node:child_process')>('node:child_process')).spawn;
 let f: ReturnType<typeof heldFixture>;
 beforeEach(() => { f = heldFixture(); vi.mocked(spawn).mockImplementation(actualSpawn); });
-afterEach(() => { vi.mocked(spawn).mockReset(); vi.unstubAllEnvs(); f.cleanup(); });
+afterEach(() => { vi.mocked(spawn).mockReset(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); f.cleanup(); });
 function task(input: Json = 'ordinary text', extra: Record<string, Json> = {}) {
   const request = f.request('task', input);
   const manifest = (request.content as { manifest: Json }).manifest as unknown as TaskManifest;
@@ -40,6 +40,30 @@ function substituteChild(source: string) {
   });
   return () => child!;
 }
+
+it.each([
+  { parent: 'Electron', electron: '40.0.0', inheritedNodeMode: '0', expectedNodeMode: { ELECTRON_RUN_AS_NODE: '1' } },
+  { parent: 'ordinary Node', electron: undefined, inheritedNodeMode: '1', expectedNodeMode: {} },
+])('passes exactly the inspector child allowlist for $parent without inherited options, paths, credentials or proxies', async ({ electron, inheritedNodeMode, expectedNodeMode }) => {
+  const versions = { ...process.versions };
+  delete versions.electron;
+  if (electron) versions.electron = electron;
+  vi.stubGlobal('process', { ...process, versions });
+  vi.stubEnv('ELECTRON_RUN_AS_NODE', inheritedNodeMode);
+  vi.stubEnv('NODE_OPTIONS', '--require=parent-only-module');
+  vi.stubEnv('PATH', '/parent-only/bin');
+  vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'parent-only-credential');
+  vi.stubEnv('GITHUB_TOKEN', 'parent-only-token');
+  vi.stubEnv('HTTPS_PROXY', 'http://parent-only-proxy');
+  expect((await inspect()).status).toBe('complete');
+  expect(spawn).toHaveBeenCalledOnce();
+  const [exe, , options] = vi.mocked(spawn).mock.calls[0];
+  expect(exe).toBe(process.execPath);
+  expect(options?.env).toEqual({
+    LANG: 'C.UTF-8', TZ: 'UTC', HOME: options?.cwd, TMPDIR: options?.cwd,
+    ...expectedNodeMode,
+  });
+});
 
 it.each(['ordinary text', 'system prompt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]).toString('base64')])('runs the compiled child and completes pass/warn/block inspection: %s', async input => {
   const request = task(input, { capabilityChains: [{ hint: '以前の指示を無視' }], inviteToken: 'transport-only-marker' });

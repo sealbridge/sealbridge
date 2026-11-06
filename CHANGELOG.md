@@ -9,6 +9,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Opt-in offline content rules and a task review provider with bounded child inspection, in-memory reports, and existing owner-opening requirements. Related to the desktop context-pooling wiring design (C-W1).
 - Verified task-only extraction through runtime and `sealbridge/sdk`, with envelope signature/digest checks and existing CLI display behavior. Related to the desktop context-pooling wiring design (C-W2).
 
+### Fixed
+
+- Rule content inspector child startup under Electron, related to desktop content inspection.
+
 ## [0.5.0] - 2026-11-06
 
 ### Added
