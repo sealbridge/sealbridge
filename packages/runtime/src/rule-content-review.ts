@@ -94,8 +94,11 @@ export function createRuleBasedContentReviewProvider(options: RuleBasedContentRe
       if (remaining <= 0) throw 'TIMEOUT';
       report = await new Promise<RuleInspectionReport>((resolve, reject) => {
         const directory = tmpdir();
+        const env = sanitizedEnvironment(directory);
+        // Electron's executable needs Node mode to run the fixed inspector entry.
+        if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1';
         const child = spawn(process.execPath, ['--no-addons', '--disable-proto=throw', '--max-old-space-size=64', childEntry], {
-          cwd: directory, env: sanitizedEnvironment(directory), stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true,
+          cwd: directory, env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true,
         });
         let done = false;
         let childReport: RuleInspectionReport | undefined;

@@ -100,6 +100,10 @@ content; it does not provide kernel network isolation. Default timeout is 5 seco
 malformed output, child failure, bound excess and callback failure cannot complete
 inspection. Errors leave content held, including the existing display gate.
 
+The inspector child environment contains `LANG`, `TZ`, `HOME` and `TMPDIR`.
+When the parent is Electron, it also sets the constant `ELECTRON_RUN_AS_NODE=1`
+so the parent executable runs the inspector as Node.
+
 Rules identify size/format limits, invisible characters, instruction phrases,
 URL forms, secret requests/presence, code and bounded base64 binary/archive
 prefixes. The initial bounds are 256 KiB content, depth 32, 100,000 nodes/keys,
