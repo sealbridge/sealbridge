@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
-import { digest, openEnvelope, signPayload, verifySigned } from '../packages/core/src/index.js';
+import { digest, openEnvelope, signEnvelope, signPayload, verifySigned } from '../packages/core/src/index.js';
 import type { Json } from '../packages/core/src/index.js';
 import type { HeldContentInspection, HeldContentReviewProvider, InspectionCompletion } from '../packages/runtime/src/index.js';
-import { HeldRequestReview } from '../packages/runtime/src/index.js';
+import { HeldRequestReview, createRuleBasedContentReviewProvider } from '../packages/runtime/src/index.js';
 import { HELD_TEST_NOW, heldFixture, testOnlyCompletionProvider } from './held-request-fixture.js';
 let f: ReturnType<typeof heldFixture>;
 beforeEach(() => { f = heldFixture(); });
@@ -168,4 +168,26 @@ it('never promotes a held record through an owner approval without an inspection
   const file = join(f.store.directory, request.id + '.json'), record = f.store.read(request.id)!;
   fs.writeFileSync(file, JSON.stringify(signPayload({ ...record, state: 'reviewable' }, f.owner)));
   expect(() => f.review().showReviewedContent(request.id)).toThrow('QUARANTINE_INVALID');
+});
+
+it.each([false, true])('uses the rule provider with the existing v1 receipt and held display gate (limit error=%s)', async error => {
+  const base = f.request();
+  const request: Omit<typeof base, 'taskId'> & { taskId: string } = base;
+  const manifest = (request.content as { manifest: Json }).manifest as unknown as import('../packages/core/src/index.js').TaskManifest;
+  manifest.taskId = 'task_' + request.taskId; request.taskId = manifest.taskId;
+  request.content = { proposal: signPayload(manifest, f.peer), input: 'system prompt' } as unknown as { [key: string]: Json };
+  request.envelope = signEnvelope({ taskId: request.taskId, seq: 0, eventType: 'PROPOSE', recipientDid: f.owner.did,
+    payload: request.content }, f.peer, { encrypt: true });
+  request.contentDigest = digest({ manifest, input: 'system prompt' });
+  const report = vi.fn();
+  const review = f.review({ provider: createRuleBasedContentReviewProvider({ onReport: report,
+    ...(error ? { limits: { maxBytes: 10 } } : {}) }) });
+  review.hold(request);
+  expect(await review.inspect(request.id)).toMatchObject({ state: error ? 'held' : 'reviewable', inspectionStatus: error ? 'error' : 'complete' });
+  expect(report).toHaveBeenCalledOnce();
+  if (error) expect(() => review.showReviewedContent(request.id)).toThrow('INSPECTION_INCOMPLETE');
+  else expect(review.showReviewedContent(request.id)).toEqual(request.content);
+  const receipt = f.store.read(request.id)!.inspectionReceipt!;
+  expect(receipt.payload).toMatchObject({ type: 'HeldContentInspection', v: 1, status: error ? 'error' : 'complete' });
+  expect(verifySigned(receipt, f.owner.did)).toBe(true);
 });

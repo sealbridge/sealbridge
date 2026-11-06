@@ -8,6 +8,7 @@ export {
   WorkerTrustStore, workerIntakePath,
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider, taskContent,
+  createRuleBasedContentReviewProvider,
   AcpMcpServer,
   buildTaskManifest, appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS,
   RequesterClient, WorkerNode, verifyDelegationAttachment,
@@ -24,9 +25,12 @@ export type {
   ConnectionTransport, ConnectionFrame, ConnectionRouterOptions, ConnectedEvent,
   ConnectionAdmissionReviewOptions, InboundConnectionSummary,
   HeldRequestReviewOptions, HeldContentReviewProvider, HeldInspectionContext, InspectionCompletion, HeldTaskContent,
+  RuleBasedContentReviewOptions,
   AcpMcpServerOptions, ApprovalProvider, ChildDelegationRequest,
 } from '@acp/runtime';
 export {
+  inspectRuleContent, CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_RULESET_VERSION,
+  CONTENT_INSPECTION_RULESET_DIGEST, CONTENT_INSPECTION_LIMITS,
   generateKeyPair, createSignedAgentCard, verifySignedAgentCard,
   createInviteToken, inviteTokenFromUri, isInviteTarget, parseAndVerifyInviteToken,
   discoverAgentCards, findDiscoveredAgentCard,
@@ -42,6 +46,8 @@ export {
   CONTEXT_GRANT_DEFAULT_LIFETIME_MS,
 } from '@acp/core';
 export type {
+  RuleInspectionInput, RuleInspectionOptions, RuleInspectionFinding, RuleInspectionReport,
+  RuleInspectionRule, RuleInspectionKind, RuleInspectionDiagnosticCode,
   KeyPair, Json, Signed, SignedEnvelope,
   ContextGrant, ContextGrantOptions, DeliveryMode, TaskManifest,
   ContextGrantAuditEventType, ContextGrantAuditPayload,

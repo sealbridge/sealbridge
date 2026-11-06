@@ -39,11 +39,12 @@ All values are direct re-exports of existing implementations, without wrappers.
 | Connection metadata | `WorkerTrustStore` (including `listConnections`), `workerIntakePath` |
 | Connection exchange | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
 | Owner confirmation command | `connectionsCommand`, `connectionHumanReview` |
-| Held review | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider` |
+| Held review | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider` |
 | Verified task content | `taskContent` |
 | Discovery and invitations | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
 | Key creation | `generateKeyPair` |
 | MCP hosting | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
+| Content rules | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS` |
 
 Named type exports:
 
@@ -176,3 +177,87 @@ is a separate `connectionReview` option. See [MCP integration](../README.md#mcp-
 ## Audit evidence
 
 `parseJsonl` / `verifyAudit` retain their bilateral-only contracts. Use `parseAuditJsonl` / `verifyAuditEvidence` for the `AuditEvidence` union (`AuditBundle | InterruptedAuditBundle`). Worker-only format-1 terminals return `UNILATERALLY_CLOSED` with `valid:false`, even with matching external pins; ordinary result APIs still require bilateral bundles. `createAuditInterruption`, the interruption-aware stores, and public evidence types are exported from `sealbridge/sdk`. See [storage, pins, durability, and requester comparison rules](audit-interruption.md).
+
+## Opt-in offline content rules
+
+`inspectRuleContent({manifest,input,capabilityChains?}, limits?, signal?)` is the
+in-memory core scanner. `RuleInspectionInput`, `RuleInspectionOptions`,
+`RuleInspectionRule`, `RuleInspectionKind`, `RuleInspectionFinding`,
+`RuleInspectionDiagnosticCode`, `RuleInspectionReport`, and
+`RuleBasedContentReviewOptions` are supported SDK type exports. Core owns the
+rules and traversal; runtime owns the child process. The edge entry is unchanged.
+
+For held tasks, inject the provider explicitly:
+
+```ts
+import { HeldRequestReview, WorkerNode, createRuleBasedContentReviewProvider } from 'sealbridge/sdk';
+
+const inspectionTimeoutMs = 5000;
+const heldReview = new HeldRequestReview(owner, {
+  ...identityOptions,
+  inspectionTimeoutMs,
+  provider: createRuleBasedContentReviewProvider({
+    timeoutMs: inspectionTimeoutMs,
+    onReport(recordId, report) {
+      // Supply literal owner-facing review material in memory.
+      renderInspection(recordId, report);
+    },
+  }),
+});
+const worker = new WorkerNode({ ...workerOptions, owner, heldReview });
+```
+
+Here `owner`, `identityOptions`, `workerOptions`, and `renderInspection` belong to
+the embedding host. Keep provider timeout at or below the review timeout; both
+default to 5 seconds and accept 1–45,000 ms. Cancellation or either deadline ends
+inspection and terminates the child. Callback failure, rejection, interruption or
+exceeding that deadline cannot produce completion. The callback receives a copy;
+its mutation cannot change the receipt. It is a host callback, not an isolation
+boundary for arbitrary code.
+
+The provider verifies the outer envelope, encrypted recipient, signed proposal,
+manifest, task/sender/worker and held digests before projecting manifest, input and
+capabilities into the fixed compiled scanner over IPC. Owner keys and transport
+credentials are excluded. It uses an environment allowlist, a 64 KiB result cap,
+and termination on abort, timeout or failure. It writes no plaintext files or
+logs and makes no network requests, DNS lookups, execution or archive extraction.
+This fixed trusted scanner does not provide kernel network isolation or accept
+plugins, downloaded rules, caller regexes or source code.
+
+The immutable descriptors, detector version and default limits determine
+`CONTENT_INSPECTION_RULESET_DIGEST`. Defaults are 256 KiB serialized content,
+depth 32, 100,000 nodes/keys, 64 KiB of UTF-8 per string, 100 findings and 64 KiB total
+decoded base64 bytes. `limits` may lower these local bounds. Exceeding a work or
+result bound is `error`; findings are never silently truncated into success.
+All manifest fields, input, capabilities and string keys are scanned in JSON
+Pointer order. Location offsets count original UTF-16 units; pointer segments use
+`~0`/`~1` escaping, with potentially sensitive keys replaced by `[redacted]`.
+Reports contain fixed note/diagnostic codes and no evidence snippets or URL values.
+Ordinary keys can occur as location segments; treat reports as review material.
+
+The rules check invisible/control characters, English/Japanese instruction phrases,
+URL forms, combined secret requests, recognizable credential forms, code markers
+and long base64. Decoding is bounded and performed once; executable/archive
+prefixes produce `block`. These are heuristics: matching text may be ordinary
+quoted material, unrecognized forms may pass, and credentials are not verified
+online. A `pass` is the absence of findings from these rules. A completed
+`pass`, `warn` or `block` maps to the existing receipt's `complete`, with `block`
+as the strongest owner warning. None authorizes execution, opens a task or
+bypasses the existing live human contract decision. Failures outrank partial
+findings, remain `error`, and preserve the completed-inspection display gate.
+
+`contentDigest` is `digest({manifest,input})`; supplied capabilities and effective
+limits are bound through the report and exact envelope. A standalone core error
+before a bounded JSON snapshot exists uses `digest(null)` as an incomplete digest;
+never use an error report as content verification. The runtime binds error reports
+to the authenticated held digest. The receipt's existing `reportDigest` hashes
+`{recordId,ownerDid,kind,contentDigest,envelopeDigest,report}`. Only this digest is
+persisted; full reports remain in `onReport` memory. Existing cached receipts
+contain no findings: `HeldRequestReview.inspect` can return a cached completion
+without calling the provider. After restart, explicitly call the provider with the
+stored envelope and bound inspection context when a report is needed. Do not
+infer an empty report from a receipt or create a report cache on disk.
+
+Other held kinds return `unavailable`. Default review, CLI display, trusted
+admission, MCP and automatic approval behavior are unchanged. No protocol,
+schema, required manifest field, wire or stored-record format changes are made.
