@@ -108,13 +108,16 @@ it('returns bound error reports on local limits and never reports completion fro
 it.each([
   ['malformed', "process.send('not json');process.disconnect()"], ['empty', 'process.exit(0)'], ['exit', 'process.exit(3)'],
   ['stderr', "require('node:fs').writeSync(2,'plaintext marker'); process.exit(1)"],
-  ['output-bound', "process.send('x'.repeat(65537));process.disconnect()"],
+  // Wait for the IPC write before disconnecting so backpressure cannot truncate the message.
+  ['output-bound', "process.send('x'.repeat(65537),()=>process.disconnect())"],
+  ['output-bound-backpressure', "process.send('x'.repeat(1024 * 1024),()=>process.disconnect())"],
 ] as const)('handles child %s with fixed reports', async (kind, source) => {
   const getChild = substituteChild(source), onReport = vi.fn();
   const result = await inspect(task(), { onReport }); expect(result.status).toBe('error');
-  expect(onReport.mock.calls[0][1].diagnostics).toEqual([{ code: kind === 'output-bound' ? 'LIMIT_EXCEEDED' : 'INSPECTOR_FAILED' }]);
+  expect(onReport.mock.calls[0][1].diagnostics).toEqual([{ code: kind.startsWith('output-bound') ? 'LIMIT_EXCEEDED' : 'INSPECTOR_FAILED' }]);
   expect(JSON.stringify(onReport.mock.calls)).not.toContain('plaintext marker');
   await new Promise<void>(resolve => getChild().exitCode !== null || getChild().signalCode !== null ? resolve() : getChild().once('close', () => resolve()));
+  expect(onReport).toHaveBeenCalledOnce();
 });
 it('rejects malformed result shapes, bindings and extra evidence', async () => {
   const request = task();
@@ -127,13 +130,14 @@ it('rejects malformed result shapes, bindings and extra evidence', async () => {
     expect(onReport.mock.calls[0][1].diagnostics).toEqual([{ code: 'INSPECTOR_FAILED' }]);
   }
 });
-it('kills a hanging child on timeout, escalating when SIGTERM is ignored', async () => {
+it('terminates a hanging child on timeout and escalates when SIGTERM is ignored on POSIX', async () => {
   const getChild = substituteChild("process.on('SIGTERM',()=>{});setInterval(()=>{},1000)");
   const onReport = vi.fn();
   expect((await inspect(task(), { timeoutMs: 250, onReport })).status).toBe('error');
   expect(onReport.mock.calls[0][1].diagnostics).toEqual([{ code: 'TIMEOUT' }]);
   const child = getChild(); if (child.signalCode === null) await new Promise(resolve => child.once('close', resolve));
-  expect(child.signalCode).toBe('SIGKILL');
+  // Windows terminates on SIGTERM even with a handler; POSIX must escalate to SIGKILL.
+  expect(child.signalCode).toBe(process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL');
 });
 it('aborts before spawn and during a pending child, ignoring late output', async () => {
   const request = task(), early = new AbortController(); early.abort('plaintext');
