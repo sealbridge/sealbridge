@@ -4,18 +4,21 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-08
+
 ### Added
 
-- Opt-in offline content rules and a task review provider with bounded child inspection, in-memory reports, and existing owner-opening requirements. Related to the desktop context-pooling wiring design (C-W1).
-- Verified task-only extraction through runtime and `sealbridge/sdk`, with envelope signature/digest checks and existing CLI display behavior. Related to the desktop context-pooling wiring design (C-W2).
+- Opt-in offline content rules and a task review provider with bounded child inspection, in-memory reports, and existing owner-opening requirements. Related to the desktop context-pooling wiring design (C-W1). (#203)
+- Verified task-only extraction through runtime and `sealbridge/sdk`, with envelope signature/digest checks and existing CLI display behavior. Related to the desktop context-pooling wiring design (C-W2). (#202)
 
 ### Changed
 
-- Quarantine retention also ends at a grant expiry the caller already read, when that is earlier than the request deadline and the 24-hour cap. Held records stay version 1 and do not store the grant expiry as its own field. (C-W4)
+- Quarantine retention also ends at a grant expiry the caller already read, when that is earlier than the request deadline and the 24-hour cap. Held records stay version 1 and do not store the grant expiry as its own field. (C-W4) (#206)
 
 ### Fixed
 
-- Rule content inspector child startup under Electron, related to desktop content inspection.
+- Rule content inspector child startup under Electron, related to desktop content inspection. (#204)
+- Identical key-store updates that fail on `.config.lock` are retried and succeed when the requested store is already committed. Switching between file and keychain remains an exclusive write. (#205)
 
 ## [0.5.0] - 2026-11-06
 
@@ -111,6 +114,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.6.0]: https://github.com/sealbridge/sealbridge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sealbridge/sealbridge/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sealbridge/sealbridge/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sealbridge/sealbridge/compare/v0.4.0...v0.4.1
