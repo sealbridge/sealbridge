@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createApplicationConfig, readApplicationConfig, validateApplicationConfig } from '../packages/runtime/src/application-config.js';
+import { createApplicationConfig, readApplicationConfig, setApplicationKeyStore, validateApplicationConfig } from '../packages/runtime/src/application-config.js';
 import type { ApplicationConfigOptions } from '../packages/runtime/src/application-config.js';
 import { resolveDataRoot } from '../packages/runtime/src/local-identity.js';
 import { DEFAULT_PUBLIC_RELAY, selectApplicationRelay } from '../packages/runtime/src/relay-selection.js';
@@ -24,6 +24,40 @@ function put(options: ApplicationConfigOptions, raw: string) {
 const first = 'https://one.example/relay';
 const second = 'https://two.example';
 const config = { version: 1, relays: [first, second] };
+const pause = (milliseconds: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+async function raceKeyStore(options: ApplicationConfigOptions, values: Array<'file' | 'keychain'>) {
+  const moduleUrl = pathToFileURL(resolve('packages/runtime/dist/application-config.js')).href;
+  const root = resolveDataRoot(options);
+  const home = options.home!;
+  const lock = join(root, '.config.lock');
+  const go = join(home, 'go');
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(lock, '', { mode: 0o600 });
+  const entered = values.map((_, index) => join(home, `entered-${index}.txt`));
+  const outputs = values.map((_, index) => join(home, `result-${index}.txt`));
+  const pending = Promise.all(values.map((keyStore, index) => {
+    const script = `import {setApplicationKeyStore} from ${JSON.stringify(moduleUrl)};
+      import {existsSync, writeFileSync} from 'node:fs';
+      const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      writeFileSync(${JSON.stringify(entered[index])}, 'ready');
+      while (!existsSync(${JSON.stringify(go)})) pause(5);
+      try {
+        const config = setApplicationKeyStore(${JSON.stringify(keyStore)}, ${JSON.stringify(options)});
+        writeFileSync(${JSON.stringify(outputs[index])}, config.keyStore === ${JSON.stringify(keyStore)} ? 'SET' : 'MISMATCH');
+      } catch (error) { writeFileSync(${JSON.stringify(outputs[index])}, error.message); }`;
+    return promisify(execFile)(process.execPath, ['--input-type=module', '-e', script]);
+  }));
+  const started = Date.now();
+  while (entered.some(path => !fs.existsSync(path))) {
+    if (Date.now() - started > 15000) throw new Error('KEY_STORE_CHILDREN_TIMEOUT');
+    pause(10);
+  }
+  fs.writeFileSync(go, '1');
+  pause(300);
+  fs.rmSync(lock, { force: true });
+  await pending;
+  return outputs.map(output => fs.readFileSync(output, 'utf8'));
+}
 afterEach(() => {
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -124,6 +158,39 @@ describe('application config storage', () => {
     expect(results.filter(result => result === 'APP_CONFIG_BUSY')).toHaveLength(3);
     expect(readApplicationConfig(options).relays[0]).toMatch(/^https:\/\/relay-[0-3]\.example$/);
     expect(fs.readdirSync(resolveDataRoot(options))).toEqual(['config.json']);
+  });
+  it('lets two processes set the same key store', async () => {
+    const created = fixture();
+    expect(await raceKeyStore(created, ['keychain', 'keychain'])).toEqual(['SET', 'SET']);
+    expect(readApplicationConfig(created).keyStore).toBe('keychain');
+    expect(fs.readdirSync(resolveDataRoot(created))).toEqual(['config.json']);
+    const updated = fixture();
+    createApplicationConfig({ version: 1, relays: [first], keyStore: 'file' }, updated);
+    expect(await raceKeyStore(updated, ['keychain', 'keychain'])).toEqual(['SET', 'SET']);
+    expect(readApplicationConfig(updated)).toMatchObject({ relays: [first], keyStore: 'keychain' });
+    expect(fs.readdirSync(resolveDataRoot(updated))).toEqual(['config.json']);
+  });
+  it('serializes a conflicting key store write or keeps the loser busy', async () => {
+    const options = fixture();
+    createApplicationConfig({ version: 1, relays: [first], keyStore: 'file' }, options);
+    const results = await raceKeyStore(options, ['file', 'keychain']);
+    expect(results.every(result => result === 'SET' || result === 'APP_CONFIG_BUSY')).toBe(true);
+    expect(results).toContain('SET');
+    const stored = readApplicationConfig(options);
+    expect(stored.relays).toEqual([first]);
+    if (results[0] === 'SET' && results[1] !== 'SET') expect(stored.keyStore).toBe('file');
+    if (results[1] === 'SET' && results[0] !== 'SET') expect(stored.keyStore).toBe('keychain');
+    expect(['file', 'keychain']).toContain(stored.keyStore);
+    expect(fs.readdirSync(resolveDataRoot(options))).toEqual(['config.json']);
+  });
+  it('accepts a matching key store while a foreign lock is held', () => {
+    const options = fixture();
+    createApplicationConfig({ version: 1, relays: [first], keyStore: 'keychain' }, options);
+    const lock = join(resolveDataRoot(options), '.config.lock');
+    fs.writeFileSync(lock, '', { mode: 0o600 });
+    expect(setApplicationKeyStore('keychain', options).keyStore).toBe('keychain');
+    expect(fs.existsSync(lock)).toBe(true);
+    expect(fs.readFileSync(join(resolveDataRoot(options), 'config.json'), 'utf8')).toContain('"keyStore": "keychain"');
   });
   it.each(['{', '{}', 'x'.repeat(65537)])('rejects invalid file content %# without mutation', raw => {
     const options = fixture();

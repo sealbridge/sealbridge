@@ -107,9 +107,36 @@ export function readApplicationConfig(options: ApplicationConfigOptions = {}): A
   return readConfig(options).config;
 }
 
-/** Update only the backend setting; retain unknown fields and leave matching bytes untouched. */
-export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions = {}): ApplicationConfig {
-  if (keyStore !== 'file' && keyStore !== 'keychain') throw failure('KEY_STORE_INVALID');
+// Long enough for a peer to publish the same backend, short enough that a stale lock still fails.
+const KEY_STORE_LOCK_ATTEMPTS = 80;
+const KEY_STORE_LOCK_POLL_MS = 15;
+const pause = (milliseconds: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+
+function lockPresent(io: typeof fs, lock: string): boolean {
+  try { io.lstatSync(lock); return true; }
+  catch (error) { if (errno(error) === 'ENOENT') return false; throw failure('APP_CONFIG_UNREADABLE'); }
+}
+
+function peekConfig(options: ApplicationConfigOptions): ApplicationConfig | undefined {
+  try { return readConfig(options).config; }
+  catch (error) {
+    if (error instanceof Error && error.message === 'APP_CONFIG_UNREADABLE') return undefined;
+    throw error;
+  }
+}
+
+/**
+ * A matching read while the lock is still held can be the pre-image of a different update.
+ * Accept it once that holder releases, and on the last poll if the bytes are already requested.
+ */
+function publishedKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions, lock: string, last: boolean): ApplicationConfig | undefined {
+  if (peekConfig(options)?.keyStore !== keyStore) return undefined;
+  if (lockPresent(location(options).io, lock) && !last) return undefined;
+  const config = peekConfig(options);
+  return config?.keyStore === keyStore ? config : undefined;
+}
+
+function commitApplicationKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions): ApplicationConfig | 'locked' {
   const { root, path, paths, platform, io } = location(options);
   const lock = paths.join(root, '.config.lock');
   const temporary = paths.join(root, '.config.' + randomUUID() + '.tmp');
@@ -118,8 +145,13 @@ export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: A
   try {
     ensurePrivateDirectory(root, io, platform);
     checkPrivatePath(lock, io, platform);
-    lockFd = io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-      (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    try {
+      lockFd = io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+        (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    } catch (error) {
+      if (errno(error) === 'EEXIST') return 'locked';
+      throw error;
+    }
     checkPrivateStat(io.fstatSync(lockFd));
     const before = readConfig(options);
     if (before.config.keyStore === keyStore) return before.config;
@@ -153,6 +185,24 @@ export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: A
     if (created) io.unlinkSync(temporary);
     if (lockFd !== undefined) { io.closeSync(lockFd); io.unlinkSync(lock); }
   }
+}
+
+/** Update only the backend setting; retain unknown fields and leave matching bytes untouched. */
+export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions = {}): ApplicationConfig {
+  if (keyStore !== 'file' && keyStore !== 'keychain') throw failure('KEY_STORE_INVALID');
+  const { root, paths, io } = location(options);
+  const lock = paths.join(root, '.config.lock');
+  for (let attempt = 0; attempt < KEY_STORE_LOCK_ATTEMPTS; attempt += 1) {
+    const committed = commitApplicationKeyStore(keyStore, options);
+    if (committed !== 'locked') return committed;
+    const last = attempt + 1 === KEY_STORE_LOCK_ATTEMPTS;
+    const published = publishedKeyStore(keyStore, options, lock, last);
+    if (published) return published;
+    if (!lockPresent(io, lock)) continue;
+    if (last) break;
+    pause(KEY_STORE_LOCK_POLL_MS);
+  }
+  throw failure('APP_CONFIG_BUSY');
 }
 
 /** Publish an initial config exclusively. Existing files are never replaced. */
