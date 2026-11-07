@@ -7,7 +7,7 @@ import { generateKeyPair, digest, signEnvelope, signPayload, createRevocationNot
   RevocationRegistry, openEnvelope } from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { WorkerNode, RequesterClient, PolicyAutoApprovalProvider, WorkerTrustStore, buildTaskManifest,
-  AcpMcpServer } from '../packages/runtime/src/index.js';
+  AcpMcpServer, HELD_CONTENT_BOUNDS } from '../packages/runtime/src/index.js';
 import type { WorkerNodeOptions } from '../packages/runtime/src/index.js';
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { HeldRequestReview } from '../packages/runtime/src/held-request-review.js';
@@ -192,4 +192,33 @@ it('recognizes a newly allowed contact and rereads a later contact revocation', 
     payload: { proposal: signPayload(m, f.requester), input: {}, capabilityChains: [] } as never }, f.requester, { encrypt: true }));
   await expect(f.worker.runOnce()).rejects.toThrow('CONTACT_REVOKED');
   expect(f.frames.slice(prior).filter(e => e.payload.senderDid === f.owner.did)).toEqual([]);
+});
+it('holds an unknown grant-bearing proposal at the grant expiry when that is earliest', async () => {
+  const f = fixture();
+  const grantExpiresAt = new Date(Date.now() + 60_000).toISOString();
+  const manifest = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Grant', description: 'Grant',
+    contextGrant: { selectors: ['$.item'], angle: 'One angle', expiresAt: grantExpiresAt }, taskTimeoutMs: 48 * 3600_000 });
+  f.relay.send(signEnvelope({ taskId: manifest.taskId, recipientDid: f.owner.did, seq: 0, eventType: 'PROPOSE',
+    payload: { proposal: signPayload(manifest, f.requester), input: {}, capabilityChains: [] } as never }, f.requester, { encrypt: true }));
+  await f.worker.runOnce().catch(() => undefined);
+  const held = f.worker.heldReview.list();
+  expect(held).toHaveLength(1);
+  expect(held[0].expiresAt).toBe(Date.parse(grantExpiresAt));
+  expect(held[0].expiresAt).toBeLessThan(Date.parse(manifest.deadline));
+  expect(held[0].expiresAt - held[0].receivedAt).toBeLessThan(HELD_CONTENT_BOUNDS.retentionMs);
+  expect(f.worker.heldReview.store.read(held[0].id)).not.toHaveProperty('grantExpiresAt');
+});
+it('keeps the 24 hour hold when an unknown proposal grant expires later', async () => {
+  const f = fixture(), created = Date.now();
+  const manifest = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Grant', description: 'Grant',
+    contextGrant: { selectors: ['$.item'], angle: 'One angle', expiresAt: new Date(created + 48 * 3600_000).toISOString() },
+    now: () => created, taskTimeoutMs: 72 * 3600_000 });
+  f.relay.send(signEnvelope({ taskId: manifest.taskId, recipientDid: f.owner.did, seq: 0, eventType: 'PROPOSE',
+    payload: { proposal: signPayload(manifest, f.requester), input: {}, capabilityChains: [] } as never }, f.requester, { encrypt: true }));
+  await f.worker.runOnce().catch(() => undefined);
+  const held = f.worker.heldReview.list();
+  expect(held).toHaveLength(1);
+  expect(held[0].expiresAt - held[0].receivedAt).toBe(HELD_CONTENT_BOUNDS.retentionMs);
+  expect(held[0].expiresAt).toBeLessThan(Date.parse(manifest.contextGrant!.expiresAt));
+  expect(f.worker.heldReview.store.read(held[0].id)).not.toHaveProperty('grantExpiresAt');
 });

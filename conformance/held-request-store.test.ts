@@ -73,6 +73,35 @@ it('caps retention at the deadline or 24 hours and deletes expired ciphertext on
   f.advance(HELD_CONTENT_BOUNDS.retentionMs - 1000);
   expect(f.store.expire()).toBe(1); expect(f.store.list()).toEqual([]);
 });
+it('expires a hold at a grant expiry earlier than the deadline and the 24 hour cap', () => {
+  const now = f.options.now(), grantExpiresAt = now + 5_000;
+  const summary = f.store.hold({ ...f.request(), deadline: now + HELD_CONTENT_BOUNDS.retentionMs + 60_000, grantExpiresAt });
+  expect(summary.expiresAt).toBe(grantExpiresAt);
+  const stored = JSON.parse(fs.readFileSync(path(summary.id), 'utf8')).payload;
+  expect(stored.version).toBe(1);
+  expect(stored.expiresAt).toBe(grantExpiresAt);
+  expect(stored).not.toHaveProperty('grantExpiresAt');
+  expect(Object.keys(stored).sort()).toEqual(['contentDigest', 'envelope', 'envelopeDigest', 'expiresAt', 'id', 'kind',
+    'ownerDid', 'receivedAt', 'senderOwnerDid', 'state', 'taskId', 'version']);
+  f.advance(5_000);
+  expect(f.store.list().find(r => r.id === summary.id)?.state).toBe('expired');
+  expect(f.store.expire()).toBe(1); expect(fs.existsSync(path(summary.id))).toBe(false);
+});
+it('keeps the deadline and 24 hour cap when a grant expiry is absent or later than 24 hours', () => {
+  const cap = (receivedAt: number, deadline: number) => Math.min(deadline, receivedAt + HELD_CONTENT_BOUNDS.retentionMs);
+  const now = f.options.now(), short = now + 2_000, long = now + HELD_CONTENT_BOUNDS.retentionMs + 60_000;
+  const laterGrant = now + HELD_CONTENT_BOUNDS.retentionMs + 1_000;
+  const absentShort = f.store.hold({ ...f.request(), deadline: short });
+  const absentLong = f.store.hold({ ...f.request(), deadline: long });
+  const laterShort = f.store.hold({ ...f.request(), deadline: short, grantExpiresAt: laterGrant });
+  const laterLong = f.store.hold({ ...f.request(), deadline: long, grantExpiresAt: laterGrant });
+  expect(absentShort.expiresAt).toBe(cap(absentShort.receivedAt, short));
+  expect(absentLong.expiresAt).toBe(cap(absentLong.receivedAt, long));
+  expect(laterShort.expiresAt).toBe(cap(laterShort.receivedAt, short));
+  expect(laterLong.expiresAt).toBe(cap(laterLong.receivedAt, long));
+  expect(absentLong.expiresAt - absentLong.receivedAt).toBe(HELD_CONTENT_BOUNDS.retentionMs);
+  expect(laterLong.expiresAt - laterLong.receivedAt).toBe(HELD_CONTENT_BOUNDS.retentionMs);
+});
 it('keeps live records when record or aggregate bounds reject new holds, and reclaims expired records', () => {
   const request = f.request(), size = Buffer.byteLength(JSON.stringify(request.envelope));
   const aggregate = new HeldRequestStore(f.owner, { ...f.options, limits: { totalEnvelopeBytes: size } });

@@ -9,6 +9,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Opt-in offline content rules and a task review provider with bounded child inspection, in-memory reports, and existing owner-opening requirements. Related to the desktop context-pooling wiring design (C-W1).
 - Verified task-only extraction through runtime and `sealbridge/sdk`, with envelope signature/digest checks and existing CLI display behavior. Related to the desktop context-pooling wiring design (C-W2).
 
+### Changed
+
+- Quarantine retention also ends at a grant expiry the caller already read, when that is earlier than the request deadline and the 24-hour cap. Held records stay version 1 and do not store the grant expiry as its own field. (C-W4)
+
 ### Fixed
 
 - Rule content inspector child startup under Electron, related to desktop content inspection.
