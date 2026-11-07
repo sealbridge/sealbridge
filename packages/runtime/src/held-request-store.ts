@@ -27,6 +27,8 @@ export interface HeldSummary {
 export interface HoldRequest {
   id?: string; kind: HeldContentKind; senderOwnerDid: string; requestId?: string; taskId?: string;
   contentDigest: string; deadline: number; envelope: SignedEnvelope;
+  /** Already read by the caller. Narrows expiresAt only and is not stored. */
+  grantExpiresAt?: number;
 }
 export const HELD_CONTENT_BOUNDS = Object.freeze({
   retentionMs: 24 * 60 * 60_000, envelopeBytes: 256 * 1024, records: 100,
@@ -178,11 +180,12 @@ export class HeldRequestStore {
     try {
       const now = this.now();
       encrypted(request.envelope, this.owner.did);
-      if (!Number.isSafeInteger(request.deadline)) fail();
+      if (!Number.isSafeInteger(request.deadline) || request.grantExpiresAt !== undefined && !Number.isSafeInteger(request.grantExpiresAt)) fail();
       if (bytes(request.envelope) > this.limits.envelopeBytes) throw new Error('QUARANTINE_FULL');
       record = { version: 1, id: request.id ?? randomUUID(), kind: request.kind, ownerDid: this.owner.did,
         senderOwnerDid: request.senderOwnerDid, contentDigest: request.contentDigest, envelopeDigest: digest(request.envelope),
-        receivedAt: now, expiresAt: Math.min(request.deadline, now + HELD_CONTENT_BOUNDS.retentionMs), state: 'held',
+        receivedAt: now, expiresAt: Math.min(request.deadline, now + HELD_CONTENT_BOUNDS.retentionMs, request.grantExpiresAt ?? Infinity),
+        state: 'held',
         envelope: structuredClone(request.envelope),
         ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
         ...(request.requestId === undefined ? {} : { requestId: request.requestId }) };

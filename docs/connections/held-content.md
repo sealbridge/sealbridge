@@ -19,7 +19,9 @@ errors, timeout and unavailable results leave content held.
 Hosts authorize owner review, validate sender-owner delegation and deadlines,
 acknowledge only after `hold` succeeds, schedule `expire`, call `discardPeer` on
 block, discard offers after decisions and tasks after result transmission. Reads
-leave files intact. Retention is the earlier of the deadline and 24 hours. Bounds:
+leave files intact. Retention is the earliest of the deadline, 24 hours, and a grant
+expiry the caller already read. The store does not open the envelope to read a
+grant, and that input is not a stored field. Bounds:
 100 records, 256 KiB per envelope, 32 MiB of envelopes, plus 8 KiB metadata per
 record; live records are not evicted. POSIX paths use 0700/0600; Windows inherits
 the parent DACL without ACL verification. Supply `workspaceDir` when known to

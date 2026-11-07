@@ -29,8 +29,9 @@ Connection consent stays on `connections`; legacy `requests approve` retains its
 connection-consent meaning and requires completed inspection. It never approves
 task execution. `requests approve --trust trusted` remains a separate legacy grant.
 
-Valid requests from unconnected peers are held as encrypted envelopes for at most
-24 hours or the task deadline. They return terminal `PENDING_OWNER_APPROVAL`,
+Valid requests from unconnected peers are held as encrypted envelopes until the
+earliest of 24 hours, the task deadline, and a grant expiry the worker already
+read. They return terminal `PENDING_OWNER_APPROVAL`,
 `retryable:false`, CLI exit 3. Do not retry automatically. Schema, signature,
 capability, declared budget, advertised skill and operator perimeter checks precede
 holding or invite redemption. New intake metadata has no title or description

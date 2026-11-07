@@ -1143,7 +1143,8 @@ export class WorkerNode {
     this.connectionStore.consumeAdmission(manifest.requester.ownerDid, manifest.taskId);
     const previous = this.heldReview.list().find(r => r.taskId === manifest.taskId && r.senderOwnerDid === manifest.requester.ownerDid);
     const held = previous ?? this.heldReview.hold({ kind: 'task', senderOwnerDid: manifest.requester.ownerDid,
-      taskId: manifest.taskId, contentDigest, deadline: Date.parse(manifest.deadline), envelope: first });
+      taskId: manifest.taskId, contentDigest, deadline: Date.parse(manifest.deadline), envelope: first,
+      ...(manifest.contextGrant ? { grantExpiresAt: Date.parse(manifest.contextGrant.expiresAt) } : {}) });
     if (held.contentDigest !== contentDigest) throw new Error('INVALID_PROPOSAL');
     return this.heldReview.inspect(held.id);
   }
