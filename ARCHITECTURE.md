@@ -53,8 +53,8 @@ flowchart TB
         RuntimeB --> LedgerB
     end
 
-    RuntimeA <-->|"Signed Envelope (RFC 8785 JCS + Ed25519)\nPayload: X25519 + ChaCha20-Poly1305"| Relay
-    Relay <-->|"Signed Envelope (RFC 8785 JCS + Ed25519)\nPayload: X25519 + ChaCha20-Poly1305"| RuntimeB
+    RuntimeA <-->|"Signed Envelope (RFC 8785 JCS + Ed25519)\nPayload: X25519 + HKDF-SHA256 + AES-256-GCM"| Relay
+    Relay <-->|"Signed Envelope (RFC 8785 JCS + Ed25519)\nPayload: X25519 + HKDF-SHA256 + AES-256-GCM"| RuntimeB
     CapGuardB -.->|"Capability Invocation (Scoped & Audited)"| CapIssuerA
 ```
 
