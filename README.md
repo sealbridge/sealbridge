@@ -783,7 +783,7 @@ pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
 
 The built CLI is also available as `node cli/dist/index.js <command>` and its workspace binary is `acp`.
 
-Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spec/README.md), [conformance suite](conformance/README.md), [M1 security model](docs/security-model.md), and the [adversarial security test suite](SECURITY_PROOF.md). M1 uses signed relay envelopes and the restricted JavaScript subprocess driver. M2/M3 adds optional hardened OCI execution and end-to-end payload encryption. The root code is Apache-2.0; adapted DelegateOS portions retain MIT attribution in [NOTICE](NOTICE).
+Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spec/README.md), [conformance suite](conformance/README.md), [security model](docs/security-model.md), and the [adversarial security test suite](SECURITY_PROOF.md). The current implementation uses signed relay envelopes with end-to-end payload encryption required by default, the restricted JavaScript subprocess driver, and optional hardened OCI execution. The root code is Apache-2.0; adapted DelegateOS portions retain MIT attribution in [NOTICE](NOTICE).
 
 ## Embedding SDK
 

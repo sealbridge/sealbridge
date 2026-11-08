@@ -1,4 +1,4 @@
-# M0–M1 security model
+# Implemented security model (M2/M3)
 
 Each owner's gateway, policy, local private key and provider adapter are trusted
 by that owner. Worker code and all received payloads are untrusted. Gateways
@@ -47,7 +47,7 @@ Podman or Docker with `--network none`, `--read-only`, `--cap-drop ALL`,
 `oci_container` unless `sandboxPolicy.allowSubprocessFallback` is true
 (`ISOLATION_LEVEL_MISMATCH`). An unavailable container runtime falls back to
 `subprocess_restricted` and reports that level. A container that fails to start
-is not retried in the weaker sandbox. M1 accepts the manifest's
+is not retried in the weaker sandbox. The gateway accepts the manifest's
 `subprocess_restricted`, `networkAccess: none`, ephemeral-workspace policy;
 unsupported isolation, network, or filesystem requests fail closed at the gateway.
 Verification's deterministic checks use the same subprocess driver with tool
@@ -73,21 +73,37 @@ and terminal `/*` prefixes only. Trusted tool definitions extract the resource
 from arguments; callers cannot supply an independent scope claim. A single
 owner-side CapabilityGuard must be shared across tasks/proxies that consume the
 same capability proofs to preserve aggregate parent counters. Counts are in-memory
-for M1; persist counters before using tokens across gateway restarts.
+in the CapabilityGuard; persist counters before using tokens across gateway restarts.
 
 The relay validates outer signatures, routes immutable copies and rejects repeated
 envelope IDs. Gateway inboxes also pin expected sender, task and sequence so relay
-replay protection is not a trust assumption. HTTP/WebSocket listeners bind only to
-127.0.0.1. M1 payloads are signed plaintext: the relay is blind to credentials and
-execution authority, but can observe application data. X25519 payload encryption,
-remote relay authentication and durable replay storage belong to M2.
+replay protection is not a trust assumption. Session payloads are encrypted to the
+recipient `did:key` with ephemeral X25519, HKDF-SHA256 and AES-256-GCM. HKDF info
+binds the canonical envelope header and both X25519 public keys; AES-GCM additional
+data binds the header. The relay can observe routing metadata, but not application
+payload contents or provider credentials.
+
+`decryptEnvelopePayload`, `WorkerNode`, `RequesterClient` and `VerificationEngine`
+require encrypted envelopes by default and reject cleartext session envelopes with
+`UNENCRYPTED_ENVELOPE_REJECTED`. Explicit `requireEncrypted: false` and
+`allowUnencryptedEnvelopes: true` compatibility options are for legacy in-memory
+fixtures. The local HTTP/WebSocket relay defaults to binding `127.0.0.1`; hosted
+relays are remote services. Signed, action- and origin-bound relay authentication
+tokens and durable replay storage are implemented. Public deployments still need
+TLS and operational access controls appropriate to their deployment. See the
+[M2/M3 implemented profile](../ARCHITECTURE.md#m2m3-implemented-profile-wp-7wp-12).
 
 The hosted relay shards Durable Objects by recipient DID (`inbox:<did>`) and
 stores agent cards on a separate `registry` object. Each accepted envelope is
 one storage key plus a fixed-size meta record. Queued envelopes expire after
-10 minutes; replay ids and agent cards expire after 1 hour. Defaults are
+24 hours by default for new admissions; stored expiry times are unchanged. Replay
+IDs expire after 1 hour, and agent cards expire after at most 1 hour (or their
+signed expiry, if earlier). Defaults are
 256 KiB per envelope, 256 envelopes and 4 MiB per inbox, with a per-IP rate
-limit. A new deploy does not import the previous single-object snapshot.
+limit. Leased envelopes count toward recipient caps. These are implementation
+defaults; hosted configuration changes require an operator deployment. Retention
+does not extend task deadlines or approve held work. See
+[relay retention and admission](relay-reliability.md#retention-and-admission).
 
 Audit entries include a signature from each distinct party. A separate, final,
 bilaterally signed checkpoint fixes the entry count and head. JSONL must end with
