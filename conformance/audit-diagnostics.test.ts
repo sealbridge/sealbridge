@@ -7,7 +7,8 @@ import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { generateKeyPair } from '../packages/core/src/index.js';
-import { BilateralLedger, JsonlStore, parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import { BilateralLedger, JsonlStore, parseAuditJsonl, parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import type { InterruptedAuditBundle } from '../packages/ledger/src/index.js';
 import type { AuditBundle } from '../packages/ledger/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { HeldRequestReview, InteractiveCliApprovalProvider, PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
@@ -211,7 +212,7 @@ describe('audit failure locations', () => {
     expect(malformedAnchor.stderr).not.toMatch(/acp-invite|do-not-print/);
   });
 
-  it('names the PROPOSE-only task left when the requester leaves during live owner approval (#194)', async () => {
+  it('seals the default interrupted approval while retaining diagnostics for legacy PROPOSE-only evidence (#194)', async () => {
     // In-process relay and simulated owner input; no remote relay or real owner prompt.
     const dir = directory(), path = join(dir, 'worker.jsonl');
     const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
@@ -249,15 +250,21 @@ describe('audit failure locations', () => {
       input.write('y\n');
       await rejection;
       expect(executions).toBe(0);
-      expect(readFileSync(path, 'utf8')).toBe(prefix);
+      const sealed = readFileSync(path, 'utf8');
+      expect(sealed.startsWith(prefix)).toBe(true);
+      const bundle = parseAuditJsonl(sealed) as InterruptedAuditBundle;
+      expect(bundle.interruption.payload).toMatchObject({ taskId: entry.body.taskId,
+        phase: 'ACCEPT_ACK_WAIT', reason: 'SESSION_TIMEOUT' });
+      // Historical unsealed evidence still identifies its last entry without backfill.
       const error = parseError(prefix);
       expect(error.message).toMatch(/^MISSING_OR_MISPLACED_CHECKPOINT;/);
       expect(location(error.message)).toEqual({ locationKind: 'last-entry', taskId: entry.body.taskId,
         seq: 0, entryHash: entry.entryHash, line: 1, verified: false });
       const result = await cli(path);
-      expect(result.code).toBe(1);
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toContain(error.message);
+      expect(result.code).toBe(2);
+      expect(JSON.parse(result.stdout)).toMatchObject({ valid: false, status: 'UNILATERALLY_CLOSED',
+        reason: 'WORKER_ONLY_INTERRUPTION', prefixVerified: true, terminalSignatureVerified: true });
+      expect(result.stderr).toBe('');
     } finally {
       controller.abort();
       input.end();
