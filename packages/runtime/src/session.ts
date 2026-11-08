@@ -882,6 +882,21 @@ export class WorkerNode {
       await send({ proposalDigest: record.proposalDigest, ...(outcome.result ? { result: outcome.result } : {}) });
     }
   }
+  /** Another publisher invalidated the prepared index. Rebuild outside the signer lock, then retry. */
+  private async withDelivery<T>(operation: () => T, signal?: AbortSignal): Promise<T> {
+    const service = this.deliveryService;
+    if (!service) return operation();
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await service.prepare(signal);
+      try { return operation(); }
+      catch (error) {
+        last = error;
+        if (attempt === 2 || !(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY') throw error;
+      }
+    }
+    throw last;
+  }
   private saveTaskCheckpoint(record: TaskCheckpoint): void {
     if (!this.taskJournal) return;
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) {
@@ -1062,7 +1077,9 @@ export class WorkerNode {
       // non-zero PROPOSE frames still fail a one-shot session immediately.
       if (once && (!verified || (first.payload.eventType === 'PROPOSE' && first.payload.seq !== 0)))
         throw new Error('INVALID_PROPOSAL_ENVELOPE');
-      if (verified && first.payload.eventType !== 'ERROR')
+      // AUDIT_ENTRY and other session frames are not proposals. Reporting them as
+      // INVALID_PROPOSAL_ENVELOPE hides an outbox failure on the task that just ended.
+      if (verified && first.payload.eventType === 'PROPOSE')
         this.options.onEvent?.('REJECTED', first.payload.taskId, { code: 'INVALID_PROPOSAL_ENVELOPE' });
       return;
     }
@@ -1233,13 +1250,15 @@ export class WorkerNode {
           envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
           phase: 'received', auditPath, invocations: [] };
         if (this.deliveryService) {
-          this.deliveryService.store.transaction(() => {
-            this.taskJournal!.reload();
-            if (this.taskJournal!.tasks.has(m.taskId) || this.deliveryService!.store.snapshot('receipts').some(r => r.taskId === m.taskId))
-              throw deliveryError('DELIVERY_RECORD_CONFLICT');
-            this.deliveryService!.store.receiptLocked(first, Date.parse(m.deadline), 'persisted');
-            this.taskJournal!.save(checkpoint!);
-          });
+          await this.withDelivery(() => {
+            this.deliveryService!.store.transaction(() => {
+              this.taskJournal!.reload();
+              if (this.taskJournal!.tasks.has(m.taskId) || this.deliveryService!.store.snapshot('receipts').some(r => r.taskId === m.taskId))
+                throw deliveryError('DELIVERY_RECORD_CONFLICT');
+              this.deliveryService!.store.receiptLocked(first, Date.parse(m.deadline), 'persisted');
+              this.taskJournal!.save(checkpoint!);
+            });
+          }, idleSignal);
         } else this.taskJournal.save(checkpoint);
       }
     } catch (e) {
@@ -1415,7 +1434,9 @@ export class WorkerNode {
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
       const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
-      this.deliveryService?.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
+      if (this.deliveryService) await this.withDelivery(() => {
+        this.deliveryService!.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
+      }, activeSignal);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       if (previouslyPending && peerTrust === 'trusted') throw new PendingTaskError('This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
       if (peerTrust !== 'trusted') {
@@ -1478,7 +1499,8 @@ export class WorkerNode {
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
       saveCheckpoint({ phase: 'accepted', ...(m.contextGrant?.deliveryMode === 'approval_redelegation'
         ? { delegation: { parentContract: contract, attempts: [] } } : {}) });
-      if (inspection?.inspectionStatus === 'complete') this.deliveryService?.recipientStatus.observe(first.payload.envelopeId, 'opened');
+      if (inspection?.inspectionStatus === 'complete' && this.deliveryService)
+        await this.withDelivery(() => { this.deliveryService!.recipientStatus.observe(first.payload.envelopeId, 'opened'); }, activeSignal);
       if (this.options.dailyLimit)
         consumeDailyTask(this.options.dailyLimit.path, this.options.dailyLimit.maxTasks, m.taskId);
       if (this.options.inboxPath) {
@@ -1803,7 +1825,9 @@ export class WorkerNode {
       this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       validateContextGrantUse(m, data.input, this.protocol.now());
-      this.deliveryService?.recipientStatus.handoff(first, m);
+      if (this.deliveryService) await this.withDelivery(() => {
+        this.deliveryService!.recipientStatus.handoff(first, m);
+      }, executionSignal);
       const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
       childrenClosed = true;
       if (delegationState) await abortable(Promise.allSettled([...managedChildren]), executionSignal);
@@ -1900,20 +1924,49 @@ export class WorkerNode {
       } else if (auditStage && !preserveWorkspace) setAuditStage('OUT_OF_SCOPE');
       if (idleSignal.aborted) throw e;
       const diagnostic = preserveWorkspace ? { code: 'TASK_INTERRUPTED' } : rejectionBody(progressFailure ?? e, !!m.contextGrant);
-      saveOutcome(diagnostic);
-      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
-      const refused = this.heldReview.list().find(r => r.taskId === m.taskId);
-      if (refused && diagnostic.code !== 'PENDING_OWNER_APPROVAL' && !preserveWorkspace) this.heldReview.discard(refused.id);
+      // Record the terminal code and tell the owner before any outbox write. A busy
+      // receipt or held-review close must not skip the requester's terminal ERROR.
+      try { saveCheckpoint({ phase: 'terminal', outcome: diagnostic, notificationPending: true }); } catch { /* The event below still names the code. */ }
       this.reportRejection(m.taskId, progressFailure ?? e, !!m.contextGrant);
+      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
+      if (this.deliveryService) {
+        try {
+          await this.withDelivery(() => {
+            this.deliveryService!.store.receipt(first, Date.parse(m.deadline), 'terminal', diagnostic.code);
+          }, activeSignal);
+        } catch { /* The checkpoint already records the outcome. */ }
+      }
+      const refused = this.heldReview.list().find(r => r.taskId === m.taskId);
+      if (refused && diagnostic.code !== 'PENDING_OWNER_APPROVAL' && !preserveWorkspace) {
+        try { await this.withDelivery(() => { this.heldReview.discard(refused.id); }, activeSignal); }
+        catch { /* Closing the held attempt must not hide the terminal error. */ }
+      }
       if (!wireFailureSent) {
         wireFailureSent = true;
         if (proposalAudited && !preserveWorkspace && diagnostic.code !== 'PENDING_OWNER_APPROVAL')
           await wire.contextEvent('CONTEXT_DISCARDED').catch(() => {});
-        await wire.rawSend('ERROR', diagnostic)
-          .then(async () => {
-            saveCheckpoint({ notificationPending: false });
-            if (diagnostic.code === 'PENDING_OWNER_APPROVAL') await acknowledgeProposal();
-          }).catch(() => {});
+        let delivered = false;
+        try {
+          await wire.rawSend('ERROR', diagnostic);
+          delivered = true;
+        } catch {
+          // A direct seq-0 ERROR is safe only before this wire has committed a send.
+          if (!wire.hasCommittedSend) {
+            try {
+              await relay.send(signEnvelope({
+                taskId: m.taskId, recipientDid: m.requester.ownerDid, seq: 0, eventType: 'ERROR',
+                payload: asJson(diagnostic),
+              }, this.options.owner, { encrypt: true }));
+              delivered = true;
+            } catch { /* The requester still has its own deadline. */ }
+          }
+        }
+        if (delivered) {
+          saveCheckpoint({ notificationPending: false });
+          if (diagnostic.code === 'PENDING_OWNER_APPROVAL') {
+            try { await acknowledgeProposal(); } catch { /* Receipt can wait for the next prepare. */ }
+          }
+        }
       }
       // A quota abort already surfaces as EXECUTION_ABORTED. Keep that error.
       // A caught INVALID_PROGRESS still fails the session with the sticky error.

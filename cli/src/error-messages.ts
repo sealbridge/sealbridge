@@ -23,6 +23,7 @@ const reasons: [RegExp, string][] = [
   [/INVITE_INPUT_TOO_LARGE/, '標準入力は 68 KiB 以内にして、招待リンクを 1 件だけ渡してください。'],
   [/INVITE_INPUT_EMPTY|INVITE_INPUT_MULTIPLE_LINES/, '標準入力に完全な招待リンクを 1 行だけ渡してください。'],
   [/INVITE_INPUT_TIMEOUT/, '標準入力を 10 秒以内に完了し、パイプを閉じて EOF を送ってください。'],
+  [/OUTBOX_STORE_BUSY/, 'ローカルの outbox が使用中です。提案の形式が不正なのではありません。別プロセスの書き込みか、届かなかった通知で索引が止まっています。書き込みが終わってから新しいタスクを送ってください。'],
   [/TIMEOUT|TIMED_OUT|DEADLINE/, '待機または実行の制限時間を超えました。相手の稼働状況と時間制限の設定を確認してください。'],
   [/ABORT|CANCEL/, '処理が中断されました。相手の稼働状況と中断理由を確認してから再実行してください。'],
   [/APPROVAL|HITL|VERIFICATION_REJECTED/, '所有者の承認が得られませんでした。依頼内容と承認画面を確認し、所有者が操作してください。'],
@@ -35,6 +36,7 @@ const reasons: [RegExp, string][] = [
 ];
 
 const nextSteps: [RegExp, string][] = [
+  [/OUTBOX_STORE_BUSY/, 'The local outbox index is busy (OUTBOX_STORE_BUSY). The proposal envelope is not invalid. Another process wrote the store, or an undelivered notification left the prepared index stale. Send a new task after that write finishes.'],
   [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'Use sealbridge tasks list/show for individual held-task inspection in the standalone CLI. Display completion records an inspection receipt. tasks approve/reject close a terminal held attempt only. Explicitly submit a fresh task for live interactive worker owner approval. Use sealbridge requests list for peer intake metadata. For signed connection offers, check sealbridge connections review list; connection review does not inspect or open tasks. Human confirmation separately requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
   [/CONNECTION_NOT_PENDING/, 'No reviewable signed connection offer matches this ID. A plain task creates only a pending task-derived item, not a reviewable connection offer. Run sealbridge connections review list with the same role/key and use a listed ID. If the list is empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
 ];

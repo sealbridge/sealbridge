@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Fixed
+
+- After `tasks approve` closes an interrupted first-contact approval, the same worker session accepts the next task. A stale outbox index left by an undelivered notification is refreshed outside the signer lock. A store that stays busy is reported as `OUTBOX_STORE_BUSY` to the owner and as a terminal error to the requester. (#210)
+
 ## [0.6.1] - 2026-11-08
 
 ### Fixed
