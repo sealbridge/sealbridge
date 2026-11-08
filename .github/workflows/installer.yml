@@ -1,7 +1,7 @@
 name: Installer
 on:
   pull_request:
-    branches: [main]
+    branches: [main, t3/fix-210-outbox-busy-after-interrupt]
   workflow_dispatch:
 permissions:
   contents: read

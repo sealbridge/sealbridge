@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, t3/fix-210-outbox-busy-after-interrupt]
 permissions:
   contents: read
 jobs:
