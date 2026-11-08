@@ -93,7 +93,8 @@
           "enum": [
             "SESSION_TIMEOUT",
             "WORKER_STOPPED",
-            "WORKER_RESTART_OBSERVED"
+            "WORKER_RESTART_OBSERVED",
+            "HELD_ATTEMPT_CLOSED"
           ]
         },
         "observedAt": {

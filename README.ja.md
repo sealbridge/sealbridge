@@ -906,4 +906,4 @@ relay のデプロイは不要です。
 委任結果のキャッシュや保留の明示的な再依頼とは別の読み取りです。relay の配備は不要で、
 詳細な観測には相手の C4 対応が必要です。[relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
-ワーカーの `--audit-interruption-format 1`（`WorkerNodeOptions.auditInterruptionFormat: 1`）で、PROPOSE 一件だけの承認待ちに対する単独署名の中断終端を明示的に有効化できます。先に監査の読み取り側を更新してください。検証結果は `UNILATERALLY_CLOSED`・`valid:false`・`audit-verify` 終了コード 2 となり、双方の完了合意を表しません。[形式・復元・照合規則（英語）](docs/audit-interruption.md)を参照してください。
+ワーカーの `--audit-interruption-format 1`（`WorkerNodeOptions.auditInterruptionFormat: 1`）で、PROPOSE 一件だけの承認待ちに対する単独署名の中断終端を明示的に有効化できます。先に監査の読み取り側を更新してください。検証結果は `UNILATERALLY_CLOSED`・`valid:false`・`audit-verify` 終了コード 2 となり、双方の完了合意を表しません。この指定があるとき、`tasks approve` または `tasks reject` は、ワーカーを止めなくても進行中の所有者承認待ちまたは ACCEPT 確認待ちを閉じます。[形式・復元・照合規則（英語）](docs/audit-interruption.md)を参照してください。
