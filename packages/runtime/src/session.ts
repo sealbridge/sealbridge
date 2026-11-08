@@ -1194,6 +1194,27 @@ export class WorkerNode {
       saveCheckpoint({ phase: 'terminal', outcome, notificationPending: true });
       this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'terminal', outcome.code);
     };
+    const watchHeldAttempt = (): void => {
+      stopHeldWatch();
+      const heldId = heldRecordId;
+      if (this.options.auditInterruptionFormat !== 1 || m.contextGrant || !heldId || heldClose.signal.aborted) return;
+      if (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT') return;
+      const tick = (): void => {
+        if (heldClose.signal.aborted || (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT')) {
+          stopHeldWatch();
+          return;
+        }
+        try {
+          if (!this.heldReview.list().some(record => record.id === heldId))
+            heldClose.abort(new Error('HELD_ATTEMPT_CLOSED'));
+        } catch { /* A locked or unreadable quarantine is not proof the attempt was closed. */ }
+      };
+      tick();
+      if (!heldClose.signal.aborted) {
+        heldWatch = setInterval(tick, 250);
+        heldWatch.unref?.();
+      }
+    };
     const setAuditStage = (stage: NonNullable<TaskCheckpoint['auditStage']>): void => {
       if (this.options.auditInterruptionFormat !== 1 || !auditPath) return;
       // Format 1 requires a full, PROPOSE-only prefix. Grant audits use compact
@@ -1201,6 +1222,7 @@ export class WorkerNode {
       if (m.contextGrant) return;
       auditStage = stage;
       saveCheckpoint({ auditStage: stage });
+      watchHeldAttempt();
     };
     const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
       this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
@@ -1284,13 +1306,22 @@ export class WorkerNode {
     }
     const timeouts = new SessionTimeouts(this.options, m.deadline, idleSignal);
     const activeSignal = timeouts.signal;
+    // tasks approve/reject discards the held record from another process. This
+    // signal ends an eligible wait so the worker can seal without stopping.
+    const heldClose = new AbortController();
+    const attemptSignal = AbortSignal.any([activeSignal, heldClose.signal]);
+    let heldWatch: ReturnType<typeof setInterval> | undefined;
+    let heldRecordId: string | undefined;
+    const stopHeldWatch = (): void => {
+      if (heldWatch !== undefined) { clearInterval(heldWatch); heldWatch = undefined; }
+    };
     const wire = new SessionWire(
       relay,
       this.options.owner,
       m.requester.ownerDid,
       m.taskId,
       [m.requester.ownerDid, this.options.owner.did],
-      activeSignal,
+      attemptSignal,
       auditPath,
       this.options.allowUnencryptedEnvelopes === true,
       true,
@@ -1468,6 +1499,7 @@ export class WorkerNode {
       proposalAudited = true;
       await wire.contextEvent('CONTEXT_GRANT');
       await wire.contextEvent('CONTEXT_MODE');
+      heldRecordId = inspection?.id;
       setAuditStage('OWNER_APPROVAL');
       const contract = createContract(m, data.proposal, this.options.owner);
       const openingStarted = m.contextGrant?.deliveryMode === 'approval_redelegation' ? Date.now() : 0;
@@ -1482,8 +1514,8 @@ export class WorkerNode {
           ...(inspection ? { inspection } : {}),
           from: first.payload.senderDid,
         },
-        signal: activeSignal,
-      }), activeSignal);
+        signal: attemptSignal,
+      }), attemptSignal);
       if (m.contextGrant?.deliveryMode === 'approval_redelegation') assertFreshDecision(approval, openingStarted);
       setAuditStage('OUT_OF_SCOPE');
       if (this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
@@ -1904,10 +1936,13 @@ export class WorkerNode {
         }
       }
       await progressTail;
-      preserveWorkspace = activeSignal.aborted || idleSignal.aborted;
+      const heldAttemptClosed = heldClose.signal.aborted &&
+        (auditStage === 'OWNER_APPROVAL' || auditStage === 'ACCEPT_ACK_WAIT');
+      preserveWorkspace = activeSignal.aborted || idleSignal.aborted || heldAttemptClosed;
       const timeoutReason = activeSignal.reason instanceof Error ? activeSignal.reason.message : activeSignal.reason;
       const interruptionReason = idleSignal.aborted ? 'WORKER_STOPPED' :
-        activeSignal.aborted && ['TASK_TIMEOUT', 'PEER_WAIT_TIMEOUT'].includes(String(timeoutReason)) ? 'SESSION_TIMEOUT' : undefined;
+        activeSignal.aborted && ['TASK_TIMEOUT', 'PEER_WAIT_TIMEOUT'].includes(String(timeoutReason)) ? 'SESSION_TIMEOUT' :
+        heldAttemptClosed ? 'HELD_ATTEMPT_CLOSED' : undefined;
       if (interruptionReason && auditStage && auditStage !== 'OUT_OF_SCOPE' && auditPath) {
         const entries = await wire.quiesceAudit();
         try {
@@ -1977,6 +2012,7 @@ export class WorkerNode {
         throw progressFailure;
       throw e;
     } finally {
+      stopHeldWatch();
       childHostOpen = false;
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       heartbeatStopped = true;

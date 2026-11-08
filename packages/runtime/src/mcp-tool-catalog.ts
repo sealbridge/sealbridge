@@ -181,7 +181,7 @@ const interruptionPayloadSchema = objectSchema('Worker observation bound to the 
     entriesDigest: described('JCS digest of the complete entries array.', { type: 'string' }),
   }, ['count', 'lastSeq', 'head', 'entriesDigest']),
   phase: described('Observed worker wait phase.', { enum: ['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT'] }),
-  reason: described('Worker observation, not a peer-confirmed explanation.', { enum: ['SESSION_TIMEOUT', 'WORKER_STOPPED', 'WORKER_RESTART_OBSERVED'] }),
+  reason: described('Worker observation, not a peer-confirmed explanation.', { enum: ['SESSION_TIMEOUT', 'WORKER_STOPPED', 'WORKER_RESTART_OBSERVED', 'HELD_ATTEMPT_CLOSED'] }),
   observedAt: described('UTC observation time, equal to signature.signedAt.', { type: 'string' }),
 }, ['type', 'formatVersion', 'taskId', 'actors', 'seq', 'prevEntryHash', 'acknowledgedPrefix', 'phase', 'reason', 'observedAt']);
 const interruptedBundleSchema = objectSchema('PROPOSE-only prefix with one worker-only signed terminal, excluding checkpoint.', {

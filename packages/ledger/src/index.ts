@@ -47,7 +47,7 @@ export interface AuditInterruption {
   prevEntryHash: string;
   acknowledgedPrefix: { count: number; lastSeq: number; head: string; entriesDigest: string };
   phase: 'OWNER_APPROVAL' | 'ACCEPT_ACK_WAIT';
-  reason: 'SESSION_TIMEOUT' | 'WORKER_STOPPED' | 'WORKER_RESTART_OBSERVED';
+  reason: 'SESSION_TIMEOUT' | 'WORKER_STOPPED' | 'WORKER_RESTART_OBSERVED' | 'HELD_ATTEMPT_CLOSED';
   observedAt: string;
 }
 export interface InterruptedAuditBundle {

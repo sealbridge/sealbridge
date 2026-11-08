@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { generateKeyPair } from '../packages/core/src/index.js';
-import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import { parseAuditJsonl, parseJsonl, verifyAudit, verifyAuditEvidence } from '../packages/ledger/src/index.js';
 import { HeldRequestReview, InteractiveCliApprovalProvider, PeerRejectedError, PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
 import { DeliveryStore } from '../packages/runtime/src/delivery-store.js';
 import type { TaskCheckpoint } from '../packages/runtime/src/task-journal.js';
@@ -101,6 +101,7 @@ describe('outbox busy after an interrupted approval (#210)', () => {
       await tasksCommand(['approve', heldId, '--key', key], { identityOptions: f.identityOptions, review: async () => true, output: line => output.push(line) });
       expect(JSON.parse(output.at(-1)!)).toMatchObject({ decision: 'approve', executed: false, requiresFreshTask: true });
       expect(f.worker.deliveryService!.store.ids('outbox').some(id => !before.includes(id))).toBe(true);
+      if (format === 1) await waitFor('held-attempt-closed', () => readFileSync(f.path, 'utf8').includes('HELD_ATTEMPT_CLOSED'));
       const fresh = f.client.delegate(task);
       await f.prompt();
       f.input.write('y\n');
@@ -109,9 +110,15 @@ describe('outbox busy after an interrupted approval (#210)', () => {
       expect(settled.deliverable).toEqual({ hello: 'world' });
       expect(f.events.filter(event => event.taskId === settled.taskId && (event.code === 'INVALID_PROPOSAL_ENVELOPE' || event.code === 'OUTBOX_STORE_BUSY'))).toEqual([]);
       expect(journal(f.journalPath).some(record => record.taskId === settled.taskId && record.outcome?.code === 'OUTBOX_STORE_BUSY')).toBe(false);
-      // #194 remains: tasks approve does not seal the interrupted PROPOSE, and the next chain stays on its sidecar.
+      // One task, one chain. Format 1 seals the interrupted PROPOSE at tasks approve.
+      // The default writer leaves that prefix unsealed. Either way the next chain is its sidecar.
       const main = readFileSync(f.path, 'utf8');
-      expect(main.trim().split('\n')).toHaveLength(1);
+      if (format === 1) {
+        expect(verifyAuditEvidence(parseAuditJsonl(main))).toMatchObject({
+          valid: false, status: 'UNILATERALLY_CLOSED', reason: 'WORKER_ONLY_INTERRUPTION',
+          prefixVerified: true, terminalSignatureVerified: true,
+        });
+      } else expect(main.trim().split('\n')).toHaveLength(1);
       const sidecar = f.path.replace(/(?:\.jsonl)?$/, '.' + settled.taskId + '.jsonl');
       expect(verifyAudit(parseJsonl(readFileSync(sidecar, 'utf8'))).valid).toBe(true);
       expect(readFileSync(f.path, 'utf8')).toBe(main);

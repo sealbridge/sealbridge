@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, unlinkSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, unlinkSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -129,6 +129,85 @@ describe('worker AuditInterruption live scope (#194)', () => {
       expect(journalRecords(f.journalPath).at(-1)?.auditClosure?.state).toBe('written');
     } finally { node.stop(); }
   });
+});
+
+function durableFixture() {
+  const dir = directory(), path = join(dir, 'worker.jsonl'), inbox = join(dir, 'inbox.jsonl');
+  const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
+  const input = new PassThrough(); const prompt = event();
+  const human = new InteractiveCliApprovalProvider(owner, { input, output: new Writable({ write(chunk, _enc, cb) {
+    if (String(chunk).includes('Approve [y/N]?')) prompt.resolve(); cb();
+  } }) });
+  const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(dir, 'identity') } };
+  const review = new HeldRequestReview(owner, { ...identityOptions, provider: cliTaskInspection(() => {}) });
+  const worker = new WorkerNode({ owner, relay, auditPath: path, inboxPath: inbox, auditInterruptionFormat: 1,
+    taskTimeoutMs: 120_000, waitTimeoutMs: 120_000, identityOptions, heldReview: review,
+    approvalProvider: new PolicyAutoApprovalProvider(owner), ownerApprovalProvider: human,
+    adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async ctx => ctx.input } });
+  const client = new RequesterClient({ owner: requester, relay, taskTimeoutMs: 120_000, waitTimeoutMs: 120_000,
+    approvalProvider: new PolicyAutoApprovalProvider(requester) });
+  return { dir, path, journalPath: inbox + '.tasks.jsonl', owner, input, review, identityOptions, worker, client,
+    prompt: () => prompt.promise };
+}
+async function waitFor(label: string, check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    if (check()) return;
+    if (Date.now() > deadline) throw new Error('WAIT_TIMEOUT: ' + label);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+}
+function auditVerify(path: string): Promise<{ code: number | null; stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const dir = directory(), outPath = join(dir, 'stdout'), errPath = join(dir, 'stderr');
+    const out = openSync(outPath, 'w'), err = openSync(errPath, 'w');
+    let child;
+    try { child = spawn(process.execPath, ['cli/dist/index.js', 'audit-verify', path], { stdio: ['ignore', out, err] }); }
+    finally { closeSync(out); closeSync(err); }
+    child.on('error', reject);
+    child.on('close', code => resolve({ code, stdout: readFileSync(outPath, 'utf8') }));
+  });
+}
+
+describe('held close seals format 1 while the worker keeps running (#194)', () => {
+  it.each([
+    ['approve', 'ACCEPT_ACK_WAIT'],
+    ['reject', 'OWNER_APPROVAL'],
+  ] as const)('tasks %s writes %s and audit-verify exits 2 without stopping the worker', async (action, phase) => {
+    const f = durableFixture(), controller = new AbortController(), running = f.worker.start();
+    const attempt = f.client.delegate({ to: f.worker.invite(), title: 'Held close', description: 'Seal without worker stop',
+      input: {}, signal: controller.signal }).then(() => 'unexpected', error => String(error));
+    try {
+      await f.prompt();
+      controller.abort(new Error('REQUESTER_EXITED_TEST'));
+      expect(await attempt).toContain('REQUESTER_EXITED_TEST');
+      if (phase === 'ACCEPT_ACK_WAIT') {
+        f.input.write('y\n');
+        await waitFor('accept-ack-wait', () => journalRecords(f.journalPath).at(-1)?.auditStage === 'ACCEPT_ACK_WAIT');
+      }
+      const key = join(f.dir, 'worker.private.json');
+      writeFileSync(key, JSON.stringify(f.owner), { mode: 0o600 });
+      const output: string[] = [];
+      await tasksCommand([action, f.review.list()[0].id, '--key', key], {
+        identityOptions: f.identityOptions, review: async () => true, output: line => output.push(line),
+      });
+      expect(JSON.parse(output.at(-1)!)).toMatchObject({ decision: action, executed: false });
+      await waitFor('sealed', () => readFileSync(f.path, 'utf8').includes('HELD_ATTEMPT_CLOSED'));
+      const bundle = parseAuditJsonl(readFileSync(f.path, 'utf8')) as InterruptedAuditBundle;
+      expect(bundle.entries).toHaveLength(1);
+      expect(bundle.interruption.payload).toMatchObject({ phase, reason: 'HELD_ATTEMPT_CLOSED', formatVersion: 1 });
+      expect(f.worker.lastResult).toBeUndefined();
+      const verified = await auditVerify(f.path);
+      expect(verified.code).toBe(2);
+      expect(JSON.parse(verified.stdout)).toMatchObject({
+        valid: false, status: 'UNILATERALLY_CLOSED', reason: 'WORKER_ONLY_INTERRUPTION',
+        prefixVerified: true, terminalSignatureVerified: true,
+      });
+    } finally {
+      controller.abort(); f.input.end(); f.worker.stop();
+      await Promise.allSettled([running, attempt]); f.input.destroy();
+    }
+  }, 60_000);
 });
 
 function restartFixture() {
