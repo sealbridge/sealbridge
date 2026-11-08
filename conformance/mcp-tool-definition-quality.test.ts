@@ -117,7 +117,9 @@ function walkSchemas(schema: unknown, path: string, problems: string[]): void {
       !Array.isArray(properties) &&
       Object.keys(properties as object).length > 0;
     const hasAdditional = Object.hasOwn(record, 'additionalProperties');
-    if (!hasProperties && !hasAdditional)
+    // A oneOf/anyOf/allOf object, such as the audit report union, is described by its branches.
+    const describedByUnion = ['oneOf', 'anyOf', 'allOf'].some((key) => Array.isArray(record[key]));
+    if (!hasProperties && !hasAdditional && !describedByUnion)
       problems.push(path + ' is a bare object schema with no properties');
   }
   const properties = record.properties;
@@ -224,6 +226,8 @@ describe('MCP tool definition quality', () => {
       }
       expect(tool.inputSchema?.type).toBe('object');
       expect(tool.outputSchema && typeof tool.outputSchema).toBe('object');
+      // MCP clients require the string "object". An array such as ["object"] is rejected.
+      expect(tool.outputSchema?.type, tool.name + ' outputSchema.type').toBe('object');
       walkSchemas(tool.inputSchema, tool.name + '.input', problems);
       walkSchemas(tool.outputSchema, tool.name + '.output', problems);
     }

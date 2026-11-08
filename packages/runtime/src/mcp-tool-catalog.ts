@@ -389,7 +389,7 @@ const interruptedReportSchema = objectSchema('Worker-only evidence report. Never
   truncationChecked: described('A head, count, last hash, final event, or interruption hash was actually compared. Identity or closure-kind pins alone leave false.', { type: 'boolean' }),
   closureKind: described('Worker-only interruption.', { const: 'interruption' }),
 }, ['valid', 'status', 'statusLabel', 'reason', 'prefixVerified', 'terminalSignatureVerified', 'bilateralCheckpointVerified', 'trustAnchorVerified', 'truncationChecked', 'closureKind']);
-const evidenceReportSchema = { description: 'Verification report for either terminal form; neither invalid nor worker-only evidence is a tool error.', oneOf: [verificationReportSchema, interruptedReportSchema] };
+const evidenceReportSchema = { type: 'object', description: 'Verification report for either terminal form; neither invalid nor worker-only evidence is a tool error.', oneOf: [verificationReportSchema, interruptedReportSchema] };
 
 const revocationPayloadSchema = objectSchema(
   'RevocationNotice body signed by the server owner.',
