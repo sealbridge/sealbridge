@@ -4,9 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-08
+
 ### Fixed
 
-- `acp_verify_audit_bundle` declares `type: object` on its output schema so Glama and MCP `tools/list` accept the tool.
+- `acp_verify_audit_bundle` declares `type: object` on its output schema so Glama and MCP `tools/list` accept the tool. (#208)
 
 ## [0.6.0] - 2026-11-08
 
@@ -118,6 +120,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.6.1]: https://github.com/sealbridge/sealbridge/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sealbridge/sealbridge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sealbridge/sealbridge/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sealbridge/sealbridge/compare/v0.4.1...v0.4.2
