@@ -165,7 +165,9 @@ describe('worker task recovery', () => {
     const [result] = await Promise.all([f.delegate(first), f.start(first, { once: true })]);
     first.stop();
     const originalAudit = await readFile(f.auditPath!, 'utf8');
-    expect((await f.checkpoints()).slice(0, 5).map((record) => record.phase))
+    // Default interruption stages add snapshots within a business phase.
+    const phases = (await f.checkpoints()).map(record => record.phase);
+    expect(phases.filter((phase, index) => index === 0 || phase !== phases[index - 1]))
       .toEqual(['received', 'accepted', 'running', 'delivered', 'terminal']);
     const workspace = (await f.checkpoints()).at(-1)!.workspace!;
     await expect(stat(workspace)).rejects.toMatchObject({ code: 'ENOENT' });

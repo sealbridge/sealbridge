@@ -174,7 +174,7 @@ const REVIEW_HELP = `
                                  File: unused path in an existing private directory; token + newline.
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
-  --audit-interruption-format 1  Opt in to worker-only PROPOSE interruption terminals; update audit readers first.
+  --audit-interruption-format 1  Worker-only PROPOSE interruption terminals (default: 1); requires updated audit readers.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
 With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
@@ -439,7 +439,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       name: text(f, 'name', adapter.name),
       approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
       auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
-      auditInterruptionFormat: f.has('--audit-interruption-format') ? 1 : undefined,
+      auditInterruptionFormat: 1,
       inboxPath: f.has('--inbox') ? text(f, 'inbox') : undefined,
       onInboxRecord,
       onStatus: (status, error) => emitWorkerJson({ status, error }),
