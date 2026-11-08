@@ -199,13 +199,21 @@ class GatewayDeliveryServiceImplementation {
     const batch = this.buildBatch(frames, context);
     const prepared = await this.store.prepareWrites(this.batchWrites(batch));
     try {
+      // A concurrent writer (another process closing a held attempt) changes the
+      // directory stamp. preparedMode then refuses to scan inside the lock.
+      // Refresh outside the lock instead of failing the new batch permanently.
+      let busy = 0;
       for (;;) {
         const operation = this.batchOperation(batch.message);
         const update = operation ? await this.store.prepareWrites([{ kind: 'operations', id: operation.record.operationId, record: operation.record }]) : [];
         try {
           await this.prepare(signal);
-          const ids = this.publishBatch(batch, [...prepared, ...update], operation);
-          if (ids) return ids;
+          try {
+            const ids = this.publishBatch(batch, [...prepared, ...update], operation);
+            if (ids) return ids;
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY' || ++busy > 3) throw error;
+          }
         } finally { this.store.discardWrites(update); }
       }
     } finally { this.store.discardWrites(prepared); }
@@ -261,12 +269,25 @@ class GatewayDeliveryServiceImplementation {
       await this.attempt(envelopeId, combined);
       const next = this.store.read('outbox', envelopeId);
       if (next?.state === 'pending') {
-        const blockers = this.store.pending(next.messageId).filter(other => other.kind === next.kind && other.ordinal < next.ordinal);
+        const blockers = await this.retryBusy(combined, () => this.store.pending(next.messageId).filter(other => other.kind === next.kind && other.ordinal < next.ordinal));
         const time = Math.min(next.deliveryDeadline, Math.max(next.nextAttemptAt, next.lease?.until ?? 0,
           ...blockers.map(r => Math.max(r.nextAttemptAt, r.lease?.until ?? this.store.now() + 60_000))));
         await this.sleep(Math.max(1, time - this.store.now()), combined);
       }
     }
+  }
+  /** Another publisher invalidated the prepared index. Rebuild outside the signer lock, then retry. */
+  private async retryBusy<T>(signal: AbortSignal, operation: () => T): Promise<T> {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return operation(); }
+      catch (error) {
+        last = error;
+        if (attempt === 2 || !(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY') throw error;
+        await this.prepare(signal);
+      }
+    }
+    throw last;
   }
   private attempt(id: string, signal: AbortSignal): Promise<void> {
     const prior = this.attempts.get(id);
@@ -277,7 +298,7 @@ class GatewayDeliveryServiceImplementation {
   private async attemptOnce(id: string, signal: AbortSignal): Promise<void> {
     await this.prepare(signal);
     const holderId = randomUUID();
-    const claimed = this.store.transaction(() => {
+    const claimed = await this.retryBusy(signal, () => this.store.transaction(() => {
       const r = this.store.read('outbox', id);
       if (!r || r.state !== 'pending') return;
       const batch = this.store.committed(r.batchId);
@@ -297,7 +318,7 @@ class GatewayDeliveryServiceImplementation {
       const next = { ...r, lease: { holderId, until: now + 60_000 }, attemptCount: r.attemptCount + 1 };
       // A lost lease or attempt counter only repeats the same immutable envelope.
       this.store.write('outbox', id, next); return next;
-    });
+    }));
     if (!claimed) return;
     let error: unknown, admitted = false, relayDid: string | undefined;
     try {
@@ -325,7 +346,7 @@ class GatewayDeliveryServiceImplementation {
     // Leave an interrupted attempt's lease for bounded recovery; shutdown does not publish an outcome.
     signal.throwIfAborted();
     await this.prepare(signal);
-    this.store.transaction(() => {
+    await this.retryBusy(signal, () => this.store.transaction(() => {
       const r = this.store.read('outbox', id);
       if (!r || r.state !== 'pending' || r.lease?.holderId !== holderId) return;
       delete r.lease;
@@ -351,7 +372,7 @@ class GatewayDeliveryServiceImplementation {
       }
       // Admission and retry scheduling may be replayed after interruption; enqueue remains published.
       this.store.write('outbox', id, r);
-    });
+    }));
     if (signal.aborted) signal.throwIfAborted();
   }
   private closeLocked(messageId: string, code: string, closedBy: 'deadline' | 'local' | 'peer'): void {
