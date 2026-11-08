@@ -498,7 +498,7 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   approvalProvider?: ApprovalProvider;
   /** Bilateral audit path; enables adjacent task checkpoints when inboxPath is absent. */
   auditPath?: string;
-  /** Opt in to local worker-only PROPOSE interruption terminals. Update readers before enabling. */
+  /** Local worker-only PROPOSE interruption terminal format (default: 1). Requires format-aware readers. */
   auditInterruptionFormat?: 1;
   /** Append accepted messages as private JSONL; also enables adjacent task checkpoints. */
   inboxPath?: string;
@@ -935,7 +935,7 @@ export class WorkerNode {
     for (const saved of [...this.taskJournal.tasks.values()]) {
       let record = saved;
       // Pending intents are retried even if the business outcome was already made terminal.
-      // Old files have no explicit auditStage and are never backfilled, even with opt-in enabled.
+      // Old files have no explicit auditStage and are never backfilled, even with interruption closure enabled.
       if (record.auditStage && record.auditStage !== 'OUT_OF_SCOPE' &&
           !record.outcome?.result && record.auditClosure?.state !== 'written' &&
           (record.phase !== 'terminal' || record.outcome?.code === 'TASK_INTERRUPTED' || record.auditClosure?.state === 'pending')) {
@@ -1197,7 +1197,7 @@ export class WorkerNode {
     const watchHeldAttempt = (): void => {
       stopHeldWatch();
       const heldId = heldRecordId;
-      if (this.options.auditInterruptionFormat !== 1 || m.contextGrant || !heldId || heldClose.signal.aborted) return;
+      if (m.contextGrant || !heldId || heldClose.signal.aborted) return;
       if (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT') return;
       const tick = (): void => {
         if (heldClose.signal.aborted || (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT')) {
@@ -1216,7 +1216,7 @@ export class WorkerNode {
       }
     };
     const setAuditStage = (stage: NonNullable<TaskCheckpoint['auditStage']>): void => {
-      if (this.options.auditInterruptionFormat !== 1 || !auditPath) return;
+      if (!auditPath) return;
       // Format 1 requires a full, PROPOSE-only prefix. Grant audits use compact
       // proposal evidence and bilateral lifecycle entries, outside that scope.
       if (m.contextGrant) return;

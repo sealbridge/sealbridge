@@ -316,7 +316,7 @@ The file is created or restricted to mode `0600`; rejected proposals are omitted
 and write failures stop execution. Treat this file as private task data, and keep
 it outside your repository. This also works with the default sandbox echo worker.
 
-Workers can opt into PROPOSE-only local interruption terminals with `--audit-interruption-format 1` (`WorkerNodeOptions.auditInterruptionFormat: 1`) after updating readers. A verified worker-only terminal is `UNILATERALLY_CLOSED`, `valid:false`, and `audit-verify` exit 2; it does not establish bilateral completion. With the option on, `tasks approve` or `tasks reject` also seals an in-progress owner-approval or ACCEPT-acknowledgement wait without stopping the worker. See [audit interruption format and recovery](docs/audit-interruption.md).
+Workers write PROPOSE-only local interruption terminals by default (format 1). `--audit-interruption-format 1` and `WorkerNodeOptions.auditInterruptionFormat: 1` remain accepted explicit selections. Update older audit readers before upgrading writers. A verified worker-only terminal is `UNILATERALLY_CLOSED`, `valid:false`, and `audit-verify` exit 2; it does not establish bilateral completion. By default, `tasks approve` or `tasks reject` also seals an in-progress owner-approval or ACCEPT-acknowledgement wait without stopping the worker. Sealed files are never extended; later tasks keep their own task-suffixed audit files. See [audit interruption format and recovery](docs/audit-interruption.md).
 
 Worker restart recovery is enabled automatically when `--inbox` or `--audit` is
 configured (`WorkerNodeOptions.inboxPath` / `auditPath`). The worker writes private,

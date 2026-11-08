@@ -49,6 +49,17 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recurs
 const delegateArgs = () => ['--key', key, '--to', 'did:key:local', '--title', 'Review diff', '--description', 'Check changes'];
 const workerArgs = () => ['start', '--key', key, '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json')];
 
+it.each([{ args: [] }, { args: ['--audit-interruption-format', '1'] }])('worker uses interruption format 1 with $args', async ({ args }) => {
+  await networkCommand('worker', [...workerArgs(), ...args]);
+  expect(captured.worker?.auditInterruptionFormat).toBe(1);
+});
+
+it('worker help documents default interruption format 1', async () => {
+  await networkCommand('worker', ['start', '--help']);
+  expect(vi.mocked(console.log).mock.calls.flat().join('\n'))
+    .toContain('PROPOSE interruption terminals (default: 1)');
+});
+
 it('delegate reads a diff file without changing whitespace and forwards an HTTPS invite link', async () => {
   const diff = 'diff --git a/a.ts b/a.ts\n-old\n+new\n';
   const file = join(dir, 'code.diff');

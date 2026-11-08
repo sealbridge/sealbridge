@@ -14,7 +14,7 @@ import { JsonlStore as RuntimeJsonlStore } from '../packages/ledger/dist/index.j
 import { TaskJournal } from '../packages/runtime/src/task-journal.js';
 import type { TaskCheckpoint } from '../packages/runtime/src/task-journal.js';
 import { SessionWire } from '../packages/runtime/src/session-audit.js';
-import { InMemoryRelay } from '../packages/relay/src/index.js';
+import { InMemoryRelay, startLocalRelay } from '../packages/relay/src/index.js';
 import { cliTaskInspection } from '../cli/src/task-review.js';
 import { tasksCommand } from '../cli/src/tasks.js';
 
@@ -131,23 +131,24 @@ describe('worker AuditInterruption live scope (#194)', () => {
   });
 });
 
-function durableFixture() {
+function durableFixture(relay = new InMemoryRelay(), relayUrl = 'https://relay.example', explicitFormat = true) {
   const dir = directory(), path = join(dir, 'worker.jsonl'), inbox = join(dir, 'inbox.jsonl');
-  const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
-  const input = new PassThrough(); const prompt = event();
+  const owner = generateKeyPair(), requester = generateKeyPair();
+  const input = new PassThrough(); let prompt = event();
   const human = new InteractiveCliApprovalProvider(owner, { input, output: new Writable({ write(chunk, _enc, cb) {
     if (String(chunk).includes('Approve [y/N]?')) prompt.resolve(); cb();
   } }) });
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(dir, 'identity') } };
   const review = new HeldRequestReview(owner, { ...identityOptions, provider: cliTaskInspection(() => {}) });
-  const worker = new WorkerNode({ owner, relay, auditPath: path, inboxPath: inbox, auditInterruptionFormat: 1,
+  const worker = new WorkerNode({ owner, relay, relayUrl, allowPrivateRelay: true, auditPath: path, inboxPath: inbox,
+    ...(explicitFormat ? { auditInterruptionFormat: 1 as const } : {}),
     taskTimeoutMs: 120_000, waitTimeoutMs: 120_000, identityOptions, heldReview: review,
     approvalProvider: new PolicyAutoApprovalProvider(owner), ownerApprovalProvider: human,
     adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async ctx => ctx.input } });
-  const client = new RequesterClient({ owner: requester, relay, taskTimeoutMs: 120_000, waitTimeoutMs: 120_000,
+  const client = new RequesterClient({ owner: requester, relay, allowPrivateRelay: true, taskTimeoutMs: 120_000, waitTimeoutMs: 120_000,
     approvalProvider: new PolicyAutoApprovalProvider(requester) });
-  return { dir, path, journalPath: inbox + '.tasks.jsonl', owner, input, review, identityOptions, worker, client,
-    prompt: () => prompt.promise };
+  return { dir, path, journalPath: inbox + '.tasks.jsonl', owner, requester, input, review, identityOptions, worker, client,
+    prompt: () => prompt.promise, resetPrompt: () => { prompt = event(); } };
 }
 async function waitFor(label: string, check: () => boolean): Promise<void> {
   const deadline = Date.now() + 20_000;
@@ -170,6 +171,65 @@ function auditVerify(path: string): Promise<{ code: number | null; stdout: strin
 }
 
 describe('held close seals format 1 while the worker keeps running (#194)', () => {
+  it.each([
+    ['approve', 'OWNER_APPROVAL'], ['reject', 'OWNER_APPROVAL'],
+    ['approve', 'ACCEPT_ACK_WAIT'], ['reject', 'ACCEPT_ACK_WAIT'],
+  ] as const)('default tasks %s closes %s after requester force-kill and a fresh task settles', async (action, phase) => {
+    const local = await startLocalRelay();
+    const f = durableFixture(local.relay, local.url, false), running = f.worker.start();
+    const config = join(f.dir, 'requester.json');
+    writeFileSync(config, JSON.stringify({ owner: f.requester, invite: f.worker.invite(), relayUrl: local.url }), { mode: 0o600 });
+    const child = spawn(process.execPath, ['conformance/fixtures/audit-requester-kill.mjs', config], { stdio: 'ignore' });
+    const exited = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
+      child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal }));
+    });
+    try {
+      expect(f.worker.options.auditInterruptionFormat).toBeUndefined();
+      await f.prompt();
+      const prefix = readFileSync(f.path, 'utf8');
+      const proposal = JSON.parse(prefix.trim()).entry;
+      expect(child.kill('SIGKILL')).toBe(true);
+      const exit = await exited;
+      // Windows implements SIGKILL with TerminateProcess; it may report an exit code.
+      expect(exit.signal === 'SIGKILL' || (process.platform === 'win32' && exit.code !== 0)).toBe(true);
+      if (phase === 'ACCEPT_ACK_WAIT') {
+        f.input.write('y\n');
+        await waitFor('accept-ack-wait', () => journalRecords(f.journalPath).at(-1)?.auditStage === phase);
+      }
+      const key = join(f.dir, 'worker.private.json');
+      writeFileSync(key, JSON.stringify(f.owner), { mode: 0o600 });
+      await tasksCommand([action, f.review.list()[0].id, '--key', key], {
+        identityOptions: f.identityOptions, review: async () => true, output: () => {},
+      });
+      await waitFor('default sealed', () => readFileSync(f.path, 'utf8').includes('HELD_ATTEMPT_CLOSED'));
+      const sealed = readFileSync(f.path, 'utf8');
+      const bundle = parseAuditJsonl(sealed) as InterruptedAuditBundle;
+      expect(sealed.startsWith(prefix)).toBe(true);
+      expect(bundle.entries).toEqual([proposal]);
+      expect(bundle.interruption.payload).toMatchObject({ taskId: proposal.body.taskId, phase, reason: 'HELD_ATTEMPT_CLOSED' });
+      const verified = await auditVerify(f.path);
+      expect(verified.code).toBe(2);
+      expect(JSON.parse(verified.stdout)).toMatchObject({ status: 'UNILATERALLY_CLOSED', reason: 'WORKER_ONLY_INTERRUPTION' });
+      expect(f.worker.lastResult).toBeUndefined();
+      f.resetPrompt();
+      const requesterPath = join(f.dir, 'fresh-requester.jsonl');
+      const fresh = f.client.delegate({ to: f.worker.invite(), title: 'Fresh task', description: 'Settles after force-kill', input: {}, auditPath: requesterPath });
+      await f.prompt(); f.input.write('y\n');
+      const settled = await fresh;
+      expect(settled.state).toBe('SETTLED');
+      const later = f.path.replace(/(?:\.jsonl)?$/, '.' + settled.taskId + '.jsonl');
+      const laterBundle = parseJsonl(readFileSync(later, 'utf8'));
+      expect(laterBundle.entries.at(-1)?.body).toMatchObject({ taskId: settled.taskId, eventType: 'SETTLED' });
+      expect(verifyAudit(laterBundle).valid).toBe(true);
+      expect(verifyAudit(parseJsonl(readFileSync(requesterPath, 'utf8'))).valid).toBe(true);
+      expect(readFileSync(f.path, 'utf8')).toBe(sealed);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      f.input.end(); f.worker.stop();
+      await Promise.allSettled([running, exited]); f.input.destroy(); await local.close();
+    }
+  }, 60_000);
+
   it.each([
     ['approve', 'ACCEPT_ACK_WAIT'],
     ['reject', 'OWNER_APPROVAL'],
@@ -232,7 +292,7 @@ function restartFixture() {
 }
 
 describe('worker interruption restart journal', () => {
-  it.each(['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT'] as const)('auto-closes a persisted new-format %s stage, even when writer opt-in is absent on restart', async phase => {
+  it.each(['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT'] as const)('auto-closes a persisted new-format %s stage with default options on restart', async phase => {
     const f = restartFixture(); f.save({ auditStage: phase });
     const before = Date.now(); await f.restart(false);
     const b = parseAuditJsonl(readFileSync(f.path, 'utf8')) as InterruptedAuditBundle;
