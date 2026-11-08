@@ -4,10 +4,16 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-09
+
+### Changed
+
+- Aligned the architecture diagram with AES-256-GCM, described encryption as required by default, and corrected hosted relay envelope retention to 24 hours. (#213)
+
 ### Fixed
 
-- After `tasks approve` closes an interrupted first-contact approval, the same worker session accepts the next task. A stale outbox index left by an undelivered notification is refreshed outside the signer lock. A store that stays busy is reported as `OUTBOX_STORE_BUSY` to the owner and as a terminal error to the requester. (#210)
-- By default (local format 1), `tasks approve` and `tasks reject` seal an in-progress `OWNER_APPROVAL` or `ACCEPT_ACK_WAIT` prefix while the worker is still running. The record is `AuditInterruption` reason `HELD_ATTEMPT_CLOSED`. `audit-verify` then exits 2 (`UNILATERALLY_CLOSED` / `WORKER_ONLY_INTERRUPTION`). No flag or library option is required; explicit format 1 remains supported. Older audit readers must be updated. A sealed file is not extended, and the next task stays on its own sidecar. (#194)
+- After `tasks approve` closes an interrupted first-contact approval, the same worker session accepts the next task. A stale outbox index left by an undelivered notification is refreshed outside the signer lock. A store that stays busy is reported as `OUTBOX_STORE_BUSY` to the owner and as a terminal error to the requester. (#210, #211)
+- By default (local format 1), `tasks approve` and `tasks reject` seal an in-progress `OWNER_APPROVAL` or `ACCEPT_ACK_WAIT` prefix while the worker is still running. The record is `AuditInterruption` reason `HELD_ATTEMPT_CLOSED`. `audit-verify` then exits 2 (`UNILATERALLY_CLOSED` / `WORKER_ONLY_INTERRUPTION`). No flag or library option is required; explicit format 1 remains supported. Older audit readers must be updated. A sealed file is not extended, and the next task stays on its own sidecar. (#194, #212, #214)
 
 ## [0.6.1] - 2026-11-08
 
@@ -125,6 +131,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.6.2]: https://github.com/sealbridge/sealbridge/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sealbridge/sealbridge/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sealbridge/sealbridge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sealbridge/sealbridge/compare/v0.4.2...v0.5.0
