@@ -444,7 +444,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       onInboxRecord,
       onStatus: (status, error) => emitWorkerJson({ status, error }),
       onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,
-        code: error?.code, detail: error?.detail, reason: (error as { reason?: string } | undefined)?.reason }),
+        code: error?.code, detail: error?.detail, phase: error?.phase, reason: (error as { reason?: string } | undefined)?.reason }),
       ...acceptance,
       allowPrivateRelay,
     });

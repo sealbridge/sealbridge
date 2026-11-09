@@ -261,3 +261,5 @@ infer an empty report from a receipt or create a report cache on disk.
 Other held kinds return `unavailable`. Default review, CLI display, trusted
 admission, MCP and automatic approval behavior are unchanged. No protocol,
 schema, required manifest field, wire or stored-record format changes are made.
+
+Worker event names include `ACCEPT`, `IN_PROGRESS`, `DELIVER`, `SETTLED`, `CANCELLED`, `REJECTED`, and `INTERRUPTED`. `INTERRUPTED` carries `code: TASK_INTERRUPTED` and, for live handshake interruption, optional diagnostic `phase` (`OWNER_APPROVAL` or `ACCEPT_ACK_WAIT`). See [audit interruption](audit-interruption.md).

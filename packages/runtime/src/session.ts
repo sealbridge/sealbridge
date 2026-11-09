@@ -1962,7 +1962,10 @@ export class WorkerNode {
       // Record the terminal code and tell the owner before any outbox write. A busy
       // receipt or held-review close must not skip the requester's terminal ERROR.
       try { saveCheckpoint({ phase: 'terminal', outcome: diagnostic, notificationPending: true }); } catch { /* The event below still names the code. */ }
-      this.reportRejection(m.taskId, progressFailure ?? e, !!m.contextGrant);
+      if (diagnostic.code === 'TASK_INTERRUPTED') {
+        this.options.onEvent?.('INTERRUPTED', m.taskId, { ...diagnostic,
+          ...(auditStage && auditStage !== 'OUT_OF_SCOPE' ? { phase: auditStage } : {}) });
+      } else this.reportRejection(m.taskId, progressFailure ?? e, !!m.contextGrant);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       if (this.deliveryService) {
         try {
@@ -2326,7 +2329,7 @@ export interface ErrorDetail {
   actual: string;
   hint: string;
 }
-export interface ErrorDiagnostic { code: string; detail?: ErrorDetail }
+export interface ErrorDiagnostic { code: string; detail?: ErrorDetail; phase?: 'OWNER_APPROVAL' | 'ACCEPT_ACK_WAIT' }
 class DiagnosticError extends Error {
   constructor(code: string, readonly detail: ErrorDetail) { super(code); }
 }

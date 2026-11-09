@@ -54,6 +54,19 @@ describe('Direct compatibility and signed ERROR diagnostics', () => {
       expect(s.calls()).toBe(1);
     } finally { vi.restoreAllMocks(); s.worker.stop(); }
   });
+  it('preserves REJECTED / EXECUTION_FAILED for a real adapter failure', async () => {
+    const s = setup();
+    s.worker.acceptance.allowedRequesterDids = [s.requester.did];
+    s.worker.options.adapter.executeTask = async () => { throw new Error('fixture adapter failure'); };
+    const done = s.worker.start({ once: true }).catch(e => e);
+    try {
+      await expect(s.client.delegate({ title: 'Fail', description: 'Adapter throws', to: s.owner.did,
+        manifest: s.manifest(), input: {} })).rejects.toMatchObject({ code: 'EXECUTION_FAILED' });
+      await done;
+      expect(s.events).toContainEqual({ event: 'REJECTED', taskId: expect.any(String), error: { code: 'EXECUTION_FAILED' } });
+      expect(s.events.some(e => e.event === 'INTERRUPTED')).toBe(false);
+    } finally { s.worker.stop(); }
+  });
   it.each(['missing-type', 'unknown-skill', 'unknown-type'])('preserves scope rejection: %s, with private end-to-end detail', async (kind) => {
     const dir = mkdtempSync(join(tmpdir(), 'acp-detail-'));
     const audit = join(dir, 'worker.jsonl');

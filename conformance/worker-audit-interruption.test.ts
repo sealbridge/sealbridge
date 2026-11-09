@@ -16,6 +16,7 @@ import type { TaskCheckpoint } from '../packages/runtime/src/task-journal.js';
 import { SessionWire } from '../packages/runtime/src/session-audit.js';
 import { InMemoryRelay, startLocalRelay } from '../packages/relay/src/index.js';
 import { cliTaskInspection } from '../cli/src/task-review.js';
+import { workerJson } from '../cli/src/worker-json.js';
 import { tasksCommand } from '../cli/src/tasks.js';
 
 const dirs: string[] = [];
@@ -34,14 +35,15 @@ function liveFixture() {
   } }) });
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: join(dir, 'identity') } };
   const review = new HeldRequestReview(owner, { ...identityOptions, provider: cliTaskInspection(() => {}) });
+  const events: Record<string, unknown>[] = [];
   const worker = new WorkerNode({ owner, relay, relayUrl: 'https://relay.example', auditPath: path, inboxPath: inbox,
     auditInterruptionFormat: 1, timeoutMs: 1200, identityOptions, heldReview: review,
     approvalProvider: new PolicyAutoApprovalProvider(owner), ownerApprovalProvider: human,
-    onEvent: (name, _id, error) => { if (name === 'REJECTED' && error?.code !== 'AUDIT_INTERRUPTION_WRITE_FAILED') rejected.resolve(); },
+    onEvent: (name, taskId, error) => { events.push(JSON.parse(workerJson({ event: name, taskId, ...error }))); if ((name === 'REJECTED' || name === 'INTERRUPTED') && error?.code !== 'AUDIT_INTERRUPTION_WRITE_FAILED') rejected.resolve(); },
     adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async ctx => { executions++; return ctx.input; } } });
   const client = new RequesterClient({ owner: requester, relay, timeoutMs: 5000, approvalProvider: new PolicyAutoApprovalProvider(requester) });
   return { dir, path, inbox, journalPath: inbox + '.tasks.jsonl', owner, requester, relay, input, review, identityOptions, worker, client,
-    prompt: () => prompt.promise, rejected: () => rejected.promise, executions: () => executions,
+    events, prompt: () => prompt.promise, rejected: () => rejected.promise, executions: () => executions,
     reset: () => { prompt = event(); rejected = event(); } };
 }
 
@@ -57,11 +59,15 @@ describe('worker AuditInterruption live scope (#194)', () => {
       controller.abort(new Error('REQUESTER_EXITED_TEST')); expect(await attempt).toContain('REQUESTER_EXITED_TEST');
       if (phase === 'ACCEPT_ACK_WAIT') f.input.write('y\n');
       await f.rejected();
+      const terminalEvents = f.events.filter(e => e.taskId === proposal.body.taskId);
+      expect(terminalEvents).toContainEqual(expect.objectContaining({ event: 'INTERRUPTED', code: 'TASK_INTERRUPTED', phase, reasonJa: expect.any(String) }));
+      expect(terminalEvents.some(e => e.event === 'REJECTED' || e.code === 'EXECUTION_FAILED')).toBe(false);
       const text = readFileSync(f.path, 'utf8'), bundle = parseAuditJsonl(text) as InterruptedAuditBundle;
       expect(bundle.entries).toEqual([proposal]); expect(text.startsWith(before)).toBe(true);
       expect(bundle.interruption.payload).toMatchObject({ phase, reason: 'SESSION_TIMEOUT', taskId: proposal.body.taskId });
       expect(verifyAuditEvidence(bundle).status).toBe('UNILATERALLY_CLOSED');
       expect(f.executions()).toBe(0); expect(f.worker.lastResult).toBeUndefined();
+      expect(existsSync(f.path + '.errors.jsonl')).toBe(false);
       const records = journalRecords(f.journalPath).filter(r => r.taskId === proposal.body.taskId);
       const intent = records.find(r => r.auditClosure?.state === 'pending')!;
       expect(intent.auditClosure!.interruption).toEqual(bundle.interruption);
