@@ -49,7 +49,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 
 30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
 
-> **ステータス**: Sealbridge `v0.6.3` は npm パッケージ `sealbridge` として準備済みで、公開待ちです。Sealbridge `v0.6.1` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.0` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.5.0` は 2026-11-06 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.1` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
+> **ステータス**: Sealbridge `v0.6.3` は npm パッケージ `sealbridge` として準備済みで、公開待ちです。Sealbridge `v0.6.2` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.1` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.0` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.5.0` は 2026-11-06 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.1` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
