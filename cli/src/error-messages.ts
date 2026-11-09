@@ -28,6 +28,7 @@ const reasons: [RegExp, string][] = [
   [/ABORT|CANCEL/, '処理が中断されました。相手の稼働状況と中断理由を確認してから再実行してください。'],
   [/APPROVAL|HITL|VERIFICATION_REJECTED/, '所有者の承認が得られませんでした。依頼内容と承認画面を確認し、所有者が操作してください。'],
   [/BUDGET|QUOTA|LIMIT/, '設定された予算または利用上限に達しました。依頼を小さくするか、所有者と上限を確認してください。'],
+  [/^TASK_INTERRUPTED$/, '相手からの応答を待つ間にセッションが中断しました。依頼側が終了した可能性があります。'],
   [/EXECUTION_FAILED|ADAPTER_|CLAUDE_TASK_FAILED|CODEX_/, 'AI の実行に失敗しました。CLI のインストール、認証、ワーカーのログを確認してください。'],
   [/RELAY_REQUIRED/, '接続先の中継器がありません。完全な招待リンクを使うか --relay を指定してください。'],
   [/ENOENT|EACCES|EPERM/, 'ファイルまたはコマンドを利用できません。指定したパスとアクセス権を確認してください。'],

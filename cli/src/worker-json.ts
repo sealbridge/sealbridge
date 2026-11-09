@@ -54,6 +54,8 @@ export function workerJson(value: unknown): string {
     out.code = typeof source.code === 'string' && /^[A-Z][A-Z0-9_]{0,100}$/.test(source.code) ? source.code : 'EXECUTION_FAILED';
     out.reasonJa = japaneseErrorReason(String(out.code));
   }
+  if (source.event === 'INTERRUPTED' && ['OWNER_APPROVAL', 'ACCEPT_ACK_WAIT'].includes(String(source.phase)))
+    out.phase = source.phase;
   if (source.reason !== undefined) out.reason = reason(source.reason);
   if (source.detail !== undefined) {
     const detail = record(source.detail);

@@ -4,6 +4,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Report interrupted worker handshakes as `INTERRUPTED / TASK_INTERRUPTED`, with the wait phase and a Japanese interruption reason, instead of an AI execution failure. (#216)
+
 ## [0.6.2] - 2026-11-09
 
 ### Changed

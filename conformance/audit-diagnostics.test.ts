@@ -231,7 +231,7 @@ describe('audit failure locations', () => {
       heldReview: new HeldRequestReview(owner, { env: { SEALBRIDGE_DATA_DIR: join(dir, 'identity') },
         provider: cliTaskInspection(() => {}) }),
       timeoutMs: 2000, approvalProvider: new PolicyAutoApprovalProvider(owner), ownerApprovalProvider: human,
-      onEvent: event => { if (event === 'REJECTED') rejected(); },
+      onEvent: event => { if (event === 'INTERRUPTED') rejected(); },
       adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async context => { executions++; return context.input; } },
     });
     const client = new RequesterClient({ owner: requester, relay, timeoutMs: 5000,

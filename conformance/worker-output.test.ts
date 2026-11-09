@@ -250,3 +250,19 @@ it('preserves existing status error messages and Japanese reasons', async () => 
   expect(events()[3]).toMatchObject({ status: 'unavailable', error: error.message, reasonJa: expect.any(String) });
   metadataOnly();
 });
+
+it('prints interrupted handshake phases and keeps real execution failure guidance', async () => {
+  await start(['--invite-output', 'none']);
+  captured.options!.onEvent!('INTERRUPTED', 'task_interrupted', { code: 'TASK_INTERRUPTED', phase: 'ACCEPT_ACK_WAIT' });
+  captured.options!.onEvent!('REJECTED', 'task_failed', { code: 'EXECUTION_FAILED' });
+  expect(events()[1]).toEqual({ event: 'INTERRUPTED', taskId: 'task_interrupted', code: 'TASK_INTERRUPTED',
+    phase: 'ACCEPT_ACK_WAIT', reasonJa: expect.any(String) });
+  expect(events()[1].reasonJa).toContain('\u4f9d\u983c\u5074');
+  expect(events()[1].reasonJa).not.toMatch(/\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb|\u8a8d\u8a3c/);
+  expect(events()[2].reasonJa).toContain('CLI');
+  expect(events()[1].reasonJa).not.toBe(events()[2].reasonJa);
+  captured.options!.onEvent!('INTERRUPTED', 'task_redacted', { code: 'TASK_INTERRUPTED', phase: 'PRIVATE_PHASE' } as unknown as Parameters<NonNullable<WorkerNodeOptions['onEvent']>>[2]);
+  expect(events()[3]).not.toHaveProperty('phase');
+  expect(stderr()).not.toContain('PRIVATE_PHASE');
+  expect(events()[2]).toEqual({ event: 'REJECTED', taskId: 'task_failed', code: 'EXECUTION_FAILED', reasonJa: expect.any(String) });
+});
