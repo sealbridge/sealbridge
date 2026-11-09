@@ -4,7 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-- Report interrupted worker handshakes as `INTERRUPTED / TASK_INTERRUPTED`, with the wait phase and a Japanese interruption reason, instead of an AI execution failure. (#216)
+## [0.6.3] - 2026-11-09
+
+### Fixed
+
+- Report interrupted worker handshakes as `INTERRUPTED / TASK_INTERRUPTED`, with the wait phase and a Japanese interruption reason, instead of an AI execution failure. (#216, #217)
 
 ## [0.6.2] - 2026-11-09
 
@@ -133,6 +137,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.6.3]: https://github.com/sealbridge/sealbridge/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/sealbridge/sealbridge/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sealbridge/sealbridge/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sealbridge/sealbridge/compare/v0.5.0...v0.6.0
