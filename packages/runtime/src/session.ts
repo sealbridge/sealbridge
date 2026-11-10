@@ -10,13 +10,13 @@ import { RecipientDeliveryCoordinator } from './delivery-status.js';
 import { setDeliveryStatusReaderFactory } from './delivery-status-router.js';
 import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
 import type { RequesterPendingStore } from './requester-pending-store.js';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { HostBackend } from './execution-backend.js';
+import type { ExecutionBackend } from './execution-backend.js';
 import { consumeDailyTask } from './daily-limit.js';
 import {
   existsSync, openSync, closeSync, fstatSync, fchmodSync, appendFileSync, constants, fsyncSync, readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
   createContract,
@@ -75,7 +75,6 @@ import type {
 import { CONTEXT_GRANT_AUDIT_EVENTS, proposalAuditDigest, verifyContextAcceptanceAudit } from './context-grant-audit.js';
 import { parseJsonl, verifyAudit, createAuditInterruption, JsonlStore,
   type AuditInterruption, type AuditBundle, type AuditEntry } from '@acp/ledger';
-import type { SandboxBoundaryMetadata } from '@acp/sandbox';
 import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayAuthRecoveryOptions, RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
 import type {
@@ -492,6 +491,8 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   relay: RelayTransport | string;
   relayUrl?: string;
   adapter: AgentAdapter;
+  /** Worker execution lifecycle; defaults to HostBackend. */
+  executionBackend?: ExecutionBackend;
   name?: string;
   agentDid?: string;
   /** Controls agentDid when it is not owner.did. Required to sign the delegation. */
@@ -1344,6 +1345,7 @@ export class WorkerNode {
         heartbeat.unref();
       }
     };
+    const executionBackend = this.options.executionBackend ?? new HostBackend();
     let gateway: OwnerGateway | undefined, workspace: string | undefined;
     let childHostOpen = true;
     let preserveWorkspace = false;
@@ -1352,7 +1354,7 @@ export class WorkerNode {
       if (!workspace) return;
       const path = workspace;
       try {
-        await rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        await executionBackend.cleanup(path);
         workspace = undefined;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException)?.code ?? 'WORKSPACE_CLEANUP_FAILED';
@@ -1635,7 +1637,7 @@ export class WorkerNode {
         });
       });
       this.assertPeer(m.requester.ownerDid, m.taskId);
-      workspace = await mkdtemp(join(tmpdir(), 'acp-adapter-'));
+      workspace = await executionBackend.prepare();
       saveCheckpoint({ phase: 'running', workspace });
       let invocationCount = 0;
       const executionSignal = AbortSignal.any([
@@ -1643,8 +1645,6 @@ export class WorkerNode {
         gateway.quota.controller.signal,
         cancelController.signal,
       ]);
-      let effectiveIsolationLevel = 'host_adapter';
-      let sandboxBoundary: SandboxBoundaryMetadata | undefined;
       // Concurrent reportProgress calls must not put two PROGRESS frames on the wire
       // before the first bilateral ACK. The queue also keeps DELIVER behind them.
       const enqueueProgress = (operation: () => Promise<void>, force = false): Promise<void> => {
@@ -1814,10 +1814,6 @@ export class WorkerNode {
             await wire.sendEvent('PROGRESS', progress);
           });
         },
-        reportIsolation: (level, boundary) => {
-          effectiveIsolationLevel = level;
-          sandboxBoundary = boundary;
-        },
         callTool: async (tool, args) => {
           this.assertPeer(m.requester.ownerDid, m.taskId);
           executionSignal.throwIfAborted();
@@ -1861,7 +1857,9 @@ export class WorkerNode {
       if (this.deliveryService) await this.withDelivery(() => {
         this.deliveryService!.recipientStatus.handoff(first, m);
       }, executionSignal);
-      const output = await abortable(this.options.adapter.executeTask(context), executionSignal);
+      const execution = await abortable(
+        executionBackend.execute(this.options.adapter, context), executionSignal);
+      const output = execution.output;
       childrenClosed = true;
       if (delegationState) await abortable(Promise.allSettled([...managedChildren]), executionSignal);
       const delegation = delegationState ? assembleDelegation(delegationState) : undefined;
@@ -1881,8 +1879,8 @@ export class WorkerNode {
         gateway.quota.receipt(this.options.owner),
         this.options.owner,
         {
-          effectiveIsolationLevel,
-          ...(sandboxBoundary ? { sandboxBoundary } : {}),
+          effectiveIsolationLevel: execution.effectiveIsolationLevel,
+          ...(execution.sandboxBoundary ? { sandboxBoundary: execution.sandboxBoundary } : {}),
         },
         delegation,
       );
