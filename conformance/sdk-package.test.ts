@@ -44,6 +44,32 @@ it('resolves the SDK and legacy paths from the prepared package without import s
     const sdk = await import('sealbridge/sdk');
     const legacy = await import('sealbridge/dist/packages/runtime/dist/invite-store.js');
     if (sdk.InviteStore !== legacy.InviteStore) throw new Error('Export identity differs');
+    // Desktop main 0a94a35: every value consumed through its internal build paths
+    // (including the existing SDK build path) must survive package preparation.
+    const desktopModules = [
+      ['packages/runtime/dist/key-store.js', ['resolveStoredIdentity', 'selectKeyStore']],
+      ['packages/runtime/dist/application-config.js', ['setApplicationKeyStore']],
+      ['packages/runtime/dist/mcp-server.js', ['AcpMcpServer']],
+      ['packages/runtime/dist/invite-store.js', ['InviteStore']],
+      ['packages/runtime/dist/index.js', ['WorkerTrustStore', 'workerIntakePath']],
+      ['cli/dist/connections.js', ['connectionsCommand']],
+      ['packages/core/dist/index.js', ['signApproval']],
+      ['packages/runtime/dist/protocol-peer-store.js', ['ProtocolPeerStore', 'protocolPeerPath']],
+      ['cli/dist/sdk.js', [
+        'HeldRequestReview', 'RequesterClient', 'WorkerNode', 'WorkerTrustStore',
+        'assertDelegationAttenuation', 'buildContextGrant', 'buildTaskManifest',
+        'contextGrantAuditPayload', 'createRuleBasedContentReviewProvider', 'parseAuditJsonl',
+        'readApplicationConfig', 'taskContent', 'validateContextGrant', 'validateContextGrantUse',
+        'verifyAudit', 'workerIntakePath',
+      ]],
+    ];
+    for (const [path, names] of desktopModules) {
+      const legacyModule = await import('sealbridge/dist/' + path);
+      for (const name of names) {
+        if (typeof sdk[name] !== 'function' || sdk[name] !== legacyModule[name])
+          throw new Error('Desktop export missing or identity differs: ' + name);
+      }
+    }
     const runtimeTask = await import('sealbridge/dist/packages/runtime/dist/held-task-content.js');
     const cliTask = await import('sealbridge/dist/cli/dist/task-review.js');
     if (typeof sdk.taskContent !== 'function' || sdk.taskContent !== runtimeTask.taskContent || sdk.taskContent !== cliTask.taskContent)
@@ -95,9 +121,10 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkExpiry,
       encryptInviteLink, decryptInviteLink, packInviteLinkCiphertext, unpackInviteLinkCiphertext,
       parseInviteLink, inviteLinkVerificationNumber,
-      taskContent,
+      taskContent, signApproval, ProtocolPeerStore, protocolPeerPath,
     } from 'sealbridge/sdk';
     import type {
+      ProtocolPeerObservation, ProtocolPeerState, ProtocolPeerStoreOptions,
       SavedInvite, SecretStore, KeyStore, IdentityStoreOptions, DataRootOptions, KeyringModule,
       ConnectionServiceOptions, ConnectionHumanReviewProvider, ConnectionRouterOptions,
       ConnectionAdmissionReviewOptions, InboundConnectionSummary,
@@ -154,6 +181,14 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       const rows = queue.list();
       const name: string | undefined = rows[0]?.peerDisplayName;
       return rows;
+    }
+    function protocolPeers(owner: KeyPair, options: ProtocolPeerStoreOptions) {
+      const peers = new ProtocolPeerStore(owner, options);
+      const path: string = protocolPeerPath(owner.did, options);
+      const state: ProtocolPeerState = { version: 1, localOwnerDid: owner.did, observations: [] };
+      const observation: ProtocolPeerObservation | undefined = state.observations[0];
+      const approval = signApproval('desktop-task', 'final_verification', { input: 'review' }, owner);
+      return { peers, path, observation, approval };
     }
     const unnamed: Pick<InboundConnectionSummary, 'peerDisplayName'> = {};
     const root: DataRootOptions = { env: { SEALBRIDGE_DATA_DIR: '/example' } };
