@@ -5,7 +5,7 @@ export {
   FileKeyStore, KeychainKeyStore, inspectStoredIdentity, resolveStoredIdentity,
   selectKeyStore, keyStoreSelection, keychainService, resolveDataRoot,
   readApplicationConfig, setApplicationKeyStore,
-  WorkerTrustStore, workerIntakePath,
+  WorkerTrustStore, workerIntakePath, ProtocolPeerStore, protocolPeerPath,
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider, taskContent,
   createRuleBasedContentReviewProvider,
@@ -15,6 +15,7 @@ export {
 } from '@acp/runtime';
 export type {
   SavedInvite, InviteStoreOptions, SecretStore,
+  ProtocolPeerObservation, ProtocolPeerState, ProtocolPeerStoreOptions,
   DataRootOptions, LocalIdentityOptions, IdentityRole, IdentityStoreOptions, StoredIdentity,
   KeyStore, KeyStoreDescription, KeyStoreSelection, KeyringEntry, KeyringModule,
   ApplicationConfig, ApplicationConfigOptions, RelaySelectionOptions,
@@ -31,7 +32,7 @@ export type {
 export {
   inspectRuleContent, CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_RULESET_VERSION,
   CONTENT_INSPECTION_RULESET_DIGEST, CONTENT_INSPECTION_LIMITS,
-  generateKeyPair, createSignedAgentCard, verifySignedAgentCard,
+  generateKeyPair, createSignedAgentCard, verifySignedAgentCard, signApproval,
   createInviteToken, inviteTokenFromUri, isInviteTarget, parseAndVerifyInviteToken,
   discoverAgentCards, findDiscoveredAgentCard,
   generateInviteLinkKey, deriveInviteLinkKeys, inviteLinkClaimTag, inviteLinkAad,

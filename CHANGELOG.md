@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Added
+
+- Export Desktop embedding dependencies (`signApproval` and protocol peer storage APIs/types) through `sealbridge/sdk`, preserving legacy build paths.
+
 ## [0.6.3] - 2026-11-09
 
 ### Fixed
