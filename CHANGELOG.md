@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: extract worker execution into an injectable ExecutionBackend with HostBackend preserving existing behavior.
+
 ### Fixed
 
 - Reject deliveries below the contracted isolation level, including wasm/microvm requirements and unknown attested levels, while preserving default and explicit OCI fallback behavior.
