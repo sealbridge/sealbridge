@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ApprovalGate } from './policy.js';
+import { requiresStrongIsolation } from './isolation.js';
 import { assembleDelegation, redelegationTarget, requireOwnerDecision, verifyRecoveredDelegation, verifyDelegationAttachment } from './delegation.js';
 import type { ChildDelegationAttempt, TaskDelegationState } from './delegation.js';
 import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validateIdempotencyKey } from './idempotency-store.js';
@@ -2836,9 +2837,10 @@ export class RequesterClient {
         ...manifest.sandboxPolicy,
         isolationLevel: options.minimumIsolationLevel,
       };
-      if (options.minimumIsolationLevel === 'oci_container')
+      if (requiresStrongIsolation(options.minimumIsolationLevel))
         manifest.verification = { ...manifest.verification, requireExecutionAttestation: true };
     }
+    validateManifest(manifest);
     if (!validateOutput(manifest.io.inputSchema, options.input)) throw new Error('INPUT_SCHEMA');
     if (!this.deliveryService && typeof relayOption === 'string') {
       this.deliveryService = this.createDelivery();

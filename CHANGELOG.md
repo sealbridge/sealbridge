@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject deliveries below the contracted isolation level, including wasm/microvm requirements and unknown attested levels, while preserving default and explicit OCI fallback behavior.
+
 ### Added
 
 - Export Desktop embedding dependencies (`signApproval` and protocol peer storage APIs/types) through `sealbridge/sdk`, preserving legacy build paths.
