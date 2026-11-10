@@ -25,6 +25,7 @@ import type { SandboxBoundaryMetadata } from '@acp/sandbox';
 import { verifyDelegationAttachment } from './delegation.js';
 import { ApprovalGate } from './policy.js';
 import { verifyUsage } from './quota.js';
+import { satisfiesIsolation } from './isolation.js';
 export interface ContentArtifact {
   type: 'Artifact';
   taskId: string;
@@ -174,15 +175,13 @@ export class VerificationEngine {
           if (verifyOptions?.ownerDecision !== true) throw new Error('DELEGATION_APPROVAL_REQUIRED');
         }
       }
-      // `subprocess_restricted` is not accepted for an `oci_container` contract.
-      // Node's permission model does not provide that kernel boundary, and a
-      // `sandboxBoundary` object cannot upgrade `effectiveIsolationLevel`.
-      if (
-        m.sandboxPolicy.isolationLevel === 'oci_container' &&
-        m.verification.requireExecutionAttestation &&
-        m.sandboxPolicy.allowSubprocessFallback !== true &&
-        d.attestation.payload.effectiveIsolationLevel !== 'oci_container'
-      )
+      // Only the signed runner level counts; sandboxBoundary cannot upgrade it.
+      if (!satisfiesIsolation(
+        m.sandboxPolicy.isolationLevel,
+        d.attestation.payload.effectiveIsolationLevel,
+        m.verification.requireExecutionAttestation,
+        m.sandboxPolicy.allowSubprocessFallback === true,
+      ))
         throw new Error('ISOLATION_LEVEL_MISMATCH');
       stages.push('crypto_budget');
       if (!validateOutput(m.io.outputSchema, d.artifact.payload.data))

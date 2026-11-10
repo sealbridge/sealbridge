@@ -557,6 +557,21 @@ describe('WP-9 production approvals and isolation fallback', () => {
   });
 });
 describe('WP-11 adversarial session enforcement', () => {
+  it.each(['wasm', 'microvm'])('R1 rejects a host adapter delivery for minimumIsolationLevel=%s', async (level) => {
+    const adapter: AgentAdapter = {
+      id: 'r1-host', name: 'R1 host', skills: [],
+      executeTask: async (context) => {
+        expect(context.manifest.sandboxPolicy.isolationLevel).toBe(level);
+        expect(context.manifest.verification.requireExecutionAttestation).toBe(true);
+        return { value: 7 };
+      },
+    };
+    const { results } = await session(adapter, { minimumIsolationLevel: level });
+    expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
+      message: 'VERIFICATION_REJECTED: Error: ISOLATION_LEVEL_MISMATCH',
+    }) });
+  });
+
   it('rejects an unapproved contract before adapter execution', async () => {
     let executed = false;
     const adapter: AgentAdapter = {
