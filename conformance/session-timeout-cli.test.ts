@@ -52,7 +52,7 @@ it('forwards matching worker timeout flags and installs status reporting', async
   try {
     const key = join(dir, 'owner.private.json');
     writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
-    await networkCommand('worker', ['start', '--key', key, '--relay', 'https://relay.example',
+    await networkCommand('worker', ['start', '--allow-local-pc', '--key', key, '--relay', 'https://relay.example',
       '--contacts', join(dir, 'contacts.json'), '--execution-timeout-ms', '240000',
       '--task-timeout-ms', '600000', '--wait-timeout-ms', '300000', '--connect-timeout-ms', '20000',
       '--transport-idle-timeout-ms', '45000', '--heartbeat-interval-ms', '10000']);

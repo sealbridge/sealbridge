@@ -221,7 +221,7 @@ describe('UX-2 public settings', () => {
     writeFileSync(join(d, 'key.json'), JSON.stringify(key), { mode: 0o600 });
     writeFileSync(join(d, 'settings.json'), JSON.stringify(settings));
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await networkCommand('worker', ['public', '--key', join(d, 'key.json'), '--settings', join(d, 'settings.json'),
+    await networkCommand('worker', ['public', '--allow-local-pc', '--key', join(d, 'key.json'), '--settings', join(d, 'settings.json'),
       '--relay', relayUrl, '--contacts', join(d, 'contacts.json'), '--preview', '--max-input-tokens', '50']);
     const profile = JSON.parse(String(log.mock.calls[0][0]));
     expect(profile.perJob.maxInputTokens).toBe(50);

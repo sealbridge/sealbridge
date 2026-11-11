@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Breaking
+
+- From 0.7.0, mainline local worker execution (`claude`, `codex`, `command`, and host sandbox including subprocess/OCI), receive hooks and relay wake commands require the explicit `--allow-local-pc` flag; no warning-only grace period. Environment/config opt-ins are not accepted. Requester delegation and MCP requests are unchanged. Owner approval, content inspection and LLM auto-accept restrictions remain in force. Every opted-in worker startup warns on stderr and records signed local `LOCAL_PC_OPT_IN` audit evidence; effective execution isolation metadata is unchanged. The isolated runtime is in preparation; use the flag for now, or `sealbridge-local` once published (planned alongside 0.7.0; not yet on npm). Doctor and both READMEs explain migration with reused keys/data. Local packaging, installers and publishing changes follow separately in P6b.
+- 0.7.0 から本流のローカルワーカー（手元の sandbox の subprocess / OCI も含む）とコマンド hook は `--allow-local-pc` が必須です。警告だけの期間はなく、環境変数・設定ファイルでは許可できません。承認・検査と自動受付制限は維持し、依頼側は変更しません。隔離ランタイムは準備中です。現時点ではフラグを使い、`sealbridge-local` は 0.7.0 と同時に公開予定（npm 未公開）です。鍵・データを再利用する乗り換え方法を doctor と日英 README に記載しました。P6b のパッケージ化・インストーラー・公開処理は含みません。
+
 ### Changed (Internal)
 
 - Extract local adapters, credential storage and hooks into runtime-local while preserving legacy imports and sealbridge/sdk.

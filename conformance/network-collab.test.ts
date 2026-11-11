@@ -712,7 +712,7 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       await networkCommand('discover', ['--relay', n.url, '--allow-private-relay']);
       await Promise.all([
         networkCommand('worker', [
-          'start',
+          'start', '--allow-local-pc',
           '--contacts',
           contacts,
           '--key',
@@ -768,7 +768,7 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     const worker = cli(
       [
         'worker',
-        'start',
+        'start', '--allow-local-pc',
         '--contacts',
         contacts,
         '--key',

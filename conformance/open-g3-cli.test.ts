@@ -22,7 +22,7 @@ async function run(args: string[]) {
   try {
     const key = join(dir, 'worker.private.json');
     await writeFile(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
-    await networkCommand('worker', ['start', '--key', key, '--relay', 'https://relay.example', ...args]);
+    await networkCommand('worker', ['start', '--allow-local-pc', '--key', key, '--relay', 'https://relay.example', ...args]);
     return captured.options;
   } finally { log.mockRestore(); await rm(dir, { recursive: true, force: true }); }
 }

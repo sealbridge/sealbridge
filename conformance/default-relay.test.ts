@@ -156,7 +156,7 @@ describe('application relay provenance', () => {
     const fetcher = vi.fn((async (input, init) => handler(new Request(input, init))) as typeof fetch);
     const application = { identityOptions, fetch: fetcher };
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await networkCommand('worker', ['start', '--preview', '--contacts', join(home, 'contacts.json')], application);
+    await networkCommand('worker', ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')], application);
     const owner = resolveOrCreateIdentity('worker', identityOptions);
     await networkCommand('invite', ['create'], application);
     const token = log.mock.calls.at(-1)![0] as string;
@@ -233,7 +233,7 @@ describe('multiple local candidates, one active route', () => {
     const workerAudit = join(home, 'worker.jsonl');
     const requesterAudit = join(home, 'requester.jsonl');
     const attempts = await Promise.allSettled([
-      networkCommand('worker', ['start', '--key', keyPath, '--relay', loopback, '--allow-private-relay',
+      networkCommand('worker', ['start', '--allow-local-pc', '--key', keyPath, '--relay', loopback, '--allow-private-relay',
         '--adapter', 'sandbox', '--auto-accept', '--once', '--contacts', join(home, 'contacts.json'),
         '--audit', workerAudit], application),
       networkCommand('delegate', ['--to', token, '--allow-private-relay', '--title', 'Echo',
@@ -326,7 +326,7 @@ describe('multiple local candidates, one active route', () => {
     }
     for (const [command, args] of [
       ['discover', ['--relay', first]], ['invite', ['create']],
-      ['worker', ['start', '--preview']], ['delegate', ['--relay', first]],
+      ['worker', ['start', '--allow-local-pc', '--preview']], ['delegate', ['--relay', first]],
     ] as const) await expect(networkCommand(command, [...args], { identityOptions, fetch: fetcher })).rejects.toThrow('APP_CONFIG_INVALID');
     expect(factory).not.toHaveBeenCalled();
     expect(fetcher).not.toHaveBeenCalled();
@@ -342,7 +342,7 @@ describe('multiple local candidates, one active route', () => {
     const fetcher = vi.fn(() => { throw new Error('UNEXPECTED_NETWORK'); });
     const capture = async () => {
       log.mockClear();
-      await networkCommand('worker', ['start', '--preview', '--contacts', join(home, 'contacts.json')], { identityOptions, fetch: fetcher });
+      await networkCommand('worker', ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')], { identityOptions, fetch: fetcher });
       const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);
       await networkCommand('invite', ['create'], { identityOptions, fetch: fetcher });
       const token = log.mock.calls.at(-1)![0] as string;

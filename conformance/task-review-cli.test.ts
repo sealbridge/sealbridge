@@ -157,7 +157,7 @@ async function cliWorker(f: ReturnType<typeof fixture>, interactive: boolean, an
   vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: unknown, callback?: unknown) => {
     captured.displays.push(String(chunk)); if (typeof callback === 'function') callback(); return true;
   }) as typeof process.stderr.write);
-  await networkCommand('worker', ['start', '--key', f.key, '--adapter', 'sandbox', '--auto-accept',
+  await networkCommand('worker', ['start', '--allow-local-pc', '--key', f.key, '--adapter', 'sandbox', '--auto-accept',
     '--relay', 'https://relay.example', '--contacts', join(f.root, 'contacts.json')], { identityOptions: f.identityOptions });
   const worker = new WorkerNode({ ...captured.worker!, intakeStore: f.store, connectionStore: f.store, relay: f.relay, deliveryOptions: { identityOptions: f.identityOptions, resolveTransport: () => f.relay }, adapter: f.worker.options.adapter });
   cleanups.push(() => worker.stop()); return worker;

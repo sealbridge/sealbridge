@@ -1,5 +1,27 @@
 # Sealbridge
 
+## Local execution from 0.7.0 (breaking change)
+
+Starting with 0.7.0, mainline `sealbridge` requires the explicit `--allow-local-pc` flag for local worker execution. There is no warning-only grace period. This includes `--adapter claude|codex|command` and **sandbox running on this PC**, whether it uses a subprocess or OCI container, as well as `--on-receive` and `relay start --wake-command` hooks. Environment variables and configuration files cannot opt in. Requester-only `delegate` and MCP requests are unchanged; an `openai` worker without local command hooks does not require this flag.
+
+The isolated runtime (microVM) is in preparation. For now, running these workers requires `--allow-local-pc`, or the local edition `sealbridge-local`, **planned for publication alongside 0.7.0 and not yet available on npm**. Sealbridge Desktop is another local option. After that publication, migrate with `npm i -g sealbridge-local` and replace `sealbridge worker start …` with `sealbridge-local worker start …`; existing keys and the data directory are reused.
+
+```sh
+sealbridge worker start --adapter sandbox --allow-local-pc
+```
+
+Without the flag, startup stops before creating a worker identity, contacting the relay, or launching a command, with `LOCAL_PC_EXECUTION_REQUIRES_OPT_IN`:
+
+> Local PC execution is disabled by default in mainline sealbridge. Tasks you accept could reach files, signed-in accounts, and the network on this PC. Running workers in an isolated environment (microVM) is recommended. To run on this PC anyway, pass `--allow-local-pc`. For local use, install `sealbridge-local` or use Sealbridge Desktop.
+>
+> Migration: run `npm i -g sealbridge-local`, then replace `sealbridge worker start …` with `sealbridge-local worker start …` (your keys and data directory are reused).
+
+Every opted-in worker startup prints to stderr:
+
+> Warning: running on this PC (isolation: host_adapter). Owner approval and content inspection stay on. No execution attestation is attached.
+
+The flag never grants automatic approval. LLM automatic acceptance still requires its existing requester allowlist or explicit legacy trusted grant; owner approval and content inspection remain in force. The startup warning describes the host execution path, not proof of isolation. Existing protocol execution metadata, including `ExecutionAttestation.effectiveIsolationLevel`, continues to report the actual execution path (`host_adapter`, `subprocess_restricted`, or `oci_container`); the flag adds no environment attestation. Each opted-in startup writes a worker-signed `LOCAL_PC_OPT_IN` record to `<audit-path>.events.jsonl`, or, without `--audit`, to `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl`. These local startup records are separate from bilateral task ledgers and do not change their format. `sealbridge doctor` (also `--offline`) explains this change and the planned migration.
+
 Optional context selections and delivery modes: [Context grants (CP1)](docs/context-grants.md).
 
 ## Install
@@ -259,7 +281,7 @@ Then pass `--relay http://127.0.0.1:8787` in the terminals below. Loopback is re
 
 ```sh
 pnpm sealbridge keygen /tmp/bob.private.json
-pnpm sealbridge worker start --key /tmp/bob.private.json \
+pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
   --relay http://127.0.0.1:8787 --allow-private-relay --adapter sandbox \
   --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
 ```
@@ -393,7 +415,7 @@ After those admission and opening steps: `SETTLED`, a JSON deliverable, and `"va
 
 **Ask another person’s AI to review a diff**
 
-The reviewer starts `sealbridge worker start --adapter claude` (or `codex`) with
+The reviewer starts `sealbridge worker start --allow-local-pc --adapter claude` (or `codex`) with
 `--key` and `--relay` as above. Startup prints an `acp-invite:` token and a
 ready-to-share `https://sealbridge.app/i#acp-invite:...` link. Send that link
 through a trusted channel. Worker invites default to 24 hours (86400 seconds);
@@ -845,7 +867,7 @@ preview. `requests show` returns `INSPECTION_INCOMPLETE` until inspection comple
 Plaintext inbox files and receive hooks run only after inspection and opening.
 
 ```sh
-sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
+sealbridge worker start --allow-local-pc --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
 # Individual held attempts (same role/key as the receiving worker):
