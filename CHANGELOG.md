@@ -6,6 +6,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.
+- Docker と Smithery が旧ホストを固定せず CLI の公開中継器フォールバックを使うよう修正しました。明示的な中継指定を維持し、配布ファイルの URL の不一致を回帰テストで検出します。
+
 - Reject out-of-enum MCP minimumIsolationLevel as invalid params before sending, and report unsupported worker isolation with ISOLATION_LEVEL_UNSUPPORTED instead of EXECUTION_FAILED. (#233)
 - MCP minimumIsolationLevel の列挙外の値を送信前に invalid params で拒否し、ワーカーの未対応の隔離を ISOLATION_LEVEL_UNSUPPORTED で報告します。(#233)
 

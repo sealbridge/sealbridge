@@ -627,8 +627,9 @@ docker run --rm -i -v sealbridge-data:/data sealbridge
 永続ボリューム内の別の絶対パスを使うには `SEALBRIDGE_KEY_PATH` を設定します。
 新しい鍵の生成には UID 1000 が書き込める既存ディレクトリが必要です。
 鍵の読み取りや生成ができない場合、起動は失敗し、マウントと権限の確認を案内します。
-`SEALBRIDGE_RELAY_URL` で中継 URL を指定できます。既定値は従来どおり
-`https://acp-relay.agent-collab.workers.dev` です。MCP の追加フラグは、
+`SEALBRIDGE_RELAY_URL` で中継 URL を指定できます。未設定または空の場合は
+CLI の中継選択に従い、公開中継器のフォールバックは `https://relay.sealbridge.dev` です。
+Smithery の任意項目 `relayUrl` も、省略時は同じ動作になります。MCP の追加フラグは、
 イメージ名の後の `mcp-server` に続けて指定できます。
 
 ビルド時にオーナー ID を生成していた以前のイメージを利用している場合は、
