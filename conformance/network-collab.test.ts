@@ -557,6 +557,33 @@ describe('WP-9 production approvals and isolation fallback', () => {
   });
 });
 describe('WP-11 adversarial session enforcement', () => {
+  it('preserves isolation rejection codes from worker adapters, including an unknown runner level', async () => {
+    for (const isolation of ['unknown-future-level', 'mismatch']) {
+      const adapter: AgentAdapter = {
+        id: 'isolation-check', name: 'Isolation check', skills: [],
+        executeTask: async () => {
+          if (isolation === 'mismatch') throw new Error('ISOLATION_LEVEL_MISMATCH');
+          return (await runContainerOrSubprocessSandbox({ isolationLevel: isolation,
+            code: 'throw new Error("MUST_NOT_EXECUTE");', timeoutMs: 1000, onTool: async () => null })).output;
+        },
+      };
+      const { results } = await session(adapter);
+      expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
+        message: expect.stringContaining(isolation === 'mismatch' ? 'ISOLATION_LEVEL_MISMATCH' : 'ISOLATION_LEVEL_UNSUPPORTED'),
+      }) });
+    }
+  });
+
+  it.each(['wasm', 'microvm'])('rejects unsupported sandbox isolation %s with a dedicated code', async minimumIsolationLevel => {
+    const { results, dir } = await session(new SandboxAgentAdapter('throw new Error("MUST_NOT_EXECUTE");'), { minimumIsolationLevel });
+    expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
+      message: expect.stringContaining('ISOLATION_LEVEL_UNSUPPORTED'),
+    }) });
+    const audit = await readFile(join(dir, 'bob.jsonl'), 'utf8');
+    expect(audit).not.toContain('EXECUTION_FAILED');
+    expect(audit.trim().split('\n').map(line => JSON.parse(line).entry?.body.eventType)).not.toContain('DELIVER');
+  });
+
   it.each(['wasm', 'microvm'])('R1 rejects a host adapter delivery for minimumIsolationLevel=%s', async (level) => {
     const adapter: AgentAdapter = {
       id: 'r1-host', name: 'R1 host', skills: [],

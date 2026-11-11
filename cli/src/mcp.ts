@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import type { KeyPair } from '@acp/core';
 import { AcpMcpServer, resolveStoredIdentity } from '@acp/runtime';
 import type { AcpMcpServerOptions, IdentityStoreOptions } from '@acp/runtime';
@@ -18,7 +19,7 @@ const KNOWN = new Set([
   '--relay-auth-recovery-timeout-ms',
 ]);
 const USAGE =
-  'Usage: sealbridge mcp-server [--key <file>] [--relay URL] [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]';
+  'Usage: ' + cliName + ' mcp-server [--key <file>] [--relay URL] [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]';
 
 function flags(args: string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();

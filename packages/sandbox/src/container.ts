@@ -107,7 +107,7 @@ export async function runContainerOrSubprocessSandbox(
       options.isolationLevel ?? 'subprocess_restricted',
     )
   )
-    throw new Error('UNSUPPORTED_SANDBOX_POLICY');
+    throw new Error('ISOLATION_LEVEL_UNSUPPORTED');
   const runtime =
     options.isolationLevel === 'oci_container'
       ? options.runtime === undefined

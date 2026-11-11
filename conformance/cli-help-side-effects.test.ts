@@ -33,6 +33,7 @@ const script = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023 },
 }).outputText;
 const modules: Record<string, unknown> = {
+    './distribution.js': { cliName: 'sealbridge', LOCAL_DISTRIBUTION: false },
   'node:fs': fs, '@acp/core': core, '@acp/ledger': ledger,
   './network.js': network, './mcp.js': mcp, './pending.js': pending,
   './connections.js': connections, './requests.js': requests, './tasks.js': tasks,

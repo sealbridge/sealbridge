@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { claimInviteLink } from './invite-links.js';
 import { digest, parseAndVerifyInviteToken, inviteLinkVerificationNumber } from '@acp/core';
 import { createInterface } from 'node:readline';
@@ -12,7 +13,7 @@ interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
   fetch?: typeof fetch;
   readPaste?: () => Promise<string>;
 }
-const USAGE = 'Usage: sealbridge accept <link> [--alias <slug>] [--allow-private-relay] [--no-network] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
+const USAGE = 'Usage: ' + cliName + ' accept <link> [--alias <slug>] [--allow-private-relay] [--no-network] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
 // Allow the existing 64 KiB token bound plus link framing and whitespace.
 const MAX_STDIN_BYTES = 68 * 1024;
 const STDIN_TIMEOUT_MS = 10_000;

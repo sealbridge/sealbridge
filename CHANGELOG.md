@@ -4,6 +4,17 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject out-of-enum MCP minimumIsolationLevel as invalid params before sending, and report unsupported worker isolation with ISOLATION_LEVEL_UNSUPPORTED instead of EXECUTION_FAILED. (#233)
+- MCP minimumIsolationLevel の列挙外の値を送信前に invalid params で拒否し、ワーカーの未対応の隔離を ISOLATION_LEVEL_UNSUPPORTED で報告します。(#233)
+
+- Use the distribution CLI name in root and subcommand usage help; confirm doctor already reports the 0.7.0 publication. (#232)
+- ルートとサブコマンドの Usage を配布物の CLI 名に合わせました。doctor の 0.7.0 公開済み表示も確認しました。(#232)
+
+- Clarify terminal-only persistent local-PC consent and per-invocation `--allow-local-pc` for scripts; use local-distribution consent errors without mainline migration guidance. (#231)
+- ローカルPCの保存許可には端末が必要で、非対話では毎回 `--allow-local-pc` を使うことを明記し、ローカル版の同意エラーを修正しました。(#231)
+
 ## [0.7.0] - 2026-11-11
 
 <!-- If the publication date changes, update this date before creating the tag.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { attachHeldDeliveryStatus } from '@acp/runtime';
 import { openEnvelope } from '@acp/core';
 import type { SignedEnvelope } from '@acp/core';
@@ -15,7 +16,7 @@ export async function requestsCommand(args: string[], options: {
   output?: (value: string) => void; inspectionProvider?: HeldContentReviewProvider;
   transportFactory?: ConnectionsCommandOptions['transportFactory'];
 } = {}): Promise<void> {
-  const usage = 'Usage: sealbridge requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default requests approve retains limited connection consent; it never approves task execution. Use tasks list/show/approve/reject for individual held-task review. Legacy requests show and default approve require a completed inspection receipt (INSPECTION_INCOMPLETE otherwise); tasks show records display inspection. For signed connection offers, check connections review list or use the invitation/connect flow (connections confirm-invite); connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / 単体 CLI の tasks list/show/approve/reject で個別タスクを確認します。requests list は依頼者ごとの一覧です。既定の requests approve は接続同意で、タスク実行の承認ではありません。署名付き接続申し込みは connections review list または招待・接続フロー（connections confirm-invite）で確認します。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
+  const usage = 'Usage: ' + cliName + ' requests list | show ID | approve ID [--trust trusted (legacy finite grant)] | discard ID | deny ID [--key FILE] [--role worker|requester]. Default requests approve retains limited connection consent; it never approves task execution. Use tasks list/show/approve/reject for individual held-task review. Legacy requests show and default approve require a completed inspection receipt (INSPECTION_INCOMPLETE otherwise); tasks show records display inspection. For signed connection offers, check connections review list or use the invitation/connect flow (connections confirm-invite); connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / 単体 CLI の tasks list/show/approve/reject で個別タスクを確認します。requests list は依頼者ごとの一覧です。既定の requests approve は接続同意で、タスク実行の承認ではありません。署名付き接続申し込みは connections review list または招待・接続フロー（connections confirm-invite）で確認します。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
   const output = options.output ?? console.log;
   if (args.includes('--help') || args.includes('-h')) { output(usage); return; }
   const [action, ...rest] = args, flags = new Map<string, string>(), ids: string[] = [];

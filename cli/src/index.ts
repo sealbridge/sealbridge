@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { generateKeyPair, validateSchema, signApproval } from '@acp/core';
 import type { KeyPair, Gate } from '@acp/core';
@@ -30,9 +31,9 @@ function parseAuditJson(text: string): unknown {
     throw new SyntaxError('Invalid JSON');
   }
 }
-const USAGE = 'Usage: sealbridge <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
+const USAGE = 'Usage: ' + cliName + ' <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
-  'Usage: sealbridge audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
+  'Usage: ' + cliName + ' audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>] [--expect-closure-kind bilateral|interruption] [--expect-interruption-hash <hash>]\n' +
   'Exit codes: 0 bilateral VALID; 2 UNILATERALLY_CLOSED (valid:false); 1 invalid or unreadable.';
 function auditVerifyFlag(args: string[], index: number, name: string): string {
@@ -129,7 +130,7 @@ async function main(args: string[]) {
       break;
     case 'doctor':
       if (rest.includes('--help') || rest.includes('-h'))
-        console.log('Usage: sealbridge doctor [--offline] [--key <file>]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
+        console.log('Usage: ' + cliName + ' doctor [--offline] [--key <file>]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'setup':
@@ -176,10 +177,10 @@ async function main(args: string[]) {
       break;
     case 'keygen': {
       if (rest.includes('--help') || rest.includes('-h')) {
-        console.log('Usage: sealbridge keygen <owner.private.json>');
+        console.log('Usage: ' + cliName + ' keygen <owner.private.json>');
         break;
       }
-      if (rest.length !== 1) throw new Error('Usage: sealbridge keygen <owner.private.json>');
+      if (rest.length !== 1) throw new Error('Usage: ' + cliName + ' keygen <owner.private.json>');
       if (rest[0].startsWith('-')) throw new Error('Unknown option: ' + rest[0]);
       const key = generateKeyPair();
       save(rest[0], key, true);
@@ -188,25 +189,25 @@ async function main(args: string[]) {
     }
     case 'validate': {
       if (rest.includes('--help') || rest.includes('-h')) {
-        console.log('Usage: sealbridge validate [schema-name] <file.json>');
+        console.log('Usage: ' + cliName + ' validate [schema-name] <file.json>');
         break;
       }
       const schema = rest.length === 1 ? 'task-manifest' : rest[0],
         path = rest.length === 1 ? rest[0] : rest[1];
-      if (!schema || !path) throw new Error('Usage: sealbridge validate [schema-name] <file.json>');
+      if (!schema || !path) throw new Error('Usage: ' + cliName + ' validate [schema-name] <file.json>');
       validateSchema(schema, read(path));
       console.log('VALID');
       break;
     }
     case 'approve': {
       if (rest.includes('--help') || rest.includes('-h')) {
-        console.log('Usage: sealbridge approve <key.private.json> <gate> <taskId> <target.json> <approval.json>');
+        console.log('Usage: ' + cliName + ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>');
         break;
       }
       const [keyFile, gate, taskId, targetFile, outputFile] = rest;
       if (rest.length !== 5 || !keyFile || !gate || !taskId || !targetFile || !outputFile)
         throw new Error(
-          'Usage: sealbridge approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
+          'Usage: ' + cliName + ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
         );
       if (
         ![
@@ -275,13 +276,13 @@ async function main(args: string[]) {
     }
     case 'demo': {
       if (rest.includes('--help') || rest.includes('-h')) {
-        console.log('Usage: sealbridge demo [--audit-dir <directory>]');
+        console.log('Usage: ' + cliName + ' demo [--audit-dir <directory>]');
         break;
       }
       if (rest.length && rest[0] !== '--audit-dir') throw new Error('Unknown option: ' + rest[0]);
       const directory = rest[1];
       if (rest.length && (!directory || directory.startsWith('-'))) throw new Error('Missing --audit-dir value');
-      if (rest.length > 2) throw new Error('Usage: sealbridge demo [--audit-dir <directory>]');
+      if (rest.length > 2) throw new Error('Usage: ' + cliName + ' demo [--audit-dir <directory>]');
       if (directory) mkdirSync(directory, { recursive: true, mode: 0o700 });
       console.log(JSON.stringify(await runDemo(directory), null, 2));
       break;

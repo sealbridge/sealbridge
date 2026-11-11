@@ -308,11 +308,13 @@ const taskDescriptionSchema = described(
   { type: 'string', minLength: 1, maxLength: 32768 },
 );
 
+export const MCP_ISOLATION_LEVELS = ['subprocess_restricted', 'oci_container'] as const;
+
 const isolationSchema = described(
   'Lowest sandbox the worker must attest. Omit it to keep subprocess_restricted, which is not kernel network isolation. Set oci_container for untrusted code; that level requires a network-none container and execution attestation.',
   {
     type: 'string',
-    enum: ['subprocess_restricted', 'oci_container'],
+    enum: [...MCP_ISOLATION_LEVELS],
     default: 'subprocess_restricted',
   },
 );

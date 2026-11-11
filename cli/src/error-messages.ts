@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
-  [/LOCAL_PC_EXECUTION_REQUIRES_OPT_IN/, LOCAL_PC_DISABLED_JA + '\n' + LOCAL_PC_MIGRATION_JA],
+  [/ISOLATION_LEVEL_UNSUPPORTED|ISOLATION_LEVEL_MISMATCH/, '要求された隔離レベルに対応できないため、実行または納品を拒否しました。'],
+  [/LOCAL_PC_CONSENT_REQUIRES_TERMINAL/, 'sealbridge-local config local-pc on は stdin と stderr が TTY の対話式端末で実行してください。非対話では毎回 --allow-local-pc を付けてください。'],
+  [/LOCAL_PC_EXECUTION_REQUIRES_OPT_IN/, LOCAL_DISTRIBUTION ? 'ローカルPCでの実行には許可が必要です。対話式端末で sealbridge-local config local-pc on を実行するか、端末で初回起動時に確認してください。非対話では毎回 --allow-local-pc を付けてください。' : LOCAL_PC_DISABLED_JA + '\n' + LOCAL_PC_MIGRATION_JA],
   [/ACCESS_MODE_REMOVED/, '旧モードの指定は廃止しました。connections と一般の --max-*、--allow-task-type を使ってください。'],
   [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, '単体 CLI の tasks list/show で個別タスクを確認してください。表示完了で検査記録を保存します。tasks approve/reject は終端の保留内容だけを閉じます。新しいタスクは対話式ワーカーで改めて確認・承認してください。requests list は依頼者ごとの保留情報です。接続申し込みは connections review list で確認してください。接続審査だけではタスクを検査・開封しません。所有者の確認には別途対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。'],
   [/CONNECTION_NOT_PENDING/, 'この ID に一致する審査可能な署名付き接続申し込みはありません。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要で、--auto-accept は検査や接続同意を代替しません。'],

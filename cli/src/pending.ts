@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import type { KeyPair } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
 import { inspectStoredIdentity, RequesterPendingStore } from '@acp/runtime';
@@ -9,7 +10,7 @@ export async function pendingCommand(args: string[], application: {
   identityOptions?: InviteStoreOptions; fetch?: typeof fetch;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
 } = {}): Promise<void> {
-  const usage = 'Usage: sealbridge pending list [--key FILE] | resubmit ID [delegate approval/relay/audit/output options] | remove ID [--key FILE]';
+  const usage = 'Usage: ' + cliName + ' pending list [--key FILE] | resubmit ID [delegate approval/relay/audit/output options] | remove ID [--key FILE]';
   if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
   const [action, ...rest] = args;
   if (!['list', 'remove', 'resubmit'].includes(action)) throw new Error(usage);

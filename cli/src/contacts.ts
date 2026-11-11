@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -95,7 +96,7 @@ export function contactsApproval(path: string, key: KeyPair, automatic: boolean,
   } };
 }
 export function contactsCommand(args: string[], identityOptions: IdentityStoreOptions = {}): void | Promise<void> {
-  const usage = 'Usage: sealbridge contacts list|add <invite>|allow <ownerDid>|revoke <ownerDid>|remove <ownerDid> [--key <key>] [--file <contacts.json>] [--name <name>] [--allow-private-relay]';
+  const usage = 'Usage: ' + cliName + ' contacts list|add <invite>|allow <ownerDid>|revoke <ownerDid>|remove <ownerDid> [--key <key>] [--file <contacts.json>] [--name <name>] [--allow-private-relay]';
   if (args.includes('--help') || args.includes('-h')) { console.log(usage); return; }
   const [action, ...rest] = args;
   const options = new Map<string, string>();

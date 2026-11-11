@@ -252,3 +252,20 @@ describe('MCP send-tool idempotency', () => {
     expect(run).toHaveBeenCalledOnce(); expect(pending.list()[0].attempts).toBe(2);
   });
 });
+
+it.each(['microvm', 'wasm', '', 'unknown', null, 1, {}, []])('rejects invalid MCP minimumIsolationLevel %j before side effects', async minimumIsolationLevel => {
+  const f = setup();
+  for (const tool of ['acp_delegate_task', 'acp_delegate_multi']) {
+    for (const keyed of [false, true]) {
+      const args: Record<string, unknown> = { ...f.args, minimumIsolationLevel };
+      if (!keyed) delete args.idempotencyKey;
+      const response = await call(f.server, args, tool);
+      expect(response.error).toEqual({ code: -32602, message: 'Invalid minimumIsolationLevel: expected subprocess_restricted or oci_container' });
+    }
+  }
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.transport).not.toHaveBeenCalled();
+  expect(f.send).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(fs.existsSync(join(f.root, 'data'))).toBe(false);
+});

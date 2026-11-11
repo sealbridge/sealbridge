@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import * as fs from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -16,7 +17,7 @@ import { resolveDataRoot, ensurePrivateDirectory, inspectPrivateDirectory, write
 import { commandIdentity } from './command-identity.js';
 import { parseInviteOutput, deliverInvite } from './invite-output.js';
 
-export const SHORT_INVITE_USAGE = 'Usage: sealbridge invite create [--share token|link] [--key FILE] [--relay URL] [--name TEXT] [--expires-in SECONDS] [--link-expires-in 300..259200] [--output stdout|file:PATH|fd:N] [--qr terminal|none] [--png FILE] [--svg FILE] [--allow-private-relay]\n       sealbridge invite links list | cancel <linkRef> [--key FILE]';
+export const SHORT_INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--share token|link] [--key FILE] [--relay URL] [--name TEXT] [--expires-in SECONDS] [--link-expires-in 300..259200] [--output stdout|file:PATH|fd:N] [--qr terminal|none] [--png FILE] [--svg FILE] [--allow-private-relay]\n       ' + cliName + ' invite links list | cancel <linkRef> [--key FILE]';
 const UNSUPPORTED = 'INVITE_LINK_UNSUPPORTED_RELAY: この relay は短いリンクを受け付けませんでした。古い relay か、わざと断っているのかは区別できません。ほかの relay を使うか、--share token を自分で選んでください';
 const UNAVAILABLE = 'INVITE_LINK_UNAVAILABLE: このリンクは使えません。期限切れ、使用済み、または途中が欠けています。送ってくれた人に、新しいリンクを頼んでください。';
 interface LinkRecord { type: 'CreatedInviteLink'; ownerDid: string; id: string; relayOrigin: string; inviteDigest: string; expiresAt: string; }
