@@ -75,7 +75,15 @@ it('uses the same data root and worker identity but grants saved permission only
   if (packageName === 'sealbridge-local') {
     await run(process.execPath, [cli, 'config', 'local-pc', 'off'], { cwd: fixture, env });
     await expect(run(process.execPath, args, { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN') });
-    await expect(run(process.execPath, [cli, 'config', 'local-pc', 'on'], { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN') });
+    await expect(run(process.execPath, [cli, 'config', 'local-pc', 'on'], { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_CONSENT_REQUIRES_TERMINAL') });
+    expect(JSON.parse(readFileSync(join(dataRoot, 'config.json'), 'utf8')).localPcExecution).toBe(false);
+    try { await run(process.execPath, args, { cwd: fixture, env }); throw new Error('Expected opt-in refusal'); }
+    catch (error) {
+      const stderr = (error as { stderr: string }).stderr;
+      expect(stderr).toContain('--allow-local-pc');
+      expect(stderr).not.toMatch(/mainline sealbridge|npm i -g sealbridge-local/);
+    }
+    expect((await run(process.execPath, [...args, '--allow-local-pc'], { cwd: fixture, env })).stdout).toContain(readFileSync(join(fixture, 'existing-did'), 'utf8'));
   }
 });
 

@@ -215,7 +215,8 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
     for (const [input, error] of [[false, false], [true, false], [false, true]]) {
       tty(input, error);
       await expect(networkCommand('worker', [...args], app)).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
-      await expect(configCommand(['local-pc', 'on'], app.identityOptions)).rejects.toThrow('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN');
+      await expect(configCommand(['local-pc', 'on'], app.identityOptions)).rejects.toThrow('LOCAL_PC_CONSENT_REQUIRES_TERMINAL');
+      expect(existsSync(join(dir, 'data', 'config.json'))).toBe(false);
     }
     expect(captured.questions).toBe(0);
     tty(true, true);

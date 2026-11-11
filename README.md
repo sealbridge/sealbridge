@@ -1072,10 +1072,12 @@ sealbridge-local config local-pc status
 sealbridge-local config local-pc off
 ```
 
+`config local-pc on` also requires both stdin and stderr to be TTY and never saves consent without a terminal. For scripts, pass `--allow-local-pc` on every local execution invocation. `status` and `off` work without a TTY.
+
 The first local execution asks the owner once, only when stdin and stderr are TTY.
 Alternatively run `sealbridge-local config local-pc on` in that terminal and type
 `yes`. Permission is saved in the existing application config; without it,
-noninteractive startup stops before execution. `off` revokes saved permission.
+noninteractive startup without `--allow-local-pc` stops before execution. `off` revokes saved permission.
 Owner task approval, content inspection and LLM auto-accept restrictions remain in
 force. Every startup emits a warning and signed `LOCAL_PC_OPT_IN` audit evidence.
 Sandbox startup isolation is marked as determined at task execution; it is not an

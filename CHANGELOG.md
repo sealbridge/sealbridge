@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Fixed
+
+- Clarify terminal-only persistent local-PC consent and per-invocation `--allow-local-pc` for scripts; use local-distribution consent errors without mainline migration guidance. (#231)
+- ローカルPCの保存許可には端末が必要で、非対話では毎回 `--allow-local-pc` を使うことを明記し、ローカル版の同意エラーを修正しました。(#231)
+
 ## [0.7.0] - 2026-11-11
 
 <!-- If the publication date changes, update this date before creating the tag.

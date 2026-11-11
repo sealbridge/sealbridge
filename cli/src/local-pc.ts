@@ -60,5 +60,5 @@ export async function ensureLocalPcOptIn(value: string | true | undefined, optio
     setApplicationLocalPcExecution(true, { ...options, allowPrivateRelay: true });
     return;
   }
-  throw Object.assign(new Error('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN: Run `sealbridge-local config local-pc on` in an interactive terminal, or confirm on first startup.'), { code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
+  throw Object.assign(new Error('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN: Run `sealbridge-local config local-pc on` in an interactive terminal, or confirm on first startup in a terminal. For non-interactive execution, pass `--allow-local-pc` on every invocation.'), { code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
 }

@@ -941,10 +941,12 @@ sealbridge-local config local-pc status
 sealbridge-local config local-pc off
 ```
 
+`config local-pc on` も stdin と stderr が TTY の端末を必要とします。非対話では許可を保存せず、毎回 `--allow-local-pc` を付けてください。`status` と `off` は TTY なしで使えます。
+
 初回のローカル実行時に所有者が一度確認します。stdin と stderr が両方 TTY の端末でのみ
 確認でき、`yes` と答えると既存の設定ファイルに保存します。
 `sealbridge-local config local-pc on` でも同じ確認ができます。
-未設定の非対話環境では起動前に停止します。`status` で状態を確認し、`off` で取り消せます。
+未設定の非対話環境で `--allow-local-pc` がなければ起動前に停止します。`status` で状態を確認し、`off` で取り消せます。
 所有者のタスク承認、内容の検査、LLM の自動受諾制限は引き続き有効です。
 起動時の警告と署名付き `LOCAL_PC_OPT_IN` 監査記録は毎回出します。
 sandbox の起動時隔離はタスク実行時に決定される旨を記録し、実行証明とは区別します。
