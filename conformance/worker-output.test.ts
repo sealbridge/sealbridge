@@ -40,7 +40,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 function start(extra: string[] = []) {
-  return networkCommand('worker', ['start', '--key', join(dir, 'worker.private.json'),
+  return networkCommand('worker', ['start', '--allow-local-pc', '--key', join(dir, 'worker.private.json'),
     '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json'), ...extra], {
     identityOptions: { env: { SEALBRIDGE_DATA_DIR: join(dir, 'data') }, home: dir },
   });
@@ -74,7 +74,7 @@ it('suppresses invitation stdout and emits exact invitation metadata', async () 
 });
 
 it('reuses the existing data root and role key bytes with invitation suppression', async () => {
-  const args = () => ['start', '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json'),
+  const args = () => ['start', '--allow-local-pc', '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json'),
     '--invite-output', 'none'];
   const application = { identityOptions: { home: dir,
     env: { ACP_DATA_DIR: join(dir, 'legacy-data') }, keyStore: 'file' as const } };
@@ -92,7 +92,7 @@ it('reuses the existing data root and role key bytes with invitation suppression
 
 it('retains explicit keychain failure without creating a file identity', async () => {
   const root = join(dir, 'keychain-data');
-  await expect(networkCommand('worker', ['start', '--relay', 'https://relay.example', '--invite-output', 'none'], {
+  await expect(networkCommand('worker', ['start', '--allow-local-pc', '--relay', 'https://relay.example', '--invite-output', 'none'], {
     identityOptions: { home: dir, env: { SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'keychain' },
       keyringLoader: async () => { throw new Error('backend fixture detail'); } },
   })).rejects.toThrow('KEY_STORE_UNAVAILABLE');
@@ -129,7 +129,7 @@ it('rejects fd output on Windows before identity creation or worker startup', as
   const root = join(dir, 'unsupported-data');
   Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
   try {
-    await expect(networkCommand('worker', ['start', '--invite-output', 'fd:3', '--publish'], {
+    await expect(networkCommand('worker', ['start', '--allow-local-pc', '--invite-output', 'fd:3', '--publish'], {
       identityOptions: { home: dir, env: { SEALBRIDGE_DATA_DIR: root } },
     })).rejects.toThrow('INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM');
     // Direct callers must also get the platform error, without attempting I/O.

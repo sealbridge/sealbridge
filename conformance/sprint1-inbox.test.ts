@@ -156,7 +156,7 @@ describe('Sprint 1 accepted task inbox', () => {
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line) => { lines.push(String(line)); });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const pending = networkCommand('worker', ['start', '--key', key, '--relay', relay.url,
+    const pending = networkCommand('worker', ['start', '--allow-local-pc', '--key', key, '--relay', relay.url,
       '--allow-private-relay', '--contacts', contacts, '--yes', '--once', '--inbox', inbox,
       '--on-receive', [process.execPath, hook, received, release, finished].map((p) => '"' + p + '"').join(' ')]);
     // Attach a rejection handler immediately, including on test failure.

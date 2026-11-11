@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
 const delegateArgs = () => ['--key', key, '--to', 'did:key:local', '--title', 'Review diff', '--description', 'Check changes'];
-const workerArgs = () => ['start', '--key', key, '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json')];
+const workerArgs = () => ['start', '--allow-local-pc', '--key', key, '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json')];
 
 it.each([{ args: [] }, { args: ['--audit-interruption-format', '1'] }])('worker uses interruption format 1 with $args', async ({ args }) => {
   await networkCommand('worker', [...workerArgs(), ...args]);

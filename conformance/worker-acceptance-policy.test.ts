@@ -323,7 +323,7 @@ describe('acp worker CLI acceptance guard', () => {
       const bob = await keyFile('bob.private.json');
       const server = await relay();
       const pending = server.worker([
-        'start',
+        'start', '--allow-local-pc',
         '--key',
         bob.path,
         '--relay',
@@ -356,7 +356,7 @@ describe('acp worker CLI acceptance guard', () => {
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
       let failure: unknown;
       const pending = server.worker([
-        'start',
+        'start', '--allow-local-pc',
         '--key',
         bob.path,
         '--relay',
@@ -399,7 +399,7 @@ describe('acp worker CLI acceptance guard', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const audit = join(bob.dir, 'worker.jsonl');
     const pending = server.worker([
-      'start',
+      'start', '--allow-local-pc',
       '--key',
       bob.path,
       '--contacts',
@@ -471,7 +471,7 @@ describe('acp worker CLI acceptance guard', () => {
       commaLines.push(String(line));
     });
     const comma = server.worker([
-      'start',
+      'start', '--allow-local-pc',
       '--key',
       commaBob.path,
       '--contacts',
@@ -524,7 +524,7 @@ describe('acp worker CLI acceptance guard', () => {
     });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const hidden = server.worker([
-      'start',
+      'start', '--allow-local-pc',
       '--key',
       bob.path,
       '--relay',
@@ -553,7 +553,7 @@ describe('acp worker CLI acceptance guard', () => {
       publishedLines.push(String(line));
     });
     const published = publishedServer.worker([
-      'start',
+      'start', '--allow-local-pc',
       '--key',
       bob.path,
       '--relay',

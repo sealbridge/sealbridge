@@ -99,7 +99,7 @@ describe('doctor', () => {
   });
   it.each(['22.22.0', '24.21.0'])('accepts Node %s without a fix hint', async version => {
     const checks = await diagnose({ ...options(), version, execPath: '/node/bin/node', path: '/bin', exists: () => true, fetch: healthy });
-    expect(checks.map(c => c.name)).toEqual(['Node.js', 'PATH', 'Keys', 'Relay']);
+    expect(checks.map(c => c.name)).toEqual(['Node.js', 'PATH', 'Keys', 'Local PC execution', 'Relay']);
     expect(checks.every(c => c.ok)).toBe(true);
     expect(checks.every(c => c.remediation === undefined)).toBe(true);
     expect(checks[0].message).toBe(`${version} (/node/bin/node)`);
@@ -112,7 +112,7 @@ describe('doctor', () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(checks[2].message).toContain('requester:');
     expect(checks[2].message).toContain('worker:');
-    expect(checks[3].message).toBe('Skipped (offline)');
+    expect(checks[4].message).toBe('Skipped (offline)');
     expect(existsSync(config.identityOptions.env.SEALBRIDGE_DATA_DIR)).toBe(false);
   });
   it('inspects a legacy or explicit key without modifying it and reports invalid choices', async () => {
@@ -154,7 +154,7 @@ describe('doctor', () => {
     expect(lines[0]).toBe(`Node.js: ${process.versions.node} (${process.execPath}) (OK)`);
     expect(lines[1]).toBe('PATH: sealbridge found (OK)');
     expect(lines[2]).toContain('created on first use');
-    expect(lines[3]).toBe('Relay: Reachable (OK)');
+    expect(lines[4]).toBe('Relay: Reachable (OK)');
     expect(process.exitCode).toBe(initialExitCode);
     await doctorCommand({ ...options(), version: '20.0.0', offline: true });
     expect(process.exitCode).toBe(1);

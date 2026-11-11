@@ -30,7 +30,7 @@ it('loads only explicitly allowed contacts at every worker startup and enforces 
       addContact(contacts, owner, createInviteToken({ agentCard: card }, key));
     }
     updateContacts(contacts, owner, items => { items[0].allow = true; });
-    const start = () => networkCommand('worker', ['start', '--key', keyFile, '--relay', 'https://relay.example', '--contacts', contacts, '--auto-accept']);
+    const start = () => networkCommand('worker', ['start', '--allow-local-pc', '--key', keyFile, '--relay', 'https://relay.example', '--contacts', contacts, '--auto-accept']);
     await start();
     expect(captured.options?.allowedRequesterDids).toEqual([peer.did]);
     await start();

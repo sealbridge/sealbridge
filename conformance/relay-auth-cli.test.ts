@@ -61,7 +61,7 @@ it.each(['worker', 'delegate'])('forwards auth settings on %s before creating a 
   const card = createSignedAgentCard({ name: 'local', agentDid: target.did, relayEndpoint: 'https://relay.example', skills: [] }, target);
   const invite = createInviteToken({ agentCard: card }, target);
   const result = command === 'worker'
-    ? networkCommand('worker', ['start', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
+    ? networkCommand('worker', ['start', '--allow-local-pc', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
     : networkCommand('delegate', [...flags, '--to', invite, '--title', 'local',
       '--description', 'local task', '--input', '{}']);
   const checked = expect(result).rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
@@ -81,11 +81,11 @@ it.each(['worker', 'delegate', 'mcp-server'])('validates auth flags in %s withou
     ['--relay-auth-recovery-timeout-ms', '2147483648']]) {
     const args = [flag, value];
     const run = command === 'mcp-server' ? mcpServerCommand(args)
-      : networkCommand(command, command === 'worker' ? ['start', ...args] : args);
+      : networkCommand(command, command === 'worker' ? ['start', '--allow-local-pc', ...args] : args);
     await expect(run).rejects.toThrow('INVALID_RELAY_AUTH');
   }
   const run = command === 'mcp-server' ? mcpServerCommand(['--relay-auth-retries'])
-    : networkCommand(command, command === 'worker' ? ['start', '--relay-auth-retries'] : ['--relay-auth-retries']);
+    : networkCommand(command, command === 'worker' ? ['start', '--allow-local-pc', '--relay-auth-retries'] : ['--relay-auth-retries']);
   await expect(run).rejects.toThrow('INVALID_RELAY_AUTH_RETRIES');
 });
 
@@ -118,7 +118,7 @@ it('sets a non-zero worker start exit code on exhausted authentication recovery'
   const fetcher = vi.fn(async () => new Response('private response text', { status: 401 }));
   state.fetcher = fetcher;
   process.exitCode = undefined;
-  process.argv = [originalArgv[0], 'sealbridge', 'worker', 'start', '--key', key,
+  process.argv = [originalArgv[0], 'sealbridge', 'worker', 'start', '--allow-local-pc', '--key', key,
     '--relay', 'https://relay.example', '--contacts', contacts];
   await import('../cli/src/index.js');
   await vi.advanceTimersByTimeAsync(875);

@@ -35,6 +35,7 @@ import {
   SandboxAgentAdapter,
   assertCliAuthentication,
 } from '@acp/adapters';
+import { requireLocalPcOptIn, auditLocalPcOptIn, LOCAL_PC_WARNING } from './local-pc.js';
 import { createWakeHook } from './wake-hook.js';
 import { createReceiveHook } from './receive-hook.js';
 import { contactsPath, loadContacts, contactsApproval, addContact } from './contacts.js';
@@ -124,16 +125,16 @@ const DISCOVER_USAGE = 'Usage: sealbridge discover [--relay <url>] [--skill <id>
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
   const boolean = new Set(['--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
-    '--once', '--publish', '--preview', '--verbose']);
+    '--once', '--publish', '--preview', '--verbose', '--allow-local-pc']);
   const timeouts = ['--execution-timeout-ms', '--task-timeout-ms', '--wait-timeout-ms',
     '--connect-timeout-ms', '--transport-idle-timeout-ms', '--heartbeat-interval-ms'];
   const options: Record<string, string[]> = {
     invite: ['--name', '--expires-in'],
     discover: ['--skill', '--task-type', '--did'],
-    relay: ['--port', '--host', '--notification-key', '--notification-ttl-ms', '--envelope-ttl-ms',
+    relay: ['--allow-local-pc', '--port', '--host', '--notification-key', '--notification-ttl-ms', '--envelope-ttl-ms',
       '--max-queue-size', '--max-queue-bytes', '--max-envelope-bytes', '--max-envelopes-per-sender',
       '--wake-command', '--wake-relay', '--wake-max-attempts', '--wake-retry-base-ms', '--wake-timeout-ms'],
-    worker: [...timeouts, '--adapter', '--cmd', '--model', '--endpoint', '--name', '--invite-ttl', '--invite-output',
+    worker: ['--allow-local-pc', ...timeouts, '--adapter', '--cmd', '--model', '--endpoint', '--name', '--invite-ttl', '--invite-output',
       '--contacts', '--allowed-peer', '--allow-requester', '--allow-task-type', '--skill', '--task-type',
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
@@ -146,6 +147,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
     '--relay-auth-recovery-timeout-ms', ...options[command]]);
   for (const [name, value] of parsed) {
     if (!known.has(name)) throw new Error('Unknown option: ' + name);
+    if (name === '--allow-local-pc' && value !== true) throw new Error('INVALID_ALLOW_LOCAL_PC: pass --allow-local-pc without a value');
     if (!boolean.has(name) && typeof value !== 'string') throw new Error('Missing ' + name);
   }
   if (command === 'worker' || command === 'delegate') sessionTimeouts(parsed);
@@ -175,6 +177,8 @@ const REVIEW_HELP = `
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
   --audit-interruption-format 1  Worker-only PROPOSE interruption terminals (default: 1); requires updated audit readers.
+  --allow-local-pc              Required for local adapters (including sandbox) and --on-receive.
+                                 Explicit opt-in only; never auto-approves tasks.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
 With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
@@ -233,6 +237,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     }
     if (command === 'discover') { console.log(DISCOVER_USAGE); return; }
     console.log(command === 'relay' ? RELAY_USAGE + '\n\n' + `Relay notification options:
+  --allow-local-pc              Required for --wake-command; does not approve tasks.
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
   --wake-relay <url>             Advertised relay URL; required with --wake-command.
   --wake-max-attempts <n>        Maximum wake attempts (default: 5).
@@ -284,6 +289,9 @@ export async function networkCommand(command: string, args: string[], applicatio
   const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
   const authRecovery = relayAuthOptions(f);
   checkNetworkOptions(command, f);
+  if ((command === 'worker' && (['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')) || f.has('--on-receive'))) ||
+      (command === 'relay' && f.has('--wake-command')))
+    requireLocalPcOptIn(f.get('--allow-local-pc'));
   if (command === 'delegate' && f.has('--invite')) {
     const invite = text(f, 'invite');
     if (f.has('--to') && text(f, 'to') !== invite)
@@ -294,6 +302,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   if (command === 'relay') {
     const port = Number(text(f, 'port', '8787'));
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('INVALID_PORT');
+    if (f.has('--allow-local-pc')) process.stderr.write(LOCAL_PC_WARNING + '\n');
     const relay = await startLocalRelay({ port, host: text(f, 'host', '127.0.0.1'), relayOptions: {
       envelopeTtlMs: optionalCount(f, 'envelope-ttl-ms'),
       maxQueueSize: optionalCount(f, 'max-queue-size'),
@@ -453,6 +462,10 @@ export async function networkCommand(command: string, args: string[], applicatio
         optionalCount(f, 'max-tasks-per-day'), automatic, { maxInputTokens: acceptance.maxInputTokens,
           maxOutputTokens: acceptance.maxOutputTokens, maxToolInvocations: acceptance.maxToolInvocations, maxWallClockSeconds: acceptance.maxWallClockSeconds }), null, 2));
       return;
+    }
+    if (f.has('--allow-local-pc')) {
+      process.stderr.write(LOCAL_PC_WARNING + '\n');
+      auditLocalPcOptIn((f.has('--audit') ? text(f, 'audit') : workerIntakePath(key.did, application.identityOptions)) + '.events.jsonl', key, !f.has('--audit'));
     }
     if (f.has('--wake-channel')) await workerRelay.registerWake(key.did, text(f, 'wake-channel'));
     if (acceptance.publishToRegistry) await worker.register();

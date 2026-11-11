@@ -1,5 +1,27 @@
 # Sealbridge
 
+## 0.7.0 からのローカル実行（破壊的変更）
+
+0.7.0 から、本流の `sealbridge` でローカル実行するには `--allow-local-pc` が必須です。警告だけの猶予期間はありません。対象は `--adapter claude|codex|command`、**手元のPCで動かす sandbox（subprocess / OCI の両方）**、`--on-receive`、`relay start --wake-command` です。環境変数や設定ファイルでは許可できません。依頼側の `delegate` と MCP の依頼は従来どおりです。ローカルコマンドの hook を使わない `openai` ワーカーには、このフラグは不要です。
+
+隔離ランタイム（microVM）は準備中です。現在これらのワーカーを動かすには `--allow-local-pc`、またはローカル版 `sealbridge-local` を使います。ただし、**`sealbridge-local` はまだ npm にはなく、0.7.0 と同時に公開予定**です。Sealbridge Desktop もローカル実行の選択肢です。公開後は `npm i -g sealbridge-local` を実行し、`sealbridge worker start …` を `sealbridge-local worker start …` に置き換えてください。既存の鍵とデータディレクトリを再利用します。この PR ではローカル版のパッケージ化・公開は行いません。
+
+```sh
+sealbridge worker start --adapter sandbox --allow-local-pc
+```
+
+フラグがない場合は、鍵の作成・中継器への接続・コマンドの起動より前に `LOCAL_PC_EXECUTION_REQUIRES_OPT_IN` で停止します。案内の日本語は次のとおりです（CLI は英語に加えて既存の日本語エラー説明を表示します）。
+
+> ローカルPCでの実行は、本流の sealbridge では既定で無効です。このPCのファイル、ログイン情報、ネットワークに、依頼されたタスクから手が届く可能性があります。隔離された環境（microVM）で動かすことをおすすめします。それでもこのPCで動かす場合は `--allow-local-pc` を付けてください。ローカルで使う場合は、ローカル版（`sealbridge-local`）か Sealbridge Desktop をお使いください。
+>
+> 乗り換え: `npm i -g sealbridge-local` のあと、`sealbridge worker start …` を `sealbridge-local worker start …` に置き換えてください（鍵とデータディレクトリはそのまま使えます）。
+
+フラグ付きの起動時には毎回 stderr に英語で警告を出します。日本語では次の意味です。
+
+> 注意: ローカルPCで実行します（隔離: host_adapter）。所有者の承認と内容の検査は有効のままです。実行環境の証明（attestation）は付きません。
+
+このフラグは自動承認を意味しません。LLM の自動受付には従来どおり依頼者の許可リスト、または明示された旧 trusted grant が必要で、所有者の承認と内容の検査も維持します。起動警告はホスト上の実行経路の説明で、隔離の証明ではありません。既存プロトコルの実行情報 `ExecutionAttestation.effectiveIsolationLevel` は実際の値（`host_adapter`、`subprocess_restricted`、`oci_container` など）を引き続き記録し、このフラグによる環境証明は追加しません。ワーカーは起動ごとに署名付き `LOCAL_PC_OPT_IN` を `<audit-path>.events.jsonl` に保存します。`--audit` なしの場合は `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl` に保存します。このローカル起動監査はタスクの相互署名ログとは別で、その形式は変更しません。`sealbridge doctor`（`--offline` も含む）でも変更内容と公開後の乗り換え方法を案内します。
+
 ## インストール
 
 macOS / Linux:
@@ -338,7 +360,7 @@ pnpm sealbridge relay start --port 8787 --host 127.0.0.1
 
 ```sh
 pnpm sealbridge keygen /tmp/bob.private.json
-pnpm sealbridge worker start --key /tmp/bob.private.json \
+pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
   --relay http://127.0.0.1:8787 --allow-private-relay --adapter sandbox \
   --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
 ```
@@ -419,7 +441,7 @@ TTY がなければ limited タスクは保留です。`--auto-accept` は検査
 平文の受信箱と受信フックは、検査と所有者が開く操作の後だけ使います。
 
 ```sh
-sealbridge worker start --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
+sealbridge worker start --allow-local-pc --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
 sealbridge discover --skill json-task
 sealbridge requests list
 # 受信ワーカーと同じ役割・鍵で個別の保留タスクを確認:
