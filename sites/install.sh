@@ -9,8 +9,8 @@ if [ "${1:-}" = --package ]; then
   CLI=$2; shift 2
 fi
 case "$CLI" in sealbridge|sealbridge-local) ;; *) printf "Choose sealbridge or sealbridge-local\n" >&2; exit 1;; esac
-PACKAGE=$CLI@0.6.3
-# Local distribution first becomes available alongside 0.7.0.
+PACKAGE=$CLI@0.7.0
+# Both distributions pin the prepared release; deploy after both are on npm.
 [ "$CLI" != sealbridge-local ] || PACKAGE=sealbridge-local@0.7.0
 NODE_EXECUTABLE=missing
 NODE_ACTUAL_VERSION=unknown
@@ -102,7 +102,7 @@ if [ -n "${SEALBRIDGE_INSTALL_TARBALL:-}" ]; then
   PACKAGE=$SEALBRIDGE_INSTALL_TARBALL
 fi
 if ! "$NODE_EXECUTABLE" "$NPM_CLI" install --global --prefix "$ROOT/npm" --ignore-scripts --no-audit --no-fund "$PACKAGE"; then
-  [ "$CLI" != sealbridge-local ] || printf 'sealbridge-local is planned for publication alongside 0.7.0 and may not be published yet. Check npm availability before retrying.\n' >&2
+  [ "$CLI" != sealbridge-local ] || printf 'sealbridge-local 0.7.0 is prepared, pending publication on npm. Check npm availability before retrying.\n' >&2
   fail "npm installation failed for $CLI."
 fi
 check_runtime || fail 'The selected Node and npm are no longer usable.'

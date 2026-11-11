@@ -4,7 +4,7 @@
 
 0.7.0 から、本流の `sealbridge` でローカル実行するには `--allow-local-pc` が必須です。警告だけの猶予期間はありません。対象は `--adapter claude|codex|command`、**手元のPCで動かす sandbox（subprocess / OCI の両方）**、`--on-receive`、`relay start --wake-command` です。環境変数や設定ファイルでは許可できません。依頼側の `delegate` と MCP の依頼は従来どおりです。ローカルコマンドの hook を使わない `openai` ワーカーには、このフラグは不要です。
 
-隔離ランタイム（microVM）は準備中です。現在これらのワーカーを動かすには `--allow-local-pc`、またはローカル版 `sealbridge-local` を使います。ただし、**`sealbridge-local` はまだ npm にはなく、0.7.0 と同時に公開予定**です。Sealbridge Desktop もローカル実行の選択肢です。公開後は `npm i -g sealbridge-local` を実行し、`sealbridge worker start …` を `sealbridge-local worker start …` に置き換えてください。既存の鍵とデータディレクトリを再利用します。この PR ではローカル版のパッケージ化・公開は行いません。
+隔離ランタイム（microVM）は準備中です。ローカルワーカーには `--allow-local-pc`、またはローカル版 `sealbridge-local` を使います。**両配布物の 0.7.0 は準備済みで npm 公開待ち**です。Sealbridge Desktop も選択肢です。公開後に `npm i -g sealbridge-local@0.7.0` を実行し、`sealbridge worker start` を `sealbridge-local worker start` に置き換えてください。既存の鍵とデータを再利用します。
 
 ```sh
 sealbridge worker start --adapter sandbox --allow-local-pc
@@ -36,7 +36,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-インストーラーは npm で公開待ちの sealbridge 0.6.3 を固定指定しています。更新したインストーラーは sealbridge@0.6.3 の npm 公開後にのみデプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
+インストーラーは両配布物の 0.7.0 を固定指定しています。sealbridge@0.7.0 と sealbridge-local@0.7.0 の npm 公開後にのみデプロイしてください。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
 
 Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
 
@@ -71,7 +71,7 @@ Node 22 以上と同じインストール先の npm が正常に動く場合は�
 
 30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
 
-> **ステータス**: Sealbridge `v0.6.3` は npm パッケージ `sealbridge` として準備済みで、公開待ちです。Sealbridge `v0.6.2` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.1` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.0` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.5.0` は 2026-11-06 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.1` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
+> **ステータス**: Sealbridge `v0.7.0` は npm パッケージ `sealbridge` と `sealbridge-local` として準備済みで、公開待ちです。Sealbridge `v0.6.3` は 2026-11-09 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.2` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.1` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.0` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.5.0` は 2026-11-06 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.1` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
 > **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
 > **作成者**: [@takapon01234](https://x.com/takapon01234)
 
@@ -930,9 +930,9 @@ relay のデプロイは不要です。
 
 ワーカーは既定で、PROPOSE 一件だけの承認待ちに対する単独署名の中断終端（形式 1）を記録します。`--audit-interruption-format 1`（`WorkerNodeOptions.auditInterruptionFormat: 1`）による明示指定も引き続き利用できます。書き込み側を更新する前に、古い監査の読み取り側を更新してください。検証結果は `UNILATERALLY_CLOSED`・`valid:false`・`audit-verify` 終了コード 2 となり、双方の完了合意を表しません。既定で、`tasks approve` または `tasks reject` は、ワーカーを止めなくても進行中の所有者承認待ちまたは ACCEPT 確認待ちを閉じます。封印済みファイルには追記せず、後続タスクはタスク別の監査ファイルに記録します。[形式・復元・照合規則（英語）](docs/audit-interruption.md)を参照してください。
 
-### ローカル PC 版（0.7.0 と同時に公開予定）
+### ローカル PC 版（0.7.0）
 
-`sealbridge-local` は 0.7.0 と同時に公開予定です。公開後は次のように使えます。
+両配布物の 0.7.0 は準備済みで npm 公開待ちです。公開後は次のように使えます。
 
 ```sh
 npm i -g sealbridge-local
