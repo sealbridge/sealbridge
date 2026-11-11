@@ -596,9 +596,10 @@ docker run --rm -i -v sealbridge-data:/data sealbridge
 readable key or another absolute path in a persistent mounted directory. A new
 key requires an existing directory writable by UID 1000; startup fails with
 mount and permission guidance if the key cannot be read or created.
-`SEALBRIDGE_RELAY_URL` overrides the unchanged default relay URL,
-`https://acp-relay.agent-collab.workers.dev`. Additional MCP flags can follow
-`mcp-server` after the image name.
+Set `SEALBRIDGE_RELAY_URL` to override the relay. When unset or empty, Docker
+uses the CLI relay selection, whose public fallback is `https://relay.sealbridge.dev`.
+Smithery's optional `relayUrl` field follows the same behavior when omitted.
+Additional MCP flags can follow `mcp-server` after the image name.
 
 Operators who built an earlier image revision with a build-time owner identity
 should rotate to a newly generated runtime identity and update the corresponding

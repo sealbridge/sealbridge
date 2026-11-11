@@ -11,8 +11,7 @@ startCommand:
         description: Path to the Ed25519 owner private key JSON file (generated via `pnpm sealbridge keygen <path>`).
       relayUrl:
         type: string
-        default: "https://acp-relay.agent-collab.workers.dev"
-        description: Untrusted E2EE Blind Relay endpoint URL for cross-owner task delegation.
+        description: Optional untrusted E2EE Blind Relay endpoint URL; omit to use the CLI relay selection.
   commandFunction:
     |-
     (config) => ({
