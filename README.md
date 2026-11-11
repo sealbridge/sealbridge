@@ -4,7 +4,7 @@
 
 Starting with 0.7.0, mainline `sealbridge` requires the explicit `--allow-local-pc` flag for local worker execution. There is no warning-only grace period. This includes `--adapter claude|codex|command` and **sandbox running on this PC**, whether it uses a subprocess or OCI container, as well as `--on-receive` and `relay start --wake-command` hooks. Environment variables and configuration files cannot opt in. Requester-only `delegate` and MCP requests are unchanged; an `openai` worker without local command hooks does not require this flag.
 
-The isolated runtime (microVM) is in preparation. For now, running these workers requires `--allow-local-pc`, or the local edition `sealbridge-local`, **prepared for 0.7.0; pending publication on npm**. Sealbridge Desktop is another local option. After npm publication, migrate with `npm i -g sealbridge-local` and replace `sealbridge worker start …` with `sealbridge-local worker start …`; existing keys and the data directory are reused.
+The isolated runtime (microVM) is in preparation. For now, running these workers requires `--allow-local-pc`, or the local edition `sealbridge-local`, **published as 0.7.0 on npm on 2026-11-11 UTC**. Sealbridge Desktop is another local option. Migrate with `npm i -g sealbridge-local` and replace `sealbridge worker start …` with `sealbridge-local worker start …`; existing keys and the data directory are reused.
 
 ```sh
 sealbridge worker start --adapter sandbox --allow-local-pc
@@ -38,7 +38,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers pin both distributions to 0.7.0, pending publication on npm. Deploy the updated installers only after both sealbridge@0.7.0 and sealbridge-local@0.7.0 are on npm. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
+The installers pin both published distributions to 0.7.0. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
 
 The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
 
@@ -75,7 +75,7 @@ To uninstall, download the same script and run `sh install.sh --uninstall` or `&
 
 30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
 
-> **Status**: Sealbridge `v0.7.0` is prepared and waiting for publication on npm as `sealbridge` and `sealbridge-local`. Sealbridge `v0.6.3` was published on npm as `sealbridge` on 2026-11-09 UTC. Sealbridge `v0.6.2` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.1` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.0` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.5.0` was published on npm as `sealbridge` on 2026-11-06 UTC. Sealbridge `v0.4.1` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.4.0` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
+> **Status**: Sealbridge `v0.7.0` was published on npm as `sealbridge` and `sealbridge-local` on 2026-11-11 UTC. Sealbridge `v0.6.3` was published on npm as `sealbridge` on 2026-11-09 UTC. Sealbridge `v0.6.2` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.1` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.0` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.5.0` was published on npm as `sealbridge` on 2026-11-06 UTC. Sealbridge `v0.4.1` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.4.0` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
 > **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
 > **Author**: [@takapon01234](https://x.com/takapon01234)
 
@@ -1063,7 +1063,7 @@ richer observations require C4 peers. See [relay reliability](docs/relay-reliabi
 
 ### Local PC distribution (0.7.0)
 
-Both `sealbridge@0.7.0` and `sealbridge-local@0.7.0` are prepared, pending npm publication. After publication:
+Both `sealbridge@0.7.0` and `sealbridge-local@0.7.0` were published on npm on 2026-11-11 UTC. To use the local distribution:
 
 ```sh
 npm i -g sealbridge-local
@@ -1087,4 +1087,3 @@ Keys, contacts and the data directory are reused: both distributions use the sam
 Replace `sealbridge worker start` with `sealbridge-local worker start`.
 Installers default to mainline; choose local with `sh install.sh --package sealbridge-local`,
 `./install.ps1 -PackageName sealbridge-local`, or `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local`.
-Until publication, selecting local may fail with an unpublished-package explanation.
