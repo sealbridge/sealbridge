@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -140,7 +141,7 @@ export function boardHost(post: Signed<BoardPost>, key: KeyPair, path: string, i
 }
 
 export async function boardCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
-  const usage = 'Usage: sealbridge board list --dir <directory>\n' +
+  const usage = 'Usage: ' + cliName + ' board list --dir <directory>\n' +
     '       sealbridge board post --relay <url> --what <text> --skill <id> --task-type <type> --deadline <time> --max-input-tokens <n> --max-output-tokens <n> --max-tool-calls <n> --max-wall-seconds <n> --input-file <file> --out <file> [--key <file>]\n' +
     '       sealbridge board candidates --post <file> [--key <file>]\n' +
     '       sealbridge board serve --post <file> --state <file> --audit <file> [--key <file>]\n' +

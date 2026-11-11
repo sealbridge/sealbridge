@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -101,10 +102,10 @@ async function confirm(message: string): Promise<void> {
   finally { rl.close(); }
 }
 export async function inviteShareCommand(action: string, args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
-  const usage = 'Usage: sealbridge invite open --file <invite> [--key <file>] [--contacts <file>] [--out <file>] [--save-contact <name>]\n' +
-    '       sealbridge invite share --file <invite> --host <https-url> [--png <file>] [--svg <file>]\n' +
-    '       sealbridge invite request-reissue --file <invite> --out <file> [--key <file>]\n' +
-    '       sealbridge invite reissue --file <invite> --out <file> [--key <file>] [--agent-key <file>] [--request <file>]';
+  const usage = 'Usage: ' + cliName + ' invite open --file <invite> [--key <file>] [--contacts <file>] [--out <file>] [--save-contact <name>]\n' +
+    '       ' + cliName + ' invite share --file <invite> --host <https-url> [--png <file>] [--svg <file>]\n' +
+    '       ' + cliName + ' invite request-reissue --file <invite> --out <file> [--key <file>]\n' +
+    '       ' + cliName + ' invite reissue --file <invite> --out <file> [--key <file>] [--agent-key <file>] [--request <file>]';
   if (action === '--help' || action === '-h' || args.includes('--help') || args.includes('-h')) {
     console.log(usage); return;
   }

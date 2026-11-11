@@ -8,7 +8,7 @@ import { generateKeyPair, verifySigned } from '../packages/core/src/index.js';
 import type { WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
 const captured = vi.hoisted(() => ({ options: undefined as WorkerNodeOptions | undefined, starts: 0, local: false, answer: 'yes', questions: 0 }));
-vi.mock('../cli/src/distribution.js', () => ({ get LOCAL_DISTRIBUTION() { return captured.local; } }));
+vi.mock('../cli/src/distribution.js', () => ({ get LOCAL_DISTRIBUTION() { return captured.local; }, get cliName() { return captured.local ? 'sealbridge-local' : 'sealbridge'; } }));
 vi.mock('node:readline/promises', () => ({ createInterface: () => ({
   question: async () => { captured.questions++; return captured.answer; }, close: () => {},
 }) }));

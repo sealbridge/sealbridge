@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { LOCAL_DISTRIBUTION } from './distribution.js';
+import { LOCAL_DISTRIBUTION, cliName } from './distribution.js';
 import { delimiter, join } from 'node:path';
 import { inspectStoredIdentity, keyStoreSelection } from '@acp/runtime/key-store';
 import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
@@ -46,7 +46,6 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
       remediation: 'Check the configured backend and its availability. Install @napi-rs/keyring for keychain use; select SEALBRIDGE_KEY_STORE=file|keychain or --key for an existing file.' };
   }
   const nodeOk = Number(version.split('.')[0]) >= 22;
-  const cliName = LOCAL_DISTRIBUTION ? 'sealbridge-local' : 'sealbridge';
   const pathOk = paths.some(p => exists(join(p, process.platform === 'win32' ? cliName + '.cmd' : cliName)));
   const checks: DoctorCheck[] = [
     { name: 'Node.js', ok: nodeOk, message: `${version} (${options.execPath ?? process.execPath})`,
@@ -84,7 +83,7 @@ export function parseDoctorArgs(args: string[]): DoctorOptions {
     seen.add(arg);
     if (arg === '--offline') result.offline = true;
     else if (arg === '--key' && args[i + 1] && !args[i + 1].startsWith('--')) result.keyFile = args[++i];
-    else throw new Error('Usage: sealbridge doctor [--offline] [--key <file>]');
+    else throw new Error('Usage: ' + cliName + ' doctor [--offline] [--key <file>]');
   }
   return result;
 }

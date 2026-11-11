@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -13,7 +14,7 @@ import { detectedHosts, hostDestination, runtimeEntry } from './setup-hosts.js';
 import type { SetupHost, HostDestination } from './setup-hosts.js';
 import { snapshot, strictObject, hostChange, assertUnchanged, publish } from './setup-files.js';
 
-export const SETUP_USAGE = 'Usage: sealbridge setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
+export const SETUP_USAGE = 'Usage: ' + cliName + ' setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
 const ENTRY_CONFLICT_HELP = 'An existing Sealbridge entry differs from the proposed entry. Review with --update-existing --dry-run or --update-existing --print, then use --update-existing to replace only that entry with a backup. Use --no-require-approval to select the previous plain mcp-server mode.';
 export interface SetupOptions extends IdentityStoreOptions {
   hosts?: string[]; allDetected?: boolean; project?: string; worker?: boolean;

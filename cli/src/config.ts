@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { LOCAL_DISTRIBUTION } from './distribution.js';
+import { LOCAL_DISTRIBUTION, cliName } from './distribution.js';
 import { confirmLocalPcExecution } from './local-pc.js';
 import { setApplicationKeyStore, readApplicationConfig, setApplicationLocalPcExecution } from '@acp/runtime/application-config';
 import { keyStoreSelection, selectKeyStore, otherKeyStorePresence } from '@acp/runtime/key-store';
@@ -7,7 +7,7 @@ import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 
 const USAGE = LOCAL_DISTRIBUTION
   ? 'Usage: sealbridge-local config key-store [file|keychain] | local-pc [on|off|status]\non requires an interactive terminal (stdin and stderr TTY). For non-interactive execution, pass --allow-local-pc on every invocation.'
-  : 'Usage: sealbridge config key-store [file|keychain]';
+  : 'Usage: ' + cliName + ' config key-store [file|keychain]';
 
 /** Read or persist selection without moving or creating identities. */
 export async function configCommand(args: string[], options: IdentityStoreOptions = {}): Promise<void> {

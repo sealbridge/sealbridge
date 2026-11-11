@@ -83,5 +83,5 @@ const { scripts: _scripts, ...localManifest } = root;
 await writeFile('dist-local/package.json', JSON.stringify({ ...localManifest,
   name: 'sealbridge-local', bin: { 'sealbridge-local': './dist/cli/dist/index.js' },
 }, null, 2) + '\n');
-await writeFile('dist-local/dist/cli/dist/distribution.js', 'export const LOCAL_DISTRIBUTION = true;\n');
+await writeFile('dist-local/dist/cli/dist/distribution.js', "export const LOCAL_DISTRIBUTION = true;\nexport const cliName = 'sealbridge-local';\n");
 console.log('Prepared standalone sealbridge-local npm package in dist-local/');

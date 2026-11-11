@@ -41,7 +41,11 @@ afterAll(() => { if (fixture) rmSync(fixture, { recursive: true, force: true });
 it('starts both CLI entry points and passes npm publication preflight', async () => {
   const cli = join(installed, 'dist/cli/dist/index.js');
   expect((await run(process.execPath, [cli, '--version'], { cwd: fixture })).stdout.trim()).toBe(manifest.version);
-  expect((await run(process.execPath, [cli, 'worker', 'start', '--help'], { cwd: fixture })).stdout).toContain('worker start');
+  for (const command of [[], ['worker', 'start'], ['config'], ['doctor'], ['invite', 'create'], ['tasks'], ['delegate']]) {
+    const help = (await run(process.execPath, [cli, ...command, '--help'], { cwd: fixture })).stdout;
+    expect(help).toMatch(new RegExp('^Usage: ' + packageName + ' '));
+    if (packageName === 'sealbridge-local') expect(help).not.toContain('Usage: sealbridge ');
+  }
   // pnpm's npm-compatible publish command could contact the registry: use npm's CLI.
   const { execPath } = process;
   const npm = process.platform === 'win32' ? join(dirname(execPath), 'node_modules/npm/bin/npm-cli.js') : undefined;

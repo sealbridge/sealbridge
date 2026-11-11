@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { attachHeldDeliveryStatus, HeldRequestReview, inspectStoredIdentity, WorkerTrustStore, workerIntakePath } from '@acp/runtime';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 import { confirmOwner } from './connections.js';
 import { cliTaskInspection, literalText, taskContent } from './task-review.js';
 
-const USAGE = 'Usage: sealbridge tasks list | show ID | approve ID | reject ID [--key FILE] [--role worker|requester]. ID is an individual held ID or task ID from tasks list (intake remains per peer). show displays validated manifest/input/capabilities as literal JSON and records display inspection only. approve/reject require interactive TTY owner confirmation and close this terminal held attempt locally; neither executes it, sends a reply, grants connection consent, nor approves a future task. Explicitly resubmit a fresh task to the running worker; inspect and approve it again at its live owner prompt. No automatic retry. requests approve retains its connection-consent meaning. / show は検証済みのタスク内容を文字列として表示します。approve/reject は対話式 TTY で確認し、終端の保留内容だけを閉じます。実行・接続同意・次のタスクの承認は行いません。新しいタスクを明示的に再送し、ワーカーの所有者プロンプトで再度内容を確認・承認してください。';
+const USAGE = 'Usage: ' + cliName + ' tasks list | show ID | approve ID | reject ID [--key FILE] [--role worker|requester]. ID is an individual held ID or task ID from tasks list (intake remains per peer). show displays validated manifest/input/capabilities as literal JSON and records display inspection only. approve/reject require interactive TTY owner confirmation and close this terminal held attempt locally; neither executes it, sends a reply, grants connection consent, nor approves a future task. Explicitly resubmit a fresh task to the running worker; inspect and approve it again at its live owner prompt. No automatic retry. requests approve retains its connection-consent meaning. / show は検証済みのタスク内容を文字列として表示します。approve/reject は対話式 TTY で確認し、終端の保留内容だけを閉じます。実行・接続同意・次のタスクの承認は行いません。新しいタスクを明示的に再送し、ワーカーの所有者プロンプトで再度内容を確認・承認してください。';
 
 export async function tasksCommand(args: string[], options: {
   identityOptions?: IdentityStoreOptions; output?: (text: string) => void;

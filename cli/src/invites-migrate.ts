@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { InviteStore, inspectStoredIdentity, openKeychainSecretStore } from '@acp/runtime';
 import type { InviteStoreOptions } from '@acp/runtime';
 
-const USAGE = 'Usage: sealbridge invites migrate --to keychain [--dry-run] [--key <file>]';
+const USAGE = 'Usage: ' + cliName + ' invites migrate --to keychain [--dry-run] [--key <file>]';
 
 /** Selects the existing requester independently of the migration destination. */
 export async function invitesMigrateCommand(args: string[], options: InviteStoreOptions = {}): Promise<void> {

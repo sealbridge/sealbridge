@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseAuditJsonl, verifyAuditEvidence } from '@acp/ledger';
 import type { AuditEvidence, AuditEvidenceVerificationOptions } from '@acp/ledger';
@@ -70,11 +71,11 @@ export function receiptHtml(receipt: ReturnType<typeof createReceipt>): string {
 }
 export function receiptCommand(args: string[]): void {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: sealbridge receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
+    console.log('Usage: ' + cliName + ' receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
     return;
   }
   const input = args.shift();
-  if (!input || input.startsWith('--')) throw new Error('Usage: sealbridge receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
+  if (!input || input.startsWith('--')) throw new Error('Usage: ' + cliName + ' receipt <audit.jsonl> [--out <prefix>] [--trust-anchor <json>]');
   const options = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
     if (!['--out', '--trust-anchor'].includes(args[i]) || options.has(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw new Error('INVALID_RECEIPT_OPTION');

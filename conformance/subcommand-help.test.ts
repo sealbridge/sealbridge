@@ -21,6 +21,7 @@ async function command(...args: string[]) {
   const runDemo = vi.fn(async () => ({ completed: true }));
   const hostProcess = { argv: ['node', 'sealbridge', ...args], exitCode: 0, stderr: { write: stderr } };
   const modules: Record<string, unknown> = {
+    './distribution.js': { cliName: 'sealbridge', LOCAL_DISTRIBUTION: false },
     'node:fs': io,
     '@acp/core': { generateKeyPair, validateSchema },
     '@acp/two-owner-demo': { runDemo },

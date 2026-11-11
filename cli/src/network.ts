@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { cliName } from './distribution.js';
 import { createInviteCommand, inviteLinksCommand, SHORT_INVITE_USAGE, linkRevocations } from './invite-links.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -112,16 +113,16 @@ function sessionTimeouts(parsed: Map<string, string | true>): SessionTimeoutOpti
     heartbeatIntervalMs: optionalCount(parsed, 'heartbeat-interval-ms'),
   };
 }
-const DELEGATE_USAGE = 'Usage: sealbridge delegate ' +
+const DELEGATE_USAGE = 'Usage: ' + cliName + ' delegate ' +
   '(--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef> | --discover <skill> | --task-type <type>) ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
-const WORKER_USAGE = 'Usage: sealbridge worker start [--adapter sandbox|command|claude|codex|openai] [options] | public --settings <file> [options]';
-const RELAY_USAGE = 'Usage: sealbridge relay start [--port <n>] [--host <address>] [options]';
-const INVITE_USAGE = 'Usage: sealbridge invite create [--key <file>] [--relay <url>] [--name <text>] [--expires-in <seconds>]\n' +
-  '       sealbridge invite open|share|request-reissue|reissue --file <invite> [options]';
-const DISCOVER_USAGE = 'Usage: sealbridge discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
+const WORKER_USAGE = 'Usage: ' + cliName + ' worker start [--adapter sandbox|command|claude|codex|openai] [options] | public --settings <file> [options]';
+const RELAY_USAGE = 'Usage: ' + cliName + ' relay start [--port <n>] [--host <address>] [options]';
+const INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--key <file>] [--relay <url>] [--name <text>] [--expires-in <seconds>]\n' +
+  '       ' + cliName + ' invite open|share|request-reissue|reissue --file <invite> [options]';
+const DISCOVER_USAGE = 'Usage: ' + cliName + ' discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
   const boolean = new Set(['--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
