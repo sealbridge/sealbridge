@@ -139,7 +139,7 @@ try {
     }
     & $runtime.Path $selection.Npm install --global --prefix $npmDir --ignore-scripts --no-audit --no-fund $package
     if ($LASTEXITCODE -ne 0) {
-        if ($PackageName -eq 'sealbridge-local') { throw 'sealbridge-local 0.7.0 is prepared, pending publication on npm. Check npm availability before retrying.' }
+        if ($PackageName -eq 'sealbridge-local') { throw 'Failed to fetch sealbridge-local 0.7.0 from npm. Check npm availability and retry.' }
         throw 'npm installation failed.'
     }
     # Pin the Windows shims to the selected Node without replacing any existing

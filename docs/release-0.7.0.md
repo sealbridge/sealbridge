@@ -1,10 +1,50 @@
-# 0.7.0 publication checklist / 公開手順
+# 0.7.0 publication record and follow-up / 公開記録と残作業
 
-Preparation only: this PR does not authorize publication. 所有者が別途実行する手順です。
-The release date is 2026-11-11; correct CHANGELOG before tagging if it changes.
-公開日が変わる場合はタグ作成前に CHANGELOG の日付を修正します。
+Published on 2026-11-11. The completed items below record the owner's release.
+This follow-up authorizes no merge, tag, publication, npm configuration change,
+workflow dispatch, environment approval or deployment.
+2026-11-11 公開済みです。以下は所有者による公開の記録です。
+今回のフォローアップではマージ・タグ・公開・npm 設定変更・ワークフローの手動実行・
+環境承認・デプロイを行いません。
 
-## First publication of sealbridge-local
+## Completed publication / 公開済みの項目
+
+- [x] `v0.7.0` targets `77c6140c75e5fec89428727de00aca217a4cbb0c` (#229).
+  The annotated tag object is `cf086c4e`.
+- [x] `sealbridge@0.7.0` was published by `publish.yml` through Trusted Publishing,
+  with provenance.
+- [x] `sealbridge-local@0.7.0` was first published manually by the owner, without
+  provenance as expected; its `latest` dist-tag is 0.7.0.
+- [x] [GitHub Release v0.7.0](https://github.com/sealbridge/sealbridge/releases/tag/v0.7.0)
+  was created as Latest on 2026-11-11 at 20:08 JST (11:08 UTC).
+- [x] https://sealbridge.dev/ and https://sealbridge.app/ were updated on
+  2026-11-11 at 20:09 JST (11:09 UTC). The installers were verified to install
+  both distributions at 0.7.0.
+
+本流は Trusted Publishing で provenance 付き、ローカル版の初回は所有者による
+手動公開で provenance なしです。両 npm 配布物・Release・サイトの公開は完了済みです。
+
+## Remaining follow-up / 残作業
+
+- [ ] Merge this documentation/installer wording follow-up after review and CI,
+  under separate authorization. README prepared/pending wording is updated here
+  with the actual publication date, 2026-11-11 UTC.
+- [ ] After this PR is merged, rebuild/test and deploy the site documentation
+  derived from the READMEs and the updated installer wording. The earlier site
+  deployment above does not include this follow-up. No deployment in this PR.
+- [ ] Configure/verify the local package's Trusted Publisher near its next real
+  release, including the two-day OIDC validation requirement described below.
+  npm configuration is outside this PR.
+
+この PR のマージ後、README 由来のサイト文書とインストーラー文言をサイトへ反映する
+必要があります。ローカル版の Trusted Publisher 設定と次回実公開での検証は残作業です。
+リレーのデプロイと X の告知は今回の対象外です。
+
+## First publication of sealbridge-local (historical procedure)
+
+Steps 1–3 below describe the completed initial publication; steps 4–5 remain
+operator follow-up for the next local release. Do not repeat the 0.7.0 publication.
+以下の 1〜3 は完了した初回公開の手順、4〜5 は次回公開に向けた残作業です。
 
 As checked on 2026-11-11, npm's [Trusted Publishing documentation](https://docs.npmjs.com/trusted-publishers/)
 requires configuring a publisher from the package's Settings page. It documents no
@@ -48,7 +88,11 @@ promise about future registry support. A dry-run does not verify OIDC authorizat
 初回の手動公開には OIDC provenance が付かない点を公開記録に明記します。
 新規設定の2日以内の検証要件にも注意し、公開済み版のスキップを検証成功と見なしません。
 
-## Tag → npm → Release → site
+## Tag → npm → Release → site (historical procedure)
+
+The release sequence below is retained for reference; the completed publication
+and remaining documentation deployment are recorded above.
+以下は公開時の手順を履歴として残したものです。完了項目と残作業は上記を参照してください。
 
 This follows the 0.6.2/0.6.3 release records: npm publication, GitHub Release,
 then installers/site reflecting published packages. References:
