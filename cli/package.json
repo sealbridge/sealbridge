@@ -22,7 +22,8 @@
     "@acp/sandbox": "workspace:*",
     "@acp/two-owner-demo": "workspace:*",
     "qrcode": "^1.5.4",
-    "jsonc-parser": "3.3.1"
+    "jsonc-parser": "3.3.1",
+    "@acp/runtime-local": "workspace:*"
   },
   "engines": {
     "node": ">=22 <23"

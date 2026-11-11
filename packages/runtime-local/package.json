@@ -1,0 +1,29 @@
+{
+  "name": "@acp/runtime-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@acp/core": "workspace:*",
+    "@acp/sandbox": "workspace:*",
+    "@acp/relay": "workspace:*",
+    "@acp/ledger": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22 <23"
+  }
+}

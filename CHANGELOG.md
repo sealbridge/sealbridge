@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Changed (Internal)
+
+- Extract local adapters, credential storage and hooks into runtime-local while preserving legacy imports and sealbridge/sdk.
+
 ### Changed
 
 - Internal: extract worker execution into an injectable ExecutionBackend with HostBackend preserving existing behavior.
