@@ -20,7 +20,7 @@ import { HttpRelayClient, validateRelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayTransport } from '@acp/relay';
 import { McpRpc } from './mcp-rpc.js';
-import { mcpTools } from './mcp-tool-catalog.js';
+import { mcpTools, MCP_ISOLATION_LEVELS } from './mcp-tool-catalog.js';
 import type { Readable, Writable } from 'node:stream';
 import {
   McpFormApprovalProvider,
@@ -359,6 +359,10 @@ export class AcpMcpServer {
     const name = body.name;
     if (typeof name !== 'string') throw new RpcError(-32602, 'Invalid params');
     let args = body.arguments === undefined ? {} : asRecord(body.arguments);
+    if ((name === 'acp_delegate_task' || name === 'acp_delegate_multi') &&
+        args.minimumIsolationLevel !== undefined &&
+        !MCP_ISOLATION_LEVELS.some(level => level === args.minimumIsolationLevel))
+      throw new RpcError(-32602, 'Invalid minimumIsolationLevel: expected subprocess_restricted or oci_container');
     if (IDEMPOTENCY_TOOLS.includes(name as typeof IDEMPOTENCY_TOOLS[number]) && args.idempotencyKey !== undefined) {
       try { validateIdempotencyKey(args.idempotencyKey); } catch { throw new RpcError(-32602, 'Invalid idempotencyKey'); }
       const definition = (mcpTools as unknown as Array<{ name: string; inputSchema: Schema }>).find(t => t.name === name)!;

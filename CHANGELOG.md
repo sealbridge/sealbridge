@@ -6,6 +6,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- Reject out-of-enum MCP minimumIsolationLevel as invalid params before sending, and report unsupported worker isolation with ISOLATION_LEVEL_UNSUPPORTED instead of EXECUTION_FAILED. (#233)
+- MCP minimumIsolationLevel の列挙外の値を送信前に invalid params で拒否し、ワーカーの未対応の隔離を ISOLATION_LEVEL_UNSUPPORTED で報告します。(#233)
+
 - Use the distribution CLI name in root and subcommand usage help; confirm doctor already reports the 0.7.0 publication. (#232)
 - ルートとサブコマンドの Usage を配布物の CLI 名に合わせました。doctor の 0.7.0 公開済み表示も確認しました。(#232)
 

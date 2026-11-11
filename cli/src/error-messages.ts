@@ -2,6 +2,7 @@
 import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
+  [/ISOLATION_LEVEL_UNSUPPORTED|ISOLATION_LEVEL_MISMATCH/, '要求された隔離レベルに対応できないため、実行または納品を拒否しました。'],
   [/LOCAL_PC_CONSENT_REQUIRES_TERMINAL/, 'sealbridge-local config local-pc on は stdin と stderr が TTY の対話式端末で実行してください。非対話では毎回 --allow-local-pc を付けてください。'],
   [/LOCAL_PC_EXECUTION_REQUIRES_OPT_IN/, LOCAL_DISTRIBUTION ? 'ローカルPCでの実行には許可が必要です。対話式端末で sealbridge-local config local-pc on を実行するか、端末で初回起動時に確認してください。非対話では毎回 --allow-local-pc を付けてください。' : LOCAL_PC_DISABLED_JA + '\n' + LOCAL_PC_MIGRATION_JA],
   [/ACCESS_MODE_REMOVED/, '旧モードの指定は廃止しました。connections と一般の --max-*、--allow-task-type を使ってください。'],
