@@ -66,6 +66,9 @@ importers:
       '@acp/runtime':
         specifier: workspace:*
         version: link:../packages/runtime
+      '@acp/runtime-local':
+        specifier: workspace:*
+        version: link:../packages/runtime-local
       '@acp/sandbox':
         specifier: workspace:*
         version: link:../packages/sandbox
@@ -109,6 +112,9 @@ importers:
       '@acp/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@acp/runtime-local':
+        specifier: workspace:*
+        version: link:../runtime-local
       '@acp/sandbox':
         specifier: workspace:*
         version: link:../sandbox
@@ -157,12 +163,30 @@ importers:
       '@acp/relay':
         specifier: workspace:*
         version: link:../relay
+      '@acp/runtime-local':
+        specifier: workspace:*
+        version: link:../runtime-local
       '@acp/sandbox':
         specifier: workspace:*
         version: link:../sandbox
       '@modelcontextprotocol/sdk':
         specifier: ^1.20.0
         version: 1.32.2(zod@4.6.7)
+
+  packages/runtime-local:
+    dependencies:
+      '@acp/core':
+        specifier: workspace:*
+        version: link:../core
+      '@acp/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@acp/relay':
+        specifier: workspace:*
+        version: link:../relay
+      '@acp/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
 
   packages/sandbox:
     dependencies:

@@ -17,7 +17,8 @@
     "@acp/core": "workspace:*",
     "@acp/runtime": "workspace:*",
     "@acp/sandbox": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.20.0"
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "@acp/runtime-local": "workspace:*"
   },
   "engines": {
     "node": ">=22 <23"

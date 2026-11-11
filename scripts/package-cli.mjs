@@ -41,5 +41,33 @@ async function rewrite(dir) {
   }
 }
 await rewrite('dist');
+// runtime-local is discovered with the other workspace packages above. Verify
+// compatibility facades after rewriting, using only the standalone output.
+if (!packages.has('@acp/runtime-local')) throw new Error('Missing runtime-local package');
+for (const [legacyPath, localPath, names] of [
+  ['packages/adapters/dist/command', 'command', ['CommandAgentAdapter', 'ClaudeCodeAdapter', 'CodexCliAdapter']],
+  ['packages/adapters/dist/codex-config', 'codex-config', ['prepareCodexProxy']],
+  ['packages/adapters/dist/windows-command', 'windows-command', ['windowsCommandCandidates']],
+  ['packages/adapters/dist/credential-proxy', 'credential-proxy', ['startCredentialProxy']],
+  ['packages/adapters/dist/sandbox', 'sandbox', ['SandboxAgentAdapter']],
+  ['packages/runtime/dist/key-store', 'key-store', ['FileKeyStore', 'KeychainKeyStore', 'optionalKeyring']],
+  ['packages/runtime/dist/local-identity', 'local-identity', []],
+  ['packages/runtime/dist/secret-store', 'secret-store', ['KeychainSecretStore', 'openKeychainSecretStore']],
+  ['cli/dist/wake-hook', 'wake-hook', []],
+  ['cli/dist/receive-hook', 'receive-hook', []],
+]) {
+  const legacy = await import('../dist/' + legacyPath + '.js');
+  const local = await import('../dist/packages/runtime-local/dist/' + localPath + '.js');
+  for (const name of new Set([...names, ...Object.keys(local)])) {
+    if (!(name in local) || legacy[name] !== local[name]) throw new Error('Local compatibility export differs: ' + legacyPath + ':' + name);
+  }
+}
+const sdk = await import('../dist/cli/dist/sdk.js');
+const localKeys = await import('../dist/packages/runtime-local/dist/key-store.js');
+const localSecrets = await import('../dist/packages/runtime-local/dist/secret-store.js');
+for (const name of ['FileKeyStore', 'KeychainKeyStore']) {
+  if (sdk[name] !== localKeys[name]) throw new Error('SDK key store differs: ' + name);
+}
+if (sdk.KeychainSecretStore !== localSecrets.KeychainSecretStore) throw new Error('SDK secret store differs');
 await writeFile('dist/package.json', JSON.stringify({ type: 'module', version: root.version }));
 console.log('Prepared standalone npm package in dist/');

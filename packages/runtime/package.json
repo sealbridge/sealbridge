@@ -39,7 +39,8 @@
     "@acp/sandbox": "workspace:*",
     "@a2a-js/sdk": "^1.3.0",
     "@modelcontextprotocol/sdk": "^1.20.0",
-    "@acp/relay": "workspace:*"
+    "@acp/relay": "workspace:*",
+    "@acp/runtime-local": "workspace:*"
   },
   "engines": {
     "node": ">=22 <23"
