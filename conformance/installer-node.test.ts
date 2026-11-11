@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, symlinkSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, symlinkSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { copyFile, link, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -464,6 +464,7 @@ if [ "$SEALBRIDGE_TEST_FAILURE" = installed-npm ]; then printf garbage > "$4/lib
 
         function assertPinnedRuntime(result: ProcessResult) {
           expectSuccess(result);
+          if (!windows) expect(statSync(fixture.root).mode & 0o777).toBe(0o700);
           expect(result.stdout).toContain(`Node.js: 22.22.0 (${fixture.node})`);
           expect(result.stdout).toContain(`CLI Node: ${fixture.node} (22.22.0)`);
           const selection = JSON.parse(readFileSync(join(fixture.prefix, 'npm-selection.json'), 'utf8'));

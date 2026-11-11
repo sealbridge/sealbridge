@@ -148,6 +148,14 @@ it('doctor explains the requirement and migration without network in offline mod
   expect(app.fetch).not.toHaveBeenCalled();
 });
 
+it('local doctor checks its own CLI on PATH', async () => {
+  captured.local = true;
+  const app = application();
+  const checks = await diagnose({ ...app, offline: true, path: dir,
+    exists: path => path === join(dir, process.platform === 'win32' ? 'sealbridge-local.cmd' : 'sealbridge-local') });
+  expect(checks.find(check => check.name === 'PATH')).toMatchObject({ ok: true, message: 'sealbridge-local found' });
+});
+
 it.each(['delegate', 'mcp-server'])('settles actual %s requests without local PC opt-in', async mode => {
   const relay = new InMemoryRelay(), remote = generateKeyPair();
   const app = application();

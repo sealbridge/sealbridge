@@ -160,6 +160,7 @@ jobs:
           . "$HOME/.profile"
           sealbridge-local --version
           sealbridge-local worker start --help
+          sealbridge-local doctor --offline
           sealbridge-local config local-pc status
           sealbridge-local config local-pc off
           if sealbridge-local worker start --adapter sandbox; then exit 1; fi
@@ -175,10 +176,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'local version failed' }
           sealbridge-local.cmd worker start --help
           if ($LASTEXITCODE -ne 0) { throw 'local help failed' }
+          sealbridge-local.cmd doctor --offline
+          if ($LASTEXITCODE -ne 0) { throw 'local doctor failed' }
           sealbridge-local.cmd config local-pc status
           if ($LASTEXITCODE -ne 0) { throw 'local status failed' }
           sealbridge-local.cmd config local-pc off
           if ($LASTEXITCODE -ne 0) { throw 'local revoke failed' }
           sealbridge-local.cmd worker start --adapter sandbox
           if ($LASTEXITCODE -eq 0) { throw 'noninteractive startup was allowed' }
+          # The rejection above is expected, not the exit status of this step.
+          $global:LASTEXITCODE = 0
           & ./sites/install.ps1 -NoProfile -Uninstall

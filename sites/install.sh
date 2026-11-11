@@ -64,6 +64,9 @@ esac
 trap 'runtime_error' 0
 [ ! -d "$ROOT" ] || [ -f "$ROOT/.installer-owned" ] || fail "Installation directory already exists without an ownership marker: $ROOT"
 mkdir -p "$ROOT"
+# On Linux this is also the default application data root. Settings and keys
+# require an owner-only directory, including after upgrading an older install.
+chmod 700 "$ROOT"
 : > "$ROOT/.installer-owned"
 PATH="$ROOT/node/bin:$ROOT/npm/bin:$PATH"
 export PATH
