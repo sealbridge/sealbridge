@@ -1,9 +1,10 @@
-param([switch]$Uninstall, [switch]$NoProfile)
+param([switch]$Uninstall, [switch]$NoProfile, [ValidateSet('sealbridge', 'sealbridge-local')][string]$PackageName = $(if ($env:SEALBRIDGE_INSTALL_PACKAGE) { $env:SEALBRIDGE_INSTALL_PACKAGE } else { 'sealbridge' }))
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'Sealbridge'
 $nodeVersion = '22.22.0'
-$package = 'sealbridge@0.6.3'
+if ($PackageName -notin @('sealbridge', 'sealbridge-local')) { throw 'Choose sealbridge or sealbridge-local.' }
+$package = if ($PackageName -eq 'sealbridge-local') { 'sealbridge-local@0.7.0' } else { 'sealbridge@0.6.3' }
 $nodeDir = Join-Path $root 'node'
 $npmDir = Join-Path $root 'npm'
 
@@ -137,15 +138,18 @@ try {
         $package = $env:SEALBRIDGE_INSTALL_TARBALL
     }
     & $runtime.Path $selection.Npm install --global --prefix $npmDir --ignore-scripts --no-audit --no-fund $package
-    if ($LASTEXITCODE -ne 0) { throw 'npm installation failed.' }
+    if ($LASTEXITCODE -ne 0) {
+        if ($PackageName -eq 'sealbridge-local') { throw 'sealbridge-local is planned for publication alongside 0.7.0 and may not be published yet. Check npm availability before retrying.' }
+        throw 'npm installation failed.'
+    }
     # Pin the Windows shims to the selected Node without replacing any existing
     # node.exe (including one already in the npm prefix). npm regenerates these
     # files on reruns, so write them after each successful package installation.
     $cmdNode = if ($runtime.Path -eq (Join-Path $nodeDir 'node.exe')) { '%~dp0..\node\node.exe' } else { $runtime.Path.Replace('%', '%%') }
     $psNode = $runtime.Path.Replace("'", "''")
-    foreach ($name in @('sealbridge', 'acp')) {
-        $entryName = if ($name -eq 'sealbridge') { 'index' } else { 'acp' }
-        $entry = "node_modules/sealbridge/dist/cli/dist/$entryName.js"
+    foreach ($name in $(if ($PackageName -eq 'sealbridge-local') { @('sealbridge-local') } else { @('sealbridge', 'acp') })) {
+        $entryName = if ($name -ne 'acp') { 'index' } else { 'acp' }
+        $entry = "node_modules/$PackageName/dist/cli/dist/$entryName.js"
         Set-Content -LiteralPath (Join-Path $npmDir "$name.cmd") -Encoding Default -Value "@echo off`r`nsetlocal DisableDelayedExpansion`r`n`"$cmdNode`" `"%~dp0$entry`" %*`r`nexit /b %errorlevel%"
         # A BOM lets either PowerShell version read paths containing non-ASCII characters.
         [IO.File]::WriteAllText((Join-Path $npmDir "$name.ps1"), "& '$psNode' (Join-Path `$PSScriptRoot '$entry') @args`r`nexit `$LASTEXITCODE", (New-Object System.Text.UTF8Encoding $true))
@@ -154,11 +158,11 @@ try {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $parts = @($userPath -split ';' | Where-Object { $_ -and $_ -ne $nodeDir -and $_ -ne $npmDir })
     if (!$NoProfile) { [Environment]::SetEnvironmentVariable('Path', ((@($nodeDir, $npmDir) + $parts) -join ';'), 'User') }
-    & (Join-Path $npmDir 'sealbridge.cmd') --version
+    & (Join-Path $npmDir "$PackageName.cmd") --version
     if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
-    & (Join-Path $npmDir 'sealbridge.cmd') doctor
+    & (Join-Path $npmDir "$PackageName.cmd") doctor
     if ($LASTEXITCODE -ne 0) { Write-Warning 'Installed, but doctor found an issue. Follow its fixes and rerun sealbridge doctor.' }
-    Write-Host 'Installed. Run sealbridge demo. Uninstall: & ./install.ps1 -Uninstall'
+    Write-Host "Installed. Run $PackageName demo. Uninstall: & ./install.ps1 -Uninstall"
 } catch {
     # Error-record formatting can wrap or truncate long exceptions. Emit the
     # details separately so both shells preserve them in redirected stderr.

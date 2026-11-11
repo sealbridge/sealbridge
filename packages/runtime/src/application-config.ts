@@ -14,6 +14,7 @@ export interface ApplicationConfig {
   version: 1;
   relays: readonly string[];
   keyStore?: 'file' | 'keychain';
+  localPcExecution?: boolean;
   /** Retained for callers that later write additional application settings. */
   [field: string]: unknown;
 }
@@ -31,6 +32,8 @@ export function validateApplicationConfig(value: unknown, options: ApplicationCo
   const record = value as Record<string, unknown>;
   if (record.version !== 1) throw failure('APP_CONFIG_UNSUPPORTED_VERSION');
   if (Object.hasOwn(record, 'keyStore') && record.keyStore !== 'file' && record.keyStore !== 'keychain')
+    throw failure('APP_CONFIG_INVALID');
+  if (Object.hasOwn(record, 'localPcExecution') && typeof record.localPcExecution !== 'boolean')
     throw failure('APP_CONFIG_INVALID');
   const candidate = (entry: unknown): string => {
     if (typeof entry !== 'string' || !entry || Buffer.byteLength(entry) > 2048)
@@ -136,7 +139,7 @@ function publishedKeyStore(keyStore: 'file' | 'keychain', options: ApplicationCo
   return config?.keyStore === keyStore ? config : undefined;
 }
 
-function commitApplicationKeyStore(keyStore: 'file' | 'keychain', options: ApplicationConfigOptions): ApplicationConfig | 'locked' {
+function commitApplicationSetting(field: 'keyStore' | 'localPcExecution', value: 'file' | 'keychain' | boolean, options: ApplicationConfigOptions): ApplicationConfig | 'locked' {
   const { root, path, paths, platform, io } = location(options);
   const lock = paths.join(root, '.config.lock');
   const temporary = paths.join(root, '.config.' + randomUUID() + '.tmp');
@@ -154,11 +157,11 @@ function commitApplicationKeyStore(keyStore: 'file' | 'keychain', options: Appli
     }
     checkPrivateStat(io.fstatSync(lockFd));
     const before = readConfig(options);
-    if (before.config.keyStore === keyStore) return before.config;
-    const value = { ...(before.raw === undefined ? before.config : JSON.parse(before.raw)), keyStore };
-    const config = validateApplicationConfig(value, options);
-    if (before.raw === undefined) return createApplicationConfig(value, options);
-    const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n');
+    if (before.config[field] === value) return before.config;
+    const updated = { ...(before.raw === undefined ? before.config : JSON.parse(before.raw)), [field]: value };
+    const config = validateApplicationConfig(updated, options);
+    if (before.raw === undefined) return createApplicationConfig(updated, options);
+    const bytes = Buffer.from(JSON.stringify(updated, null, 2) + '\n');
     if (bytes.length > MAX_CONFIG_BYTES) throw failure('APP_CONFIG_INVALID');
     fd = io.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
       (fs.constants.O_NOFOLLOW ?? 0), 0o600);
@@ -193,7 +196,7 @@ export function setApplicationKeyStore(keyStore: 'file' | 'keychain', options: A
   const { root, paths, io } = location(options);
   const lock = paths.join(root, '.config.lock');
   for (let attempt = 0; attempt < KEY_STORE_LOCK_ATTEMPTS; attempt += 1) {
-    const committed = commitApplicationKeyStore(keyStore, options);
+    const committed = commitApplicationSetting('keyStore', keyStore, options);
     if (committed !== 'locked') return committed;
     const last = attempt + 1 === KEY_STORE_LOCK_ATTEMPTS;
     const published = publishedKeyStore(keyStore, options, lock, last);
@@ -240,4 +243,15 @@ export function createApplicationConfig(value: unknown, options: ApplicationConf
     if (created) io.unlinkSync(temporary);
   }
   return config;
+}
+
+/** Persist local-distribution consent using the same locked, atomic settings path. */
+export function setApplicationLocalPcExecution(enabled: boolean, options: ApplicationConfigOptions = {}): ApplicationConfig {
+  if (typeof enabled !== 'boolean') throw failure('APP_CONFIG_INVALID');
+  for (let attempt = 0; attempt < KEY_STORE_LOCK_ATTEMPTS; attempt++) {
+    const committed = commitApplicationSetting('localPcExecution', enabled, options);
+    if (committed !== 'locked') return committed;
+    pause(KEY_STORE_LOCK_POLL_MS);
+  }
+  throw failure('APP_CONFIG_BUSY');
 }

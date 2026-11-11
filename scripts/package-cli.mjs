@@ -71,3 +71,17 @@ for (const name of ['FileKeyStore', 'KeychainKeyStore']) {
 if (sdk.KeychainSecretStore !== localSecrets.KeychainSecretStore) throw new Error('SDK secret store differs');
 await writeFile('dist/package.json', JSON.stringify({ type: 'module', version: root.version }));
 console.log('Prepared standalone npm package in dist/');
+
+// A second, self-contained publish root; mainline dist and manifest are unchanged.
+await rm('dist-local', { recursive: true, force: true });
+await mkdir('dist-local', { recursive: true });
+for (const entry of root.files) {
+  await mkdir(path.dirname('dist-local/' + entry), { recursive: true });
+  await cp(entry, 'dist-local/' + entry, { recursive: true });
+}
+const { scripts: _scripts, ...localManifest } = root;
+await writeFile('dist-local/package.json', JSON.stringify({ ...localManifest,
+  name: 'sealbridge-local', bin: { 'sealbridge-local': './dist/cli/dist/index.js' },
+}, null, 2) + '\n');
+await writeFile('dist-local/dist/cli/dist/distribution.js', 'export const LOCAL_DISTRIBUTION = true;\n');
+console.log('Prepared standalone sealbridge-local npm package in dist-local/');

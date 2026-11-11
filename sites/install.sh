@@ -3,7 +3,15 @@ set -eu
 # Dedicated user-local installation; never changes system Node or user keys.
 ROOT="$HOME/.local/share/sealbridge"
 NODE_VERSION=22.22.0
-PACKAGE=sealbridge@0.6.3
+CLI=${SEALBRIDGE_INSTALL_PACKAGE:-sealbridge}
+if [ "${1:-}" = --package ]; then
+  [ "$#" -ge 2 ] || { printf "Missing --package value\n" >&2; exit 1; }
+  CLI=$2; shift 2
+fi
+case "$CLI" in sealbridge|sealbridge-local) ;; *) printf "Choose sealbridge or sealbridge-local\n" >&2; exit 1;; esac
+PACKAGE=$CLI@0.6.3
+# Local distribution first becomes available alongside 0.7.0.
+[ "$CLI" != sealbridge-local ] || PACKAGE=sealbridge-local@0.7.0
 NODE_EXECUTABLE=missing
 NODE_ACTUAL_VERSION=unknown
 NPM_STATE="not checked"
@@ -51,11 +59,14 @@ case "${1:-}" in
     else fail 'No installer-owned installation found; nothing removed.'; fi
     exit 0;;
   '') ;;
-  *) fail 'Usage: sh install.sh [--uninstall]';;
+  *) fail 'Usage: sh install.sh [--package sealbridge|sealbridge-local] [--uninstall]';;
 esac
 trap 'runtime_error' 0
 [ ! -d "$ROOT" ] || [ -f "$ROOT/.installer-owned" ] || fail "Installation directory already exists without an ownership marker: $ROOT"
 mkdir -p "$ROOT"
+# On Linux this is also the default application data root. Settings and keys
+# require an owner-only directory, including after upgrading an older install.
+chmod 700 "$ROOT"
 : > "$ROOT/.installer-owned"
 PATH="$ROOT/node/bin:$ROOT/npm/bin:$PATH"
 export PATH
@@ -90,14 +101,17 @@ if [ -n "${SEALBRIDGE_INSTALL_TARBALL:-}" ]; then
   [ -f "$SEALBRIDGE_INSTALL_TARBALL" ] || fail 'Local test tarball does not exist.'
   PACKAGE=$SEALBRIDGE_INSTALL_TARBALL
 fi
-"$NODE_EXECUTABLE" "$NPM_CLI" install --global --prefix "$ROOT/npm" --ignore-scripts --no-audit --no-fund "$PACKAGE"
+if ! "$NODE_EXECUTABLE" "$NPM_CLI" install --global --prefix "$ROOT/npm" --ignore-scripts --no-audit --no-fund "$PACKAGE"; then
+  [ "$CLI" != sealbridge-local ] || printf 'sealbridge-local is planned for publication alongside 0.7.0 and may not be published yet. Check npm availability before retrying.\n' >&2
+  fail "npm installation failed for $CLI."
+fi
 check_runtime || fail 'The selected Node and npm are no longer usable.'
 printf 'Node.js: %s (%s)\n' "$NODE_ACTUAL_VERSION" "$NODE_EXECUTABLE"
 LINE='export PATH="$HOME/.local/share/sealbridge/node/bin:$HOME/.local/share/sealbridge/npm/bin:$PATH" # sealbridge installer'
 for PROFILE in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
   if ! grep -Fq '# sealbridge installer' "$PROFILE" 2>/dev/null; then printf '\n%s\n' "$LINE" >> "$PROFILE"; fi
 done
-sealbridge --version
-if ! sealbridge doctor; then printf 'Installed, but doctor found an issue. Follow its fixes and rerun sealbridge doctor.\n'; fi
+"$CLI" --version
+if ! "$CLI" doctor; then printf 'Installed, but doctor found an issue. Follow its fixes and rerun sealbridge doctor.\n'; fi
 trap - 0
-printf 'Installed. Open a new terminal, or run: . "$HOME/.profile"\nThen run: sealbridge demo\nUninstall: sh install.sh --uninstall\n'
+printf 'Installed. Open a new terminal, or run: . "$HOME/.profile"\nThen run: %s demo\nUninstall: sh install.sh --uninstall\n' "$CLI"

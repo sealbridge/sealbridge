@@ -1,13 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-import { setApplicationKeyStore } from '@acp/runtime/application-config';
+import { LOCAL_DISTRIBUTION } from './distribution.js';
+import { confirmLocalPcExecution } from './local-pc.js';
+import { setApplicationKeyStore, readApplicationConfig, setApplicationLocalPcExecution } from '@acp/runtime/application-config';
 import { keyStoreSelection, selectKeyStore, otherKeyStorePresence } from '@acp/runtime/key-store';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 
-const USAGE = 'Usage: sealbridge config key-store [file|keychain]';
+const USAGE = LOCAL_DISTRIBUTION
+  ? 'Usage: sealbridge-local config key-store [file|keychain] | local-pc [on|off|status]'
+  : 'Usage: sealbridge config key-store [file|keychain]';
 
 /** Read or persist selection without moving or creating identities. */
 export async function configCommand(args: string[], options: IdentityStoreOptions = {}): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
+  if (LOCAL_DISTRIBUTION && args[0] === 'local-pc') {
+    const value = args[1] ?? 'status';
+    if (args.length > 2 || !['on', 'off', 'status'].includes(value)) throw new Error('Usage: sealbridge-local config local-pc [on|off|status]');
+    const configOptions = { ...options, allowPrivateRelay: true };
+    if (value === 'on') {
+      if (!await confirmLocalPcExecution()) throw new Error('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN');
+      setApplicationLocalPcExecution(true, configOptions);
+    } else if (value === 'off') setApplicationLocalPcExecution(false, configOptions);
+    console.log(JSON.stringify({ localPcExecution: readApplicationConfig(configOptions).localPcExecution === true }));
+    return;
+  }
   if (args[0] !== 'key-store' || args.length > 2) throw new Error(USAGE);
   const value = args[1];
   if (value !== undefined) {

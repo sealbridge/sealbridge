@@ -4,6 +4,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- P6b: prepare `sealbridge-local` (planned alongside 0.7.0), with one-time interactive local-PC consent, `config local-pc on|off|status`, shared identities/data, installer selection, and paired publication preflight. Mainline remains flag-only. Sandbox startup evidence now explicitly defers isolation to task execution.
+
+
 ### Breaking
 
 - From 0.7.0, mainline local worker execution (`claude`, `codex`, `command`, and host sandbox including subprocess/OCI), receive hooks and relay wake commands require the explicit `--allow-local-pc` flag; no warning-only grace period. Environment/config opt-ins are not accepted. Requester delegation and MCP requests are unchanged. Owner approval, content inspection and LLM auto-accept restrictions remain in force. Every opted-in worker startup warns on stderr and records signed local `LOCAL_PC_OPT_IN` audit evidence; effective execution isolation metadata is unchanged. The isolated runtime is in preparation; use the flag for now, or `sealbridge-local` once published (planned alongside 0.7.0; not yet on npm). Doctor and both READMEs explain migration with reused keys/data. Local packaging, installers and publishing changes follow separately in P6b.
