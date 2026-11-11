@@ -55,25 +55,45 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-          # Missing versions can return empty output or fail with E404.
-          PUBLISHED_VERSION=$(npm view "sealbridge@${VERSION}" version 2>/dev/null) || PUBLISHED_VERSION=''
-          if [[ -n "$PUBLISHED_VERSION" ]]; then
-            echo "::notice::sealbridge@${VERSION} is already published; skipping."
-            echo 'skip=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'skip=false' >> "$GITHUB_OUTPUT"
-          fi
+          # Check both names; a retry can finish a partially published pair.
+          for NAME in sealbridge sealbridge-local; do
+            PUBLISHED_VERSION=$(npm view "${NAME}@${VERSION}" version 2>/dev/null) || PUBLISHED_VERSION=''
+            if [[ -n "$PUBLISHED_VERSION" ]]; then
+              echo "${NAME}=published" >> "$GITHUB_OUTPUT"
+            fi
+          done
 
       - run: pnpm install --frozen-lockfile
-        if: steps.guard.outputs.skip != 'true'
       - run: pnpm build
-        if: steps.guard.outputs.skip != 'true'
       - run: pnpm run typecheck
-        if: steps.guard.outputs.skip != 'true'
       - run: pnpm validate:schemas
-        if: steps.guard.outputs.skip != 'true'
       - run: pnpm test
-        if: steps.guard.outputs.skip != 'true'
-      # Authentication uses npm Trusted Publishing (OIDC); prepack builds dist/.
-      - run: npm publish --access public --provenance
-        if: steps.guard.outputs.skip != 'true'
+      - run: pnpm run check:protocol-release
+      - run: node scripts/package-cli.mjs
+      # Freeze both payloads and preflight BOTH before the first registry write.
+      - name: Pack and dry-run both distributions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          npm pack ./dist-local --ignore-scripts
+          VERSION=$(node -p "require('./package.json').version")
+          # An already-published version cannot pass npm publish --dry-run.
+          # Still validate its frozen tarball; dry-run every pending registry write.
+          npm pack "./sealbridge-${VERSION}.tgz" --dry-run --ignore-scripts
+          npm pack "./sealbridge-local-${VERSION}.tgz" --dry-run --ignore-scripts
+          if [[ "${{ steps.guard.outputs.sealbridge }}" != published ]]; then
+            npm publish "./sealbridge-${VERSION}.tgz" --dry-run --access public --provenance
+          fi
+          if [[ "${{ steps.guard.outputs['sealbridge-local'] }}" != published ]]; then
+            npm publish "./sealbridge-local-${VERSION}.tgz" --dry-run --access public --provenance
+          fi
+      # npm has no multi-package transaction. Preflight prevents validation failures
+      # after one write; a network/registry failure can still require a retry.
+      # Authentication retains npm Trusted Publishing (OIDC) and environment approval.
+      - name: Publish mainline
+        if: steps.guard.outputs.sealbridge != 'published'
+        run: npm publish "./sealbridge-${{ steps.guard.outputs.version }}.tgz" --access public --provenance
+      - name: Publish local distribution
+        if: steps.guard.outputs['sealbridge-local'] != 'published'
+        run: npm publish "./sealbridge-local-${{ steps.guard.outputs.version }}.tgz" --access public --provenance

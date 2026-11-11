@@ -146,3 +146,39 @@ jobs:
             } finally { $env:PSModulePath = $originalModulePath }
             if ($LASTEXITCODE -ne 0) { throw "$shell npm-less installation failed" }
           }
+
+      - name: Pack local distribution
+        run: npm pack ./dist-local --ignore-scripts
+      - name: Install local distribution (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export SEALBRIDGE_INSTALL_TARBALL="$PWD/sealbridge-local-$(node -p "require('./package.json').version").tgz"
+          export HOME="$(mktemp -d)"
+          export HOME="$(cd "$HOME" && pwd -P)"
+          sh sites/install.sh --package sealbridge-local
+          . "$HOME/.profile"
+          sealbridge-local --version
+          sealbridge-local worker start --help
+          sealbridge-local config local-pc status
+          sealbridge-local config local-pc off
+          if sealbridge-local worker start --adapter sandbox; then exit 1; fi
+          sh sites/install.sh --uninstall
+      - name: Install local distribution (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'sealbridge-local-clean-user'
+          $env:SEALBRIDGE_INSTALL_TARBALL = Join-Path $PWD ("sealbridge-local-" + (node -p "require('./package.json').version") + '.tgz')
+          & ./sites/install.ps1 -NoProfile -PackageName sealbridge-local
+          sealbridge-local.cmd --version
+          if ($LASTEXITCODE -ne 0) { throw 'local version failed' }
+          sealbridge-local.cmd worker start --help
+          if ($LASTEXITCODE -ne 0) { throw 'local help failed' }
+          sealbridge-local.cmd config local-pc status
+          if ($LASTEXITCODE -ne 0) { throw 'local status failed' }
+          sealbridge-local.cmd config local-pc off
+          if ($LASTEXITCODE -ne 0) { throw 'local revoke failed' }
+          sealbridge-local.cmd worker start --adapter sandbox
+          if ($LASTEXITCODE -eq 0) { throw 'noninteractive startup was allowed' }
+          & ./sites/install.ps1 -NoProfile -Uninstall

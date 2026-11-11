@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { generateKeyPair, verifySigned } from '../packages/core/src/index.js';
 import type { WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
-const captured = vi.hoisted(() => ({ options: undefined as WorkerNodeOptions | undefined, starts: 0 }));
+const captured = vi.hoisted(() => ({ options: undefined as WorkerNodeOptions | undefined, starts: 0, local: false, answer: 'yes', questions: 0 }));
+vi.mock('../cli/src/distribution.js', () => ({ get LOCAL_DISTRIBUTION() { return captured.local; } }));
+vi.mock('node:readline/promises', () => ({ createInterface: () => ({
+  question: async () => { captured.questions++; return captured.answer; }, close: () => {},
+}) }));
 vi.mock('../packages/runtime/dist/index.js', async original => {
   const runtime = await original<typeof import('../packages/runtime/src/index.js')>();
   return { ...runtime, WorkerNode: class extends runtime.WorkerNode {
@@ -19,13 +23,13 @@ import { networkCommand } from '../cli/src/network.js';
 import { AcpMcpServer, WorkerNode, PolicyAutoApprovalProvider } from '../packages/runtime/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
-import { LOCAL_PC_DISABLED, LOCAL_PC_MIGRATION, LOCAL_PC_WARNING } from '../cli/src/local-pc.js';
+import { LOCAL_PC_DISABLED, LOCAL_PC_MIGRATION, LOCAL_PC_WARNING, localPcWarning } from '../cli/src/local-pc.js';
 
 let dir: string;
 const owner = generateKeyPair();
 beforeEach(() => {
   dir = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-local-opt-in-'));
-  captured.options = undefined; captured.starts = 0;
+  captured.options = undefined; captured.starts = 0; captured.local = false; captured.questions = 0; captured.answer = 'yes';
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -76,7 +80,7 @@ it.each(['environment', 'configuration'])('does not accept %s opt-in', async sou
     Object.assign(app.identityOptions.env, { SEALBRIDGE_ALLOW_LOCAL_PC: 'true', ACP_ALLOW_LOCAL_PC: '1' });
   } else {
     mkdirSync(join(dir, 'data'), { mode: 0o700 });
-    writeFileSync(join(dir, 'data', 'config.json'), JSON.stringify({ version: 1, allowLocalPc: true,
+    writeFileSync(join(dir, 'data', 'config.json'), JSON.stringify({ version: 1, localPcExecution: true, allowLocalPc: true,
       'allow-local-pc': true, relays: ['https://relay.example'] }), { mode: 0o600 });
   }
   await expect(networkCommand('worker', ['start', '--adapter', 'sandbox'], app))
@@ -101,13 +105,13 @@ it.each(['sandbox', 'command', 'claude', 'codex', 'openai'])('starts opted-in %s
       '--contacts', join(dir, 'contacts.json'), '--invite-output', 'none'], app);
   }
   expect(captured.starts).toBe(2);
-  expect(stderr.mock.calls.filter(([line]) => line === LOCAL_PC_WARNING + '\n')).toHaveLength(2);
+  expect(stderr.mock.calls.filter(([line]) => line === localPcWarning(adapter === 'sandbox' ? 'task_policy_dependent (determined at execution; hooks use host_adapter)' : adapter === 'openai' ? 'host_http_adapter' : 'workspace_process') + (adapter === 'openai' ? ' Receive hooks use host_adapter.' : '') + '\n')).toHaveLength(2);
   const records = readFileSync(audit + '.events.jsonl', 'utf8').trim().split('\n').map(line => JSON.parse(line));
   expect(records).toHaveLength(2);
   for (const record of records) {
     expect(verifySigned(record)).toBe(true);
     expect(record.payload).toMatchObject({ event: 'LOCAL_PC_OPT_IN', workerDid: captured.options!.owner.did,
-      isolation: 'host_adapter', ownerApproval: true, contentInspection: true });
+      isolation: adapter === 'sandbox' ? 'task_policy_dependent (determined at execution; hooks use host_adapter)' : adapter === 'openai' ? 'host_http_adapter' : 'workspace_process', isolationPhase: 'startup_plan', ownerApproval: true, contentInspection: true });
   }
   expect(captured.options?.automaticApproval).toBe(false);
   expect(captured.options?.heldReview).toBeDefined();
@@ -178,4 +182,70 @@ it.each(['delegate', 'mcp-server'])('settles actual %s requests without local PC
     expect(executions).toBe(1);
     expect((await settled)[0].status).toBe('fulfilled');
   } finally { worker.stop(); await settled; }
+});
+
+it('local distribution requires a TTY, persists consent, revokes it, and shares mainline identities and contacts', async () => {
+  const { configCommand } = await import('../cli/src/config.js');
+  const { resolveStoredIdentity } = await import('../packages/runtime/src/index.js');
+  const { updateContacts, loadContacts } = await import('../cli/src/contacts.js');
+  const app = application();
+  const existing = await resolveStoredIdentity('worker', app.identityOptions);
+  const contactPath = join(dir, 'contacts.json');
+  const peer = generateKeyPair();
+  updateContacts(contactPath, existing, contacts => contacts.push({ ownerDid: peer.did, agentDid: peer.did, displayName: 'Shared contact', relay: 'https://relay.example', verifiedAt: new Date().toISOString(), allow: true, revoked: false, saved: true }));
+  const contactsBefore = readFileSync(contactPath, 'utf8');
+  const audit = join(dir, 'local-worker.jsonl');
+  const args = ['start', '--adapter', 'sandbox', '--contacts', contactPath, '--invite-output', 'none', '--audit', audit];
+  const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  const stderrTTY = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+  const tty = (input: boolean, error: boolean) => {
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: input });
+    Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: error });
+  };
+  captured.local = true;
+  try {
+    for (const [input, error] of [[false, false], [true, false], [false, true]]) {
+      tty(input, error);
+      await expect(networkCommand('worker', [...args], app)).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
+      await expect(configCommand(['local-pc', 'on'], app.identityOptions)).rejects.toThrow('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN');
+    }
+    expect(captured.questions).toBe(0);
+    tty(true, true);
+    captured.answer = 'no';
+    await expect(networkCommand('worker', [...args], app)).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
+    captured.answer = 'yes';
+    await networkCommand('worker', [...args], app);
+    expect(captured.options!.owner).toEqual(existing);
+    expect(captured.options!.allowedRequesterDids).toContain(peer.did);
+    expect(captured.options!.automaticApproval).toBe(false);
+    expect(captured.options!.heldReview).toBeDefined();
+    expect(captured.options!.ownerApprovalProvider).toBeDefined();
+    const questions = captured.questions;
+    tty(false, false);
+    await networkCommand('worker', [...args], app);
+    expect(captured.questions).toBe(questions);
+    const records = readFileSync(audit + '.events.jsonl', 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(verifySigned(record)).toBe(true);
+      expect(record.payload).toMatchObject({ event: 'LOCAL_PC_OPT_IN', isolationPhase: 'startup_plan', isolation: 'task_policy_dependent (determined at execution; hooks use host_adapter)' });
+    }
+    expect(readFileSync(contactPath, 'utf8')).toBe(contactsBefore);
+    expect(loadContacts(contactPath, existing.did)[0].ownerDid).toBe(peer.did);
+    captured.local = false;
+    await expect(networkCommand('worker', [...args], app)).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
+    captured.local = true;
+    await configCommand(['local-pc', 'off'], app.identityOptions);
+    await expect(networkCommand('worker', [...args], app)).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
+    tty(true, true);
+    await configCommand(['local-pc', 'on'], app.identityOptions);
+    tty(false, false);
+    await configCommand(['local-pc', 'status'], app.identityOptions);
+    expect(vi.mocked(console.log).mock.calls.at(-1)![0]).toBe(JSON.stringify({ localPcExecution: true }));
+    await expect(networkCommand('worker', ['start', '--adapter', 'claude', '--cmd', 'owner-command', '--auto-accept', '--contacts', join(dir, 'empty.json')], app)).rejects.toThrow('LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST');
+    expect(app.fetch).not.toHaveBeenCalled();
+  } finally {
+    if (stdinTTY) Object.defineProperty(process.stdin, 'isTTY', stdinTTY); else delete (process.stdin as { isTTY?: boolean }).isTTY;
+    if (stderrTTY) Object.defineProperty(process.stderr, 'isTTY', stderrTTY); else delete (process.stderr as { isTTY?: boolean }).isTTY;
+  }
 });

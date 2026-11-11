@@ -1060,3 +1060,31 @@ peers disclose only `received_held`/`closed`. Recipient claims are separate from
 audit; handoff does not prove reading or execution. This read is distinct from a cached
 delegation result and explicit pending resubmission. No relay deployment is required;
 richer observations require C4 peers. See [relay reliability](docs/relay-reliability.md).
+
+### Local PC distribution (planned alongside 0.7.0)
+
+`sealbridge-local` is planned for publication alongside 0.7.0. Once published:
+
+```sh
+npm i -g sealbridge-local
+sealbridge-local worker start --adapter sandbox
+sealbridge-local config local-pc status
+sealbridge-local config local-pc off
+```
+
+The first local execution asks the owner once, only when stdin and stderr are TTY.
+Alternatively run `sealbridge-local config local-pc on` in that terminal and type
+`yes`. Permission is saved in the existing application config; without it,
+noninteractive startup stops before execution. `off` revokes saved permission.
+Owner task approval, content inspection and LLM auto-accept restrictions remain in
+force. Every startup emits a warning and signed `LOCAL_PC_OPT_IN` audit evidence.
+Sandbox startup isolation is marked as determined at task execution; it is not an
+execution attestation. Mainline `sealbridge` always requires `--allow-local-pc`
+and never uses the local distribution's saved permission.
+
+Keys, contacts and the data directory are reused: both distributions use the same
+`resolveDataRoot`, including `SEALBRIDGE_DATA_DIR` and `ACP_DATA_DIR` overrides.
+Replace `sealbridge worker start` with `sealbridge-local worker start`.
+Installers default to mainline; choose local with `sh install.sh --package sealbridge-local`,
+`./install.ps1 -PackageName sealbridge-local`, or `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local`.
+Until publication, selecting local may fail with an unpublished-package explanation.

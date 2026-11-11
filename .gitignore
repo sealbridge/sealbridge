@@ -10,3 +10,6 @@ playwright-report/
 .env
 .env.*
 *.private.json
+
+dist-local/
+*.tgz

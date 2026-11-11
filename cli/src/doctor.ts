@@ -52,7 +52,7 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
     { name: 'PATH', ok: pathOk, message: pathOk ? 'sealbridge found' : 'sealbridge not found',
       ...(!pathOk && { remediation: 'Reopen your terminal or add the installer bin directory to PATH.' }) },
     keys,
-    { name: 'Local PC execution', ok: true, message: 'From 0.7.0, local workers (including sandbox) and command hooks require --allow-local-pc, with no warning-only period. Isolated runtime is in preparation. sealbridge-local is planned for publication alongside 0.7.0; once available, run npm i -g sealbridge-local and replace sealbridge worker start with sealbridge-local worker start (keys and data directory are reused). Until then use --allow-local-pc. Owner approval and content inspection stay on.' },
+    { name: 'Local PC execution', ok: true, message: 'From 0.7.0, local workers (including sandbox) and command hooks require --allow-local-pc, with no warning-only period. Isolated runtime is in preparation. sealbridge-local is planned for publication alongside 0.7.0; once available, run npm i -g sealbridge-local and replace sealbridge worker start with sealbridge-local worker start (keys and data directory are reused). The local distribution asks once in a terminal (stdin and stderr must be TTY), or run sealbridge-local config local-pc on there. View status with sealbridge-local config local-pc status; revoke with sealbridge-local config local-pc off. Mainline ignores this saved permission. Until publication use --allow-local-pc. Owner approval and content inspection stay on.' },
   ];
   if (options.offline) {
     checks.push({ name: 'Relay', ok: true, message: 'Skipped (offline)' });

@@ -35,7 +35,7 @@ import {
   SandboxAgentAdapter,
   assertCliAuthentication,
 } from '@acp/adapters';
-import { requireLocalPcOptIn, auditLocalPcOptIn, LOCAL_PC_WARNING } from './local-pc.js';
+import { ensureLocalPcOptIn, auditLocalPcOptIn, LOCAL_PC_WARNING, localPcWarning } from './local-pc.js';
 import { createWakeHook } from './wake-hook.js';
 import { createReceiveHook } from './receive-hook.js';
 import { contactsPath, loadContacts, contactsApproval, addContact } from './contacts.js';
@@ -289,9 +289,9 @@ export async function networkCommand(command: string, args: string[], applicatio
   const inviteOutput = command === 'worker' ? parseInviteOutput(f.get('--invite-output')) : undefined;
   const authRecovery = relayAuthOptions(f);
   checkNetworkOptions(command, f);
-  if ((command === 'worker' && (['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')) || f.has('--on-receive'))) ||
-      (command === 'relay' && f.has('--wake-command')))
-    requireLocalPcOptIn(f.get('--allow-local-pc'));
+  const needsLocalPc = (command === 'worker' && (['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')) || f.has('--on-receive'))) ||
+      (command === 'relay' && f.has('--wake-command'));
+  if (needsLocalPc) await ensureLocalPcOptIn(f.get('--allow-local-pc'), application.identityOptions);
   if (command === 'delegate' && f.has('--invite')) {
     const invite = text(f, 'invite');
     if (f.has('--to') && text(f, 'to') !== invite)
@@ -302,7 +302,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   if (command === 'relay') {
     const port = Number(text(f, 'port', '8787'));
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('INVALID_PORT');
-    if (f.has('--allow-local-pc')) process.stderr.write(LOCAL_PC_WARNING + '\n');
+    if (needsLocalPc || f.has('--allow-local-pc')) process.stderr.write(LOCAL_PC_WARNING + '\n');
     const relay = await startLocalRelay({ port, host: text(f, 'host', '127.0.0.1'), relayOptions: {
       envelopeTtlMs: optionalCount(f, 'envelope-ttl-ms'),
       maxQueueSize: optionalCount(f, 'max-queue-size'),
@@ -463,9 +463,12 @@ export async function networkCommand(command: string, args: string[], applicatio
           maxOutputTokens: acceptance.maxOutputTokens, maxToolInvocations: acceptance.maxToolInvocations, maxWallClockSeconds: acceptance.maxWallClockSeconds }), null, 2));
       return;
     }
-    if (f.has('--allow-local-pc')) {
-      process.stderr.write(LOCAL_PC_WARNING + '\n');
-      auditLocalPcOptIn((f.has('--audit') ? text(f, 'audit') : workerIntakePath(key.did, application.identityOptions)) + '.events.jsonl', key, !f.has('--audit'));
+    if (needsLocalPc || f.has('--allow-local-pc')) {
+      const isolation = adapterName === 'sandbox'
+        ? 'task_policy_dependent (determined at execution; hooks use host_adapter)'
+        : ['command', 'claude', 'codex'].includes(adapterName) ? 'workspace_process' : 'host_http_adapter';
+      process.stderr.write(localPcWarning(isolation) + (f.has('--on-receive') ? ' Receive hooks use host_adapter.' : '') + '\n');
+      auditLocalPcOptIn((f.has('--audit') ? text(f, 'audit') : workerIntakePath(key.did, application.identityOptions)) + '.events.jsonl', key, !f.has('--audit'), isolation, f.has('--on-receive'));
     }
     if (f.has('--wake-channel')) await workerRelay.registerWake(key.did, text(f, 'wake-channel'));
     if (acceptance.publishToRegistry) await worker.register();

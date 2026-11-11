@@ -929,3 +929,31 @@ relay のデプロイは不要です。
 詳細な観測には相手の C4 対応が必要です。[relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
 ワーカーは既定で、PROPOSE 一件だけの承認待ちに対する単独署名の中断終端（形式 1）を記録します。`--audit-interruption-format 1`（`WorkerNodeOptions.auditInterruptionFormat: 1`）による明示指定も引き続き利用できます。書き込み側を更新する前に、古い監査の読み取り側を更新してください。検証結果は `UNILATERALLY_CLOSED`・`valid:false`・`audit-verify` 終了コード 2 となり、双方の完了合意を表しません。既定で、`tasks approve` または `tasks reject` は、ワーカーを止めなくても進行中の所有者承認待ちまたは ACCEPT 確認待ちを閉じます。封印済みファイルには追記せず、後続タスクはタスク別の監査ファイルに記録します。[形式・復元・照合規則（英語）](docs/audit-interruption.md)を参照してください。
+
+### ローカル PC 版（0.7.0 と同時に公開予定）
+
+`sealbridge-local` は 0.7.0 と同時に公開予定です。公開後は次のように使えます。
+
+```sh
+npm i -g sealbridge-local
+sealbridge-local worker start --adapter sandbox
+sealbridge-local config local-pc status
+sealbridge-local config local-pc off
+```
+
+初回のローカル実行時に所有者が一度確認します。stdin と stderr が両方 TTY の端末でのみ
+確認でき、`yes` と答えると既存の設定ファイルに保存します。
+`sealbridge-local config local-pc on` でも同じ確認ができます。
+未設定の非対話環境では起動前に停止します。`status` で状態を確認し、`off` で取り消せます。
+所有者のタスク承認、内容の検査、LLM の自動受諾制限は引き続き有効です。
+起動時の警告と署名付き `LOCAL_PC_OPT_IN` 監査記録は毎回出します。
+sandbox の起動時隔離はタスク実行時に決定される旨を記録し、実行証明とは区別します。
+本流 `sealbridge` は保存済み許可を使わず、毎回 `--allow-local-pc` が必要です。
+
+鍵・連絡先・データディレクトリはそのまま使えます。両版は同じ `resolveDataRoot` と
+`SEALBRIDGE_DATA_DIR` / `ACP_DATA_DIR` を使用します。
+`sealbridge worker start` を `sealbridge-local worker start` に置き換えてください。
+インストーラーの既定は本流です。`sh install.sh --package sealbridge-local`、
+`./install.ps1 -PackageName sealbridge-local`、または環境変数
+`SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local` で選択できます。
+公開前は未公開である旨を表示してインストールが失敗することがあります。
