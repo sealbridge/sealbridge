@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'Sealbridge'
 $nodeVersion = '22.22.0'
 if ($PackageName -notin @('sealbridge', 'sealbridge-local')) { throw 'Choose sealbridge or sealbridge-local.' }
-$package = if ($PackageName -eq 'sealbridge-local') { 'sealbridge-local@0.7.0' } else { 'sealbridge@0.6.3' }
+$package = if ($PackageName -eq 'sealbridge-local') { 'sealbridge-local@0.7.0' } else { 'sealbridge@0.7.0' }
 $nodeDir = Join-Path $root 'node'
 $npmDir = Join-Path $root 'npm'
 
@@ -139,7 +139,7 @@ try {
     }
     & $runtime.Path $selection.Npm install --global --prefix $npmDir --ignore-scripts --no-audit --no-fund $package
     if ($LASTEXITCODE -ne 0) {
-        if ($PackageName -eq 'sealbridge-local') { throw 'sealbridge-local is planned for publication alongside 0.7.0 and may not be published yet. Check npm availability before retrying.' }
+        if ($PackageName -eq 'sealbridge-local') { throw 'sealbridge-local 0.7.0 is prepared, pending publication on npm. Check npm availability before retrying.' }
         throw 'npm installation failed.'
     }
     # Pin the Windows shims to the selected Node without replacing any existing

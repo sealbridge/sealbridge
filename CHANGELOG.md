@@ -4,29 +4,29 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-- P6b: prepare `sealbridge-local` (planned alongside 0.7.0), with one-time interactive local-PC consent, `config local-pc on|off|status`, shared identities/data, installer selection, and paired publication preflight. Mainline remains flag-only. Sandbox startup evidence now explicitly defers isolation to task execution.
+## [0.7.0] - 2026-11-11
 
+<!-- If the publication date changes, update this date before creating the tag.
+公開日が変わる場合は、タグを打つ前にこの日付を修正してください。 -->
 
 ### Breaking
 
-- From 0.7.0, mainline local worker execution (`claude`, `codex`, `command`, and host sandbox including subprocess/OCI), receive hooks and relay wake commands require the explicit `--allow-local-pc` flag; no warning-only grace period. Environment/config opt-ins are not accepted. Requester delegation and MCP requests are unchanged. Owner approval, content inspection and LLM auto-accept restrictions remain in force. Every opted-in worker startup warns on stderr and records signed local `LOCAL_PC_OPT_IN` audit evidence; effective execution isolation metadata is unchanged. The isolated runtime is in preparation; use the flag for now, or `sealbridge-local` once published (planned alongside 0.7.0; not yet on npm). Doctor and both READMEs explain migration with reused keys/data. Local packaging, installers and publishing changes follow separately in P6b.
-- 0.7.0 から本流のローカルワーカー（手元の sandbox の subprocess / OCI も含む）とコマンド hook は `--allow-local-pc` が必須です。警告だけの期間はなく、環境変数・設定ファイルでは許可できません。承認・検査と自動受付制限は維持し、依頼側は変更しません。隔離ランタイムは準備中です。現時点ではフラグを使い、`sealbridge-local` は 0.7.0 と同時に公開予定（npm 未公開）です。鍵・データを再利用する乗り換え方法を doctor と日英 README に記載しました。P6b のパッケージ化・インストーラー・公開処理は含みません。
-
-### Changed (Internal)
-
-- Extract local adapters, credential storage and hooks into runtime-local while preserving legacy imports and sealbridge/sdk.
-
-### Changed
-
-- Internal: extract worker execution into an injectable ExecutionBackend with HostBackend preserving existing behavior.
-
-### Fixed
-
-- Reject deliveries below the contracted isolation level, including wasm/microvm requirements and unknown attested levels, while preserving default and explicit OCI fallback behavior.
+- Mainline local workers (`claude`, `codex`, `command`, and host sandbox including subprocess/OCI), receive hooks and relay wake commands now require `--allow-local-pc`, without a warning-only grace period. Environment/config opt-ins are not accepted. Add the flag to existing local commands, or after npm publication install `npm i -g sealbridge-local@0.7.0` and replace `sealbridge worker start` with `sealbridge-local worker start`; keys and data are reused. The local distribution asks once with stdin/stderr TTY, or use `sealbridge-local config local-pc on`; inspect/revoke with `status`/`off`. Mainline ignores this saved permission. Owner approval, content inspection and LLM auto-accept restrictions remain; requester/MCP delegation is unchanged. The isolated runtime remains in preparation. (P6a, #227; P6b, #228)
+- 本流のローカルワーカー（subprocess/OCI sandbox を含む）、receive hook、relay wake command は `--allow-local-pc` が必須です。猶予期間はなく環境変数・設定では許可できません。既存コマンドにフラグを付けるか、npm 公開後に `npm i -g sealbridge-local@0.7.0` を実行し、`sealbridge worker start` を `sealbridge-local worker start` に置換します。鍵とデータは再利用します。ローカル版は TTY 端末で初回確認、または `sealbridge-local config local-pc on` で許可し、`status`/`off` で確認・撤回できます。本流は保存許可を使いません。承認・検査・LLM 自動受付制限は維持し、依頼側と MCP 委譲は変更しません。隔離ランタイムは準備中です。(#227, #228)
 
 ### Added
 
-- Export Desktop embedding dependencies (`signApproval` and protocol peer storage APIs/types) through `sealbridge/sdk`, preserving legacy build paths.
+- `sealbridge-local` distribution with persistent local-PC consent, shared identities/data, installer selection and paired publication preflight. Opted-in worker startup warns and records signed `LOCAL_PC_OPT_IN` audit evidence; sandbox startup explicitly defers isolation attestation to task execution. (P6a/P6b, #227, #228)
+- 保存許可、共通の鍵・データ、インストーラー選択、両配布物の公開前検証を備えた `sealbridge-local` を追加しました。許可した起動時に警告と署名付き `LOCAL_PC_OPT_IN` を記録し、sandbox 隔離証明はタスク実行時に行います。(#227, #228)
+- Injectable `ExecutionBackend` and behavior-preserving `HostBackend`; separate `packages/runtime-local` for local adapters, credential storage and hooks, preserving legacy imports and `sealbridge/sdk`. (P4/P5, #225, #226)
+- 差し替え可能な `ExecutionBackend` と従来動作を保つ `HostBackend`、ローカルアダプター・資格情報ストア・hook を分離する `packages/runtime-local` を追加しました。既存 import と SDK は維持します。(#225, #226)
+- Desktop embedding dependencies (`signApproval` and protocol peer storage APIs/types) exported through `sealbridge/sdk`, preserving legacy build paths. (#219)
+- Desktop 組み込み用の `signApproval` とプロトコル peer ストアの API・型を SDK から公開します。従来パスは維持します。(#219)
+
+### Fixed
+
+- Close the verifier isolation gap at every protocol level: reject delivery below contracted isolation, including wasm/microvm requirements and unknown attested levels, preserving default and explicit OCI fallback behavior. (R1, #224)
+- 全プロトコル版で検証器の隔離の穴を修正し、wasm/microvm 要求や不明な証明レベルを含め契約より低い隔離の納品を拒否します。既定動作と明示的な OCI フォールバックは維持します。(R1, #224)
 
 ## [0.6.3] - 2026-11-09
 
@@ -161,6 +161,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.7.0]: https://github.com/sealbridge/sealbridge/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/sealbridge/sealbridge/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/sealbridge/sealbridge/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sealbridge/sealbridge/compare/v0.6.0...v0.6.1

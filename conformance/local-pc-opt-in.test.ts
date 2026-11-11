@@ -144,7 +144,7 @@ it('doctor explains the requirement and migration without network in offline mod
   const checks = await diagnose({ ...app, offline: true, path: '', version: '22.22.0' });
   const message = checks.find(check => check.name === 'Local PC execution')!.message;
   for (const text of ['0.7.0', '--allow-local-pc', 'sandbox', 'npm i -g sealbridge-local',
-    'planned for publication', 'keys and data directory are reused']) expect(message).toContain(text);
+    'pending publication on npm', 'keys and data directory are reused']) expect(message).toContain(text);
   expect(app.fetch).not.toHaveBeenCalled();
 });
 
