@@ -415,12 +415,13 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     input: string, init: RequestInit, consume: (response: Response) => Promise<T>,
     signal?: AbortSignal, acceptedStatuses: number[] = [],
   ): Promise<T> {
-    const maxAttempts = this.security.maxAuthRecoveryAttempts ?? 3;
+    const maxAttempts = this.security.maxAuthRecoveryAttempts ?? Number.MAX_SAFE_INTEGER;
     const windowMs = this.security.authRecoveryTimeoutMs ?? 120_000;
     const key = did + '\0' + operation;
+    let clockOffsetMs: number | undefined;
     let episode: { started: number; attempts: number; users: number } | undefined;
     const exhausted = () => new RelayAuthRecoveryExhaustedError(operation, episode!.attempts,
-      Math.round(performance.now() - episode!.started));
+      Math.round(performance.now() - episode!.started), clockOffsetMs);
     try {
       for (;;) {
         signal?.throwIfAborted();
@@ -428,8 +429,11 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           const remaining = windowMs - (performance.now() - episode.started);
           if (episode.attempts >= maxAttempts || remaining <= 0) throw exhausted();
           this.connectionStatus = 'reconnecting';
-          console.warn('Relay authentication retry ' + (episode.attempts + 1) + '/' + maxAttempts);
-          await waitForRelayRetry(Math.min(relayRetryDelay(episode.attempts), remaining), signal);
+          console.warn('Relay authentication retry ' + (episode.attempts + 1) +
+            (this.security.maxAuthRecoveryAttempts === undefined ? '' : '/' + maxAttempts));
+          await waitForRelayRetry(Math.min(this.security.maxAuthRecoveryAttempts === undefined
+            ? [2000, 10000, 30000, 60000][Math.min(episode.attempts, 3)]!
+            : relayRetryDelay(episode.attempts), remaining), signal);
           signal?.throwIfAborted();
           if (episode.attempts >= maxAttempts || performance.now() - episode.started >= windowMs) throw exhausted();
           episode.attempts++;
@@ -452,6 +456,10 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
             if (requestSignal.aborted || (!response.ok && !acceptedStatuses.includes(response.status))) {
               void response.body?.cancel().catch(() => {});
               requestSignal.throwIfAborted();
+              if (response.status === 401) {
+                const serverTime = Date.parse(response.headers.get('date') ?? '');
+                clockOffsetMs = Number.isFinite(serverTime) ? Math.round(serverTime - Date.now()) : undefined;
+              }
               throw new RelayHttpError(response.status, operation);
             }
             return consume(response);

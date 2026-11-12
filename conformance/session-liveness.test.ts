@@ -1,8 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import type { Json } from '../packages/core/src/index.js';
-import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient, isTransientRelayError } from '../packages/relay/src/index.js';
+import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient, isTransientRelayError, RelayAuthRecoveryExhaustedError } from '../packages/relay/src/index.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
 import { AcpMcpServer, PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
 import type { AgentAdapter, DelegateOptions, WorkerNodeOptions } from '../packages/runtime/src/index.js';
@@ -55,6 +58,63 @@ function fixture(options: { sse?: boolean; fetcher?: (base: typeof fetch) => typ
 
 // Every transport here is an in-process Fetch bridge. No sockets or deployed relay are used.
 describe('session liveness and recovery', () => {
+  it('interrupts active work on auth exhaustion and never replays it after reconnect', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), 'worker-auth-interruption-'));
+    cleanup.push(async () => { rmSync(directory, { recursive: true, force: true }); });
+    let fail = false, executions = 0;
+    const statuses: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) => {
+      if (fail && new URL(String(input)).pathname === '/envelopes' && new URL(String(input)).searchParams.get('recipient') === f.workerKey.did)
+        throw new RelayAuthRecoveryExhaustedError('receive', 4, 120_000);
+      return base(input, init);
+    }, execute: async ctx => {
+      executions++;
+      fail = true;
+      return new Promise((_resolve, reject) => ctx.signal.addEventListener('abort', () => reject(ctx.signal.reason), { once: true }));
+    }, worker: { auditPath: join(directory, 'worker.jsonl'), auditInterruptionFormat: 1, onStatus: status => statuses.push(status) } });
+    const running = f.worker.start();
+    const checked = expect(f.task({ taskTimeoutMs: 120_000, executionTimeoutMs: 120_000, transportIdleTimeoutMs: 120_000 }))
+      .rejects.toMatchObject({ code: 'TASK_INTERRUPTED' });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(statuses).toContain('unavailable');
+    expect(executions).toBe(1);
+    await vi.waitFor(() => expect((f.worker as unknown as { mailboxes: Map<string, unknown> }).mailboxes.size).toBe(0));
+    fail = false;
+    await vi.advanceTimersByTimeAsync(60_000);
+    await checked;
+    expect(executions).toBe(1);
+    f.worker.stop();
+    await running;
+  });
+
+  it('keeps a continuous worker alive after auth exhaustion and reconnects when relay returns', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let unavailable = true;
+    const statuses: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) =>
+      unavailable && new URL(String(input)).searchParams.get('recipient') === f.workerKey.did
+        ? new Response(null, { status: 401 }) : base(input, init),
+      worker: { authRecoveryTimeoutMs: 100, onStatus: status => statuses.push(status) } });
+    // fixture injects a transport, so configure the HTTP client's recovery window too.
+    // Its default is deliberately exercised here (120 seconds).
+    let ended = false;
+    const running = f.worker.start().finally(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(statuses.at(-1)).toBe('unavailable');
+    expect(ended).toBe(false);
+    unavailable = false;
+    await vi.advanceTimersByTimeAsync(59_999);
+    const result = f.task();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(result).resolves.toMatchObject({ state: 'SETTLED' });
+    f.worker.stop();
+    await running;
+  });
+
   it('reconnects SSE after a transient close and settles the task with fresh authentication', async () => {
     let streams = 0;
     const credentials: string[] = [];
@@ -206,18 +266,18 @@ describe('session liveness and recovery', () => {
     expect(publications).toBe(0);
   });
 
-  it('propagates worker auth exhaustion through the supervisor without restarting its budget', async () => {
+  it('propagates one-shot worker auth exhaustion through the supervisor without restarting its budget', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const owner = generateKeyPair();
     const fetcher = vi.fn(async () => new Response('ignored response', { status: 401 }));
     const execute = vi.fn();
     const statuses: string[] = [];
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(origin, fetcher, owner),
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }),
       adapter: adapter(execute), connectTimeoutMs: 50, onStatus: status => statuses.push(status) });
     cleanup.push(() => worker.stop());
-    const checked = expect(worker.start()).rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED',
-      message: expect.stringContaining('system clock') });
+    const checked = expect(worker.start({ once: true })).rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED',
+      message: expect.stringContaining('clock') });
     await vi.advanceTimersByTimeAsync(10_000);
     await checked;
     expect(fetcher).toHaveBeenCalledTimes(4);

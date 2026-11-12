@@ -1,3 +1,4 @@
+import { relayRetryCode } from '@acp/relay';
 // SPDX-License-Identifier: Apache-2.0
 import {
   digest,
@@ -122,7 +123,7 @@ export async function receiveRelay(
       if (signal?.aborted) throw signal.reason ?? new Error('SESSION_ABORTED');
       if (!isTransientRelayError(error)) { onStatus?.('unavailable'); throw error; }
       onStatus?.('reconnecting');
-      console.warn('Relay poll retry ' + (attempt + 1));
+      console.warn('Relay poll retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
       await waitForRelayRetry(relayRetryDelay(attempt++), signal);
       continue;
     }
@@ -467,6 +468,9 @@ export class SessionWire {
     if (view.payload.eventType === 'HEARTBEAT') return view;
     if (view.payload.eventType === 'ERROR') {
       const error = new PeerRejectedError(view.payload.payload);
+      // A restart may reset the peer's sequence counter. The signed, encrypted
+      // interruption is terminal even while waiting for ACCEPT or its receipt.
+      if (error.code === 'TASK_INTERRUPTED') throw error;
       // Restart notifications are independent of the lost session's wire counters.
       // Sender, recipient, task, signature and encryption were checked above.
       if (error.recovery) {

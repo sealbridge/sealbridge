@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair } from '../packages/core/src/index.js';
+import { generateKeyPair, signEnvelope, signPayload, openEnvelope } from '../packages/core/src/index.js';
 import type { BudgetSpec, Json, KeyPair } from '../packages/core/src/index.js';
-import { InMemoryRelay, HttpRelayClient, startLocalRelay } from '../packages/relay/src/index.js';
+import { InMemoryRelay, HttpRelayClient, startLocalRelay, createRelayFetchHandler, type RelayTransport } from '../packages/relay/src/index.js';
 import {
   PolicyAutoApprovalProvider,
   RequesterClient,
@@ -41,7 +41,7 @@ function echoAdapter(calls: Json[]): AgentAdapter {
 
 function workerFor(
   owner: KeyPair,
-  relay: InMemoryRelay,
+  relay: RelayTransport,
   adapter: AgentAdapter,
   options: WorkerAcceptancePolicy = {},
 ) {
@@ -89,6 +89,42 @@ async function delegate(
 }
 
 describe('worker acceptance policy', () => {
+  it('acks expired proposals without holding the only execution slot while rejecting them', async () => {
+    const relay = new InMemoryRelay(), bob = generateKeyPair(), alice = generateKeyPair();
+    const calls: Json[] = [];
+    const handler = createRelayFetchHandler({ relay });
+    const workerRelay = new HttpRelayClient('https://relay.example', async (input, init) => handler(new Request(input, init)), bob);
+    const worker = workerFor(bob, workerRelay, echoAdapter(calls), { maxConcurrentTasks: 1 });
+    const manifest = buildTaskManifest({ ownerDid: alice.did, workerDid: bob.did,
+      agentDid: worker.agentCard.payload.agentDid, title: 'expired', description: 'expired' });
+    manifest.deadline = new Date(Date.now() - 1).toISOString();
+    const stale = signEnvelope({ taskId: manifest.taskId, recipientDid: bob.did, seq: 0, eventType: 'PROPOSE',
+      payload: JSON.parse(JSON.stringify({ proposal: signPayload(manifest, alice), input: {}, capabilityChains: [] })) }, alice, { encrypt: true });
+    const send = relay.send.bind(relay);
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    let rejecting!: () => void;
+    const rejected = new Promise<void>(resolve => { rejecting = resolve; });
+    relay.send = async frame => {
+      if (frame.payload.taskId === manifest.taskId && frame.payload.eventType === 'ERROR') {
+        expect(openEnvelope(frame, alice)).toMatchObject({ code: 'INVALID' });
+        rejecting();
+        await hold;
+      }
+      return send(frame);
+    };
+    const ack = vi.spyOn(relay, 'acknowledge');
+    const running = worker.start();
+    cleanup.push(async () => { release(); worker.stop(); await running; });
+    await relay.send(stale);
+    await rejected;
+    await expect(delegate(alice, relay, worker)).resolves.toMatchObject({ state: 'SETTLED' });
+    expect(calls).toHaveLength(1);
+    release();
+    await vi.waitFor(() => expect(ack.mock.calls.some(args => args[1] === stale.payload.envelopeId)).toBe(true));
+    expect(await relay.receive(bob.did, 0, undefined, { lease: true, taskId: manifest.taskId })).toBeUndefined();
+  });
+
   it('rejects over-budget and unlisted requesters without sending ACCEPT', async () => {
     const relay = new InMemoryRelay();
     const bob = generateKeyPair();
@@ -308,7 +344,8 @@ describe('acp worker CLI acceptance guard', () => {
       finally { await server.close(); }
     })();
     function worker(args: string[]) {
-      const run = networkCommand('worker', args);
+      // Teardown deliberately injects 401; opt out of recovery for these startup tests.
+      const run = networkCommand('worker', [...args, '--relay-auth-retries', '0']);
       runs.push(run);
       void run.catch(() => undefined);
       return run;

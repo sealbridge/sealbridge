@@ -82,7 +82,7 @@ import type {
 import { CONTEXT_GRANT_AUDIT_EVENTS, proposalAuditDigest, verifyContextAcceptanceAudit } from './context-grant-audit.js';
 import { parseJsonl, verifyAudit, createAuditInterruption, JsonlStore,
   type AuditInterruption, type AuditBundle, type AuditEntry } from '@acp/ledger';
-import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions } from '@acp/relay';
+import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions, isTransientRelayError } from '@acp/relay';
 import type { RelayAuthRecoveryOptions, RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
 import type {
   AgentAdapter,
@@ -787,6 +787,33 @@ export class WorkerNode {
     this.proposalTimes.set(requesterDid, recent);
     return undefined;
   }
+  /** Pure validation shared by capacity admission and execution. */
+  private validateProposal(first: SignedEnvelope): Proposal {
+    const data = openEnvelope(
+      first,
+      this.options.owner,
+      sessionDecryptOptions(this.options.allowUnencryptedEnvelopes),
+    ) as unknown as Proposal;
+    const manifest = data?.proposal?.payload;
+    if (
+      !manifest ||
+      first.payload.senderDid !== manifest.requester.ownerDid ||
+      first.payload.taskId !== manifest.taskId
+    )
+      throw new Error('INVALID_PROPOSAL');
+    if (
+      !verifySigned(data.proposal, manifest.requester.ownerDid) ||
+      manifest.worker?.ownerDid !== this.options.owner.did ||
+      manifest.worker.agentDid !== this.agentCard.payload.agentDid ||
+      Date.parse(manifest.deadline) <= this.protocol.now() ||
+      Date.parse(manifest.createdAt) > this.protocol.now() + DEFAULT_CLOCK_SKEW_MS
+    )
+      throw new Error('INVALID_PROPOSAL');
+    validateManifest(manifest);
+    validateContextGrantUse(manifest, data.input, this.protocol.now());
+    if (!validateOutput(manifest.io.inputSchema, data.input)) throw new Error('INVALID_PROPOSAL');
+    return data;
+  }
   /** Budget, allowlist, and rate checks that can be decided before execution starts. */
   private intakeRejection(first: SignedEnvelope): string | undefined {
     try {
@@ -833,6 +860,7 @@ export class WorkerNode {
       ...(options.signal ? [options.signal] : []),
     ]);
     const jobs = new Set<Promise<void>>();
+    let generation = new AbortController();
     const unregister = registerWorkerListener(this.options.owner.did, (env) => {
       this.forwardedQueue.push(env);
       this.forwardedWaiters.shift()?.();
@@ -841,13 +869,40 @@ export class WorkerNode {
     try {
       while (!idleSignal.aborted) {
         // revocationAwareRelay ingests a leading REVOKE before this read returns.
-        const envelope = await this.listen(idleSignal);
+        let envelope: SignedEnvelope;
+        try { envelope = await this.listen(idleSignal); }
+        catch (error) {
+          if (options.once || idleSignal.aborted || !(error instanceof Error) ||
+              !('code' in error) || error.code !== 'RELAY_AUTH_RECOVERY_EXHAUSTED') throw error;
+          this.listenerStatus('unavailable', error);
+          // End this generation without granting permission to replay execution.
+          generation.abort(error);
+          for (const mailbox of this.mailboxes.values()) mailbox.close(error);
+          await Promise.allSettled([...jobs]);
+          for (;;) {
+            await waitForRelayRetry(60_000, idleSignal);
+            try {
+              this.reconciled = false;
+              await this.reconcileTasks();
+              break;
+            } catch (recoveryError) {
+              if (idleSignal.aborted || !(isTransientRelayError(recoveryError) ||
+                  recoveryError instanceof Error && /^(?:RELAY_REJECTED:\s*401\b|RELAY_AUTH_RECOVERY_EXHAUSTED\b)/.test(recoveryError.message)))
+                throw recoveryError;
+              // An interrupted-task notification can fail while the relay is still
+              // unavailable. Retain its journal outcome and retry without execution.
+              this.listenerStatus('unavailable', relayDiagnostic(recoveryError));
+            }
+          }
+          generation = new AbortController();
+          continue;
+        }
         if (await this.recoverProposal(envelope)) {
           if (options.once) return this.lastResult;
           continue;
         }
         if (this.deliver(envelope)) continue;
-        const job = this.beginTask(envelope, idleSignal, options.once === true);
+        const job = this.beginTask(envelope, AbortSignal.any([idleSignal, generation.signal]), options.once === true);
         if (!job) continue;
         jobs.add(job);
         void job.finally(() => jobs.delete(job)).catch(() => undefined);
@@ -1123,11 +1178,13 @@ export class WorkerNode {
         this.options.onEvent?.('REJECTED', first.payload.taskId, { code: 'INVALID_PROPOSAL_ENVELOPE' });
       return;
     }
-    let rejection = this.intakeRejection(first);
+    let invalid = false;
+    try { this.validateProposal(first); } catch { invalid = true; }
+    let rejection = invalid ? undefined : this.intakeRejection(first);
     let reserved = false;
-    if (!rejection && this.activeTasks >= this.concurrentLimit)
+    if (!invalid && !rejection && this.activeTasks >= this.concurrentLimit)
       rejection = 'maxConcurrentTasks ' + this.concurrentLimit + ' reached';
-    else if (!rejection) {
+    else if (!invalid && !rejection) {
       this.activeTasks += 1;
       reserved = true;
     }
@@ -1273,26 +1330,8 @@ export class WorkerNode {
       await acknowledgeRelay(relay, first, signal);
     };
     try {
-      data = openEnvelope(
-        first,
-        this.options.owner,
-        sessionDecryptOptions(this.options.allowUnencryptedEnvelopes),
-      ) as unknown as Proposal;
-      const manifest = data?.proposal?.payload;
-      if (
-        !manifest ||
-        first.payload.senderDid !== manifest.requester.ownerDid ||
-        first.payload.taskId !== manifest.taskId
-      )
-        throw new Error('INVALID_PROPOSAL');
-      if (
-        !verifySigned(data.proposal, manifest.requester.ownerDid) ||
-        manifest.worker?.ownerDid !== this.options.owner.did ||
-        manifest.worker.agentDid !== this.agentCard.payload.agentDid ||
-        Date.parse(manifest.deadline) <= this.protocol.now() ||
-        Date.parse(manifest.createdAt) > this.protocol.now() + DEFAULT_CLOCK_SKEW_MS
-      )
-        throw new Error('INVALID_PROPOSAL');
+      data = this.validateProposal(first);
+      const manifest = data.proposal.payload;
       this.assertPeer(first.payload.senderDid);
       validateManifest(manifest);
       validateContextGrantUse(manifest, data.input, this.protocol.now());
@@ -1355,6 +1394,7 @@ export class WorkerNode {
             { encrypt: true },
           ),
         );
+        if (['INVALID', 'SCHEMA'].includes(rejectionBody(e).code)) await acknowledgeRelay(relay, first);
       } catch {
         // Ignore transport errors while reporting pre-wire rejection.
       }

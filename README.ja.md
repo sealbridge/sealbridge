@@ -970,6 +970,22 @@ sandbox の起動時隔離はタスク実行時に決定される旨を記録し
 
 サイズ上限の既定は**上限なし**です。持ち主は `sealbridge config auto-accept diff-size trial-reviewer` で公式ワーカー用の400行・48 KiB（JSON 化した入力）・10ファイルをまとめて選べます。`max-diff-lines N`・`max-diff-bytes N`・`max-diff-files N` で個別にも設定できます。`diff-size off` は全サイズ上限を解除し、各項目も `off` に対応します。変更後は再起動します。設定した上限は手動承認にも適用し、実行前・日次／月次枠の消費前に確認します。HTTP アダプターのプロンプト全体と `maxInputTokens` の予算検証は、サイズ上限なしでも必ず行います。拒否文言の既定は通常の固定文で、お試し文言は `monthly-limit-message trial-reviewer` で明示選択します。通った依頼にはサイズ監査ファイルを作りません。[数え方と監査記録](docs/auto-accept.ja.md#呼ぶ前の入力サイズ)を参照してください。
 
+## 一時停止するサンドボックスと中継器認証のトラブルシューティング
+
+常駐の `worker start` は Muse などのサンドボックスの一時停止・再開後も自動で回復します。
+401 には毎回新しいトークンとキャッシュしない nonce を使い、既定120秒の枠内で
+2秒・10秒・30秒・60秒と待ちます（残り時間で制限）。`--relay-auth-retries` の明示指定は
+回数を制限し、`--relay-auth-recovery-timeout-ms` は時間枠を変更します。
+回復を使い切っても `unavailable` を表示して60秒ごとに再接続します。
+実行中だったセッションは中断として閉じます。未封印の監査は証拠であり、再実行の許可にはなりません。
+`--once` と依頼側は回復失敗をエラーとして終了します。
+
+`RELAY_AUTH_RECOVERY_EXHAUSTED` が出たら中継器の `Date` と端末時計の差を確認してください。
+時計がほぼ一致している場合は nonce の再利用や鍵と DID の不一致も候補です。
+Date がなければ差は不明です。この比較は診断情報であり、認証された時刻や時計の自動補正には使いません。
+依頼側の `Relay poll retry N (CODE)` は HTTP 状態、プロキシ接続、TLS、ネットワークの原因を
+認証情報なしで示します。相手から `TASK_INTERRUPTED` が届けば直ちにその理由で終了します。
+
 ## HTTP プロキシ環境のトラブルシューティング
 
 Muse のように外部通信がプロキシ経由だけの環境では、中継器クライアントが自動で HTTPS / WSS に `HTTPS_PROXY` / `https_proxy`（なければ `ALL_PROXY` / `all_proxy`）、HTTP / WS に `HTTP_PROXY` / `http_proxy` を使います。大文字が優先です。プロキシ URL は `http://` のみ対応し、URL の Basic 認証情報はプロキシだけに送ります。通常の要求・受信ポーリング・SSE・WebSocket はすべて中継器のホスト名で CONNECT し、TLS 証明書を通常どおり検証します。公開中継器へのプロキシ接続には、ローカル DNS が合成 IP を返しても `--allow-private-relay` は不要です。URL・IP リテラル・メタデータの制限は維持し、宛先の名前解決と接続許可はプロキシに委ねます。`NO_PROXY` / `no_proxy` はホスト名・IP の完全一致、`.example.com` の後方一致、`*`、ポート指定に対応し、一致した接続先は従来の直接 DNS 検証・固定を使います。doctor も同じ経路を使い、プロキシのホスト名とポートだけを表示します。`RELAY_PROXY_AUTH_FAILED`（407）は認証設定、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認してください。認証情報をログや報告に貼らないでください。
