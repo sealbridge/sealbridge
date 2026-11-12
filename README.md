@@ -1,7 +1,7 @@
 # Sealbridge
 
 All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
-Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner?s API key; disable this with `sealbridge config auto-accept off` and restart the worker.
+Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker.
 The default is read-only work from connected peers. Use `sealbridge config auto-accept`
 to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
 enable write/command work. No LLM-specific requester allowlist is required.
