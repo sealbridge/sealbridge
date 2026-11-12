@@ -1493,13 +1493,17 @@ export class WorkerNode {
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
       const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
-      const automaticContext = () => ({ manifest: m, signal: attemptSignal,
-        connected: m.protocolVersion === '0.2.0' && this.connectionStore.connectionState(m.requester.ownerDid) === 'connected',
-        invited: !inviteIneligible && this.connectionStore.listConnections().some(c =>
-          c.peerOwnerDid === m.requester.ownerDid && c.state === 'connected' && 'source' in c && c.source === 'invite'),
-        adapter: this.options.adapter,
-        tools: this.options.tools ?? (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> }).tools ?? {},
-      });
+      const automaticContext = () => {
+        // One fresh, validated snapshot keeps the audience facts consistent and
+        // avoids repeating the store's descriptor-based directory/file checks.
+        const connection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
+        return { manifest: m, signal: attemptSignal,
+          connected: m.protocolVersion === '0.2.0' && connection?.state === 'connected',
+          invited: !inviteIneligible && connection?.state === 'connected' && 'source' in connection && connection.source === 'invite',
+          adapter: this.options.adapter,
+          tools: this.options.tools ?? (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> }).tools ?? {},
+        };
+      };
       const automatic = !previouslyPending && !inviteIneligible &&
         await abortable(matchesAutoAccept(this.autoAccept, automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
       const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, this.autoAccept) : undefined;

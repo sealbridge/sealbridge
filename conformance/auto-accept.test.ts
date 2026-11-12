@@ -84,6 +84,14 @@ it.each(['throws', 'false'] as const)('fails closed when counting state %s', asy
   expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
   expect(f.execute).not.toHaveBeenCalled();
 });
+it('supplies consistent connection and invitation facts to the state guard', async () => {
+  const f = fixture(policy({ from: 'anyone' }));
+  const guard = vi.fn(async () => true);
+  f.worker.options.autoAcceptStateGuard = guard;
+  expect((await f.attempt(f.worker.invite()))[0].status).toBe('fulfilled');
+  expect(guard).toHaveBeenCalledOnce();
+  expect(guard).toHaveBeenCalledWith(expect.objectContaining({ connected: true, invited: true }), f.worker.autoAccept);
+});
 it('does not let a legacy policy provider bypass a failed rule or counting check', async () => {
   const f = fixture(policy({ from: 'anyone' }));
   f.worker.options.checkPeer = () => 'trusted';
