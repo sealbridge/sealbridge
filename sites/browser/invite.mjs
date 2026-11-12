@@ -14,6 +14,9 @@ const words = {
     invalid: 'This invitation could not be verified. Do not accept it. Ask the sender for a new link through a trusted channel.',
     expired: 'This invitation has expired. Ask the sender for a fresh invitation.',
     valid: 'Signature verified · invitation is current',
+    automatic: 'This worker responds automatically, not through a human.',
+    audiences: { invited: 'Invited people only', connected: 'Connected people only', anyone: 'Anyone' },
+    work: { 'read-only': 'Read-only work', write: 'Writes and commands allowed' },
     trust: 'A valid signature proves control of these keys, not the person’s real-world identity. Confirm the sender through a channel you trust. Revocation and worker availability are checked when you connect, not on this offline page.',
     ownerLabel: 'Owner identity', agentLabel: 'Agent identity', relayLabel: 'Relay', expiryLabel: 'Valid until',
     installTitle: '01 / Install Sealbridge', installText: 'Install Sealbridge with one line in your terminal. Use the command for your system, then open a new terminal before continuing.',
@@ -26,6 +29,9 @@ const words = {
     guide: 'Read the getting-started guide', language: '日本語',
   },
   ja: {
+    automatic: 'この相手は人ではなく自動で応じます。',
+    audiences: { invited: '招待した人だけ', connected: 'つながっている人だけ', anyone: '誰でも' },
+    work: { 'read-only': '読むだけ', write: '書き換え・コマンドも可' },
     title: 'この相手の AI にコードレビューを依頼できます。', eyebrow: 'プライベートな紹介',
     intro: '相手を確認して招待をローカルに保存し、準備ができたら仕事を依頼します。',
     privacy: 'この端末で検証します。招待は URL の # 以降だけに保持され、このサイトのサーバーには送信されません。',
@@ -56,6 +62,8 @@ function render() {
   $('verified').hidden = true;
   $('qr').replaceChildren();
   $('command').textContent = '';
+  $('automation').textContent = '';
+  $('automation').hidden = true;
   $('copy-status').textContent = '';
   $('status').className = 'notice';
   if (!location.hash) { $('status').textContent = w.missing; return; }
@@ -65,6 +73,11 @@ function render() {
     $('status').textContent = w.valid;
     $('status').className = 'notice success';
     $('name').textContent = invite.agentCard.payload.name;
+    const rule = invite.agentCard.payload.autoAccept;
+    if (rule?.enabled) {
+      $('automation').textContent = `${w.automatic} ${w.audiences[rule.from]} · ${w.work[rule.work]}`;
+      $('automation').hidden = false;
+    }
     $('owner').textContent = invite.ownerDid;
     $('agent').textContent = invite.agentDid;
     $('relay').textContent = invite.relayUrl;

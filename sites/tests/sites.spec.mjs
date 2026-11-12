@@ -24,9 +24,9 @@ test('agent instructions are served unchanged as plain text and linked from inst
   }
 });
 
-function fixture({ delegated = false, name = 'Example collaborator', ttl = 3600, description } = {}) {
+function fixture({ delegated = false, name = 'Example collaborator', ttl = 3600, description, autoAccept } = {}) {
   const owner = generateKeyPair(), agent = delegated ? generateKeyPair() : owner;
-  const card = createSignedAgentCard({ name, description, agentDid: agent.did,
+  const card = createSignedAgentCard({ name, description, autoAccept, agentDid: agent.did,
     relayEndpoint: 'https://relay.sealbridge.dev', skills: [{ id: 'json', name: 'JSON' }],
     expiresAt: new Date(Date.now() + 3600000).toISOString(),
   }, owner, delegated ? agent : undefined);
@@ -225,4 +225,19 @@ test('all local document links resolve and all scripts/styles are external local
     for (const match of html.matchAll(/(?:href|src)="(\/[^"#]*)(?:#[^"]*)?"/g)) links.add(match[1]);
   }
   for (const link of links) expect((await request.get(site + link)).status(), link).toBe(200);
+});
+
+test('verified automatic worker shows its rule in both languages and clears it for other invitations', async ({ page }) => {
+  const autoAccept = { version: 1, enabled: true, from: 'anyone', work: 'read-only', limits: {} };
+  await page.goto(`${receiver}#${fixture({ autoAccept }).token}`);
+  await expect(page.locator('#automation')).toContainText('This worker responds automatically, not through a human.');
+  await expect(page.locator('#automation')).toContainText('Anyone · Read-only work');
+  await page.locator('#language').click();
+  await expect(page.locator('#automation')).toContainText('この相手は人ではなく自動で応じます。');
+  await expect(page.locator('#automation')).toContainText('誰でも · 読むだけ');
+  await page.goto(`${receiver}#${fixture().token}`);
+  await expect(page.locator('#automation')).toBeHidden();
+  await expect(page.locator('#automation')).toHaveText('');
+  await page.goto(`${receiver}#${fixture({ autoAccept: { ...autoAccept, enabled: false } }).token}`);
+  await expect(page.locator('#automation')).toBeHidden();
 });
