@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Added / 追加
+
+- Add pre-call worker input limits (400 lines, 48 KiB, 10 files by default), owner-configurable size caps, signed size-check audit records and fail-closed refusals before daily/monthly quota consumption. Bound the complete HTTP model prompt against the approved input-token budget before calling the provider. Requester CLI/MCP use fixed bilingual split-diff guidance and neutral `MONTHLY_MODEL_UNSUPPORTED` text. (#257)
+- AI を呼ぶ前の入力上限（既定400行・48 KiB・10ファイル）、所有者によるサイズ設定、署名付き検査記録を追加しました。検査不能なら拒否し、日次／月次枠を消費しません。HTTP モデルのプロンプト全体を承認済み入力トークン予算と照合してから呼び出します。依頼側 CLI／MCP は固定の日英の分割案内と、中立の `MONTHLY_MODEL_UNSUPPORTED` 文言を表示します。(#257)
+
 ### Breaking / 破壊的変更
 
 - **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#254)

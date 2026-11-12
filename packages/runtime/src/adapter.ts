@@ -29,6 +29,7 @@ export interface ProtocolEnvelope<T> {
   payload: T;
 }
 export interface AgentTaskContext {
+  preCallSizeLimits?: import('@acp/core').PreCallSizeLimits;
   redelegate?: (request: import('./session.js').ChildDelegationRequest) => Promise<import('./session.js').SessionResult>;
   taskId: string;
   manifest: TaskManifest;
@@ -53,5 +54,7 @@ export interface AgentAdapter {
   id: string;
   name: string;
   skills: AgentSkill[];
+  /** Synchronous host preflight before admission counters and model execution. */
+  validateInput?: (manifest: TaskManifest, input: Json) => void;
   executeTask(context: AgentTaskContext): Promise<Json>;
 }

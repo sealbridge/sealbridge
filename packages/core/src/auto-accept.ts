@@ -5,8 +5,15 @@ export interface AutoAcceptPolicy {
   enabled: boolean;
   from: 'invited' | 'connected' | 'anyone';
   work: 'read-only' | 'write';
-  /** Owner limits; omitted caps mean unlimited. Unknown limits fail closed. */
-  limits: { maxTasksPerDayPerDid?: number; maxMonthlyUsd?: number; monthlyLimitMessage?: 'standard' | 'trial-reviewer' };
+  /** Size caps have defaults; omitted daily/monthly caps mean unlimited. Unknown limits fail closed. */
+  limits: {
+    maxDiffLines?: number;
+    maxDiffBytes?: number;
+    maxDiffFiles?: number;
+    maxTasksPerDayPerDid?: number;
+    maxMonthlyUsd?: number;
+    monthlyLimitMessage?: 'standard' | 'trial-reviewer';
+  };
 }
 export const DEFAULT_AUTO_ACCEPT_POLICY: Readonly<AutoAcceptPolicy> = Object.freeze({
   version: 1, enabled: true, from: 'connected', work: 'read-only', limits: Object.freeze({}),
@@ -18,7 +25,8 @@ export function validAutoAcceptPolicy(value: unknown): value is AutoAcceptPolicy
     p.version === 1 && typeof p.enabled === 'boolean' &&
     ['invited', 'connected', 'anyone'].includes(p.from) && ['read-only', 'write'].includes(p.work) &&
     !!p.limits && typeof p.limits === 'object' && !Array.isArray(p.limits) &&
-    Object.keys(p.limits).every(k => ['maxTasksPerDayPerDid', 'maxMonthlyUsd', 'monthlyLimitMessage'].includes(k)) &&
+    Object.keys(p.limits).every(k => ['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles', 'maxTasksPerDayPerDid', 'maxMonthlyUsd', 'monthlyLimitMessage'].includes(k)) &&
+    (['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles'] as const).every(k => p.limits[k] === undefined || Number.isSafeInteger(p.limits[k]) && p.limits[k]! >= 1) &&
     (p.limits.maxTasksPerDayPerDid === undefined ||
       Number.isSafeInteger(p.limits.maxTasksPerDayPerDid) && p.limits.maxTasksPerDayPerDid >= 1) &&
     (p.limits.maxMonthlyUsd === undefined || typeof p.limits.maxMonthlyUsd === 'number' &&

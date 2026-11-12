@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
+import { checkInputSize, measureInput, DEFAULT_PRE_CALL_SIZE_LIMITS, type PreCallSizeLimits, autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
 import { matchesAutoAccept, WorkerAutoApprovalProvider, type AutoAcceptStateGuard } from './auto-accept.js';
 import { privateDirectory } from './local-identity.js';
 import * as autoAcceptFs from 'node:fs';
@@ -1534,6 +1534,35 @@ export class WorkerNode {
       };
       const automatic = !previouslyPending && !inviteIneligible &&
         await abortable(matchesAutoAccept(this.autoAccept, automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
+      // Host-owned preflight precedes counters, owner approval, and provider calls.
+      const sizeLimits: PreCallSizeLimits = { ...DEFAULT_PRE_CALL_SIZE_LIMITS };
+      for (const key of ['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles'] as const)
+        if (this.autoAccept.limits[key] !== undefined) sizeLimits[key] = this.autoAccept.limits[key];
+      let sizeCode = 'INPUT_SIZE_OK';
+      let inputSize: ReturnType<typeof checkInputSize> | undefined;
+      try {
+        inputSize = measureInput(data.input);
+        checkInputSize(data.input, sizeLimits);
+        this.options.adapter.validateInput?.(m, data.input);
+      } catch (error) {
+        sizeCode = error instanceof Error && error.message === 'INPUT_SIZE_LIMIT_REACHED'
+          ? 'INPUT_SIZE_LIMIT_REACHED' : 'INPUT_SIZE_UNAVAILABLE';
+      }
+      // Signed per-attempt records contain counts, never the input or peer prose.
+      try {
+        const directory = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)), 'pre-call-audit');
+        privateDirectory(directory, autoAcceptFs);
+        const file = join(directory, digest(m.taskId).slice(7) + '.' + randomUUID() + '.json');
+        const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+          (constants.O_NOFOLLOW ?? 0), 0o600);
+        try {
+          autoAcceptFs.writeFileSync(fd, JSON.stringify(signPayload({ version: 1, event: 'input_size_check',
+            taskId: m.taskId, requesterDid: m.requester.ownerDid, at: new Date(this.protocol.now()).toISOString(),
+            code: sizeCode, limits: sizeLimits, ...(inputSize ? { size: inputSize } : {}) }, this.options.owner)) + '\n');
+          fsyncSync(fd);
+        } finally { closeSync(fd); }
+      } catch { throw new Error('INPUT_SIZE_UNAVAILABLE'); }
+      if (sizeCode !== 'INPUT_SIZE_OK') throw new Error(sizeCode);
       if (this.autoAccept.limits.maxMonthlyUsd !== undefined) {
         try {
           const counter = this.monthlyCounter();
@@ -1858,6 +1887,7 @@ export class WorkerNode {
         } finally { managedChildHooks.delete(options); }
       };
       const context: AgentTaskContext = {
+        preCallSizeLimits: sizeLimits,
         taskId: m.taskId,
         manifest: structuredClone(m),
         input: structuredClone(data.input),
@@ -2496,7 +2526,7 @@ function safeError(e: unknown, contextGrant = false): string {
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
   if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
     'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT', 'AUDIT_INTERRUPTION_WRITE_FAILED'].includes(exact)) return exact;
-  if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH', 'MONTHLY_STATE_UNAVAILABLE'].includes(exact)) return exact;
+  if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH', 'MONTHLY_STATE_UNAVAILABLE', 'INPUT_SIZE_LIMIT_REACHED', 'INPUT_SIZE_UNAVAILABLE'].includes(exact)) return exact;
   if (contextGrant && ['DELEGATION_PROOF_REQUIRED', 'DELEGATION_INVALID', 'DELEGATION_APPROVAL_REQUIRED'].includes(exact)) return exact;
   if (/^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])

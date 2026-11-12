@@ -75,8 +75,8 @@ For embedders, `WorkerNodeOptions.autoAccept` supplies the same typed rule, and
 future stateful limits. It must atomically read and reserve its counting state
 before returning exactly `true`; rejection, unavailable state or exceptions do not
 authorize automatic acceptance. A failed check never falls back to a policy
-provider. Monthly model-cost accounting is described below. Pre-call-size and
-shared-invite limits remain unimplemented (#257–#258).
+provider. Monthly model-cost accounting and pre-call size checks are described
+below. Shared invitations remain unimplemented (#258).
 Unknown limits and unsupported rule versions are rejected, rather than
 silently running without those protections. This feature does not implement
 per-connection standing approvals (#248), deploy a worker, or change relay code.
@@ -154,7 +154,7 @@ release their unused accounting entry at zero. An interrupted write/corrupt file
 is a storage failure, not an excuse to discard spending; that still fails closed.
 
 At the cap, new admissions get `MONTHLY_LIMIT_REACHED` while running tasks finish
-and can overshoot it. No monetary reservation or #257 size estimator is added.
+and can overshoot it. No monetary reservation is made; pre-call size checks are described below.
 Token reports count in the reporting month; a maximum-budget estimate counts in
 the settlement/recovery month. The month resets on the 1st at 00:00 UTC (09:00 JST).
 The strict signed AgentCard stays published with “Monthly intake closed.
@@ -228,3 +228,24 @@ For missing, corrupt or truncated storage (`MONTHLY_STATE_UNAVAILABLE`):
 4. Back up the reconciled files, then restart with the same identity, data root,
    model and cap. If a complete authenticated history cannot be reconstructed,
    keep the worker stopped and obtain maintainer help; do not bypass the cap.
+## Pre-call input size
+
+All worker adapters, including human-approved tasks and disabled automatic admission, enforce defaults of **400 input lines, 48 KiB (49,152 UTF-8 bytes), and 10 files** before execution and before daily/monthly counters. This is separate from the relay's 256 KiB transport/inspection cap. Owner policy `limits.maxDiffLines`, `maxDiffBytes`, and `maxDiffFiles` override individual defaults; each must be a positive safe integer. The public AgentCard retains `additionalProperties: false`.
+
+```sh
+sealbridge config auto-accept max-diff-lines 400
+sealbridge config auto-accept max-diff-bytes 49152
+sealbridge config auto-accept max-diff-files 10
+# Restore one default (there is no unlimited/off size setting):
+sealbridge config auto-accept max-diff-lines default
+```
+
+Restart after configuration changes. Existing `--max-input-tokens` and `--max-output-tokens` still limit advertised budgets. For the medium trial configuration, set them to 30000 and 4000.
+
+Counting never opens requester-supplied paths: text uses LF/CRLF/CR lines, excluding a final empty line, and includes unified-diff headers/context. JSON inputs sum every string leaf's lines; bytes cover the full serialized JSON (raw UTF-8 for a string). File count is the maximum of `diff --git` headers, `+++` headers, `files` array entries, and distinct `path`/`file`/`filename`/`filePath` fields, with one file for otherwise unstructured text. Send unified diffs or explicit file lists; this is an input-size bound, not a repository parser or an attachment fetcher.
+
+The OpenAI-compatible adapter (including Anthropic API style) checks the **complete outgoing user message**, including title, description, JSON escaping and output schema. UTF-8 byte length plus 256 tokens of framing allowance provides a conservative token bound. If it exceeds the manifest's `budget.maxInputTokens`, reject before fetch; do not truncate input or silently raise the approved budget. This prevents small declared budgets from undercharging the monthly maximum-budget fallback. Custom model adapters should implement the host `validateInput(manifest, input)` preflight for their exact provider prompt as well.
+
+Each attempt reaching preflight writes an owner-signed `input_size_check` record under the worker's data-root `pre-call-audit/`, containing task/requester IDs, time, configured limits and outcome, without input text. An unreadable configuration, uncountable input or unavailable audit destination fails closed. No mutable size counter is needed. Keep these records with the other audit evidence; a refusal never spends daily or monthly quota.
+
+Requester CLI and MCP construct fixed bilingual messages from codes, discarding worker prose and extra fields. `INPUT_SIZE_LIMIT_REACHED` asks to split the diff; `INPUT_SIZE_UNAVAILABLE` reports unverifiable size. The generic text avoids falsely claiming default limits when an owner configured different caps. `MONTHLY_MODEL_UNSUPPORTED` now only says the worker cannot accept the request; model/cap configuration guidance belongs in the owner's logs/docs.

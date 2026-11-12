@@ -965,3 +965,6 @@ sandbox の起動時隔離はタスク実行時に決定される旨を記録し
 インストーラーの既定は本流です。`sh install.sh --package sealbridge-local`、
 `./install.ps1 -PackageName sealbridge-local`、または環境変数
 `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local` で選択できます。
+## AI を呼ぶ前の入力上限
+
+ワーカーは、入力が400行・48 KiB（UTF-8で49,152バイト）・10ファイルのいずれかを超えると、アダプター実行前・日次／月次枠の消費前に拒否します。`sealbridge config auto-accept max-diff-lines N`・`max-diff-bytes N`・`max-diff-files N` で変更して再起動し、`default` で各既定値に戻します。手動承認の仕事にも適用します。HTTP モデルアダプターはプロンプト全体と申告された `maxInputTokens` も呼ぶ前に照合します。大きすぎる入力には差分を小さく分けるよう固定の日英文で案内します。[数え方と監査記録](docs/auto-accept.ja.md#呼ぶ前の入力サイズ)を参照してください。

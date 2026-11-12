@@ -24,6 +24,7 @@ export interface ProgressPayload {
 }
 /** Structural host port; runtime retains the canonical session/context interfaces. */
 export interface AgentTaskContext {
+  preCallSizeLimits?: import('@acp/core').PreCallSizeLimits;
   redelegate?: (request: {
     to: string;
     relay?: RelayTransport | string;

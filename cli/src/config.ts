@@ -12,7 +12,7 @@ const USAGE = LOCAL_DISTRIBUTION
 
 /** Read or persist selection without moving or creating identities. */
 export async function configCommand(args: string[], options: IdentityStoreOptions = {}): Promise<void> {
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n       ' + cliName + ' config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off | monthly-limit-message standard|trial-reviewer]'); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n       ' + cliName + ' config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off | max-diff-lines N|default | max-diff-bytes N|default | max-diff-files N|default | monthly-limit-message standard|trial-reviewer]'); return; }
   if (LOCAL_DISTRIBUTION && args[0] === 'local-pc') {
     const value = args[1] ?? 'status';
     if (args.length > 2 || !['on', 'off', 'status'].includes(value)) throw new Error('Usage: sealbridge-local config local-pc [on|off|status]');
@@ -29,7 +29,14 @@ export async function configCommand(args: string[], options: IdentityStoreOption
     const configOptions = { ...options, allowPrivateRelay: true };
     const current = autoAcceptPolicy(readApplicationConfig(configOptions).autoAccept);
     if (args.length > 1) {
-      if (args.length === 3 && args[1] === 'max-tasks-per-day-per-did') {
+      if (args.length === 3 && ['max-diff-lines', 'max-diff-bytes', 'max-diff-files'].includes(args[1])) {
+        const field = { 'max-diff-lines': 'maxDiffLines', 'max-diff-bytes': 'maxDiffBytes', 'max-diff-files': 'maxDiffFiles' }[args[1]] as 'maxDiffLines' | 'maxDiffBytes' | 'maxDiffFiles';
+        if (args[2] === 'default') delete current.limits[field];
+        else {
+          if (!/^[1-9][0-9]*$/.test(args[2]) || !Number.isSafeInteger(Number(args[2]))) throw new Error('AUTO_ACCEPT_POLICY_INVALID');
+          current.limits[field] = Number(args[2]);
+        }
+      } else if (args.length === 3 && args[1] === 'max-tasks-per-day-per-did') {
         if (args[2] === 'off') delete current.limits.maxTasksPerDayPerDid;
         else {
           if (!/^[1-9][0-9]*$/.test(args[2]) || !Number.isSafeInteger(Number(args[2])))
@@ -51,7 +58,7 @@ export async function configCommand(args: string[], options: IdentityStoreOption
         current.enabled = true;
         current.from = args[1] as typeof current.from;
         current.work = args[2] as typeof current.work;
-      } else throw new Error('Usage: sealbridge config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off | monthly-limit-message standard|trial-reviewer]');
+      } else throw new Error('Usage: sealbridge config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off | max-diff-lines N|default | max-diff-bytes N|default | max-diff-files N|default | monthly-limit-message standard|trial-reviewer]');
       setApplicationAutoAccept(current, configOptions);
     }
     console.log(JSON.stringify({ autoAccept: current }));

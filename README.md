@@ -1100,3 +1100,6 @@ Keys, contacts and the data directory are reused: both distributions use the sam
 Replace `sealbridge worker start` with `sealbridge-local worker start`.
 Installers default to mainline; choose local with `sh install.sh --package sealbridge-local`,
 `./install.ps1 -PackageName sealbridge-local`, or `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local`.
+## Pre-call input limits
+
+Workers reject inputs above 400 lines, 48 KiB (49,152 UTF-8 bytes), or 10 files before adapter execution and before daily/monthly counters. Configure `sealbridge config auto-accept max-diff-lines N`, `max-diff-bytes N`, or `max-diff-files N`, then restart; `default` restores each default. These checks also apply to human-approved work. HTTP model adapters additionally bound the complete prompt against the declared `maxInputTokens` before calling the provider. Oversized input gets fixed bilingual guidance to split the diff. See [counting and audit details](docs/auto-accept.md#pre-call-input-size).

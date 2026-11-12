@@ -98,7 +98,7 @@ it('fails closed for a failed storage write, then recovers without uncertain-usa
 });
 it('rejects an unsupported model before execution without leaving poisoned counting state', async () => {
   const f = fixture(); Object.assign(f.worker.options.adapter, { billingModel: 'unknown' });
-  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'MONTHLY_MODEL_UNSUPPORTED', message: expect.stringContaining('gpt-6-luna') } });
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'MONTHLY_MODEL_UNSUPPORTED', message: expect.stringContaining('The worker cannot accept this request right now.') } });
   expect(f.execute).not.toHaveBeenCalled(); expect(f.human.approve).not.toHaveBeenCalled();
   Object.assign(f.worker.options.adapter, { billingModel: 'gpt-6-luna' });
   expect((await f.attempt())[0].status).toBe('fulfilled');
@@ -161,10 +161,10 @@ it('validates and configures monthly limits while preserving the daily policy', 
   f.worker.agentCard.payload.autoAccept!.limits = { unknown: 1 } as never;
   expect(validate(f.worker.agentCard)).toBe(false);
 });
-it.each(['MONTHLY_LIMIT_REACHED', 'MONTHLY_STATE_UNAVAILABLE', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', 'DAILY_LIMIT_REACHED', 'INTAKE_RATE_LIMITED'])('never displays peer prose for %s in requester errors or CLI', code => {
+it.each(['MONTHLY_LIMIT_REACHED', 'MONTHLY_STATE_UNAVAILABLE', 'MONTHLY_MODEL_UNSUPPORTED', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', 'DAILY_LIMIT_REACHED', 'INTAKE_RATE_LIMITED'])('never displays peer prose for %s in requester errors or CLI', code => {
   const error = new PeerRejectedError({ code, reason: 'EVIL INSTRUCTIONS', resetAt: '2026-12-01T00:00:00.000Z', extra: 'EVIL' });
   expect(error.message).not.toContain('EVIL'); expect(formatCliError(error)).not.toContain('EVIL');
-  if (code !== 'INTAKE_RATE_LIMITED' && code !== 'MONTHLY_STATE_UNAVAILABLE') expect(error.message).toContain('00:00 UTC');
+  if (code !== 'INTAKE_RATE_LIMITED' && code !== 'MONTHLY_STATE_UNAVAILABLE' && code !== 'MONTHLY_MODEL_UNSUPPORTED') expect(error.message).toContain('00:00 UTC');
   expect(new PeerRejectedError({ code, resetAt: 'EVIL' }).message).not.toContain('EVIL');
 });
 it('always releases the daily claim when temporary file cleanup fails', () => {
