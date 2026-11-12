@@ -2,6 +2,7 @@
 
 All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
 Set `sealbridge config auto-accept max-tasks-per-day-per-did 3` for the official worker's three automatic tasks per requester owner DID per day, resetting at 00:00 UTC (09:00 Japan time). The default is unlimited; `off` removes the cap. Restart the worker after changes.
+Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker.
 The default is read-only work from connected peers. Use `sealbridge config auto-accept`
 to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
 enable write/command work. No LLM-specific requester allowlist is required.
@@ -292,7 +293,7 @@ pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
   --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
 ```
 
-Copy the printed `acp-invite:...` line. This local example configures a JSON echo adapter in a restricted subprocess; admission still requires the inspection and owner steps below. `--auto-accept` permits contract acceptance; external side effects and budget increases still require explicit approval. Remove it for an interactive `[y/N]` gate. Keys and audit output paths must be fresh.
+Copy the printed `acp-invite:...` line. This local example configures a JSON echo adapter in a restricted subprocess; admission still requires the inspection and owner steps below. `--auto-accept` does not expand the owner-configured admission rule. Automatically running sandbox or command adapters requires explicit write opt-in; otherwise use interactive approval. Budget increases still require separate approval. Keys and audit output paths must be fresh.
 
 `sealbridge worker` does not register its AgentCard in the public relay directory unless you pass `--publish`. Share the invite directly. `sealbridge discover` lists only workers that opted in with `--publish`.
 

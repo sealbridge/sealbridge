@@ -1476,7 +1476,6 @@ export class WorkerNode {
       // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
       if (this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
         inspection = await this.holdTask(first, m, data.input);
-
       }
       // All identity, schema, scope, capability and host checks precede durable consent.
       let inviteIneligible = false;

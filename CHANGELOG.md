@@ -4,6 +4,13 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Breaking / 破壊的変更
+
+- **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#254)
+- **破壊的変更:** 連絡先の信頼設定や旧 grant で許可した相手の仕事を自動実行していた `codex`・`claude`・`command` の構成は、持ち主の自動受付ルール外の仕事を今後 `APPROVAL_CHANNEL_UNAVAILABLE` で拒否します。きっかけは `--allow-requester` ではありません。連絡先や旧 grant で信頼した相手は接続済みとは限らないため、自動実行を続けるには、接続済みなら `sealbridge config auto-accept connected write`、未接続の相手には `sealbridge config auto-accept anyone write` が必要になる場合があります。持ち主が書き換え許可を明示設定し、ワーカーを再起動してください。`anyone` は受付対象を広げるため、必要に応じて依頼者の明示的な許可リストを維持してください。(#254)
+- Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker. (#254)
+- 既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。(#254)
+
 ### Added
 
 - Add owner-configured `autoAccept.limits.maxTasksPerDayPerDid` and `config auto-accept max-tasks-per-day-per-did N|off`: persistent automatic-admission counters per requester owner DID, resetting at 00:00 UTC (09:00 Japan time), fixed bilingual exhaustion messages and fail-closed state access. Default unlimited; official workers explicitly set 3. (#255)
