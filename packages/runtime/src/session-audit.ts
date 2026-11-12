@@ -1,5 +1,5 @@
-import { relayRetryCode } from '@acp/relay';
 // SPDX-License-Identifier: Apache-2.0
+import { relayRetryCode } from '@acp/relay';
 import {
   digest,
   openEnvelope,

@@ -1329,8 +1329,10 @@ export class WorkerNode {
       this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
       await acknowledgeRelay(relay, first, signal);
     };
+    let invalidProposal = false;
     try {
-      data = this.validateProposal(first);
+      try { data = this.validateProposal(first); }
+      catch (error) { invalidProposal = true; throw error; }
       const manifest = data.proposal.payload;
       this.assertPeer(first.payload.senderDid);
       validateManifest(manifest);
@@ -1394,7 +1396,9 @@ export class WorkerNode {
             { encrypt: true },
           ),
         );
-        if (['INVALID', 'SCHEMA'].includes(rejectionBody(e).code)) await acknowledgeRelay(relay, first);
+        // Wire error codes intentionally group several errors. Only proposal
+        // validation, never a local journal/storage failure, authorizes removal.
+        if (invalidProposal) await acknowledgeRelay(relay, first);
       } catch {
         // Ignore transport errors while reporting pre-wire rejection.
       }

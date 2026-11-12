@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-// SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import type { Json } from '../packages/core/src/index.js';

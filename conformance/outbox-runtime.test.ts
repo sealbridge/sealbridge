@@ -752,6 +752,30 @@ describe('durable session integration', () => {
     const proposal = f.frames.find(e => e.payload.eventType === 'PROPOSE')!;
     expect(f.acknowledgements).not.toContain(proposal.payload.envelopeId);
   });
+  it('does not acknowledge a valid proposal when its local task journal is invalid', async () => {
+    const f = sessionFixture(true);
+    // Use an explicit local audit/journal without the delivery transaction's
+    // OUTBOX_STORE_UNWRITABLE wrapper, so INVALID_TASK_JOURNAL reaches rejection.
+    const worker = new WorkerNode({ ...f.worker().options, deliveryService: undefined, relayUrl: undefined,
+      auditPath: join(f.root, 'invalid-journal.jsonl') });
+    cleanups.push(() => worker.stop());
+    const save = vi.spyOn(TaskJournal.prototype, 'save').mockImplementation(() => {
+      throw new Error('INVALID_TASK_JOURNAL');
+    });
+    const [requester, receiver] = await Promise.allSettled([
+      f.client.delegate({ to: worker.invite(), title: 'Valid', description: 'Invalid local journal', input: {} }),
+      worker.start({ once: true }),
+    ]);
+    expect(save).toHaveBeenCalled();
+    expect(receiver).toMatchObject({ status: 'rejected', reason: { message: 'INVALID_TASK_JOURNAL' } });
+    // The public rejection groups this local failure as INVALID. That label is
+    // not proof that the proposal itself failed validation.
+    expect(requester).toMatchObject({ status: 'rejected', reason: { code: 'INVALID' } });
+    expect(f.calls()).toBe(0);
+    const proposal = f.frames.find(e => e.payload.eventType === 'PROPOSE')!;
+    expect(f.frames.some(e => e.payload.eventType === 'ERROR' && e.payload.taskId === proposal.payload.taskId)).toBe(true);
+    expect(f.acknowledgements).not.toContain(proposal.payload.envelopeId);
+  });
   it('compacts the default journal during active maintenance while retaining live and receipt-backed checkpoints', async () => {
     const f = sessionFixture(false); f.worker();
     const path = join(f.workerService.store.root, 'tasks.jsonl'), journal = new TaskJournal(path, f.peer);
