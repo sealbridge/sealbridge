@@ -58,10 +58,12 @@ it.each(['lines', 'bytes', 'files'] as const)('rejects oversized %s before execu
 it('fails closed when the signed size audit cannot be written', async () => {
   const f = fixture();
   const directory = join(dirname(workerIntakePath(f.owner.did, f.identityOptions)), 'pre-call-audit');
-  mkdirSync(directory, { recursive: true });
+  // Parent worker directories must remain private on POSIX. Otherwise startup
+  // rejects the fixture before it can receive the proposal and test preflight.
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
   const fs = await import('node:fs');
   // A non-directory at the required audit directory is an unavailable destination.
-  fs.rmdirSync(directory); fs.writeFileSync(directory, 'blocked');
+  fs.rmdirSync(directory); fs.writeFileSync(directory, 'blocked', { mode: 0o600 });
   expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'INPUT_SIZE_UNAVAILABLE' } });
   expect(f.execute).not.toHaveBeenCalled();
 });
