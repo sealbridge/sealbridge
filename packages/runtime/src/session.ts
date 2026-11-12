@@ -1506,6 +1506,21 @@ export class WorkerNode {
       };
       const automatic = !previouslyPending && !inviteIneligible &&
         await abortable(matchesAutoAccept(this.autoAccept, automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
+      // Reserve before issuing approval. State failures and exhaustion must never
+      // fall through to human/legacy policy acceptance of this automatic attempt.
+      if (automatic && this.autoAccept.limits.maxTasksPerDayPerDid !== undefined) {
+        const path = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+          'auto-accept-daily', digest(m.requester.ownerDid).slice(7) + '.json');
+        try {
+          consumeDailyTask(path, this.autoAccept.limits.maxTasksPerDayPerDid, m.taskId, this.protocol.now());
+        } catch (error) {
+          if (error instanceof Error && error.message === 'DAILY_LIMIT_REACHED')
+            throw new ProposalRejectedError(
+              'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED');
+          throw new ProposalRejectedError(
+            'Daily counting state is unavailable; task rejected. 日次の件数状態を利用できないため、依頼を拒否しました。', 'AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE');
+        }
+      }
       const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, this.autoAccept) : undefined;
       if (this.deliveryService) await this.withDelivery(() => {
         this.deliveryService!.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);

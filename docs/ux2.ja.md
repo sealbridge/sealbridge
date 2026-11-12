@@ -78,6 +78,11 @@ claim/dispatch は connected が必要で、未接続なら `CONNECTION_REQUIRED
 
 ## 永続の日次上限
 
+自動受付には別途、依頼側の所有者 DID ごとの上限
+`autoAccept.limits.maxTasksPerDayPerDid` を設定できます。同じ fail closed の UTC カウンターを使い、
+既定は上限なし、公式ワーカーは明示的に3件を設定します。設定・枠の確保時点・保存先・
+固定の英日拒否メッセージは[自動受付](auto-accept.ja.md#相手-did-ごとの1日の上限)を参照してください。
+
 `worker start --max-tasks-per-day N` は公開設定なしでも使えます。保存先は contacts と同じ
 プラットフォームのデータディレクトリ内の `daily-tasks.json` で、`ACP_DATA_DIR` で変更できます。
 同じディレクトリを使う依頼者 DID・ワーカー鍵・プロセスで共通の上限です。`--contacts` では

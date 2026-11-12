@@ -1,6 +1,7 @@
 # Sealbridge
 
 All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
+Set `sealbridge config auto-accept max-tasks-per-day-per-did 3` for the official worker's three automatic tasks per requester owner DID per day, resetting at 00:00 UTC (09:00 Japan time). The default is unlimited; `off` removes the cap. Restart the worker after changes.
 The default is read-only work from connected peers. Use `sealbridge config auto-accept`
 to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
 enable write/command work. No LLM-specific requester allowlist is required.

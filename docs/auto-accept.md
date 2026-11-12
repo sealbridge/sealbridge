@@ -75,8 +75,40 @@ For embedders, `WorkerNodeOptions.autoAccept` supplies the same typed rule, and
 future stateful limits. It must atomically read and reserve its counting state
 before returning exactly `true`; rejection, unavailable state or exceptions do not
 authorize automatic acceptance. A failed check never falls back to a policy
-provider. No daily-DID, monthly-cost, pre-call-size or shared-invite limits are
-implemented here (#255–#258); `limits` reserves their configuration location.
-Nonempty/unknown limits and unsupported rule versions are rejected, rather than
+provider. No monthly-cost, pre-call-size or shared-invite limits are
+implemented here (#256–#258); `limits` reserves their configuration location.
+Unknown limits and unsupported rule versions are rejected, rather than
 silently running without those protections. This feature does not implement
 per-connection standing approvals (#248), deploy a worker, or change relay code.
+
+## Per-requester daily allowance
+
+The default has no per-DID daily cap, preserving existing behavior. For the official
+worker's three tasks per person per day, the owner configures:
+
+```sh
+sealbridge config auto-accept max-tasks-per-day-per-did 3
+sealbridge config auto-accept max-tasks-per-day-per-did off # remove cap
+```
+
+Restart the worker. This preserves the audience, work permission and enabled state.
+The JSON setting is `autoAccept.limits.maxTasksPerDayPerDid`, a positive safe integer;
+omit it for unlimited. The signed AgentCard and audit rule digest include the cap.
+
+Automatic admissions count separately for each requester **owner DID**, shared by
+that owner's agents, under each local worker identity. The day resets at 00:00 UTC
+(09:00 Japan time), with no rolling window. State lives at
+`<data-root>/workers/<worker-DID-hash>/auto-accept-daily/<requester-DID-hash>.json`.
+The existing dailyLimit lock, exclusive temporary write, flush and atomic rename
+reserve a slot before automatic approval. Reservations survive restarts and are
+not refunded if later approval/audit/execution fails. Human-approved work is outside
+this automatic allowance; the worker-wide `--max-tasks-per-day` remains separate.
+
+At exhaustion, `AUTO_ACCEPT_DAILY_LIMIT_REACHED` returns fixed English/Japanese
+text: “Today's free allowance is exhausted. It resets at 09:00 Japan time
+(00:00 UTC).” / 「今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。」
+Unreadable, corrupt, locked or unwritable counting state, replay and clock rollback
+reject with `AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE`, without falling back to human or
+legacy policy approval for that attempt. First-use missing files initialize empty.
+Owners must protect and retain the counting directory; deleting it loses history.
+DIDs can be created freely; this does not prevent one person using several DIDs.

@@ -112,6 +112,12 @@ availability without publishing or emitting retired fields. See
 
 ## Persistent daily cap
 
+Owner-configured automatic acceptance also supports a separate per-requester owner
+DID cap, `autoAccept.limits.maxTasksPerDayPerDid`, using the same fail-closed UTC
+counter. It is unlimited by default; official workers explicitly set 3. See
+[automatic acceptance](auto-accept.md#per-requester-daily-allowance) for configuration,
+reservation timing, storage and fixed bilingual rejection messages.
+
 `worker start --max-tasks-per-day N` also works without the settings wrapper.
 The counter is `daily-tasks.json` in the platform data directory (the same
 default directory used for contacts, overridable with `ACP_DATA_DIR`). It is

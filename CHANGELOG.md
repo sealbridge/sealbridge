@@ -6,6 +6,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Added
 
+- Add owner-configured `autoAccept.limits.maxTasksPerDayPerDid` and `config auto-accept max-tasks-per-day-per-did N|off`: persistent automatic-admission counters per requester owner DID, resetting at 00:00 UTC (09:00 Japan time), fixed bilingual exhaustion messages and fail-closed state access. Default unlimited; official workers explicitly set 3. (#255)
+- 自動受付に所有者 DID ごとの日次上限 `autoAccept.limits.maxTasksPerDayPerDid` と `config auto-accept max-tasks-per-day-per-did N|off` を追加しました。件数を保存し、UTC 0時（日本時間の朝9時）にリセットします。上限時は固定の英日メッセージを返し、状態の読み書き失敗時は拒否します。既定は上限なし、公式ワーカーは明示的に3件を設定します。(#255)
+
 - Add owner-configured automatic acceptance for every worker: invited/connected/anyone audiences, read-only by default, explicit write opt-in, signed rule provenance in per-task audit, advertised rules and requester notices. Reserve fail-closed hooks for future limits; remove the LLM-only allowlist gate. (#254)
 - すべてのワーカーに持ち主設定の自動受付を追加しました。招待・接続・誰でもの対象、既定の読み取り専用と明示的な書き換え許可、タスクごとの署名付きルール監査、紹介カードと依頼側の告知に対応します。今後の上限には fail closed の差込み先を用意し、LLM だけの許可リスト必須条件を廃止しました。(#254)
 
