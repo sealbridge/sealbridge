@@ -825,6 +825,7 @@ export class WorkerNode {
     options: { once?: boolean; signal?: AbortSignal } = {},
   ): Promise<SessionResult | undefined> {
     // Register first so immediate discovery can resolve owner and agent aliases.
+    this.refreshMonthlyCard(); // Also settles orphaned accounting on unpublished workers.
     if (this.publishes()) await this.register();
     await this.reconcileTasks();
     const idleSignal = AbortSignal.any([
@@ -1180,6 +1181,7 @@ export class WorkerNode {
   }
   async runOnce(signal?: AbortSignal): Promise<SessionResult> {
     try {
+      this.refreshMonthlyCard();
       await this.reconcileTasks();
       const idleSignal = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
       // One or more leading REVOKE envelopes are consumed before the task PROPOSE.
@@ -1222,7 +1224,8 @@ export class WorkerNode {
     let data!: Proposal;
     let m!: TaskManifest;
     let monthlyCounter: MonthlyCostCounter | undefined;
-    let monthlyExecutionStarted = false;
+    let monthlySettled = false;
+    let monthlyAccepted = false;
     let auditPath: string | undefined;
     let checkpoint: TaskCheckpoint | undefined;
     let auditStage: TaskCheckpoint['auditStage'];
@@ -1534,14 +1537,16 @@ export class WorkerNode {
       if (this.autoAccept.limits.maxMonthlyUsd !== undefined) {
         try {
           const counter = this.monthlyCounter();
-          counter.begin(this.autoAccept.limits.maxMonthlyUsd, m.taskId, this.options.adapter.billingModel ?? '');
+          counter.begin(this.autoAccept.limits.maxMonthlyUsd, m.taskId, this.options.adapter.billingModel ?? '', m.budget);
           monthlyCounter = counter;
         }
         catch (error) {
           this.refreshMonthlyCard();
           if (this.registered) await this.register().catch(() => {});
           throw new AdmissionLimitError(error instanceof Error && error.message === 'MONTHLY_LIMIT_REACHED'
-            ? 'MONTHLY_LIMIT_REACHED' : 'MONTHLY_STATE_UNAVAILABLE', monthlyResetAt(this.protocol.now()));
+            ? 'MONTHLY_LIMIT_REACHED' : error instanceof Error && error.message === 'MONTHLY_MODEL_UNSUPPORTED'
+              ? 'MONTHLY_MODEL_UNSUPPORTED' : 'MONTHLY_STATE_UNAVAILABLE', monthlyResetAt(this.protocol.now()),
+            this.autoAccept.limits.monthlyLimitMessage ?? 'standard');
         }
       }
       // Reserve before issuing approval. State failures and exhaustion must never
@@ -1628,6 +1633,7 @@ export class WorkerNode {
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
+      monthlyAccepted = true;
       validateContextGrantUse(m, data.input, this.protocol.now());
       await wire.contextEvent('CONTEXT_OPENED');
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
@@ -1957,7 +1963,6 @@ export class WorkerNode {
         this.deliveryService!.recipientStatus.handoff(first, m);
       }, executionSignal);
       let accountingFailure: unknown;
-      let reportedInput = false, reportedOutput = false;
       const counter = monthlyCounter;
       const model = this.options.adapter.billingModel ?? '';
       const originalReport = context.reportUsage;
@@ -1966,8 +1971,6 @@ export class WorkerNode {
           try {
             if (delta.inputTokens !== undefined || delta.outputTokens !== undefined) {
               counter.usage(m.taskId, model, delta.inputTokens ?? 0, delta.outputTokens ?? 0);
-              reportedInput ||= delta.inputTokens !== undefined;
-              reportedOutput ||= delta.outputTokens !== undefined;
             }
           } catch (error) { accountingFailure ??= error; }
           originalReport(delta);
@@ -1975,13 +1978,12 @@ export class WorkerNode {
       }
       let execution: Awaited<ReturnType<typeof executionBackend.execute>>;
       try {
-        monthlyExecutionStarted = true;
         execution = await abortable(executionBackend.execute(this.options.adapter, context), executionSignal);
         if (accountingFailure) throw accountingFailure;
-        if (counter && (!reportedInput || !reportedOutput)) throw new Error('MONTHLY_STATE_UNAVAILABLE');
       } finally {
         if (counter) {
-          counter.finish(m.taskId, model, !accountingFailure && reportedInput && reportedOutput && !executionSignal.aborted);
+          counter.finish(m.taskId);
+          monthlySettled = true;
           this.refreshMonthlyCard();
           if (this.registered) await this.register().catch(() => {});
         }
@@ -2141,22 +2143,28 @@ export class WorkerNode {
         throw progressFailure;
       throw e;
     } finally {
-      stopHeldWatch();
-      childHostOpen = false;
-      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
-      heartbeatStopped = true;
-      clearTimeout(heartbeat);
-      timeouts.close();
-      wire.close();
-      this.acceptedPeers.delete(m.taskId);
-      const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
-      if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
-      if (trackedTaskId) this.liveChains.delete(trackedTaskId);
-      gateway?.close();
-      if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
-      if (workspace && !preserveWorkspace) await cleanupWorkspace();
-      if (monthlyCounter && !monthlyExecutionStarted)
-        monthlyCounter.finish(m.taskId, this.options.adapter.billingModel ?? '', true);
+      try {
+        stopHeldWatch();
+        childHostOpen = false;
+        this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
+        heartbeatStopped = true;
+        clearTimeout(heartbeat);
+        timeouts.close();
+        wire.close();
+        this.acceptedPeers.delete(m.taskId);
+        const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
+        if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
+        if (trackedTaskId) this.liveChains.delete(trackedTaskId);
+        gateway?.close();
+        if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
+        if (workspace && !preserveWorkspace) await cleanupWorkspace();
+      } finally {
+        if (monthlyCounter && !monthlySettled) {
+          monthlyCounter.finish(m.taskId, !monthlyAccepted);
+          this.refreshMonthlyCard();
+          if (this.registered) await this.register().catch(() => {});
+        }
+      }
     }
   }
   /**
@@ -2464,7 +2472,8 @@ class DiagnosticError extends Error {
   constructor(code: string, readonly detail: ErrorDetail) { super(code); }
 }
 class AdmissionLimitError extends Error {
-  constructor(readonly code: 'MONTHLY_LIMIT_REACHED' | 'MONTHLY_STATE_UNAVAILABLE' | 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', readonly resetAt: string) { super(code); }
+  constructor(readonly code: 'MONTHLY_LIMIT_REACHED' | 'MONTHLY_STATE_UNAVAILABLE' | 'MONTHLY_MODEL_UNSUPPORTED' | 'AUTO_ACCEPT_DAILY_LIMIT_REACHED',
+    readonly resetAt: string, readonly messageKind: 'standard' | 'trial-reviewer' = 'standard') { super(code); }
 }
 class PendingTaskError extends Error {
   constructor(readonly reason: string) { super('PENDING_OWNER_APPROVAL'); }
@@ -2472,9 +2481,10 @@ class PendingTaskError extends Error {
 function diagnosticError(code: string, field: string, expected: unknown, actual: unknown, hint: string): Error {
   return new DiagnosticError(code, { field, expected: digest(expected), actual: digest(actual), hint });
 }
-function rejectionBody(error: unknown, contextGrant = false): ErrorDiagnostic & { reason?: string; resetAt?: string } {
+function rejectionBody(error: unknown, contextGrant = false): ErrorDiagnostic & { reason?: string; resetAt?: string; messageKind?: 'standard' | 'trial-reviewer' } {
   if (error instanceof AdmissionLimitError) return { code: error.code,
-    ...(error.code.endsWith('LIMIT_REACHED') ? { resetAt: error.resetAt } : {}) };
+    ...(error.code.endsWith('LIMIT_REACHED') ? { resetAt: error.resetAt } : {}),
+    ...(error.code === 'MONTHLY_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}) };
   if (error instanceof PendingTaskError) return { code: 'PENDING_OWNER_APPROVAL', reason: error.reason };
   if (error instanceof DiagnosticError) return { code: safeError(error, contextGrant), detail: error.detail };
   if (error instanceof ProposalRejectedError) return { code: error.code, reason: error.reason };
