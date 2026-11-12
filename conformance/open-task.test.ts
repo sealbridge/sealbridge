@@ -8,7 +8,7 @@ function setup(allowed = false) {
   const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
   let calls = 0;
   const worker = new WorkerNode({ owner, relay, timeoutMs: 3000,
-    ...(allowed ? { checkPeer: () => 'trusted' as const } : {}),
+    ...(allowed ? { autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted' as const } : {}),
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     adapter: { id: 'echo', name: 'echo', skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }],
       executeTask: async (ctx) => { calls++; return ctx.input; } } });

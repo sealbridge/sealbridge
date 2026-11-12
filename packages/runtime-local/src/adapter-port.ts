@@ -53,6 +53,8 @@ export interface AgentTaskContext {
   reportIsolation?: (level: string, boundary?: SandboxBoundaryMetadata) => void;
 }
 export interface AgentAdapter {
+  /** Host guarantee; omit for arbitrary code, command execution or unknown access. */
+  readonly taskAccess?: 'read-only' | 'write';
   id: string;
   name: string;
   skills: AgentSkill[];

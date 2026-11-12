@@ -299,7 +299,7 @@ describe('MCP DID admission compatibility', () => {
   it.each(['unknown','allowlisted','contact','excluded','budget'] as const)('preserves admission without retry: %s', async scenario => {
     const h = harness(), owner = generateKeyPair(), executeTask = vi.fn(async ctx => ctx.input);
     const worker = new WorkerNode({ protocolPolicy, owner, relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner), relayUrl: DEFAULT_PUBLIC_RELAY,
-      ...(scenario === 'contact' ? { checkPeer: () => 'trusted' as const } : {}),
+      ...(scenario === 'contact' ? { autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted' as const } : {}),
       allowedRequesterDids: scenario === 'excluded' ? [generateKeyPair().did] : scenario === 'allowlisted' ? [h.requester().did] : [],
       ...(scenario === 'budget' ? { maxInputTokens: 1 } : {}),
       approvalProvider: approving(() => owner), adapter: { id: 'echo', name: 'Echo', skills: [SKILL], executeTask } });

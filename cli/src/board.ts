@@ -111,13 +111,16 @@ export function boardHost(post: Signed<BoardPost>, key: KeyPair, path: string, i
   const p = verifyPost(post);
   if (p.ownerDid !== key.did) throw new Error('INVALID_BOARD_OWNER');
   const approved = new Map<string, BoardLease>();
+  const reserve = (manifest: TaskManifest, from: string, taskId: string) => {
+    let claim: { postId: string; card: SignedAgentCard };
+    try { claim = JSON.parse(manifest.task.description); } catch { throw new Error('INVALID_BOARD_CLAIM'); }
+    if (claim.postId !== p.id) throw new Error('INVALID_BOARD_CLAIM');
+    return claimPost(path, key, post, claim.card, from, taskId, Date.now(), connected);
+  };
   const approvalProvider: ApprovalProvider = { kind: interactive.kind, async approve(request) {
     if (request.gate !== 'contract_acceptance') return interactive.approve(request);
     const details = request.details as { manifest: TaskManifest; from: string };
-    let claim: { postId: string; card: SignedAgentCard };
-    try { claim = JSON.parse(details.manifest.task.description); } catch { throw new Error('INVALID_BOARD_CLAIM'); }
-    if (claim.postId !== p.id) throw new Error('INVALID_BOARD_CLAIM');
-    const lease = claimPost(path, key, post, claim.card, details.from, request.taskId, Date.now(), connected);
+    const lease = reserve(details.manifest, details.from, request.taskId);
     const receipt = await interactive.approve(request);
     if (Date.parse(lease.expiresAt) <= Date.now()) throw new Error('CLAIM_LOST');
     approved.set(request.taskId, lease);
@@ -137,7 +140,13 @@ export function boardHost(post: Signed<BoardPost>, key: KeyPair, path: string, i
       return JSON.parse(JSON.stringify(signPayload(accepted, key))) as Json;
     },
   };
-  return { adapter, approvalProvider };
+  return { adapter, approvalProvider,
+    autoAcceptStateGuard: async ({ manifest }: import('@acp/runtime').AutoAcceptContext) => {
+      const lease = reserve(manifest, manifest.requester.ownerDid, manifest.taskId);
+      approved.set(manifest.taskId, lease);
+      return true;
+    },
+  };
 }
 
 export async function boardCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {

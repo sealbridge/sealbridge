@@ -119,11 +119,12 @@ it.each(['sandbox', 'command', 'claude', 'codex', 'openai'])('starts opted-in %s
   expect(app.fetch).not.toHaveBeenCalled();
 });
 
-it.each(['claude', 'codex', 'openai'])('keeps the %s LLM auto-accept allowlist guard with opt-in', async adapter => {
-  await expect(networkCommand('worker', ['start', '--adapter', adapter, '--cmd', 'owner-command',
-    '--allow-local-pc', '--auto-accept', '--contacts', join(dir, 'contacts.json')], application()))
-    .rejects.toThrow('LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST');
-  expect(captured.starts).toBe(0);
+it.each(['claude', 'codex', 'openai'])('uses the read-only policy for %s auto-accept with local execution opt-in', async adapter => {
+  vi.stubEnv('ANTHROPIC_API_KEY', 'fixture'); vi.stubEnv('OPENAI_API_KEY', 'fixture');
+  await networkCommand('worker', ['start', '--adapter', adapter, '--cmd', 'owner-command',
+    '--allow-local-pc', '--auto-accept', '--contacts', join(dir, 'contacts.json')], application());
+  expect(captured.options?.autoAccept).toMatchObject({ from: 'connected', work: 'read-only' });
+  expect(captured.starts).toBe(1);
 });
 
 it('leaves API-only workers, delegate and requester MCP initialization available without opt-in', async () => {
@@ -163,7 +164,7 @@ it.each(['delegate', 'mcp-server'])('settles actual %s requests without local PC
   writeFileSync(key, JSON.stringify(owner), { mode: 0o600 });
   let executions = 0;
   const worker = new WorkerNode({ owner: remote, relay, relayUrl: 'https://relay.example',
-    checkPeer: () => 'trusted', allowedRequesterDids: [owner.did],
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', allowedRequesterDids: [owner.did],
     approvalProvider: new PolicyAutoApprovalProvider(remote), timeoutMs: 5000,
     adapter: { id: 'remote-echo', name: 'Remote echo', skills: [], executeTask: async ctx => {
       executions++; return ctx.input;
@@ -251,7 +252,9 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
     tty(false, false);
     await configCommand(['local-pc', 'status'], app.identityOptions);
     expect(vi.mocked(console.log).mock.calls.at(-1)![0]).toBe(JSON.stringify({ localPcExecution: true }));
-    await expect(networkCommand('worker', ['start', '--adapter', 'claude', '--cmd', 'owner-command', '--auto-accept', '--contacts', join(dir, 'empty.json')], app)).rejects.toThrow('LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'fixture');
+    await networkCommand('worker', ['start', '--adapter', 'claude', '--cmd', 'owner-command', '--auto-accept', '--contacts', join(dir, 'empty.json')], app);
+    expect(captured.options?.autoAccept).toMatchObject({ work: 'read-only' });
     expect(app.fetch).not.toHaveBeenCalled();
   } finally {
     if (stdinTTY) Object.defineProperty(process.stdin, 'isTTY', stdinTTY); else delete (process.stdin as { isTTY?: boolean }).isTTY;

@@ -291,7 +291,7 @@ function restartFixture() {
   const journal = new TaskJournal(path + '.tasks.jsonl', owner);
   function save(patch: Partial<TaskCheckpoint> = {}) { journal.save({ ...record, ...patch }); }
   function worker(optIn = true) { return new WorkerNode({ owner, relay, auditPath: path,
-    ...(optIn ? { auditInterruptionFormat: 1 } : {}), checkPeer: () => 'trusted',
+    ...(optIn ? { auditInterruptionFormat: 1 } : {}), autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     approvalProvider: new PolicyAutoApprovalProvider(owner), adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async () => { executions++; return {}; } } }); }
   async function restart(optIn = true) { const node = worker(optIn); try { await node.start({ signal: AbortSignal.abort() }); expect(node.lastResult).toBeUndefined(); } finally { node.stop(); } }
   return { path, owner, requester, relay, ledger, entries, record, interruption, journal, save, restart, executions: () => executions };

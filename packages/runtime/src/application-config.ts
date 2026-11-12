@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { autoAcceptPolicy, validAutoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { posix, win32 } from 'node:path';
@@ -15,6 +16,7 @@ export interface ApplicationConfig {
   relays: readonly string[];
   keyStore?: 'file' | 'keychain';
   localPcExecution?: boolean;
+  autoAccept?: AutoAcceptPolicy;
   /** Retained for callers that later write additional application settings. */
   [field: string]: unknown;
 }
@@ -35,6 +37,8 @@ export function validateApplicationConfig(value: unknown, options: ApplicationCo
     throw failure('APP_CONFIG_INVALID');
   if (Object.hasOwn(record, 'localPcExecution') && typeof record.localPcExecution !== 'boolean')
     throw failure('APP_CONFIG_INVALID');
+  if (Object.hasOwn(record, 'autoAccept') && !validAutoAcceptPolicy(record.autoAccept))
+    throw failure('AUTO_ACCEPT_POLICY_INVALID');
   const candidate = (entry: unknown): string => {
     if (typeof entry !== 'string' || !entry || Buffer.byteLength(entry) > 2048)
       throw failure('APP_CONFIG_INVALID');
@@ -139,7 +143,7 @@ function publishedKeyStore(keyStore: 'file' | 'keychain', options: ApplicationCo
   return config?.keyStore === keyStore ? config : undefined;
 }
 
-function commitApplicationSetting(field: 'keyStore' | 'localPcExecution', value: 'file' | 'keychain' | boolean, options: ApplicationConfigOptions): ApplicationConfig | 'locked' {
+function commitApplicationSetting(field: 'keyStore' | 'localPcExecution' | 'autoAccept', value: 'file' | 'keychain' | boolean | AutoAcceptPolicy, options: ApplicationConfigOptions): ApplicationConfig | 'locked' {
   const { root, path, paths, platform, io } = location(options);
   const lock = paths.join(root, '.config.lock');
   const temporary = paths.join(root, '.config.' + randomUUID() + '.tmp');
@@ -254,4 +258,12 @@ export function setApplicationLocalPcExecution(enabled: boolean, options: Applic
     pause(KEY_STORE_LOCK_POLL_MS);
   }
   throw failure('APP_CONFIG_BUSY');
+}
+
+/** Locked atomic update, preserving unrelated settings. */
+export function setApplicationAutoAccept(value: AutoAcceptPolicy, options: ApplicationConfigOptions = {}): ApplicationConfig {
+  const policy = autoAcceptPolicy(value);
+  const committed = commitApplicationSetting('autoAccept', policy, options);
+  if (committed === 'locked') throw failure('APP_CONFIG_BUSY');
+  return committed;
 }

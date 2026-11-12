@@ -14,6 +14,7 @@ function display(value: unknown): string {
 export function approvalSummary(request: ApprovalRequest): string {
   const details = record(request.details), manifest = record(details.manifest);
   const lines = [`Approval: ${request.gate}`, `Task: ${request.taskId}`];
+  if (details.workerAutomation) lines.push(display(record(details.workerAutomation).notice));
   if (request.gate === 'contract_acceptance') {
     const budget = record(manifest.budget), input = details.input;
     const diff = record(input).diff;

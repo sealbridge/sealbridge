@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+/** Owner-controlled admission, independent of durable connection consent. */
+export interface AutoAcceptPolicy {
+  version: 1;
+  enabled: boolean;
+  from: 'invited' | 'connected' | 'anyone';
+  work: 'read-only' | 'write';
+  /** Reserved for #255–#258. Unsupported limits must never be silently ignored. */
+  limits: Record<string, never>;
+}
+export const DEFAULT_AUTO_ACCEPT_POLICY: Readonly<AutoAcceptPolicy> = Object.freeze({
+  version: 1, enabled: true, from: 'connected', work: 'read-only', limits: Object.freeze({}),
+});
+export function validAutoAcceptPolicy(value: unknown): value is AutoAcceptPolicy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const p = value as AutoAcceptPolicy;
+  return Object.keys(p).every(k => ['version', 'enabled', 'from', 'work', 'limits'].includes(k)) &&
+    p.version === 1 && typeof p.enabled === 'boolean' &&
+    ['invited', 'connected', 'anyone'].includes(p.from) && ['read-only', 'write'].includes(p.work) &&
+    !!p.limits && typeof p.limits === 'object' && !Array.isArray(p.limits) && Object.keys(p.limits).length === 0;
+}
+export function autoAcceptPolicy(value: unknown = DEFAULT_AUTO_ACCEPT_POLICY): AutoAcceptPolicy {
+  if (!validAutoAcceptPolicy(value)) throw new Error('AUTO_ACCEPT_POLICY_INVALID');
+  return structuredClone(value);
+}

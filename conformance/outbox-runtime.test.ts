@@ -573,7 +573,7 @@ describe('durable session integration', () => {
     const workers = origins.map(relay => {
       const owner = generateKeyPair();
       const worker = new WorkerNode({ owner, relay, identityOptions, now: f.now,
-        taskTimeoutMs: 86400_000, checkPeer: () => 'trusted',
+        taskTimeoutMs: 86400_000, autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
         adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async context => context.input },
         approvalProvider: new PolicyAutoApprovalProvider(owner) });
       vi.spyOn(worker.protocol, 'receiveVersions').mockReturnValue([version]);
@@ -666,7 +666,7 @@ describe('durable session integration', () => {
     expect(f.senderService.store.getMessage(proposals[0].payload.envelopeId)?.status).toBe('replied');
   });
   it('completes a legacy encrypted session with a non-UUID proposal identifier', async () => {
-    const f = sessionFixture(true), worker = f.worker(); worker.options.checkPeer = () => 'trusted';
+    const f = sessionFixture(true), worker = f.worker(); worker.options.checkPeer = () => 'trusted'; Object.assign(worker.autoAccept, { from: 'anyone', work: 'write' });
     const relay: RelayTransport = { send: envelope => f.base.send(envelope.payload.eventType === 'PROPOSE'
       ? signPayload({ ...envelope.payload, envelopeId: 'legacy-proposal' }, f.owner) : envelope),
       receive: (did, _wait, signal, filter) => f.base.receive(did, undefined, signal, undefined, filter) };

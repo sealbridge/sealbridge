@@ -64,6 +64,8 @@
     "NOTICE",
     "README.md",
     "README.ja.md",
+    "docs/auto-accept.md",
+    "docs/auto-accept.ja.md",
     "docs/sdk.md",
     "docs/sdk.ja.md",
     "docs/context-grants.md"

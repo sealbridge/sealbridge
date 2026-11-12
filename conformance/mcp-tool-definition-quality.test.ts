@@ -402,7 +402,7 @@ describe('MCP tool definition quality', () => {
     const relay = new InMemoryRelay();
     const server = new AcpMcpServer({ owner, relay });
     const node = (key: ReturnType<typeof generateKeyPair>, tag: string) =>
-      new WorkerNode({ checkPeer: () => 'trusted',
+      new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
         owner: key,
         relay,
         adapter: {

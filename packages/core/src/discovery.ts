@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { validAutoAcceptPolicy } from './auto-accept.js';
+import type { AutoAcceptPolicy } from './auto-accept.js';
 import { signPayload, verifySignature, verifySigned, resolveDid, canonicalize } from './crypto.js';
 import type { BudgetSpec, Json, KeyPair, Signature, Signed } from './types.js';
 export interface AgentSkill {
@@ -51,6 +53,7 @@ function validProtocolVersions(value: unknown): boolean {
 
 export interface DiscoveryAgentCard {
   type: 'AgentCard';
+  autoAccept?: AutoAcceptPolicy;
   /** Accepted manifest versions; omission denotes a legacy 0.1.0 peer. */
   protocolVersions?: string[];
   name: string;
@@ -343,6 +346,7 @@ export function createSignedAgentCard(
       version: options.version ?? '0.2.0',
       description: options.description ?? 'Sealbridge worker',
       costModes: options.costModes ?? (['worker_byok'] as BudgetSpec['costBearer'][]),
+      ...(options.autoAccept !== undefined ? { autoAccept: structuredClone(options.autoAccept) } : {}),
       name: options.name,
       skills: options.skills,
       ...(options.protocolVersions !== undefined ? { protocolVersions: [...options.protocolVersions] } : {}),
@@ -396,6 +400,7 @@ export function verifySignedAgentCard(card: SignedAgentCard, now = Date.now()): 
       verifySigned(card, p.ownerDid) &&
       p.type === 'AgentCard' &&
       validProtocolVersions(p.protocolVersions) &&
+      (p.autoAccept === undefined || validAutoAcceptPolicy(p.autoAccept)) &&
       typeof p.name === 'string' &&
       !!p.name &&
       typeof p.description === 'string' &&

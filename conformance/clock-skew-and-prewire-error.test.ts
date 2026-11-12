@@ -87,7 +87,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -148,7 +148,7 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {

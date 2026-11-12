@@ -24,6 +24,8 @@ export type Gate =
   | 'final_verification';
 export interface Approval {
   type: 'ApprovalReceipt';
+  /** Signed automatic decision provenance; absent on legacy/human receipts. */
+  authorization?: { kind: 'auto-policy'; ruleVersion: number; ruleDigest: string };
   receiptId: string;
   taskId: string;
   gate: Gate;

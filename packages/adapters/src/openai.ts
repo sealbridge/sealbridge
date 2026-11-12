@@ -12,6 +12,7 @@ export interface OpenAICompatibleOptions {
   apiStyle?: 'openai' | 'anthropic';
 }
 export class OpenAICompatibleAdapter implements AgentAdapter {
+  readonly taskAccess = 'read-only' as const;
   readonly id = 'openai';
   readonly name = 'OpenAI Compatible';
   readonly skills = [{ id: 'json-task', name: 'JSON task' }];

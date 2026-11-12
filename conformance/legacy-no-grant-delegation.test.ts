@@ -111,7 +111,7 @@ it('legacy no-grant contract: task errors keep origin/main diagnostics', () => {
 it.each(['0.1.0', '0.2.0'])('legacy no-grant contract: depth-1 live session keeps ordinary approval and results on %s', async protocolVersion => {
   const f = legacyFixture(), relay = new InMemoryRelay(), reviews: unknown[] = [];
   f.manifest.protocolVersion = protocolVersion;
-  const node = new WorkerNode({ owner: f.worker, relay, timeoutMs: 5000, checkPeer: () => 'trusted',
+  const node = new WorkerNode({ owner: f.worker, relay, timeoutMs: 5000, autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     approvalProvider: { approve: async request => signApproval(request.taskId, request.gate, request.target, f.worker) },
     adapter: { id: 'legacy', name: 'Legacy', skills: [], executeTask: async context => {
       expect(context).not.toHaveProperty('redelegate');
@@ -132,6 +132,6 @@ it.each(['0.1.0', '0.2.0'])('legacy no-grant contract: depth-1 live session keep
     expect(result.bundle.entries.find(e => e.body.eventType === 'DELIVER')?.body.payload).not.toHaveProperty('delegation');
     expect(reviews).toHaveLength(1);
     expect(reviews[0]).toMatchObject({ gate: 'final_verification', details: { manifest: f.manifest } });
-    expect(Object.keys((reviews[0] as { details: object }).details).sort()).toEqual(['deliverableDigest', 'manifest']);
+    expect(Object.keys((reviews[0] as { details: object }).details).sort()).toEqual(['deliverableDigest', 'manifest', 'workerAutomation']);
   } finally { node.stop(); await job; }
 });

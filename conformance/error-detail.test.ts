@@ -14,7 +14,7 @@ function setup(auditPath?: string) {
   const events: { event: string; taskId: string; error?: ErrorDiagnostic }[] = [];
   const frames: unknown[] = [];
   let calls = 0;
-  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, auditPath, timeoutMs: 3000,
+  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, auditPath, timeoutMs: 3000,
     approvalProvider: new PolicyAutoApprovalProvider(owner),
     onEvent: (event, taskId, error) => events.push({ event, taskId, error }),
     adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo', taskTypes: ['json'] }],

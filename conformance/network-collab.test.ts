@@ -112,7 +112,7 @@ async function session(
     bob = generateKeyPair(),
     { client } = await network(),
     dir = await directory();
-  const worker = new WorkerNode({ checkPeer: () => 'trusted',
+  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: !workerApproval, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     owner: bob,
     relay: client,
     adapter,
@@ -306,7 +306,7 @@ describe('WP-7/10/11 real adapter sessions across owner boundaries', () => {
     const alice = generateKeyPair(),
       bob = generateKeyPair(),
       relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: new SandboxAgentAdapter(),
@@ -867,7 +867,7 @@ it('completes a full session using persistent SSE transport', async () => {
     () => aTransport.close(),
     () => bTransport.close(),
   );
-  const worker = new WorkerNode({ checkPeer: () => 'trusted',
+  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     owner: bob,
     relay: bTransport,
     relayUrl: n.url,

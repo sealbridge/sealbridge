@@ -79,7 +79,7 @@ describe('Sprint 1 deterministic discovery', () => {
   it('routes DID delegation to an exact agent instead of a competing owner alias', async () => {
     const owner = generateKeyPair(), agent = generateKeyPair(), requester = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
        allowedRequesterDids: [requester.did], owner, agentDid: agent.did, agentKey: agent, relay,
       approvalProvider: new PolicyAutoApprovalProvider(owner),
       adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async (ctx) => ctx.input } });

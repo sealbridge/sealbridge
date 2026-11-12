@@ -34,7 +34,7 @@ async function fixture(inboxPath?: string, reject = false, onInboxRecord?: (reco
     },
   };
   const acceptance = reject ? { allowedRequesterDids: [generateKeyPair().did] } : {};
-  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, adapter, inboxPath, onInboxRecord, ...acceptance,
+  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, adapter, inboxPath, onInboxRecord, ...acceptance,
     approvalProvider: new PolicyAutoApprovalProvider(owner, undefined, { acceptance }), timeoutMs: 3000 });
   const client = new RequesterClient({ owner: requester, relay,
     approvalProvider: new PolicyAutoApprovalProvider(requester), timeoutMs: 3000 });

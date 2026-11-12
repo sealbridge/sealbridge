@@ -50,3 +50,5 @@ export * from './delivery-status-router.js';
 export { verifyDelegationAttachment } from './delegation.js';
 export * from './rule-content-review.js';
 export * from './execution-backend.js';
+
+export * from './auto-accept.js';

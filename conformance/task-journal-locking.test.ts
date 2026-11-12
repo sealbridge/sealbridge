@@ -211,7 +211,7 @@ describe.each(['process', 'file-sync'] as const)('%s locked journal', durability
     const service = new GatewayDeliveryService(f.owner, { identityOptions: f.identityOptions,
       resolveTransport: () => ({ send: () => {}, receive: () => undefined }) });
     const worker = new WorkerNode({ owner: f.owner, identityOptions: f.identityOptions, deliveryService: service,
-      relay: { send: () => {}, receive: () => undefined }, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
+      relay: { send: () => {}, receive: () => undefined }, relayUrl: 'https://relay.example', autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       adapter: { id: 'fixture', name: 'Fixture', skills: [], executeTask: async () => { throw new Error('UNEXPECTED_EXECUTION'); } } });
     cleanups.push(() => worker.stop());
     // Inspect existing internal entry points; no production test seam is needed.

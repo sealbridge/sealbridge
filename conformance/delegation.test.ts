@@ -273,10 +273,10 @@ async function liveFixture(execute?: (ctx: AgentTaskContext, child: TaskManifest
   const a = generateKeyPair(),b = generateKeyPair(),c = generateKeyPair(), relay = new InMemoryRelay(), d = directory();
   const clock = { offset: 0 };
   const { parent,child } = declarations(a,b,c), reviews: ApprovalRequest[] = [], childInputs: Json[] = [];
-  const cNode = new WorkerNode({ owner:c,relay,timeoutMs:5000,checkPeer:() => 'trusted',approvalProvider:decision(c,r => { reviews.push(r); }),
+  const cNode = new WorkerNode({ owner:c,relay,timeoutMs:5000,autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',approvalProvider:decision(c,r => { reviews.push(r); }),
     adapter:{ id:'partial',name:'Partial',skills:[],executeTask:async ctx => { expect(ctx.redelegate).toBeUndefined(); childInputs.push(ctx.input); return {partial:true}; } } });
   const childRequester = new RequesterClient({ owner:b,relay,timeoutMs:5000,approvalProvider:decision(b,r => { reviews.push(r); }) });
-  const bNode = new WorkerNode({ owner:b,relay,now:() => Date.now()+clock.offset,timeoutMs:5000,checkPeer:() => 'trusted',approvalProvider:decision(b,r => { reviews.push(r); }),
+  const bNode = new WorkerNode({ owner:b,relay,now:() => Date.now()+clock.offset,timeoutMs:5000,autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',approvalProvider:decision(b,r => { reviews.push(r); }),
     auditPath:join(d,'worker.jsonl'), redelegation:{ requester:childRequester,ownerApprovalProvider:decision(b,async r => { reviews.push(r); await review?.(r); }) },
     adapter:{ id:'root',name:'Root',skills:[],executeTask:async ctx => execute ? execute(ctx,child,cNode) :
       { result:(await ctx.redelegate!({to:cNode.invite(),manifest:child,input:{x:1}})).deliverable } } });
@@ -383,7 +383,7 @@ describe('CP5a explicit owner dispatch', () => {
     } finally { f.close(); }
   });
   it('keeps a terminal held child terminal, without automatic retry or parent proof', async () => {
-    const f = await liveFixture(); f.cNode.options.checkPeer = undefined;
+    const f = await liveFixture(); f.cNode.options.checkPeer = undefined; f.cNode.autoAccept.enabled = false;
     const send = vi.spyOn(f.relay,'send'), jobs = [f.bNode.start({once:true}).catch(error => error),f.cNode.start({once:true}).catch(error => error)];
     try { await expect(f.run()).rejects.toThrow();
       expect(send.mock.calls.filter(([e]) => e.payload.eventType === 'PROPOSE' && e.payload.recipientDid === f.c.did)).toHaveLength(1);

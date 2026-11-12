@@ -25,9 +25,10 @@ export function contextSessionAuditPayload(eventType: string, payload: Json, gra
       proposalDigest: digest({ manifest: p.proposal.payload, input: p.input }) };
   }
   if (eventType === 'ACCEPT') {
-    const { contract } = payload as unknown as { contract: TaskContract };
+    const { contract, approval } = payload as unknown as { contract: TaskContract; approval?: import('@acp/core').ApprovalReceipt };
     return JSON.parse(JSON.stringify({ ...summary, payloadDigest: digest(payload),
       manifestDigest: digest(contract.manifest), contractDigest: contract.contractDigest,
+      ...(approval?.payload.authorization ? { approval } : {}),
       worker: contract.manifest.worker && { ownerDid: contract.manifest.worker.ownerDid,
         agentDid: contract.manifest.worker.agentDid }, acceptance: contract.acceptance })) as Json;
   }

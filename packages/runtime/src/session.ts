@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+import { autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
+import { matchesAutoAccept, WorkerAutoApprovalProvider, type AutoAcceptStateGuard } from './auto-accept.js';
+import { privateDirectory } from './local-identity.js';
+import * as autoAcceptFs from 'node:fs';
+import { dirname } from 'node:path';
+import { readApplicationConfig } from './application-config.js';
 import { ApprovalGate } from './policy.js';
 import { requiresStrongIsolation } from './isolation.js';
 import { assembleDelegation, redelegationTarget, requireOwnerDecision, verifyRecoveredDelegation, verifyDelegationAttachment } from './delegation.js';
@@ -473,6 +479,10 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   /** Label custom LLM adapters explicitly. Built-in LLM IDs are also recognized. */
   adapterKind?: 'llm' | 'non-llm';
   automaticApproval?: boolean;
+  /** Owner policy; omission enables read-only work from connected peers. */
+  autoAccept?: AutoAcceptPolicy;
+  /** Atomically check/reserve future limits. Failure never grants automatic admission. */
+  autoAcceptStateGuard?: AutoAcceptStateGuard;
   /** Separate human decision channel for limited peers; never the automatic provider. */
   ownerApprovalProvider?: ApprovalProvider;
   /** Reread host contact decisions at admission, execution and each outbound frame. */
@@ -578,6 +588,7 @@ export class WorkerNode {
   readonly connections: ConnectionRouter;
   readonly protocol: LiveProtocol;
   private readonly acceptedPeers = new Map<string, string>();
+  readonly autoAccept: AutoAcceptPolicy;
   private registered = false;
   private completed = 0;
   private activeTasks = 0;
@@ -599,6 +610,7 @@ export class WorkerNode {
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
     assertConnectionsOptions(options);
+    this.autoAccept = autoAcceptPolicy(options.autoAccept ?? readApplicationConfig({ ...options.identityOptions, allowPrivateRelay: true }).autoAccept);
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     if (options.auditInterruptionFormat !== undefined && options.auditInterruptionFormat !== 1)
@@ -678,6 +690,7 @@ export class WorkerNode {
             ? options.relay
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
+        autoAccept: this.autoAccept,
         ...(options.inviteTtlSeconds !== undefined ? {
           expiresAt: new Date(now + options.inviteTtlSeconds * 1000).toISOString(),
         } : {}),
@@ -1268,7 +1281,19 @@ export class WorkerNode {
           ? this.options.auditPath
           : this.options.auditPath.replace(/(?:\.jsonl)?$/, '.' + m.taskId + '.jsonl')
         : undefined;
+      if (!auditPath && this.autoAccept.enabled) {
+        const directory = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)), 'auto-accept-audit');
+        privateDirectory(directory, autoAcceptFs);
+        auditPath = join(directory, digest(m.taskId).slice(7) + '.' + randomUUID() + '.jsonl');
+      }
       freshAudit(auditPath);
+      // Provision the automatic ledger before the wire handshake. An unavailable
+      // audit destination must fail before acceptance, not strand an owner gate.
+      if (this.autoAccept.enabled && auditPath) {
+        const fd = openSync(auditPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+          (constants.O_NOFOLLOW ?? 0), 0o600);
+        closeSync(fd);
+      }
       if (this.taskJournal) {
         checkpoint = { version: 1, taskId: m.taskId, requesterDid: m.requester.ownerDid,
           envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
@@ -1451,7 +1476,7 @@ export class WorkerNode {
       // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
       if (this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
         inspection = await this.holdTask(first, m, data.input);
-        if (inspection.inspectionStatus !== 'complete' || m.protocolVersion === '0.1.0') this.intakeStore.enqueue(m, data.input);
+
       }
       // All identity, schema, scope, capability and host checks precede durable consent.
       let inviteIneligible = false;
@@ -1468,12 +1493,26 @@ export class WorkerNode {
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
       const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
+      const automaticContext = () => {
+        // One fresh, validated snapshot keeps the audience facts consistent and
+        // avoids repeating the store's descriptor-based directory/file checks.
+        const connection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
+        return { manifest: m, signal: attemptSignal,
+          connected: m.protocolVersion === '0.2.0' && connection?.state === 'connected',
+          invited: !inviteIneligible && connection?.state === 'connected' && 'source' in connection && connection.source === 'invite',
+          adapter: this.options.adapter,
+          tools: this.options.tools ?? (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> }).tools ?? {},
+        };
+      };
+      const automatic = !previouslyPending && !inviteIneligible &&
+        await abortable(matchesAutoAccept(this.autoAccept, automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
+      const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, this.autoAccept) : undefined;
       if (this.deliveryService) await this.withDelivery(() => {
         this.deliveryService!.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
       }, activeSignal);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       if (previouslyPending && peerTrust === 'trusted') throw new PendingTaskError('This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
-      if (peerTrust !== 'trusted') {
+      if (!automatic && peerTrust !== 'trusted') {
         inspection ??= await this.holdTask(first, m, data.input);
         if (previouslyPending || peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
             inspection.inspectionStatus !== 'complete') {
@@ -1493,9 +1532,11 @@ export class WorkerNode {
               : 'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
         }
       }
-      const contractProvider = peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider;
-      if (!contractProvider || peerTrust === 'limited' && (contractProvider.kind === 'policy' ||
+      const contractProvider = automaticProvider ?? (peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider);
+      if (!contractProvider || !automatic && peerTrust === 'limited' && (contractProvider.kind === 'policy' ||
           contractProvider === this.approvalProvider && contractProvider.kind !== 'human'))
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      if (!automatic && contractProvider.kind === 'policy')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       if (m.contextGrant?.deliveryMode === 'approval_redelegation') requireOwnerDecision(contractProvider);
       await wire.receiveEvent('PROPOSE', first);
@@ -1521,7 +1562,9 @@ export class WorkerNode {
       }), attemptSignal);
       if (m.contextGrant?.deliveryMode === 'approval_redelegation') assertFreshDecision(approval, openingStarted);
       setAuditStage('OUT_OF_SCOPE');
-      if (this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
+      if (automatic && !await matchesAutoAccept(this.autoAccept, automaticContext()))
+        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      if (!automatic && this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       this.assertPeer(m.requester.ownerDid);
@@ -1825,7 +1868,7 @@ export class WorkerNode {
           if (index < 0) throw new Error('CAPABILITY_VIOLATION: unauthorized tool');
           const approval =
             tools[tool] && !tools[tool].readOnly
-              ? await this.approvalProvider.approve({
+              ? await (automaticProvider ?? this.approvalProvider).approve({
                   taskId: m.taskId,
                   gate: 'external_side_effect',
                   target: { name: tool, args },
@@ -2408,6 +2451,7 @@ export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuth
 }
 /** Resolved action reviewed before any session envelope is transmitted. */
 export interface BeforeProposeContext {
+  workerAutomation?: { notice: string; policy: AutoAcceptPolicy };
   manifest: TaskManifest;
   input: Json;
   relay: string;
@@ -2797,6 +2841,12 @@ export class RequesterClient {
           ...(options.to ? { did: options.to } : {}) })[0]
       : findDiscoveredAgentCard(rawCards, options.to);
     if (options.discover && !card) throw new Error('WORKER_NOT_FOUND');
+    const advertisedPolicy = (invite?.agentCard ?? card)?.payload.autoAccept;
+    const automationNotice = 'This worker responds automatically, not through a human. この相手は人ではなく自動で応じます。';
+    const workerAutomation = advertisedPolicy?.enabled ? {
+      notice: automationNotice,
+      policy: advertisedPolicy,
+    } : undefined;
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
     const protocolVersion = this.protocol.outbound(invite?.agentCard ?? card,
       options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
@@ -2882,6 +2932,7 @@ export class RequesterClient {
       try {
         const evidence = await abortable(options.beforePropose({
           manifest: freezeApprovalAction(manifest), input: freezeApprovalAction(options.input),
+          ...(workerAutomation ? { workerAutomation } : {}),
           relay: typeof relayOption === 'string' ? relayOption
             : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport',
           signal: approvalSignal,
@@ -3056,6 +3107,11 @@ export class RequesterClient {
         )
       )
         throw new Error('INVALID_ACCEPTANCE');
+      const responseAutomation = accept.approval.payload.authorization ? {
+        notice: automationNotice, authorization: accept.approval.payload.authorization,
+        ...(advertisedPolicy && digest(advertisedPolicy) === accept.approval.payload.authorization.ruleDigest
+          ? { policy: advertisedPolicy } : {}),
+      } : workerAutomation;
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       managedChild?.onAcceptedContract(accept.contract);
       gateway = new OwnerGateway(owner, accept.contract, policy);
@@ -3081,6 +3137,7 @@ export class RequesterClient {
           gate: 'final_verification',
           target: data,
           details: { manifest, deliverableDigest: data.artifact.payload.digest,
+            ...(responseAutomation ? { workerAutomation: responseAutomation } : {}),
             ...(approvalMode ? { delegateeOwnerDids: lineage!.delegateeOwnerDids,
               delegationDigests: data.delegation!.children.map(p => ({ linkDigest: digest(p.link),
                 contractDigest: p.childContract.contractDigest, grantDigest: digest(p.childContract.manifest.contextGrant!) })) } : {}) },

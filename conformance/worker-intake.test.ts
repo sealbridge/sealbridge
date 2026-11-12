@@ -67,15 +67,15 @@ it('requires a separate owner channel for limited LLM peers, even with automatic
   expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
   expect(reviewed).toHaveBeenCalledOnce(); expect(f.approve).not.toHaveBeenCalled();
 });
-it.each(['limited', 'trusted'] as const)('uses only the explicit legacy trusted path for a fresh task (%s)', async trust => {
+it.each(['limited', 'trusted'] as const)('does not let a legacy grant bypass the read-only auto rule (%s)', async trust => {
   const f = fixture({ adapterKind: 'llm', automaticApproval: true });
   await f.attempt(); const request = f.store.list()[0];
   f.store.decide(request.id, 'approve', trust);
   if (trust === 'limited') f.worker.options.ownerApprovalProvider = new PolicyAutoApprovalProvider(f.owner);
   expect(f.adapter.executeTask).not.toHaveBeenCalled();
-  expect((await f.attempt())[0]).toMatchObject(trust === 'trusted' ? { status: 'fulfilled', value: { state: 'SETTLED' } } : { status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
-  expect(f.adapter.executeTask).toHaveBeenCalledTimes(trust === 'trusted' ? 1 : 0);
-  expect(f.approve).toHaveBeenCalledTimes(trust === 'trusted' ? 1 : 0);
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: trust === 'trusted' ? 'APPROVAL_CHANNEL_UNAVAILABLE' : 'PENDING_OWNER_APPROVAL' } });
+  expect(f.adapter.executeTask).not.toHaveBeenCalled();
+  expect(f.approve).not.toHaveBeenCalled();
   f.store.decide(request.id, 'deny');
   const count = f.frames.filter(e => e.payload.senderDid === f.owner.did).length;
   const m = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Denied', description: 'Denied' });
@@ -132,6 +132,7 @@ it('reports exact terminal pending status through MCP without retrying', async (
 it('keeps accepted work running after a peer is blocked', async () => {
   const f = fixture(); await f.attempt(); const id = f.store.list()[0].id;
   f.store.decide(id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   f.adapter.executeTask.mockImplementationOnce(async ctx => {
     f.store.decide(id, 'deny');
     await ctx.reportProgress?.({ step: 'after owner decision' });
@@ -181,10 +182,10 @@ it('requires fresh task IDs after admission, including when input or digest chan
 });
 it('recognizes a newly allowed contact and rereads a later contact revocation', async () => {
   let allowed = false;
-  const f = fixture({ adapterKind: 'llm', automaticApproval: true, checkPeer: () => allowed ? 'trusted' : undefined });
+  const f = fixture({ autoAccept: { version: 1, enabled: true, from: 'invited', work: 'write', limits: {} }, adapterKind: 'llm', automaticApproval: true, checkPeer: () => allowed ? 'trusted' : undefined });
   allowed = true;
   expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
-  expect(f.approve).toHaveBeenCalledOnce(); expect(f.store.list()).toEqual([]);
+  expect(f.approve).not.toHaveBeenCalled(); expect(f.store.list()).toEqual([]);
   f.worker.options.checkPeer = () => { throw new Error('CONTACT_REVOKED'); };
   const prior = f.frames.length;
   const m = buildTaskManifest({ ownerDid: f.requester.did, workerDid: f.owner.did, title: 'Revoked', description: 'Revoked' });

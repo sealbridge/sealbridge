@@ -30,7 +30,7 @@ function setup() {
   const owner = generateKeyPair(), remote = generateKeyPair(), relay = new InMemoryRelay();
   const execute = vi.fn(async (context: { input: Json }) => context.input);
   const worker = new WorkerNode({ protocolPolicy, owner: remote, relay, relayUrl: 'https://relay.example', identityOptions,
-    checkPeer: () => 'trusted', approvalProvider: new PolicyAutoApprovalProvider(remote),
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', approvalProvider: new PolicyAutoApprovalProvider(remote),
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute } });
   const approve = vi.fn(async (request: Parameters<ApprovalProvider['approve']>[0]) =>
     signApproval(request.taskId, request.gate, request.target, owner));
@@ -174,7 +174,7 @@ describe('MCP send-tool idempotency', () => {
   it.each(['quorum', 'race'] as const)('prepares a complete ordered %s fan-out and repeats no child or approval', async mode => {
     const f = setup(); f.start();
     const otherOwner = generateKeyPair();
-    const other = new WorkerNode({ protocolPolicy, owner: otherOwner, relay: f.relay, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
+    const other = new WorkerNode({ protocolPolicy, owner: otherOwner, relay: f.relay, relayUrl: 'https://relay.example', autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       approvalProvider: new PolicyAutoApprovalProvider(otherOwner), adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: f.execute } });
     const running = other.start(); cleanups.push(async () => { other.stop(); await running; });
     f.approve.mockImplementation(async r => {
