@@ -179,8 +179,9 @@ describe('UX-2 persistent daily limit', () => {
     expect(() => consumeDailyTask(path, 2, 'one')).toThrow('DAILY_TASK_REPLAY');
     writeFileSync(path, '{}');
     expect(() => consumeDailyTask(path, 2, 'two')).toThrow('DAILY_LIMIT_INVALID');
-    writeFileSync(path + '.lock', '');
-    expect(() => consumeDailyTask(path, 2, 'two')).toThrow('DAILY_LIMIT_BUSY');
+    const legacyPath = join(dir(), 'legacy.json');
+    writeFileSync(legacyPath + '.lock', '');
+    expect(() => consumeDailyTask(legacyPath, 2, 'two')).toThrow('DAILY_LIMIT_BUSY');
   });
   it('never exceeds the host cap with simultaneous processes', async () => {
     const path = join(dir(), 'daily.json');

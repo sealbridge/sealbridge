@@ -22,9 +22,8 @@ export interface WorkerAcceptancePolicy {
 }
 export class ProposalRejectedError extends Error {
   readonly approved = false;
-  readonly code = 'PROPOSAL_REJECTED';
-  constructor(readonly reason: string) {
-    super('PROPOSAL_REJECTED: ' + reason);
+  constructor(readonly reason: string, readonly code = 'PROPOSAL_REJECTED') {
+    super(code + ': ' + reason);
     this.name = 'ProposalRejectedError';
   }
 }

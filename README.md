@@ -1,6 +1,7 @@
 # Sealbridge
 
 All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
+Set `sealbridge config auto-accept max-tasks-per-day-per-did 3` for the official worker's three automatic tasks per requester owner DID per day, resetting at 00:00 UTC (09:00 Japan time). The default is unlimited; `off` removes the cap. Restart the worker after changes.
 Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker.
 The default is read-only work from connected peers. Use `sealbridge config auto-accept`
 to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
