@@ -8,6 +8,7 @@ import { validateIpAddress, validateRelayEndpointUrl } from '@acp/core';
 import { RelayTimeoutError, relayDeadline, isTransientRelayError } from './retry.js';
 import type { RelayEndpointPolicy } from '@acp/core';
 import type { RelayAuthRecoveryOptions } from './retry.js';
+import { connectRelayProxy, relayProxyFor, type RelayProxy } from './proxy.js';
 
 export interface ResolvedAddress {
   address: string;
@@ -30,6 +31,7 @@ export interface RelayClientSecurityOptions extends RelayEndpointPolicy, RelayAu
 
 export interface ResolvedRelayEndpoint {
   url: URL;
+  proxy?: RelayProxy;
   addresses: ResolvedAddress[];
   /** Returns only the addresses accepted before the socket is opened. */
   lookup: LookupFunction;
@@ -71,8 +73,8 @@ function literalAddress(hostname: string): ResolvedAddress | undefined {
 }
 
 /**
- * Resolve every A/AAAA answer and reject the endpoint when any address is disallowed.
- * Literal IP hosts skip DNS. The returned lookup never resolves again.
+ * Validate URL policy first. Direct routes validate and pin every A/AAAA answer;
+ * configured proxy routes defer destination DNS to the proxy (see below).
  */
 export async function resolveAndValidateRelayEndpoint(
   value: string,
@@ -80,6 +82,14 @@ export async function resolveAndValidateRelayEndpoint(
 ): Promise<ResolvedRelayEndpoint> {
   validateRelayEndpointUrl(value, { allowPrivateRelay: options.allowPrivateRelay });
   const url = new URL(value);
+  const proxy = relayProxyFor(url);
+  if (proxy) {
+    // The configured proxy resolves the destination. Local DNS can be synthetic
+    // (e.g. Muse's 198.18/15 answers) and must neither block nor pin this route.
+    // URL/literal/metadata policy above still applies; NO_PROXY uses the complete
+    // direct DNS validation and pinning path below, unchanged.
+    return { url, proxy, addresses: [], lookup: pinnedNodeLookup([]) };
+  }
   const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
   const literal = literalAddress(hostname);
   let addresses: ResolvedAddress[];
@@ -148,6 +158,10 @@ async function pinnedRequest(
   const hostname = target.hostname.replace(/^\[|\]$/g, '');
   const lib = secure ? https : http;
   const signal = init?.signal ?? undefined;
+  const started = performance.now();
+  const tunnel = pin.proxy ? await connectRelayProxy(pin.proxy, target, options.requestTimeoutMs ?? 45_000, signal) : undefined;
+  const agent = tunnel ? (secure ? new https.Agent() : new http.Agent()) : undefined;
+  if (agent && tunnel) agent.createConnection = () => tunnel;
   return new Promise((resolve, reject) => {
     let response: http.IncomingMessage | undefined;
     const req = lib.request(
@@ -159,7 +173,7 @@ async function pinnedRequest(
         path: target.pathname + target.search,
         headers: headerRecord(init?.headers),
         lookup: pin.lookup,
-        agent: false,
+        agent: agent ?? false,
         ...(secure ? { servername: hostname } : {}),
       },
       (incoming) => {
@@ -197,7 +211,7 @@ async function pinnedRequest(
     );
     const fail = (error: Error) => {
       if (signal?.aborted) reject(abortError(signal));
-      else reject(error);
+      else reject(pin.proxy && !(error instanceof RelayTimeoutError) ? new Error('RELAY_PROXY_UNAVAILABLE') : error);
     };
     req.on('error', fail);
     const timeout = () => {
@@ -205,9 +219,11 @@ async function pinnedRequest(
       response?.destroy(error);
       req.destroy(error);
     };
-    const deadline = setTimeout(timeout, options.requestTimeoutMs ?? 45_000);
+    const deadline = setTimeout(timeout, pin.proxy
+      ? Math.max(1, (options.requestTimeoutMs ?? 45_000) - (performance.now() - started))
+      : options.requestTimeoutMs ?? 45_000);
     req.setTimeout(options.socketTimeoutMs ?? 35_000, timeout);
-    req.once('close', () => clearTimeout(deadline));
+    req.once('close', () => { clearTimeout(deadline); agent?.destroy(); });
     if (signal) {
       const onAbort = () => req.destroy(abortError(signal));
       if (signal.aborted) {
@@ -226,7 +242,7 @@ async function pinnedRequest(
   });
 }
 
-/** Fetch that dials only the addresses accepted by resolveAndValidateRelayEndpoint. */
+/** Fetch using a validated direct pin or the selected hostname-based proxy tunnel. */
 export function createPinnedRelayFetch(
   endpoint: string | ResolvedRelayEndpoint,
   options: RelayClientSecurityOptions = {},

@@ -10,7 +10,9 @@ const unbuiltHelpers = [
   ['@acp/runtime/local-identity', 'packages/runtime', 'local-identity'],
   ['@acp/runtime/key-store', 'packages/runtime', 'key-store'],
   ['@acp/runtime/relay-selection', 'packages/runtime', 'relay-selection'],
+  ['@acp/core/edge', 'packages/core', 'edge'],
   ['@acp/core', 'packages/core', 'index'],
+  ['@acp/relay', 'packages/relay', 'index'],
   ...['key-store', 'secret-store', 'local-identity'].map(entry =>
     ['@acp/runtime-local/' + entry, 'packages/runtime-local', entry]),
 ].flatMap(([find, directory, entry]) => existsSync(new URL(`./${directory}/dist/${entry}.js`, import.meta.url))

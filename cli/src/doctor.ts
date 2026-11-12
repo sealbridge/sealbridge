@@ -3,6 +3,7 @@ import { LOCAL_DISTRIBUTION, cliName } from './distribution.js';
 import { delimiter, join } from 'node:path';
 import { inspectStoredIdentity, keyStoreSelection } from '@acp/runtime/key-store';
 import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
+import { HttpRelayClient, relayProxyFor, relayProxyLabel } from '@acp/relay';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 export interface DoctorOptions {
   version?: string;
@@ -59,12 +60,17 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
     checks.push({ name: 'Relay', ok: true, message: 'Skipped (offline)' });
     return checks;
   }
+  let relayRoute = '';
   try {
-    const response = await (options.fetch ?? fetch)(DEFAULT_PUBLIC_RELAY + '/health', { signal: AbortSignal.timeout(8000), redirect: 'error' });
-    checks.push({ name: 'Relay', ok: response.ok, message: response.ok ? 'Reachable' : `HTTP ${response.status}`,
+    const proxy = relayProxyFor(new URL(DEFAULT_PUBLIC_RELAY));
+    relayRoute = proxy ? `; via proxy (${relayProxyLabel(proxy)})` : '';
+    const client = new HttpRelayClient(DEFAULT_PUBLIC_RELAY, options.fetch ?? fetch, { requestTimeoutMs: 8000 });
+    const response = await client.fetcher(DEFAULT_PUBLIC_RELAY + '/health', { signal: AbortSignal.timeout(8000), redirect: 'error' });
+    await response.body?.cancel();
+    checks.push({ name: 'Relay', ok: response.ok, message: (response.ok ? 'Reachable' : `HTTP ${response.status}`) + relayRoute,
       ...(!response.ok && { remediation: 'Check your connection and try again.' }) });
   } catch {
-    checks.push({ name: 'Relay', ok: false, message: 'Unreachable', remediation: 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
+    checks.push({ name: 'Relay', ok: false, message: 'Unreachable' + relayRoute, remediation: 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
   }
   return checks;
 }

@@ -46,7 +46,7 @@ export function isTransientRelayError(error: unknown): boolean {
   return causes.some(e => e.name === 'TimeoutError' ||
     ['ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ECONNREFUSED', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH']
       .includes((e as NodeJS.ErrnoException).code ?? '') ||
-    /^(?:SSE_CLOSED|RELAY_IDLE_TIMEOUT)$/.test(e.message) ||
+    /^(?:SSE_CLOSED|RELAY_IDLE_TIMEOUT|RELAY_PROXY_UNAVAILABLE)$/.test(e.message) ||
     (e instanceof TypeError && /^(?:fetch failed|terminated)$/.test(e.message)) ||
     /^socket hang up$/i.test(e.message) ||
     /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(429|502|503|504)\b/.test(e.message));
