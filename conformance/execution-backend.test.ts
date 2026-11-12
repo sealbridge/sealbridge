@@ -21,7 +21,7 @@ it('uses the injected execution backend lifecycle and attests its isolation leve
     cleanup: async workspace => { expect(workspace).toBe('fake-workspace'); calls.push('cleanup'); },
   };
   const executeTask = vi.fn(async () => null);
-  const worker = new WorkerNode({ owner: bob, relay, checkPeer: () => 'trusted', timeoutMs: 5000,
+  const worker = new WorkerNode({ owner: bob, relay, autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', timeoutMs: 5000,
     approvalProvider: new PolicyAutoApprovalProvider(bob), executionBackend: backend,
     adapter: { id: 'unused', name: 'unused', skills: [], executeTask } });
   const requester = new RequesterClient({ owner: alice, relay, timeoutMs: 5000,

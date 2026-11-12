@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Added
+
+- Add owner-configured automatic acceptance for every worker: invited/connected/anyone audiences, read-only by default, explicit write opt-in, signed rule provenance in per-task audit, advertised rules and requester notices. Reserve fail-closed hooks for future limits; remove the LLM-only allowlist gate. (#254)
+- すべてのワーカーに持ち主設定の自動受付を追加しました。招待・接続・誰でもの対象、既定の読み取り専用と明示的な書き換え許可、タスクごとの署名付きルール監査、紹介カードと依頼側の告知に対応します。今後の上限には fail closed の差込み先を用意し、LLM だけの許可リスト必須条件を廃止しました。(#254)
+
 ### Fixed
 
 - Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.

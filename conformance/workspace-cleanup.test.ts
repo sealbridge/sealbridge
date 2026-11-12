@@ -44,7 +44,7 @@ describe('worker workspace cleanup', () => {
         const reports: WorkspaceCleanupFailure[] = [];
         let started!: () => void;
         const ready = new Promise<void>((resolve) => { started = resolve; });
-        const worker = new WorkerNode({ checkPeer: () => 'trusted',
+        const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
           owner: bob, relay, timeoutMs: 5000,
           approvalProvider: new PolicyAutoApprovalProvider(bob),
           onWorkspaceCleanupError: (failure) => {

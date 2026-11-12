@@ -125,7 +125,7 @@ describe('UX-2 board', () => {
     const { owner, worker, post, card, path, input } = fixture();
     const relay = new InMemoryRelay();
     const host = boardHost(post, owner, path, new PolicyAutoApprovalProvider(owner), () => true);
-    const node = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl,   ...host, timeoutMs: 4000 });
+    const node = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, relayUrl,   ...host, timeoutMs: 4000 });
     await node.register();
     const client = new RequesterClient({ owner: worker, relay, timeoutMs: 4000, approvalProvider: new PolicyAutoApprovalProvider(worker) });
     const done = node.start({ once: true });
@@ -149,7 +149,7 @@ describe('UX-2 persistent daily limit', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const owner = generateKeyPair(), requester = generateKeyPair(), relay = new InMemoryRelay();
       let calls = 0;
-      const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay,   timeoutMs: 3000,
+      const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay,   timeoutMs: 3000,
         dailyLimit: { path, maxTasks: 1 }, approvalProvider: new PolicyAutoApprovalProvider(owner),
         adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'echo', name: 'Echo' }],
           async executeTask(ctx) { calls++; return ctx.input; } } });

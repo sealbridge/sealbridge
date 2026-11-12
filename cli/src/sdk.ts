@@ -4,7 +4,7 @@ export {
   InviteStore, KeychainSecretStore, openKeychainSecretStore,
   FileKeyStore, KeychainKeyStore, inspectStoredIdentity, resolveStoredIdentity,
   selectKeyStore, keyStoreSelection, keychainService, resolveDataRoot,
-  readApplicationConfig, setApplicationKeyStore,
+  readApplicationConfig, setApplicationKeyStore, setApplicationAutoAccept,
   WorkerTrustStore, workerIntakePath, ProtocolPeerStore, protocolPeerPath,
   ConnectionService, ConnectionRouter, syncConnections, StoredConnectionExchange, ConnectionAdmissionReview,
   HeldRequestReview, unavailableHeldContentReviewProvider, taskContent,
@@ -18,7 +18,7 @@ export type {
   ProtocolPeerObservation, ProtocolPeerState, ProtocolPeerStoreOptions,
   DataRootOptions, LocalIdentityOptions, IdentityRole, IdentityStoreOptions, StoredIdentity,
   KeyStore, KeyStoreDescription, KeyStoreSelection, KeyringEntry, KeyringModule,
-  ApplicationConfig, ApplicationConfigOptions, RelaySelectionOptions,
+  ApplicationConfig, ApplicationConfigOptions, RelaySelectionOptions, AutoAcceptStateGuard, AutoAcceptContext,
   ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionPeer, ConnectionRecord, ConnectionSummary, PriorApprovedPeer,
   ConnectionServiceOptions, ConnectionServiceResult, ConnectionHumanReviewProvider,
   ConnectionInspectionPort, ConnectionPersistencePort, ConnectionOffer, ConnectionConsent,
@@ -32,6 +32,7 @@ export type {
 export {
   inspectRuleContent, CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_RULESET_VERSION,
   CONTENT_INSPECTION_RULESET_DIGEST, CONTENT_INSPECTION_LIMITS,
+  autoAcceptPolicy, DEFAULT_AUTO_ACCEPT_POLICY, validAutoAcceptPolicy,
   generateKeyPair, createSignedAgentCard, verifySignedAgentCard, signApproval,
   createInviteToken, inviteTokenFromUri, isInviteTarget, parseAndVerifyInviteToken,
   discoverAgentCards, findDiscoveredAgentCard,
@@ -47,6 +48,7 @@ export {
   CONTEXT_GRANT_DEFAULT_LIFETIME_MS,
 } from '@acp/core';
 export type {
+  AutoAcceptPolicy,
   RuleInspectionInput, RuleInspectionOptions, RuleInspectionFinding, RuleInspectionReport,
   RuleInspectionRule, RuleInspectionKind, RuleInspectionDiagnosticCode,
   KeyPair, Json, Signed, SignedEnvelope,

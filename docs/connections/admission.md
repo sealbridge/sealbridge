@@ -8,10 +8,11 @@ Release note: The following are available from sealbridge npm package 0.3.0
 `acp_list_connections`, `acp_list_connection_requests`.
 
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
-Connected means limited consent with no expiry. Every limited task requires a
-completed inspection and a separate human opening before acceptance, for every
-adapter. Automatic contract policy does not replace that opening. The library default provider reports `unavailable`. Interactive CLI workers supply
-built-in display inspection before the live owner gate.
+Connected means limited consent with no expiry. Work matching the owner's
+[automatic acceptance rule](../auto-accept.md) runs without per-task human opening.
+The default accepts only read-only work from connected peers. Other work requires
+completed inspection and a separate human opening. The library default inspection
+provider reports `unavailable`; interactive CLI workers supply display inspection.
 
 The standalone CLI displays validated task manifest, input and capabilities as
 literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
@@ -23,13 +24,13 @@ and close only that terminal held attempt locally. They neither execute nor send
 a reply to its ended session, and store no approval for a later task. Explicitly
 submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
 inspect its content and approve or reject it at the live owner prompt. Every
-fresh submission needs its own decision. Without TTY, limited tasks remain held;
-`--auto-accept` does not replace inspection or live owner approval.
+fresh submission is checked against the current rule. Outside the rule, work needs
+inspection and a human decision; `--auto-accept` cannot expand the configured rule.
 Connection consent stays on `connections`; legacy `requests approve` retains its
 connection-consent meaning and requires completed inspection. It never approves
 task execution. `requests approve --trust trusted` remains a separate legacy grant.
 
-Valid requests from unconnected peers are held as encrypted envelopes until the
+Unless explicitly admitted by the owner's automatic rule, valid requests from unconnected peers are held as encrypted envelopes until the
 earliest of 24 hours, the task deadline, and a grant expiry the worker already
 read. They return terminal `PENDING_OWNER_APPROVAL`,
 `retryable:false`, CLI exit 3. Do not retry automatically. Schema, signature,

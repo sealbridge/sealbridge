@@ -268,9 +268,9 @@ For the optional audit paths below, create the audit directory first:
    `--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and
    `--max-wall-clock-seconds` reject larger proposals before `ACCEPT`.
    `--max-concurrent-tasks` defaults to 8. `--max-requests-per-minute` limits
-   one requester DID. With LLM adapters, automatic policy remains limited by host settings; connection-derived tasks always require inspection and human opening.
-   公開ディレクトリへの登録は `--publish` だけです。LLM アダプタの
-   `--auto-accept` には依頼者の許可が必要です。予算・同時実行・レートの
+   one requester DID. With LLM adapters, automatic policy remains limited by host settings; tasks outside the owner auto-accept rule require inspection and human opening. See [automatic acceptance](docs/auto-accept.md).
+   公開ディレクトリへの登録は `--publish` だけです。LLM を含む全アダプターの
+   自動受付は持ち主設定のルールを使います。予算・同時実行・レートの
    上限を超える提案は受諾しません。
 
 ## User-operated invitation import / ユーザーによる招待保存
@@ -398,7 +398,7 @@ Follow [connections admission](docs/connections/admission.md) and the [Japanese 
 Unknown tasks return terminal `PENDING_OWNER_APPROVAL`; do not retry automatically. Do not answer human connection prompts for the owner.
 Import and preview grant no consent. `connections confirm-invite` separately confirms the exact local role/DID and peer owner DID.
 Task approval and durable connection consent are separate; without explicit consent, attach no connection request.
-Connected is indefinite limited, with inspection and owner opening for every task. The library default inspection provider is unavailable; interactive CLI workers supply display inspection.
+Connected is indefinite limited. Matching owner-configured automatic rules skip per-task opening; the default is read-only from connected peers. Other work requires inspection and owner opening. See [automatic acceptance](docs/auto-accept.md). The library default inspection provider is unavailable; interactive CLI workers supply display inspection.
 
 The standalone CLI displays validated task manifest, input and capabilities as
 literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
@@ -411,7 +411,7 @@ a reply to its ended session, and store no approval for a later task. Explicitly
 submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
 inspect its content and approve or reject it at the live owner prompt. Every
 fresh submission needs its own decision. Without TTY, limited tasks remain held;
-`--auto-accept` does not replace inspection or live owner approval.
+`--auto-accept` does not expand the owner rule; outside it, inspection and live approval remain required.
 Connection consent stays on `connections`; legacy `requests approve` retains its
 connection-consent meaning and requires completed inspection. It never approves
 task execution. `requests approve --trust trusted` remains a separate legacy grant.
@@ -664,16 +664,22 @@ Hosts authorize review and manage acknowledgements and cleanup; see the [library
   public identifiers and `acp-invite:...` tokens may be shared externally as
   identity/invitation material. 秘密鍵・API キー・`.env` の内容は表示・記録・
   コミット・送信禁止です。公開 DID と招待トークンのみ共有してください。
-- Always obtain explicit human owner confirmation for external side effects
-  (`external_side_effect`), budget increases (`budget_increase`), contract
-  acceptance (`contract_acceptance`), and final verification
-  (`final_verification`). Only use `--auto-accept` or `--auto-approve` when
-  explicitly authorized by the owner. These select a policy that automatically
-  approves contract acceptance/final verification; external side effects and
-  budget increases still require explicit confirmation and are rejected by
-  that automatic policy. Never answer an interactive prompt for the owner
-  without their approval. 自動承認フラグは明示的な許可がある場合のみ使用し、
-  外部副作用・予算増額の承認は省略しません。
+- Always obtain explicit human owner confirmation for requester final verification
+  (`final_verification`) and budget increases (`budget_increase`). Worker contract
+  acceptance (`contract_acceptance`) and tool effects (`external_side_effect`)
+  may use the rule below. Use `--auto-accept` or `--auto-approve` only when
+  explicitly authorized by the owner.
+- Use the owner's configured automatic rule for matching worker tasks. The default
+  is read-only from connected peers; writes and command execution require an
+  explicit `work: write` setting. Never enable that setting on the owner's behalf.
+  Signed automatic decisions include rule provenance; human decisions remain
+  separate. Outside the rule, retain inspection and explicit owner opening.
+  Requester send/final verification and budget-increase approvals remain unchanged.
+  Never answer an interactive owner prompt without their decision. See
+  [automatic acceptance](docs/auto-accept.md).
+  既定は接続済みの相手から読むだけの自動受付です。書き換え・コマンドの自動受付は
+  持ち主が明示的に選んだ場合だけです。モデルが代わりにオンにしてはいけません。
+  依頼側の送信・最終検収と予算増額の承認は維持し、人のプロンプトには本人が答えます。
 - The Blind Relay has no owner keys. Session payloads are encrypted to the
   recipient `did:key`. Routing metadata stays visible. Use HTTPS across
   machines and never put secrets into task input, descriptions, or deliverables.

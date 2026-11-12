@@ -44,7 +44,7 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   expect(existsSync(join(home, 'data'))).toBe(false);
   const workerApproval = approving(() => workerOwner);
   const execute = vi.fn(async (ctx: { input: unknown }) => ctx.input as { echo: string });
-  const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
+  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, approvalProvider: workerApproval });
   const token = worker.invite();
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -66,7 +66,7 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
       expect(JSON.stringify(result)).not.toContain(token);
     }
     expect(execute).toHaveBeenCalledTimes(2);
-    expect(workerApproval.approve).toHaveBeenCalled();
+    expect(workerApproval.approve).not.toHaveBeenCalled();
     expect(JSON.stringify((approval.approve as ReturnType<typeof vi.fn>).mock.calls)).not.toContain(token);
     const restart = new AcpMcpServer({ identityOptions, relay, approvalProvider: approval });
     expect((await call(restart, 'acp_list_invites')).value).toEqual(listed.value);

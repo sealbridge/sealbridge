@@ -132,7 +132,7 @@ it('keeps blocked proposals silent before quarantine or recipient observation', 
   expect(f.frames).toEqual([]);expect(f.execute).not.toHaveBeenCalled();
 });
 it('does not synthesize held or opened facts for an explicit legacy trusted path', async () => {
-  const f=fixture();f.worker.options.checkPeer=()=> 'trusted';
+  const f=fixture();f.worker.options.checkPeer=()=> 'trusted';Object.assign(f.worker.autoAccept,{from:'anyone',work:'write'});
   expect((await f.attempt())[0]).toMatchObject({status:'fulfilled',value:{state:'SETTLED'}});
   const r=f.incoming.store.snapshot('observations')[0];expect(r.facts.map(f=>f.state)).toEqual(['handed_to_agent']);
   expect(f.review.list()).toEqual([]);expect(f.human.approve).not.toHaveBeenCalled();

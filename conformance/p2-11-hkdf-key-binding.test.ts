@@ -227,7 +227,7 @@ describe('P2-11 HKDF info binds both X25519 public keys', () => {
       send(envelope);
     };
     const input = { marker: 'p2-11-session-secret' };
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {

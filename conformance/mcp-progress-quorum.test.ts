@@ -25,7 +25,7 @@ function echoWorker(
   tag: string,
   delayMs = 0,
 ) {
-  return new WorkerNode({ checkPeer: () => 'trusted',
+  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     owner: ownerDidKey,
     relay,
     adapter: {
@@ -71,7 +71,7 @@ describe('progress streaming and multi-worker delegation', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -113,7 +113,7 @@ describe('progress streaming and multi-worker delegation', () => {
     expect(result.deliverable).toEqual({ ok: true });
     expect(result.bundle.entries.some((entry) => entry.body.eventType === 'PROGRESS')).toBe(true);
 
-    const limited = new WorkerNode({ checkPeer: () => 'trusted',
+    const limited = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {

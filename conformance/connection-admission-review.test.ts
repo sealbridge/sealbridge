@@ -229,7 +229,7 @@ it('provides CLI review without a configured inspector and requires owner confir
 });
 
 it('lists an empty CLI queue without creating identities and refuses unattended flags', async () => {
-  const f = fixture(), root = join(f.root, 'unused'), identityOptions = { env: { SEALBRIDGE_DATA_DIR: root } };
+  const f = fixture(), root = join(f.root, 'unused'), identityOptions = { home: root, env: { SEALBRIDGE_DATA_DIR: root } };
   const output = vi.fn();
   await connectionsCommand(['review', 'list'], { identityOptions, output });
   expect(JSON.parse(output.mock.calls[0][0])).toEqual({ requests: [] });

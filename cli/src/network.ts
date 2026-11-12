@@ -7,7 +7,7 @@ import { inviteShareCommand } from './invite-share.js';
 import { connectionHumanReview } from './connections.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema } from '@acp/core';
-import { discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
+import { autoAcceptPolicy, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
 import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
@@ -47,6 +47,9 @@ import { parseInviteOutput, deliverInvite } from './invite-output.js';
 import { emitWorkerJson, inviteDigest } from './worker-json.js';
 import { cliTaskInspection, literalText } from './task-review.js';
 const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--allow-task-type']);
+const reportWorkerAutomation: NonNullable<DelegateOptions['beforePropose']> = async ({ workerAutomation }) => {
+  if (workerAutomation) console.error(workerAutomation.notice + '\n' + JSON.stringify(workerAutomation.policy));
+};
 const LLM_ADAPTERS = new Set(['claude', 'codex', 'openai']);
 // One stdin answer must decide only the task/gate currently displayed.
 let approvalQueue: Promise<unknown> = Promise.resolve();
@@ -184,7 +187,8 @@ const REVIEW_HELP = `
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
 With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
 Use tasks list/show/approve/reject for individual terminal held attempts; connection consent stays on connections.
-Without an interactive TTY, limited tasks remain held; --auto-accept never supplies their owner approval.
+Use config auto-accept [off | invited|connected|anyone read-only|write] for automatic admission.
+Default: read-only from connected peers. Other limited tasks need inspection and live owner approval.
 Task HOME is fresh: host CLI login directories are not exposed. --cmd overrides manage their own authentication.`;
 function allowRequesterDids(parsed: Map<string, string | true>): string[] {
   const raw = parsed.get('--allow-requester');
@@ -209,21 +213,7 @@ function workerAcceptance(parsed: Map<string, string | true>): WorkerAcceptanceP
     publishToRegistry: parsed.has('--publish'),
   };
 }
-function assertLlmAutoAccept(
-  adapter: string,
-  automatic: boolean,
-  acceptance: WorkerAcceptancePolicy,
-  trustedGrant = false,
-): void {
-  if (!automatic || !LLM_ADAPTERS.has(adapter)) return;
-  if (trustedGrant || (acceptance.allowedRequesterDids?.length ?? 0) > 0) return;
-  throw new Error(
-    'LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST: --auto-accept with the ' +
-      adapter +
-      ' adapter can spend the worker owner API key. Pass --allow-requester <did> ' +
-      '(repeatable or comma-separated). Connections remain limited and require owner opening.',
-  );
-}
+
 export async function networkCommand(command: string, args: string[], application: {
   identityOptions?: InviteStoreOptions; fetch?: typeof fetch;
   pendingRequest?: DelegateOptions; pendingRelayUrl?: string;
@@ -402,7 +392,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       path: workerIntakePath(key.did, application.identityOptions),
       fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
     });
-    assertLlmAutoAccept(adapterName, automatic, acceptance, intakeStore.hasTrustedGrant());
+    const autoAccept = autoAcceptPolicy(readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true }).autoAccept);
     if (adapterName === 'claude' || adapterName === 'codex')
       assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
     const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
@@ -418,6 +408,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       ...(f.has('--allowed-peer') ? { allowedPeerDids: text(f, 'allowed-peer').split(',').map(d => d.trim()).filter(Boolean) } : {}),
       adapterKind: LLM_ADAPTERS.has(adapterName) ? 'llm' : 'non-llm',
       automaticApproval: automatic,
+      autoAccept,
       ownerApprovalProvider: process.stdin.isTTY && process.stderr.isTTY
         ? contactsApproval(contactFile, key, false, explicitAcceptance, approval(key, false, undefined, f.has('--verbose')))
         : undefined,
@@ -553,6 +544,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       input,
       outputSchema,
       ...application.pendingRequest,
+      beforePropose: reportWorkerAutomation,
       to,
       ...(workerRef ? { workerRef } : {}),
       ...Object.fromEntries(Object.entries(sessionTimeouts(f)).filter(([, value]) => value !== undefined)),

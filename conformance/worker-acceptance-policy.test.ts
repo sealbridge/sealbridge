@@ -45,7 +45,7 @@ function workerFor(
   adapter: AgentAdapter,
   options: WorkerAcceptancePolicy = {},
 ) {
-  return new WorkerNode({ checkPeer: () => 'trusted',
+  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     owner,
     relay,
     adapter,
@@ -318,30 +318,7 @@ describe('acp worker CLI acceptance guard', () => {
   }
 
   it.each(['claude', 'codex', 'openai'])(
-    'refuses --adapter %s --auto-accept without an allowlist',
-    async (adapter) => {
-      const bob = await keyFile('bob.private.json');
-      const server = await relay();
-      const pending = server.worker([
-        'start', '--allow-local-pc',
-        '--key',
-        bob.path,
-        '--relay',
-        server.url,
-        '--allow-private-relay',
-        '--adapter',
-        adapter,
-        '--auto-accept',
-        '--once',
-      ]);
-      cleanup.push(() => pending.catch(() => undefined));
-      await expect(pending).rejects.toThrow(/allow-requester/);
-    },
-    8000,
-  );
-
-  it.each(['claude', 'codex', 'openai'])(
-    'starts --adapter %s --auto-accept when --allow-requester is set',
+    'starts --adapter %s --auto-accept without the removed allowlist guard',
     async (adapter) => {
       // This startup-only test configures authentication without executing a task.
       if (adapter === 'claude') vi.stubEnv('ANTHROPIC_API_KEY', 'local-startup-fixture');
@@ -365,8 +342,6 @@ describe('acp worker CLI acceptance guard', () => {
         '--adapter',
         adapter,
         '--auto-accept',
-        '--allow-requester',
-        alice.did,
         '--once',
       ]).catch((error) => {
         failure = error;

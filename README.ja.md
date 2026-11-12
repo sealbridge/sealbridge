@@ -1,5 +1,7 @@
 # Sealbridge
 
+自動受付の既定は「接続済みの相手から、読むだけ」です。持ち主が「招待した相手」「誰でも」「書き換えも可」を選べます。詳しくは[自動受付の設定](docs/auto-accept.ja.md)を参照してください。以下の毎回の検査・所有者操作は、ルールに合わない依頼に適用します。
+
 ## 0.7.0 からのローカル実行（破壊的変更）
 
 0.7.0 から、本流の `sealbridge` でローカル実行するには `--allow-local-pc` が必須です。警告だけの猶予期間はありません。対象は `--adapter claude|codex|command`、**手元のPCで動かす sandbox（subprocess / OCI の両方）**、`--on-receive`、`relay start --wake-command` です。環境変数や設定ファイルでは許可できません。依頼側の `delegate` と MCP の依頼は従来どおりです。ローカルコマンドの hook を使わない `openai` ワーカーには、このフラグは不要です。
@@ -20,7 +22,7 @@ sealbridge worker start --adapter sandbox --allow-local-pc
 
 > 注意: ローカルPCで実行します（隔離: host_adapter）。所有者の承認と内容の検査は有効のままです。実行環境の証明（attestation）は付きません。
 
-このフラグは自動承認を意味しません。LLM の自動受付には従来どおり依頼者の許可リスト、または明示された旧 trusted grant が必要で、所有者の承認と内容の検査も維持します。起動警告はホスト上の実行経路の説明で、隔離の証明ではありません。既存プロトコルの実行情報 `ExecutionAttestation.effectiveIsolationLevel` は実際の値（`host_adapter`、`subprocess_restricted`、`oci_container` など）を引き続き記録し、このフラグによる環境証明は追加しません。ワーカーは起動ごとに署名付き `LOCAL_PC_OPT_IN` を `<audit-path>.events.jsonl` に保存します。`--audit` なしの場合は `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl` に保存します。このローカル起動監査はタスクの相互署名ログとは別で、その形式は変更しません。`sealbridge doctor`（`--offline` も含む）でも変更内容と公開後の乗り換え方法を案内します。
+このフラグは自動承認を意味しません。自動受付には持ち主の設定を使います（[自動受付](docs/auto-accept.ja.md)）。条件に合わない依頼は従来の内容検査と所有者承認を維持します。起動警告はホスト上の実行経路の説明で、隔離の証明ではありません。既存プロトコルの実行情報 `ExecutionAttestation.effectiveIsolationLevel` は実際の値（`host_adapter`、`subprocess_restricted`、`oci_container` など）を引き続き記録し、このフラグによる環境証明は追加しません。ワーカーは起動ごとに署名付き `LOCAL_PC_OPT_IN` を `<audit-path>.events.jsonl` に保存します。`--audit` なしの場合は `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl` に保存します。このローカル起動監査はタスクの相互署名ログとは別で、その形式は変更しません。`sealbridge doctor`（`--offline` も含む）でも変更内容と公開後の乗り換え方法を案内します。
 
 ## インストール
 
@@ -408,7 +410,7 @@ DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致�
 
 `--max-input-tokens`、`--max-output-tokens`、`--max-tool-invocations`、`--max-wall-clock-seconds` は、ワーカーが受ける契約の上限です。どれかを超える提案は、`--auto-accept` でも `ACCEPT` の前に拒否されます。マニフェストの `timeoutSeconds` は `--max-wall-clock-seconds` と比較します。`--max-concurrent-tasks` は同時実行数の上限です（既定は 8）。`--max-requests-per-minute` は、依頼者 DID ごとの提案回数の上限です。
 
-`--allow-requester <did>` は対象を制限するだけで、信頼を付けません。すべての limited の依頼に検査と所有者が開く操作が必要です。CLI contacts の明示的な信頼は独立して維持します。
+`--allow-requester <did>` は対象を制限するだけで、信頼を付けません。自動受付ルールに合わない limited の依頼に検査と所有者が開く操作が必要です。CLI contacts の明示的な信頼は独立して維持します。
 
 ### つながりによる受付
 
@@ -428,8 +430,8 @@ JSON 文字列として表示します。`tasks list` は個別の保留 ID・�
 `tasks approve ID` / `tasks reject ID` は対話式 TTY で所有者が確認し、その終端の保留内容だけを
 ローカルで閉じます。実行・終了済みセッションへの返信・次のタスクへの承認の保存は行いません。
 新しいタスクを明示的に送信するか `pending resubmit ID` を使い、稼働中の対話式ワーカーで
-新たな内容を確認し、所有者プロンプトで承認・拒否してください。新しい依頼は毎回確認します。
-TTY がなければ limited タスクは保留です。`--auto-accept` は検査や実行承認を代替しません。
+新たな内容を確認し、所有者プロンプトで承認・拒否してください。新しい依頼は現在の自動受付ルールを確認します。
+自動受付ルールに合わない limited タスクは、TTY がなければ保留です。`--auto-accept` は受付対象や書き換えの許可を広げません。
 接続同意は `connections` で行います。従来の `requests approve` は検査済みの依頼に対する
 接続同意の意味を維持し、実行を承認しません。`--trust trusted` は別の従来の権限付与です。
 

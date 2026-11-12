@@ -16,3 +16,5 @@ export * from './delivery-status.js';
 export * from './delegation.js';
 export * from './content-inspection.js';
 export * from './content-inspection-rules.js';
+
+export * from './auto-accept.js';

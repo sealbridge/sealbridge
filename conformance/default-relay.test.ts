@@ -124,7 +124,7 @@ describe('application relay provenance', () => {
       approvalProvider: approving(() => resolveOrCreateIdentity('requester', identityOptions)) });
     const owner = resolveOrCreateIdentity('worker', identityOptions);
     expect(selected).toEqual([]);
-    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay: transportFactory(DEFAULT_PUBLIC_RELAY, owner),
       relayUrl: DEFAULT_PUBLIC_RELAY,
       allowedRequesterDids: [resolveOrCreateIdentity('requester', identityOptions).did],
       approvalProvider: approving(() => owner), timeoutMs: 3000,
@@ -164,7 +164,7 @@ describe('application relay provenance', () => {
     expect(fetcher).not.toHaveBeenCalled();
     await networkCommand('discover', [], application);
     expect(fetcher.mock.calls[0][0]).toBe(DEFAULT_PUBLIC_RELAY + '/agents');
-    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(DEFAULT_PUBLIC_RELAY, fetcher, owner),
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay: new HttpRelayClient(DEFAULT_PUBLIC_RELAY, fetcher, owner),
       relayUrl: DEFAULT_PUBLIC_RELAY, timeoutMs: 3000, approvalProvider: approving(() => owner),
       adapter: { id: 'echo', name: 'Echo', skills: [{ id: 'json-task', name: 'JSON task' }], executeTask: async ctx => ctx.input } });
     const done = worker.start({ once: true });

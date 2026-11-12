@@ -55,6 +55,28 @@
         "approvedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "authorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "ruleVersion",
+            "ruleDigest"
+          ],
+          "properties": {
+            "kind": {
+              "const": "auto-policy"
+            },
+            "ruleVersion": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ruleDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
         }
       }
     },

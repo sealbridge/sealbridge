@@ -118,7 +118,7 @@ it('accepts CRLF signed JSON without rewriting it on list', () => {
   const bytes = JSON.stringify(JSON.parse(fs.readFileSync(f.path, 'utf8')), null, 2).replace(/\n/g, '\r\n') + '\r\n';
   fs.writeFileSync(f.path, bytes); expect(f.store.list()).toHaveLength(1); expect(fs.readFileSync(f.path, 'utf8')).toBe(bytes);
 });
-it('only a current trusted grant satisfies CLI LLM automatic-start eligibility', async () => {
+it('starts CLI LLM workers with the owner policy independently of legacy grants', async () => {
   const { networkCommand } = await import('../cli/src/network.js');
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root }, home: root };
   const owner = resolveOrCreateIdentity('worker', identityOptions), peer = generateKeyPair();
@@ -126,10 +126,10 @@ it('only a current trusted grant satisfies CLI LLM automatic-start eligibility',
   const start = () => networkCommand('worker', ['start', '--adapter', 'openai', '--auto-accept', '--preview',
     '--contacts', join(root, 'contacts.json')], { identityOptions, fetch: async () => { throw new Error('NO_NETWORK'); } });
   vi.spyOn(console, 'log').mockImplementation(() => {});
-  await expect(start()).rejects.toThrow('LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST');
+  await expect(start()).resolves.toBeUndefined();
   store.enqueue(buildTaskManifest({ ownerDid: peer.did, workerDid: owner.did, title: 'Limited', description: 'Limited' }), {});
   store.decide(store.list()[0].id, 'approve');
-  await expect(start()).rejects.toThrow('LLM_AUTO_ACCEPT_REQUIRES_ALLOWLIST');
+  await expect(start()).resolves.toBeUndefined();
   store.enqueue(buildTaskManifest({ ownerDid: generateKeyPair().did, workerDid: owner.did, title: 'Trusted', description: 'Trusted' }), {});
   store.decide(store.list().at(-1)!.id, 'approve', 'trusted');
   await expect(start()).resolves.toBeUndefined();

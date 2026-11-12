@@ -11,7 +11,7 @@ function worker(relay: InMemoryRelay) {
   const policy = new PolicyAutoApprovalProvider(owner);
   const approve = vi.spyOn(policy, 'approve');
   const execute = vi.fn(async (context) => ({ echoed: context.input }));
-  const node = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example',
+  const node = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example',
     approvalProvider: policy,
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute },
   });
@@ -57,7 +57,7 @@ describe('resolved MCP approval sessions', () => {
       expect(events().filter((type) => type === 'PROPOSE')).toHaveLength(1);
       expect(events()).not.toContain('VERIFY_ACCEPT');
       expect(events()).not.toContain('SETTLED');
-      expect(remote.approve).toHaveBeenCalledWith(expect.objectContaining({ gate: 'contract_acceptance' }));
+      expect(remote.approve).not.toHaveBeenCalled();
       expect(remote.execute).toHaveBeenCalledTimes(1);
       h.send(accept(final.id));
       const result = body(await h.next((m) => m.id === 'task'));

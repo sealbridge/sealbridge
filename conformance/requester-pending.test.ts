@@ -65,6 +65,7 @@ it('retains held tasks across restart and explicitly resubmits fresh task ids af
   expect(restarted.list()[0].lastTaskId).not.toBe(original.originalTaskId);
   expect(f.intake.list()).toHaveLength(1);
   f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   expect(f.execute).not.toHaveBeenCalled();
   const result = await f.run(() => restarted.resubmit(original.id, request => f.client.delegate(request)));
   expect(result).toMatchObject({ state: 'SETTLED', deliverable: task.input });
@@ -89,6 +90,7 @@ it('MCP lists local observations and resubmits through current outbound and form
   expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [{ id, state: 'pending' }] });
   expect(f.frames).toHaveLength(initialCount);
   f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   factory.mockClear();
   const blockedWorker = new AcpMcpServer({ ...opts, allowedWorkerDids: [] });
   expect(await call(blockedWorker, 'acp_resubmit_pending_request', { pendingId: id })).toMatchObject({ error: 'MCP_WORKER_NOT_ALLOWED' });
@@ -113,6 +115,7 @@ it('CLI records and resubmits with the same requester identity and fresh output 
   await pendingCommand(['list'], application);
   expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toMatchObject({ requests: [{ id: held.pendingId }] });
   f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   const out = join(root, 'result.json'), audit = join(root, 'resubmitted.jsonl');
   await f.run(() => pendingCommand(['resubmit', held.pendingId, '--auto-approve', '--out', out, '--audit', audit], application));
   expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(task.input);
@@ -206,6 +209,7 @@ it('MCP resubmission requires new outbound and final host forms for the fresh ta
   const f = fixture();
   await f.run(() => f.client.delegate({ ...task, to: f.owner.did })).catch(() => undefined);
   const record = f.pending.list()[0]; f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   const h = harness({ owner: f.requester, relay: url, transportFactory: () => f.relay, requireInteractiveApproval: true });
   try {
     await initialize(h, { elicitation: { form: {} } });
@@ -259,6 +263,7 @@ it('keeps a completed CLI resubmission resolved when its requested output file a
   await f.run(() => networkCommand('delegate', ['--to', f.owner.did, '--title', task.title,
     '--description', task.description, '--input', JSON.stringify(task.input), '--auto-approve'], application)).catch(() => undefined);
   const id = f.pending.list()[0].id; f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   const out = join(root, 'existing.json'); fs.writeFileSync(out, 'previous');
   await expect(f.run(() => pendingCommand(['resubmit', id, '--auto-approve', '--out', out], application))).rejects.toMatchObject({ code: 'EEXIST' });
   expect(fs.readFileSync(out, 'utf8')).toBe('previous');
@@ -287,6 +292,7 @@ it('uses an explicitly selected requester key without changing the default ident
   const selected = new RequesterPendingStore(explicit);
   const id = selected.save({ to: f.owner.did, relayUrl: url, manifest, input: task.input, timeouts: {} });
   f.intake.enqueue(manifest, task.input); f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   const output = vi.spyOn(console, 'log').mockImplementation(() => {});
   await pendingCommand(['list', '--key', keyFile]);
   expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toMatchObject({ requests: [{ id }] });
@@ -308,6 +314,7 @@ async function heldAlias(useAlias = false) {
   }));
   gate.mockRestore();
   f.intake.decide(f.intake.list()[0].id, 'approve', 'trusted');
+  Object.assign(f.worker.autoAccept, { from: 'anyone', work: 'write' });
   expect(held).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
   return { ...f, invites, token, saved, opts, server, held };
 }

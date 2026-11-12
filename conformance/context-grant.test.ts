@@ -142,8 +142,8 @@ async function sessionFixture(mode: DeliveryMode = 'view_only', relay = new InMe
   const executeTask = vi.fn(async (ctx: { input: Json; workspaceDir: string }) => {
     expect(existsSync(ctx.workspaceDir)).toBe(true); return { ok: true };
   });
-  const node = new WorkerNode({ owner, relay, now: () => Date.now(), checkPeer: () => 'trusted', timeoutMs: 4000,
-    approvalProvider: approval, auditPath: join(directory, 'worker.jsonl'), auditInterruptionFormat,
+  const node = new WorkerNode({ owner, relay, now: () => Date.now(), autoAccept: { version: 1, enabled: false, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', timeoutMs: 4000,
+    approvalProvider: { kind: 'human', approve: request => approval.approve(request) }, auditPath: join(directory, 'worker.jsonl'), auditInterruptionFormat,
     adapter: { id: 'cp1', name: 'CP1', skills: [], executeTask } });
   const client = new RequesterClient({ owner: clientOwner, relay, now: () => Date.now(), timeoutMs: 4000,
     approvalProvider: new PolicyAutoApprovalProvider(clientOwner) });

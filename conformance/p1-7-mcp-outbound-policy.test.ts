@@ -49,7 +49,7 @@ function inviteFor(owner: KeyPair, relayEndpoint: string, agent?: KeyPair): stri
 }
 
 function echoWorker(owner: KeyPair, relay: InMemoryRelay, tag: string, agent?: KeyPair) {
-  return new WorkerNode({ checkPeer: () => 'trusted',
+  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
     owner,
     relay,
     relayUrl: allowedRelay + '/',

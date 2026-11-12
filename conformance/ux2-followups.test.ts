@@ -64,7 +64,7 @@ describe('UX-2 follow-ups', () => {
     const f = fixture(), p = paths();
     setupInvite(f.token, p.key, p.contacts, p.out);
     const owner = JSON.parse(readFileSync(p.key, 'utf8')), relay = new InMemoryRelay();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example.com', timeoutMs: 4000,
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example.com', timeoutMs: 4000,
       approvalProvider: new PolicyAutoApprovalProvider(owner),
       adapter: { id: 'json-task', name: 'JSON task', skills: [{ id: 'json-task', name: 'JSON task' }],
         async executeTask(context) { return context.input; } } });

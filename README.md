@@ -1,5 +1,10 @@
 # Sealbridge
 
+All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
+The default is read-only work from connected peers. Use `sealbridge config auto-accept`
+to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
+enable write/command work. No LLM-specific requester allowlist is required.
+
 ## Local execution from 0.7.0 (breaking change)
 
 Starting with 0.7.0, mainline `sealbridge` requires the explicit `--allow-local-pc` flag for local worker execution. There is no warning-only grace period. This includes `--adapter claude|codex|command` and **sandbox running on this PC**, whether it uses a subprocess or OCI container, as well as `--on-receive` and `relay start --wake-command` hooks. Environment variables and configuration files cannot opt in. Requester-only `delegate` and MCP requests are unchanged; an `openai` worker without local command hooks does not require this flag.
@@ -20,7 +25,7 @@ Every opted-in worker startup prints to stderr:
 
 > Warning: running on this PC (isolation: host_adapter). Owner approval and content inspection stay on. No execution attestation is attached.
 
-The flag never grants automatic approval. LLM automatic acceptance still requires its existing requester allowlist or explicit legacy trusted grant; owner approval and content inspection remain in force. The startup warning describes the host execution path, not proof of isolation. Existing protocol execution metadata, including `ExecutionAttestation.effectiveIsolationLevel`, continues to report the actual execution path (`host_adapter`, `subprocess_restricted`, or `oci_container`); the flag adds no environment attestation. Each opted-in startup writes a worker-signed `LOCAL_PC_OPT_IN` record to `<audit-path>.events.jsonl`, or, without `--audit`, to `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl`. These local startup records are separate from bilateral task ledgers and do not change their format. `sealbridge doctor` (also `--offline`) explains this change and the planned migration.
+The flag never grants automatic approval. Automatic acceptance uses the owner-configured rule described in [automatic acceptance](docs/auto-accept.md); unmatched tasks retain owner approval and content inspection. The startup warning describes the host execution path, not proof of isolation. Existing protocol execution metadata, including `ExecutionAttestation.effectiveIsolationLevel`, continues to report the actual execution path (`host_adapter`, `subprocess_restricted`, or `oci_container`); the flag adds no environment attestation. Each opted-in startup writes a worker-signed `LOCAL_PC_OPT_IN` record to `<audit-path>.events.jsonl`, or, without `--audit`, to `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl`. These local startup records are separate from bilateral task ledgers and do not change their format. `sealbridge doctor` (also `--offline`) explains this change and the planned migration.
 
 Optional context selections and delivery modes: [Context grants (CP1)](docs/context-grants.md).
 
@@ -382,7 +387,7 @@ Worker listeners recover dropped relay connections with jittered backoff and rep
 
 `--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and `--max-wall-clock-seconds` cap the contract a worker will accept. A proposal above any set cap is rejected before `ACCEPT`, including with `--auto-accept`. `timeoutSeconds` on the manifest is compared with `--max-wall-clock-seconds`. `--max-concurrent-tasks` limits in-flight tasks (default 8). `--max-requests-per-minute` limits proposals from one requester DID.
 
-`--allow-requester <did>` is repeatable and constrains peers without granting trust. Connections require inspection and owner opening for every adapter. Explicit CLI contact trust remains independent. See [connections admission](docs/connections/admission.md).
+`--allow-requester <did>` is repeatable and constrains peers without granting trust. Tasks outside the configured automatic rule require inspection and owner opening for every adapter. Explicit CLI contact trust remains independent. See [connections admission](docs/connections/admission.md).
 
 **Terminal 3 — Alice, the requester**
 
@@ -837,10 +842,11 @@ they are not supported in CLI 0.2.2 and earlier:
 `acp_list_connections`, `acp_list_connection_requests`.
 
 Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
-Connected means limited consent with no expiry. Every limited task requires a
-completed inspection and a separate human opening before acceptance, for every
-adapter. Automatic contract policy does not replace that opening. The library default provider reports `unavailable`. Interactive CLI workers supply
-built-in display inspection before the live owner gate.
+Connected means limited consent with no expiry. Work matching the owner's
+[automatic acceptance rule](docs/auto-accept.md) runs without per-task human opening.
+The default accepts only read-only work from connected peers. Other work requires
+completed inspection and a separate human opening. The library default inspection
+provider reports `unavailable`; interactive CLI workers supply display inspection.
 
 The standalone CLI displays validated task manifest, input and capabilities as
 literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
@@ -852,13 +858,13 @@ and close only that terminal held attempt locally. They neither execute nor send
 a reply to its ended session, and store no approval for a later task. Explicitly
 submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
 inspect its content and approve or reject it at the live owner prompt. Every
-fresh submission needs its own decision. Without TTY, limited tasks remain held;
-`--auto-accept` does not replace inspection or live owner approval.
+fresh submission is checked against the current rule. Outside the rule, work needs
+inspection and a human decision; `--auto-accept` cannot expand the configured rule.
 Connection consent stays on `connections`; legacy `requests approve` retains its
 connection-consent meaning and requires completed inspection. It never approves
 task execution. `requests approve --trust trusted` remains a separate legacy grant.
 
-Valid requests from unconnected peers are held as encrypted envelopes until the
+Unless explicitly admitted by the owner's automatic rule, valid requests from unconnected peers are held as encrypted envelopes until the
 earliest of 24 hours, the task deadline, and a grant expiry the worker already
 read. They return terminal `PENDING_OWNER_APPROVAL`,
 `retryable:false`, CLI exit 3. Do not retry automatically. Schema, signature,
@@ -1079,7 +1085,7 @@ The first local execution asks the owner once, only when stdin and stderr are TT
 Alternatively run `sealbridge-local config local-pc on` in that terminal and type
 `yes`. Permission is saved in the existing application config; without it,
 noninteractive startup without `--allow-local-pc` stops before execution. `off` revokes saved permission.
-Owner task approval, content inspection and LLM auto-accept restrictions remain in
+Owner task approval, content inspection and automatic-acceptance rules remain in
 force. Every startup emits a warning and signed `LOCAL_PC_OPT_IN` audit evidence.
 Sandbox startup isolation is marked as determined at task execution; it is not an
 execution attestation. Mainline `sealbridge` always requires `--allow-local-pc`

@@ -361,7 +361,7 @@ describe('embedding and application entry points', () => {
     const store = memoryStore();
     const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
     const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
-    const worker = new WorkerNode({ checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
+    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
       adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
       approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
     const approvalProvider = { approve: vi.fn(async (r: ApprovalRequest) => signApproval(r.taskId, r.gate, r.target,
@@ -553,7 +553,7 @@ describe('embedding and application entry points', () => {
   it('honors environment file selection in the built CLI', async () => {
     const { options, home } = fixture();
     await promisify(execFile)(process.execPath, ['cli/dist/index.js', 'invite', 'create'], {
-      env: { ...process.env, ...options.env, HOME: home, SEALBRIDGE_KEY_STORE: 'file' },
+      env: { ...process.env, ...options.env, HOME: home, USERPROFILE: home, SEALBRIDGE_KEY_STORE: 'file' },
     });
     expect(inspectLocalIdentity('worker', options).key?.did).toMatch(/^did:key:/);
     expect(inspectLocalIdentity('requester', options).key).toBeUndefined();
