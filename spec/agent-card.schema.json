@@ -56,6 +56,14 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "maxMonthlyUsd": {
+                  "type": "number",
+                  "minimum": 0.000000001,
+                  "maximum": 9007199.254740991
+                },
+                "monthlyLimitMessage": {
+                  "enum": ["standard", "trial-reviewer"]
+                },
                 "maxTasksPerDayPerDid": {
                   "type": "integer",
                   "minimum": 1,

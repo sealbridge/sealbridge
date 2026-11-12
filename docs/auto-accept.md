@@ -75,8 +75,8 @@ For embedders, `WorkerNodeOptions.autoAccept` supplies the same typed rule, and
 future stateful limits. It must atomically read and reserve its counting state
 before returning exactly `true`; rejection, unavailable state or exceptions do not
 authorize automatic acceptance. A failed check never falls back to a policy
-provider. No monthly-cost, pre-call-size or shared-invite limits are
-implemented here (#256–#258); `limits` reserves their configuration location.
+provider. Monthly model-cost accounting is described below. Pre-call-size and
+shared-invite limits remain unimplemented (#257–#258).
 Unknown limits and unsupported rule versions are rejected, rather than
 silently running without those protections. This feature does not implement
 per-connection standing approvals (#248), deploy a worker, or change relay code.
@@ -121,3 +121,110 @@ workers before upgrading all processes that share counting state. Legacy empty
 that no worker is running. Never delete a live claim or the lock directory.
 Owners must protect and retain the counting directory; deleting it loses history.
 DIDs can be created freely; this does not prevent one person using several DIDs.
+
+## Monthly model-cost cap
+
+`sealbridge config auto-accept max-monthly-usd 20` sets `limits.maxMonthlyUsd`;
+`off` removes it. Restart workers after changes. The default is unlimited. The
+cap covers **all model work on the local worker identity, including manually
+approved tasks**. Other worker identities and data roots have separate counters.
+The official worker sets 20, keeps the separate daily DID allowance at 3, and runs
+`--adapter openai --model gpt-6-luna`. Decimal USD limits such as 19.99 are supported.
+
+The only priced model is gpt-6-luna: $0.10 input / $0.50 output per million tokens
+(100 / 500 nano-dollars per token; owner-supplied 2026-11-11 snapshot). These are
+model costs only, excluding server/relay/operator costs, discounts and caching.
+A trusted adapter supplies `billingModel` and actual token deltas through
+`reportUsage`; reasoning tokens billed as output belong in output usage. With a
+monthly cap, an unpriced model is rejected **before approval/execution** with
+`MONTHLY_MODEL_UNSUPPORTED` and fixed guidance to change model or cap settings.
+It creates no unfinished accounting entry: changing back to a supported model
+resumes acceptance, subject to the normal cap. No guessed price is used.
+
+For cancelled, timed-out, over-budget, failed or unreported work, including a
+process crash, accounting uses the valid token reports already persisted. If
+there were no token reports (a valid zero-token report counts as a report), it
+charges `maxInputTokens * 100 + maxOutputTokens * 500` nano-dollars from that
+**task's saved manifest budget**. It records a signed `finish` or `estimate`, not
+an indefinitely uncertain task. On the next admission/register/start, orphaned
+begins are settled once. Live calls in this process or another live process keep
+running. PID liveness errors do not poison admissions. Late reports after
+settlement are ignored to avoid double charging. Rejections before acceptance
+release their unused accounting entry at zero. An interrupted write/corrupt file
+is a storage failure, not an excuse to discard spending; that still fails closed.
+
+At the cap, new admissions get `MONTHLY_LIMIT_REACHED` while running tasks finish
+and can overshoot it. No monetary reservation or #257 size estimator is added.
+Token reports count in the reporting month; a maximum-budget estimate counts in
+the settlement/recovery month. The month resets on the 1st at 00:00 UTC (09:00 JST).
+The strict signed AgentCard stays published with “Monthly intake closed.
+今月の受付は終了”, and an idle published worker refreshes it on next month's poll.
+
+The default requester text is generic: “The monthly intake limit is reached.
+It resets on the 1st at 00:00 UTC (09:00 JST).” The official worker owner explicitly
+selects the trial-specific fixed text, including `sealbridge demo` and inviting a
+friend, with:
+
+```sh
+sealbridge config auto-accept monthly-limit-message trial-reviewer
+sealbridge config auto-accept monthly-limit-message standard # restore generic text
+```
+
+The setting is `limits.monthlyLimitMessage` (`standard` by default). Worker errors
+send only known codes, a validated reset timestamp and this bounded message-kind
+enum. Requester CLI/MCP choose their own bilingual fixed text, never peer prose.
+Unsupported message kinds fall back to generic text. The setting is included in
+the advertised policy, strict AgentCard schema and signed approval rule digest.
+
+### Accounting history and owner recovery
+
+`<data-root>/workers/<worker-DID-hash>/auto-accept-monthly.jsonl` is the active
+worker-signed, hash-linked journal. Begin rows save the original token budget;
+usage/finish/estimate rows record the accounting decision. Ordinary writes append
+and flush; they do not rewrite the history. A process caches verified state only
+while inode, size and nanosecond modification/change timestamps match under the
+writer lock; external changes force complete signature verification.
+
+At a UTC month change, the previous journal becomes an immutable
+`.jsonl.<YYYY-MM>.<sha256>.archive` file. A signed checkpoint in the active file
+summarizes the previous month, binds its last hash and carries unfinished tasks.
+Normal admission does not reread past archives. Keep archives according to the
+owner's audit retention policy. The `.initialized` marker detects a missing active
+journal. Initial creation and rollover use exclusive temporary writes and atomic
+replacement; PID-claim locks serialize all changes. Directory fsync/power-loss
+durability and protection against an owner deleting all state are not guaranteed.
+The file-open I/O test limit remains unchanged at 450.
+
+For an interrupted process, restart normally: saved reports or budget estimates
+settle its unfinished calls. No manual clearing is needed. For an unsupported
+model, select gpt-6-luna (or explicitly remove the cap) and restart. For a busy
+lock, stop all processes sharing the identity and confirm none is alive before
+removing only unverifiable stale claims; never clear accounting to resolve a lock.
+
+For missing, corrupt or truncated storage (`MONTHLY_STATE_UNAVAILABLE`):
+
+1. Stop every worker sharing this identity/data root. Preserve the damaged files
+   and archives as evidence. Correct permissions, storage availability or clock
+   rollback first; a transient failure needs no reset.
+2. Restore an intact, owner-signed active journal and its `.initialized` marker
+   from a trusted backup. Retain the archives. Verify it with the same worker key;
+   the counter refuses invalid signatures and hash links. A partial final append
+   must be restored from a complete authenticated prefix, not edited to invent
+   usage. Do **not** delete both files or start with a zero counter.
+3. Reconstruct each task missing since the backup from its signed task manifest
+   and provider usage. In a built checkout of this revision, a trusted owner-side
+   maintenance script can load the existing worker with
+   `inspectStoredIdentity('worker', identityOptions)` from
+   `packages/runtime/dist/key-store.js`, locate the journal via `workerIntakePath`
+   from `packages/runtime/dist/index.js`, then instantiate `MonthlyCostCounter`
+   from `packages/runtime/dist/monthly-limit.js` with that key and exact path.
+   Call `counter.reconcileTask(taskId, {maxInputTokens, maxOutputTokens},
+   {inputTokens, outputTokens})` using authenticated original bounds and provider
+   counts. Omit the third argument if usage is unavailable: it charges the maximum.
+   This appends signed records and is idempotent for already settled task IDs.
+   It also repairs pre-release v1 unfinished rows whose budgets were not saved.
+   Do this **before** `check`, restart or discovery, which automatically settles
+   orphans. No private key should be printed or pasted into a command argument.
+4. Back up the reconciled files, then restart with the same identity, data root,
+   model and cap. If a complete authenticated history cannot be reconstructed,
+   keep the worker stopped and obtain maintainer help; do not bypass the cap.

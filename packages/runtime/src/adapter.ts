@@ -47,6 +47,8 @@ export interface AgentTaskContext {
 }
 export interface AgentAdapter {
   /** Host guarantee; omit for arbitrary code, command execution or unknown access. */
+  /** Host-selected model for token cost accounting; never inferred from peer input. */
+  readonly billingModel?: string;
   readonly taskAccess?: 'read-only' | 'write';
   id: string;
   name: string;

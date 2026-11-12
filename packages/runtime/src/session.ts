@@ -19,6 +19,7 @@ import type { RequesterPendingStore } from './requester-pending-store.js';
 import { HostBackend } from './execution-backend.js';
 import type { ExecutionBackend } from './execution-backend.js';
 import { consumeDailyTask } from './daily-limit.js';
+import { MonthlyCostCounter, monthlyResetAt } from './monthly-limit.js';
 import {
   existsSync, openSync, closeSync, fstatSync, fchmodSync, appendFileSync, constants, fsyncSync, readFileSync,
 } from 'node:fs';
@@ -706,11 +707,34 @@ export class WorkerNode {
       assertPeer: did => { this.assertPeer(did); }, onConnectionEvent: options.onConnectionEvent });
   }
   invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400): string {
+    this.refreshMonthlyCard();
     return createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
   }
+  private monthlyCounter(): MonthlyCostCounter {
+    return new MonthlyCostCounter(join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+      'auto-accept-monthly.jsonl'), this.options.owner, () => this.protocol.now());
+  }
+  private refreshMonthlyCard(): void {
+    const limit = this.autoAccept.limits.maxMonthlyUsd;
+    if (limit === undefined) return;
+    let description = 'Sealbridge worker';
+    try { this.monthlyCounter().check(limit); }
+    catch (e) {
+      description = e instanceof Error && e.message === 'MONTHLY_LIMIT_REACHED'
+        ? 'Monthly intake closed. 今月の受付は終了'
+        : 'Monthly counting state unavailable. 月次の使用量状態を利用できません';
+    }
+    if (description !== this.agentCard.payload.description)
+      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, description, now: this.protocol.now(),
+        expiresAt: new Date(this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() },
+        this.options.owner, this.options.agentKey);
+  }
   async register(): Promise<void> {
+    this.refreshMonthlyCard();
     const protocolVersions = this.protocol.receiveVersions();
-    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now()) {
+    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now() ||
+        this.autoAccept.limits.maxMonthlyUsd !== undefined &&
+        this.agentCard.signature.signedAt.slice(0, 7) !== new Date(this.protocol.now()).toISOString().slice(0, 7)) {
       const now = this.protocol.now();
       this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now,
         expiresAt: new Date(now + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
@@ -801,6 +825,7 @@ export class WorkerNode {
     options: { once?: boolean; signal?: AbortSignal } = {},
   ): Promise<SessionResult | undefined> {
     // Register first so immediate discovery can resolve owner and agent aliases.
+    this.refreshMonthlyCard(); // Also settles orphaned accounting on unpublished workers.
     if (this.publishes()) await this.register();
     await this.reconcileTasks();
     const idleSignal = AbortSignal.any([
@@ -1156,6 +1181,7 @@ export class WorkerNode {
   }
   async runOnce(signal?: AbortSignal): Promise<SessionResult> {
     try {
+      this.refreshMonthlyCard();
       await this.reconcileTasks();
       const idleSignal = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
       // One or more leading REVOKE envelopes are consumed before the task PROPOSE.
@@ -1197,6 +1223,9 @@ export class WorkerNode {
     // and return an encrypted ERROR frame if pre-wire validation fails so the requester does not hang.
     let data!: Proposal;
     let m!: TaskManifest;
+    let monthlyCounter: MonthlyCostCounter | undefined;
+    let monthlySettled = false;
+    let monthlyAccepted = false;
     let auditPath: string | undefined;
     let checkpoint: TaskCheckpoint | undefined;
     let auditStage: TaskCheckpoint['auditStage'];
@@ -1505,6 +1534,21 @@ export class WorkerNode {
       };
       const automatic = !previouslyPending && !inviteIneligible &&
         await abortable(matchesAutoAccept(this.autoAccept, automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
+      if (this.autoAccept.limits.maxMonthlyUsd !== undefined) {
+        try {
+          const counter = this.monthlyCounter();
+          counter.begin(this.autoAccept.limits.maxMonthlyUsd, m.taskId, this.options.adapter.billingModel ?? '', m.budget);
+          monthlyCounter = counter;
+        }
+        catch (error) {
+          this.refreshMonthlyCard();
+          if (this.registered) await this.register().catch(() => {});
+          throw new AdmissionLimitError(error instanceof Error && error.message === 'MONTHLY_LIMIT_REACHED'
+            ? 'MONTHLY_LIMIT_REACHED' : error instanceof Error && error.message === 'MONTHLY_MODEL_UNSUPPORTED'
+              ? 'MONTHLY_MODEL_UNSUPPORTED' : 'MONTHLY_STATE_UNAVAILABLE', monthlyResetAt(this.protocol.now()),
+            this.autoAccept.limits.monthlyLimitMessage ?? 'standard');
+        }
+      }
       // Reserve before issuing approval. State failures and exhaustion must never
       // fall through to human/legacy policy acceptance of this automatic attempt.
       if (automatic && this.autoAccept.limits.maxTasksPerDayPerDid !== undefined) {
@@ -1517,8 +1561,8 @@ export class WorkerNode {
             throw new ProposalRejectedError(
               'This task ID already reserved a daily slot. Submit a new task ID. このタスク ID は日次枠を確保済みです。新しいタスク ID で依頼してください。', 'AUTO_ACCEPT_DAILY_TASK_REPLAY');
           if (error instanceof Error && error.message === 'DAILY_LIMIT_REACHED')
-            throw new ProposalRejectedError(
-              'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED');
+            throw new AdmissionLimitError('AUTO_ACCEPT_DAILY_LIMIT_REACHED',
+              new Date(Math.floor(this.protocol.now() / 86400000) * 86400000 + 86400000).toISOString());
           throw new ProposalRejectedError(
             'Daily counting state is unavailable; task rejected. 日次の件数状態を利用できないため、依頼を拒否しました。', 'AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE');
         }
@@ -1589,6 +1633,7 @@ export class WorkerNode {
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
+      monthlyAccepted = true;
       validateContextGrantUse(m, data.input, this.protocol.now());
       await wire.contextEvent('CONTEXT_OPENED');
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
@@ -1851,7 +1896,7 @@ export class WorkerNode {
               delta.wallTimeMs = progress.metrics.elapsedMs;
             if (Object.keys(delta).length > 0) {
               try {
-                gateway!.quota.recordMetrics(delta);
+                context.reportUsage(delta);
               } catch (error) {
                 metricsError = error;
               }
@@ -1917,8 +1962,32 @@ export class WorkerNode {
       if (this.deliveryService) await this.withDelivery(() => {
         this.deliveryService!.recipientStatus.handoff(first, m);
       }, executionSignal);
-      const execution = await abortable(
-        executionBackend.execute(this.options.adapter, context), executionSignal);
+      let accountingFailure: unknown;
+      const counter = monthlyCounter;
+      const model = this.options.adapter.billingModel ?? '';
+      const originalReport = context.reportUsage;
+      if (counter) {
+        context.reportUsage = delta => {
+          try {
+            if (delta.inputTokens !== undefined || delta.outputTokens !== undefined) {
+              counter.usage(m.taskId, model, delta.inputTokens ?? 0, delta.outputTokens ?? 0);
+            }
+          } catch (error) { accountingFailure ??= error; }
+          originalReport(delta);
+        };
+      }
+      let execution: Awaited<ReturnType<typeof executionBackend.execute>>;
+      try {
+        execution = await abortable(executionBackend.execute(this.options.adapter, context), executionSignal);
+        if (accountingFailure) throw accountingFailure;
+      } finally {
+        if (counter) {
+          counter.finish(m.taskId);
+          monthlySettled = true;
+          this.refreshMonthlyCard();
+          if (this.registered) await this.register().catch(() => {});
+        }
+      }
       const output = execution.output;
       childrenClosed = true;
       if (delegationState) await abortable(Promise.allSettled([...managedChildren]), executionSignal);
@@ -2074,20 +2143,28 @@ export class WorkerNode {
         throw progressFailure;
       throw e;
     } finally {
-      stopHeldWatch();
-      childHostOpen = false;
-      this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
-      heartbeatStopped = true;
-      clearTimeout(heartbeat);
-      timeouts.close();
-      wire.close();
-      this.acceptedPeers.delete(m.taskId);
-      const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
-      if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
-      if (trackedTaskId) this.liveChains.delete(trackedTaskId);
-      gateway?.close();
-      if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
-      if (workspace && !preserveWorkspace) await cleanupWorkspace();
+      try {
+        stopHeldWatch();
+        childHostOpen = false;
+        this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
+        heartbeatStopped = true;
+        clearTimeout(heartbeat);
+        timeouts.close();
+        wire.close();
+        this.acceptedPeers.delete(m.taskId);
+        const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
+        if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
+        if (trackedTaskId) this.liveChains.delete(trackedTaskId);
+        gateway?.close();
+        if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
+        if (workspace && !preserveWorkspace) await cleanupWorkspace();
+      } finally {
+        if (monthlyCounter && !monthlySettled) {
+          monthlyCounter.finish(m.taskId, !monthlyAccepted);
+          this.refreshMonthlyCard();
+          if (this.registered) await this.register().catch(() => {});
+        }
+      }
     }
   }
   /**
@@ -2106,7 +2183,9 @@ export class WorkerNode {
   private revocationAwareRelay(relay: RelayTransport): RelayTransport {
     const receive: RelayTransport['receive'] = async (recipientDid, waitMs, signal, filter) => {
       for (;;) {
-        if (this.registered && JSON.stringify(this.protocol.receiveVersions()) !== JSON.stringify(this.agentCard.payload.protocolVersions)) await this.register();
+        if (this.registered && (JSON.stringify(this.protocol.receiveVersions()) !== JSON.stringify(this.agentCard.payload.protocolVersions) ||
+            this.autoAccept.limits.maxMonthlyUsd !== undefined &&
+            this.agentCard.signature.signedAt.slice(0, 7) !== new Date(this.protocol.now()).toISOString().slice(0, 7))) await this.register();
         const forwarded = this.forwardedQueue.shift();
         if (forwarded) {
           if (this.consumeRevocation(forwarded)) continue;
@@ -2392,13 +2471,20 @@ export interface ErrorDiagnostic { code: string; detail?: ErrorDetail; phase?: '
 class DiagnosticError extends Error {
   constructor(code: string, readonly detail: ErrorDetail) { super(code); }
 }
+class AdmissionLimitError extends Error {
+  constructor(readonly code: 'MONTHLY_LIMIT_REACHED' | 'MONTHLY_STATE_UNAVAILABLE' | 'MONTHLY_MODEL_UNSUPPORTED' | 'AUTO_ACCEPT_DAILY_LIMIT_REACHED',
+    readonly resetAt: string, readonly messageKind: 'standard' | 'trial-reviewer' = 'standard') { super(code); }
+}
 class PendingTaskError extends Error {
   constructor(readonly reason: string) { super('PENDING_OWNER_APPROVAL'); }
 }
 function diagnosticError(code: string, field: string, expected: unknown, actual: unknown, hint: string): Error {
   return new DiagnosticError(code, { field, expected: digest(expected), actual: digest(actual), hint });
 }
-function rejectionBody(error: unknown, contextGrant = false): ErrorDiagnostic & { reason?: string } {
+function rejectionBody(error: unknown, contextGrant = false): ErrorDiagnostic & { reason?: string; resetAt?: string; messageKind?: 'standard' | 'trial-reviewer' } {
+  if (error instanceof AdmissionLimitError) return { code: error.code,
+    ...(error.code.endsWith('LIMIT_REACHED') ? { resetAt: error.resetAt } : {}),
+    ...(error.code === 'MONTHLY_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}) };
   if (error instanceof PendingTaskError) return { code: 'PENDING_OWNER_APPROVAL', reason: error.reason };
   if (error instanceof DiagnosticError) return { code: safeError(error, contextGrant), detail: error.detail };
   if (error instanceof ProposalRejectedError) return { code: error.code, reason: error.reason };
@@ -2410,7 +2496,7 @@ function safeError(e: unknown, contextGrant = false): string {
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
   if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
     'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT', 'AUDIT_INTERRUPTION_WRITE_FAILED'].includes(exact)) return exact;
-  if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH'].includes(exact)) return exact;
+  if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH', 'MONTHLY_STATE_UNAVAILABLE'].includes(exact)) return exact;
   if (contextGrant && ['DELEGATION_PROOF_REQUIRED', 'DELEGATION_INVALID', 'DELEGATION_APPROVAL_REQUIRED'].includes(exact)) return exact;
   if (/^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
