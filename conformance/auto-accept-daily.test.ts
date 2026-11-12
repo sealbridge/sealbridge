@@ -47,10 +47,12 @@ it('counts different owner DIDs independently', async () => {
 });
 it.each(['corrupt', 'unreadable', 'locked', 'unwritable'] as const)('fails closed for %s counting state', async failure => {
   const f = fixture(); const file = path(f);
-  mkdirSync(dirname(file), { recursive: true });
-  if (failure === 'corrupt') writeFileSync(file, '{bad');
-  if (failure === 'unreadable') mkdirSync(file);
-  if (failure === 'locked') writeFileSync(file + '.lock', '');
+  // Match the production private-directory modes, including newly created ancestors.
+  // Otherwise POSIX startup rejects the fixture before it can receive a proposal.
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  if (failure === 'corrupt') writeFileSync(file, '{bad', { mode: 0o600 });
+  if (failure === 'unreadable') mkdirSync(file, { mode: 0o700 });
+  if (failure === 'locked') writeFileSync(file + '.lock', '', { mode: 0o600 });
   if (failure === 'unwritable') {
     const original = (await vi.importActual<typeof import('node:fs')>('node:fs')).renameSync;
     vi.mocked(renameSync).mockImplementation((from, to) => {
