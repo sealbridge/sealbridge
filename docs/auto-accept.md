@@ -75,8 +75,8 @@ For embedders, `WorkerNodeOptions.autoAccept` supplies the same typed rule, and
 future stateful limits. It must atomically read and reserve its counting state
 before returning exactly `true`; rejection, unavailable state or exceptions do not
 authorize automatic acceptance. A failed check never falls back to a policy
-provider. No monthly-cost, pre-call-size or shared-invite limits are
-implemented here (#256–#258); `limits` reserves their configuration location.
+provider. Monthly model-cost accounting is described below. Pre-call-size and
+shared-invite limits remain unimplemented (#257–#258).
 Unknown limits and unsupported rule versions are rejected, rather than
 silently running without those protections. This feature does not implement
 per-connection standing approvals (#248), deploy a worker, or change relay code.
@@ -121,3 +121,55 @@ workers before upgrading all processes that share counting state. Legacy empty
 that no worker is running. Never delete a live claim or the lock directory.
 Owners must protect and retain the counting directory; deleting it loses history.
 DIDs can be created freely; this does not prevent one person using several DIDs.
+
+## Monthly model-cost cap
+
+`sealbridge config auto-accept max-monthly-usd 20` sets `limits.maxMonthlyUsd`;
+`off` removes it. Restart workers after changes. The default is unlimited; the
+official worker explicitly sets 20 (50 and 100 are also supported), selects
+`--adapter openai --model gpt-6-luna`, and keeps the separate daily DID cap at 3.
+The cap covers all model work on that local worker identity, including human-approved
+tasks, so a different admission path cannot bypass it. Other worker identities
+and data roots have separate counters.
+
+Prices are a versioned-in-source snapshot supplied for 2026-11-11, in USD per
+million input/output tokens: gpt-6-luna 0.10/0.50, gpt-6.1-terra 1/5,
+gpt-6.1-sol 2/10, claude-haiku-5-5 0.10/0.50, claude-sonnet-5-5 2/10.
+Integer nano-dollars avoid accumulated rounding. This is model cost only, without
+server, relay or operator costs, discounts or cached-token rates. Custom endpoints
+must use the corresponding price; aliases and unknown models fail closed.
+The trusted adapter declares `billingModel` and reports actual input/output token
+deltas (including billed reasoning tokens in output), even when execution fails.
+CLI adapters without reliable model/usage reporting cannot use a monthly cap.
+
+Admissions stop at the cap with `MONTHLY_LIMIT_REACHED`; running tasks finish and
+their usage continues to count, so concurrent tasks can overshoot the cap. There
+is no cost reservation or pre-call size estimation (#257). Each usage report is
+charged to its reporting month, resetting on the first at 00:00 UTC (09:00 Japan
+time), including across year boundaries. The signed AgentCard retains its strict
+schema and advertised cap, remains published and says “Monthly intake closed.
+今月の受付は終了”. On the next UTC month, an idle published worker refreshes the
+card during polling. Offline workers refresh on restart/register/invitation.
+
+The source of counting state is a worker-signed, hash-linked JSONL history at
+`<data-root>/workers/<worker-DID-hash>/auto-accept-monthly.jsonl`. Begin, usage and
+finish/uncertain records include the model, timestamp and integer token/cost
+amounts. The rule digest remains in the ordinary bilateral approval audit.
+PID-claim locking, exclusive temporary writes, flush and atomic rename serialize
+updates. A separate `.initialized` marker prevents a missing journal from silently
+resetting an existing counter. Retain both files and protect the directory.
+
+Corruption, signature failures, clock rollback, missing prices, lock contention,
+unavailable writes and unresolved usage fail closed (`MONTHLY_STATE_UNAVAILABLE`).
+An unreported or interrupted call stays uncertain even next month. An active call
+is recognized only by the process actually metering it; another process sharing
+the identity waits until it finishes. Before operator recovery, stop every worker
+sharing the identity and reconcile uncertain usage with provider billing; do not
+delete accounting history to resume acceptance. This is not power-loss durable
+directory fsync, nor protection against an owner deleting all local state.
+
+Worker errors send only a known limit code and a canonical reset timestamp.
+Requester CLI/MCP render fixed bilingual text, discard peer prose for monthly,
+daily and rate-limit errors, and validate the reset time before displaying it.
+Monthly guidance suggests `sealbridge demo` or inviting a friend. Human admission,
+discovery and invitation do not waive the cap.

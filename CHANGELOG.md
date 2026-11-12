@@ -13,6 +13,14 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Added
 
+- Add `autoAccept.limits.maxMonthlyUsd` and `config auto-accept max-monthly-usd USD|off`: worker-wide token-priced accounting with signed hash-linked usage history, fail-closed admission, fixed requester guidance and published closed cards. Reset on the 1st at 00:00 UTC; running tasks finish and can overshoot the cap. Official worker: gpt-6-luna, $0.10/$0.50 per million input/output tokens, initially $20/month. (#256)
+- `autoAccept.limits.maxMonthlyUsd` と `config auto-accept max-monthly-usd USD|off` を追加しました。ワーカー全体の実トークンを金額に換算し、署名付きハッシュ連鎖履歴、状態不明時の拒否、依頼側の固定文言、公開を維持する受付終了カードに対応します。毎月1日 UTC 0時にリセットし、実行中の依頼は完了まで続けるため上限を超える場合があります。公式ワーカーは gpt-6-luna（100万トークンあたり入力 $0.10・出力 $0.50）、最初は月 $20 です。(#256)
+- Daily counters now use persistent `.lock/` directories with PID claims. Downgrading to an older file-lock client can leave the counter reporting BUSY; stop all workers sharing that counter, then remove its lock directory to recover. Temporary-file cleanup failures still release the current claim. (#255, #256)
+- 日次カウンターのロックは PID ごとの claim を持つ永続 `.lock/` ディレクトリになりました。古いファイルロック方式の版に戻すと BUSY のままになる場合があります。共有する全ワーカーを止めてから、該当カウンターのロック用ディレクトリを削除して復旧します。一時ファイルの削除が失敗しても現在の claim を解放します。(#255, #256)
+
+- Recover daily-counter lock claims only after OS-confirmed owner process death, keeping live/unverifiable/legacy locks fail closed; validate advertised daily DID limits against the public AgentCard schema and report repeated task IDs separately from unavailable state. (#255)
+- 日次カウンターの残存ロックは OS で所有プロセスの不存在を確認できた場合だけ回収し、生存中・確認不能・旧形式のロックは拒否を維持します。公開 AgentCard スキーマに DID 別日次上限を追加し、同一タスク ID の再送を状態利用不能とは別に報告します。(#255)
+
 - Add owner-configured `autoAccept.limits.maxTasksPerDayPerDid` and `config auto-accept max-tasks-per-day-per-did N|off`: persistent automatic-admission counters per requester owner DID, resetting at 00:00 UTC (09:00 Japan time), fixed bilingual exhaustion messages and fail-closed state access. Default unlimited; official workers explicitly set 3. (#255)
 - 自動受付に所有者 DID ごとの日次上限 `autoAccept.limits.maxTasksPerDayPerDid` と `config auto-accept max-tasks-per-day-per-did N|off` を追加しました。件数を保存し、UTC 0時（日本時間の朝9時）にリセットします。上限時は固定の英日メッセージを返し、状態の読み書き失敗時は拒否します。既定は上限なし、公式ワーカーは明示的に3件を設定します。(#255)
 
@@ -20,9 +28,6 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - すべてのワーカーに持ち主設定の自動受付を追加しました。招待・接続・誰でもの対象、既定の読み取り専用と明示的な書き換え許可、タスクごとの署名付きルール監査、紹介カードと依頼側の告知に対応します。今後の上限には fail closed の差込み先を用意し、LLM だけの許可リスト必須条件を廃止しました。(#254)
 
 ### Fixed
-
-- Recover daily-counter lock claims only after OS-confirmed owner process death, keeping live/unverifiable/legacy locks fail closed; validate advertised daily DID limits against the public AgentCard schema and report repeated task IDs separately from unavailable state. (#255)
-- 日次カウンターの残存ロックは OS で所有プロセスの不存在を確認できた場合だけ回収し、生存中・確認不能・旧形式のロックは拒否を維持します。公開 AgentCard スキーマに DID 別日次上限を追加し、同一タスク ID の再送を状態利用不能とは別に報告します。(#255)
 
 - Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.
 - Docker と Smithery が旧ホストを固定せず CLI の公開中継器フォールバックを使うよう修正しました。明示的な中継指定を維持し、配布ファイルの URL の不一致を回帰テストで検出します。

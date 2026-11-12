@@ -12,7 +12,7 @@ const USAGE = LOCAL_DISTRIBUTION
 
 /** Read or persist selection without moving or creating identities. */
 export async function configCommand(args: string[], options: IdentityStoreOptions = {}): Promise<void> {
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n       ' + cliName + ' config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off]'); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n       ' + cliName + ' config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off]'); return; }
   if (LOCAL_DISTRIBUTION && args[0] === 'local-pc') {
     const value = args[1] ?? 'status';
     if (args.length > 2 || !['on', 'off', 'status'].includes(value)) throw new Error('Usage: sealbridge-local config local-pc [on|off|status]');
@@ -37,12 +37,19 @@ export async function configCommand(args: string[], options: IdentityStoreOption
           current.limits.maxTasksPerDayPerDid = Number(args[2]);
         }
       }
+      else if (args.length === 3 && args[1] === 'max-monthly-usd') {
+        if (args[2] === 'off') delete current.limits.maxMonthlyUsd;
+        else {
+          if (!/^[0-9]+(?:\.[0-9]{1,9})?$/.test(args[2])) throw new Error('AUTO_ACCEPT_POLICY_INVALID');
+          current.limits.maxMonthlyUsd = Number(args[2]);
+        }
+      }
       else if (args.length === 2 && args[1] === 'off') current.enabled = false;
       else if (args.length === 3 && ['invited', 'connected', 'anyone'].includes(args[1]) && ['read-only', 'write'].includes(args[2])) {
         current.enabled = true;
         current.from = args[1] as typeof current.from;
         current.work = args[2] as typeof current.work;
-      } else throw new Error('Usage: sealbridge config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off]');
+      } else throw new Error('Usage: sealbridge config auto-accept [off | invited|connected|anyone read-only|write | max-tasks-per-day-per-did N|off | max-monthly-usd USD|off]');
       setApplicationAutoAccept(current, configOptions);
     }
     console.log(JSON.stringify({ autoAccept: current }));

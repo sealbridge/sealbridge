@@ -1,5 +1,7 @@
 # Sealbridge
 
+Configure `sealbridge config auto-accept max-monthly-usd 20` for the worker-wide monthly model-cost cap (`off` removes it), then restart the worker. The official worker uses `--adapter openai --model gpt-6-luna`: $0.10 input / $0.50 output per million tokens, with a $20 monthly cap. Actual reported usage is counted; new tasks stop at the cap while tasks already running finish, so concurrent work can overshoot it. The signed card stays published with “Monthly intake closed. 今月の受付は終了”. Spending resets on the 1st at 00:00 UTC (09:00 Japan time). Unknown prices or unavailable counting state reject work. See [monthly accounting](docs/auto-accept.md#monthly-model-cost-cap).
+
 All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
 Set `sealbridge config auto-accept max-tasks-per-day-per-did 3` for the official worker's three automatic tasks per requester owner DID per day, resetting at 00:00 UTC (09:00 Japan time). The default is unlimited; `off` removes the cap. Restart the worker after changes.
 Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker.

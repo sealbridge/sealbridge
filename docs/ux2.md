@@ -112,6 +112,12 @@ availability without publishing or emitting retired fields. See
 
 ## Persistent daily cap
 
+For a worker-wide cap on model cost, use
+`sealbridge config auto-accept max-monthly-usd 20` and restart the worker.
+See [monthly accounting](auto-accept.md#monthly-model-cost-cap) for token prices,
+the first-of-month 00:00 UTC reset, signed usage history, fail-closed behavior and
+the published “Monthly intake closed” card. Running tasks can finish past the cap.
+
 Owner-configured automatic acceptance also supports a separate per-requester owner
 DID cap, `autoAccept.limits.maxTasksPerDayPerDid`, using the same fail-closed UTC
 counter. It is unlimited by default; official workers explicitly set 3. See

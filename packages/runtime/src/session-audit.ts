@@ -27,6 +27,25 @@ export interface WireDelivery {
   service: GatewayDeliveryService;
   context: DeliveryContext;
 }
+/** Only known limit codes and a validated timestamp may become requester text. */
+export function fixedLimitBody(body: Json): Json {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const messages: Record<string, string> = {
+    MONTHLY_LIMIT_REACHED: "The trial reviewer reached this month's limit and is paused until the 1st at 00:00 UTC. Try sealbridge demo or invite a friend. お試し用レビュアーは今月の上限に達したため、来月1日の日本時間朝9時まで停止しています。sealbridge demo か、友だちへの招待で試せます。",
+    MONTHLY_STATE_UNAVAILABLE: 'Monthly counting state is unavailable; task rejected. 月次の使用量状態を利用できないため、依頼を拒否しました。',
+    AUTO_ACCEPT_DAILY_LIMIT_REACHED: 'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。',
+    DAILY_LIMIT_REACHED: 'The daily task limit is reached. It resets at 00:00 UTC. 1日の件数上限に達しました。UTC 0時に戻ります。',
+    INTAKE_RATE_LIMITED: 'Too many requests. Please try later. 依頼が多すぎます。時間をおいて試してください。',
+  };
+  const code = typeof body.code === 'string' ? body.code : '';
+  if (!Object.hasOwn(messages, code)) return body;
+  const resetAt = ['MONTHLY_LIMIT_REACHED', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', 'DAILY_LIMIT_REACHED'].includes(code) &&
+    typeof body.resetAt === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(body.resetAt) &&
+    (code !== 'MONTHLY_LIMIT_REACHED' || body.resetAt.slice(8, 10) === '01') &&
+    Number.isFinite(Date.parse(body.resetAt)) && new Date(body.resetAt).toISOString() === body.resetAt ? body.resetAt : undefined;
+  return { code, reason: messages[code] + (resetAt ? ' Resumes at ' + resetAt + ' (00:00 UTC / 日本時間の朝9時).' : ''),
+    ...(resetAt ? { resetAt } : {}) };
+}
 /** The peer's signed ERROR, retaining optional diagnostics for programmatic callers. */
 export class PeerRejectedError extends Error {
   readonly code?: string;
@@ -39,6 +58,7 @@ export class PeerRejectedError extends Error {
   readonly recovery?: { proposalDigest: string; result?: SessionResult;
     part?: { index: number; count: number; data: string; resultDigest: string } };
   constructor(body: Json) {
+    body = fixedLimitBody(body);
     super('PEER_REJECTED: ' + JSON.stringify(body && typeof body === 'object' && !Array.isArray(body) && body.recovery
       ? { code: body.code, recovery: true } : body));
     if (body && typeof body === 'object' && !Array.isArray(body)) {

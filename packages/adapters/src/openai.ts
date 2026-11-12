@@ -12,6 +12,7 @@ export interface OpenAICompatibleOptions {
   apiStyle?: 'openai' | 'anthropic';
 }
 export class OpenAICompatibleAdapter implements AgentAdapter {
+  get billingModel(): string { return this.options.model; }
   readonly taskAccess = 'read-only' as const;
   readonly id = 'openai';
   readonly name = 'OpenAI Compatible';

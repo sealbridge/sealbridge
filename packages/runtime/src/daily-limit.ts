@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
  * safe: no cleaner can unlink a replacement owner's claim (no shared-file ABA).
  * Never remove the directory, including on release.
  */
-function acquireDailyLock(lock: string): () => void {
+export function acquireDailyLock(lock: string): () => void {
   const busy = () => new Error('DAILY_LIMIT_BUSY: live, legacy or unverifiable lock');
   try {
     try { mkdirSync(lock, { mode: 0o700 }); }
@@ -65,7 +65,8 @@ export function consumeDailyTask(path: string, limit: number, taskId: string, no
     writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600, flush: true });
     renameSync(temporary, path);
   } finally {
-    try { unlinkSync(temporary); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
-    release();
+    try {
+      try { unlinkSync(temporary); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+    } finally { release(); }
   }
 }

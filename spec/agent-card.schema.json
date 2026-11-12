@@ -56,7 +56,8 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "maxTasksPerDayPerDid": {
+                "maxMonthlyUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 9007199.254740991, "multipleOf": 0.000000001 },
+                  "maxTasksPerDayPerDid": {
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991
