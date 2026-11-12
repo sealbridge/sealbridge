@@ -4,11 +4,6 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-### Added / 追加
-
-- Add pre-call worker input limits (400 lines, 48 KiB, 10 files by default), owner-configurable size caps, signed size-check audit records and fail-closed refusals before daily/monthly quota consumption. Bound the complete HTTP model prompt against the approved input-token budget before calling the provider. Requester CLI/MCP use fixed bilingual split-diff guidance and neutral `MONTHLY_MODEL_UNSUPPORTED` text. (#257)
-- AI を呼ぶ前の入力上限（既定400行・48 KiB・10ファイル）、所有者によるサイズ設定、署名付き検査記録を追加しました。検査不能なら拒否し、日次／月次枠を消費しません。HTTP モデルのプロンプト全体を承認済み入力トークン予算と照合してから呼び出します。依頼側 CLI／MCP は固定の日英の分割案内と、中立の `MONTHLY_MODEL_UNSUPPORTED` 文言を表示します。(#257)
-
 ### Breaking / 破壊的変更
 
 - **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#254)
@@ -17,6 +12,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - 既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。(#254)
 
 ### Added
+
+- Add opt-in pre-call input-size caps (default unlimited), an official-worker preset of 400 lines / 48 KiB of serialized JSON / 10 files, individual and grouped off settings, and signed audit records for refusals only. Always bound the complete HTTP model prompt against the approved input-token budget. Requester CLI/MCP use ordinary fixed bilingual text by default; monthly-limit-message trial-reviewer explicitly selects trial size wording. Keep MONTHLY_MODEL_UNSUPPORTED neutral. (#257)
+- AI を呼ぶ前のサイズ上限を持ち主の明示選択で設定できます（既定は上限なし）。公式向け400行・JSON化した入力48 KiB・10ファイルのプリセット、個別／一括の off、拒否時だけの署名付き監査記録を追加しました。HTTP モデルのプロンプト全体と入力トークン予算の検証は常に維持します。依頼側 CLI／MCP は通常の固定日英文を既定とし、お試しのサイズ拒否文言は monthly-limit-message trial-reviewer で明示選択します。MONTHLY_MODEL_UNSUPPORTED は中立文を維持します。(#257)
 
 - Add `autoAccept.limits.maxMonthlyUsd` and `config auto-accept max-monthly-usd USD|off`: worker-wide token-priced accounting including manually approved tasks, signed monthly append histories/checkpoints, fail-closed storage access and published closed cards. Interrupted/unreported calls settle using persisted tokens or the saved maximum token budget, including after crashes, without poisoning future admissions. Reset on the 1st at 00:00 UTC; running tasks finish and can overshoot. Price only gpt-6-luna ($0.10/$0.50 per million input/output tokens; official cap initially $20/month); reject unsupported models before execution without an unfinished row. Generic fixed text is the default; `monthly-limit-message trial-reviewer` explicitly selects official trial/demo/invitation guidance. Support decimal caps such as 19.99 and document signed-history recovery. (#256)
 - `autoAccept.limits.maxMonthlyUsd` と `config auto-accept max-monthly-usd USD|off` を追加しました。手動承認もワーカー ID 全体で合算し、月別の署名付き追記履歴・checkpoint、保存障害時の拒否、公開を維持する受付終了カードに対応します。中断・未報告・プロセス落ちは報告済みトークンか保存した最大予算で精算し、受付を停止したままにしません。毎月1日 UTC 0時に戻り、実行中の完了分だけ超過する場合があります。料金表は gpt-6-luna だけ（100万トークンあたり入力 $0.10・出力 $0.50、公式上限は最初月 $20）で、未知モデルは未完了記録を作らず実行前に拒否します。既定は通常の固定文、公式向け demo・招待案内は `monthly-limit-message trial-reviewer` で明示選択します。19.99 などの小数上限と、履歴を消さない復旧手順にも対応します。(#256)

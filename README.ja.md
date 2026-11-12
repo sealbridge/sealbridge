@@ -965,6 +965,7 @@ sandbox の起動時隔離はタスク実行時に決定される旨を記録し
 インストーラーの既定は本流です。`sh install.sh --package sealbridge-local`、
 `./install.ps1 -PackageName sealbridge-local`、または環境変数
 `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local` で選択できます。
+
 ## AI を呼ぶ前の入力上限
 
-ワーカーは、入力が400行・48 KiB（UTF-8で49,152バイト）・10ファイルのいずれかを超えると、アダプター実行前・日次／月次枠の消費前に拒否します。`sealbridge config auto-accept max-diff-lines N`・`max-diff-bytes N`・`max-diff-files N` で変更して再起動し、`default` で各既定値に戻します。手動承認の仕事にも適用します。HTTP モデルアダプターはプロンプト全体と申告された `maxInputTokens` も呼ぶ前に照合します。大きすぎる入力には差分を小さく分けるよう固定の日英文で案内します。[数え方と監査記録](docs/auto-accept.ja.md#呼ぶ前の入力サイズ)を参照してください。
+サイズ上限の既定は**上限なし**です。持ち主は `sealbridge config auto-accept diff-size trial-reviewer` で公式ワーカー用の400行・48 KiB（JSON 化した入力）・10ファイルをまとめて選べます。`max-diff-lines N`・`max-diff-bytes N`・`max-diff-files N` で個別にも設定できます。`diff-size off` は全サイズ上限を解除し、各項目も `off` に対応します。変更後は再起動します。設定した上限は手動承認にも適用し、実行前・日次／月次枠の消費前に確認します。HTTP アダプターのプロンプト全体と `maxInputTokens` の予算検証は、サイズ上限なしでも必ず行います。拒否文言の既定は通常の固定文で、お試し文言は `monthly-limit-message trial-reviewer` で明示選択します。通った依頼にはサイズ監査ファイルを作りません。[数え方と監査記録](docs/auto-accept.ja.md#呼ぶ前の入力サイズ)を参照してください。

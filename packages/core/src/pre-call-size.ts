@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Json, TaskManifest } from './types.js';
 export interface PreCallSizeLimits { maxDiffLines?: number; maxDiffBytes?: number; maxDiffFiles?: number }
-export const DEFAULT_PRE_CALL_SIZE_LIMITS = Object.freeze({ maxDiffLines: 400, maxDiffBytes: 48 * 1024, maxDiffFiles: 10 });
+/** Explicit owner-selected preset; omitted size caps are unlimited. */
+export const TRIAL_REVIEWER_SIZE_LIMITS = Object.freeze({ maxDiffLines: 400, maxDiffBytes: 48 * 1024, maxDiffFiles: 10 });
 export interface InputSize { lines: number; bytes: number; files: number }
 /** Count all text, including context/headers and every JSON string leaf. Never read peer paths. */
 export function measureInput(input: Json): InputSize {
@@ -28,16 +29,19 @@ export function measureInput(input: Json): InputSize {
     }
   }
   walk(input);
-  return { lines, bytes: Buffer.byteLength(typeof input === 'string' ? input : serialized, 'utf8'),
+  return { lines, bytes: Buffer.byteLength(serialized, 'utf8'),
     files: Math.max(gitHeaders, headers, listedFiles, paths.size, lines ? 1 : 0) };
 }
-export function checkInputSize(input: Json, limits: PreCallSizeLimits = {}): InputSize {
-  const caps = { ...DEFAULT_PRE_CALL_SIZE_LIMITS, ...limits };
+export function checkInputSize(input: Json, limits: PreCallSizeLimits = {}): InputSize | undefined {
+  const caps = limits;
+  if (Object.values(caps).every(cap => cap === undefined)) return undefined;
   for (const cap of Object.values(caps))
-    if (!Number.isSafeInteger(cap) || cap < 1) throw new Error('INPUT_SIZE_UNAVAILABLE');
+    if (cap !== undefined && (!Number.isSafeInteger(cap) || cap < 1)) throw new Error('INPUT_SIZE_UNAVAILABLE');
   let size: InputSize;
   try { size = measureInput(input); } catch { throw new Error('INPUT_SIZE_UNAVAILABLE'); }
-  if (size.lines > caps.maxDiffLines || size.bytes > caps.maxDiffBytes || size.files > caps.maxDiffFiles)
+  if (caps.maxDiffLines !== undefined && size.lines > caps.maxDiffLines ||
+      caps.maxDiffBytes !== undefined && size.bytes > caps.maxDiffBytes ||
+      caps.maxDiffFiles !== undefined && size.files > caps.maxDiffFiles)
     throw new Error('INPUT_SIZE_LIMIT_REACHED');
   return size;
 }
@@ -51,5 +55,5 @@ export function modelInputMessage(manifest: TaskManifest, input: Json): string {
 export function checkModelInputBudget(manifest: TaskManifest, input: Json): void {
   const upperBound = Buffer.byteLength(modelInputMessage(manifest, input), 'utf8') + 256;
   if (!Number.isSafeInteger(manifest.budget.maxInputTokens) || upperBound > manifest.budget.maxInputTokens)
-    throw new Error('INPUT_SIZE_LIMIT_REACHED');
+    throw new Error('INPUT_BUDGET_EXCEEDED');
 }

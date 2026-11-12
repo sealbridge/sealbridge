@@ -5,7 +5,7 @@ export interface AutoAcceptPolicy {
   enabled: boolean;
   from: 'invited' | 'connected' | 'anyone';
   work: 'read-only' | 'write';
-  /** Size caps have defaults; omitted daily/monthly caps mean unlimited. Unknown limits fail closed. */
+  /** Omitted size, daily and monthly caps mean unlimited. Unknown limits fail closed. */
   limits: {
     maxDiffLines?: number;
     maxDiffBytes?: number;

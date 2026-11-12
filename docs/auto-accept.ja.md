@@ -107,24 +107,31 @@ sealbridge config auto-accept monthly-limit-message standard
 2. 信頼できるバックアップから、完全な所有者署名付き稼働履歴と `.initialized` を復元し、アーカイブも保持します。同じワーカー鍵で検証し、不正な署名や連鎖は受け付けません。最終行の部分書込みは完全な認証済み prefix から復元し、使用量を創作して編集しません。**両ファイルを消してゼロから再開してはいけません。**
 3. バックアップ以降に欠けた各依頼を、署名付き manifest とプロバイダー明細から復元します。この版のビルド済み checkout で持ち主のメンテナンススクリプトを使い、`packages/runtime/dist/key-store.js` の `inspectStoredIdentity('worker', identityOptions)` で既存ワーカー鍵を読み、`packages/runtime/dist/index.js` の `workerIntakePath` から正確な集計先を特定します。`packages/runtime/dist/monthly-limit.js` の `MonthlyCostCounter` をその鍵とパスで作り、`counter.reconcileTask(taskId, {maxInputTokens, maxOutputTokens}, {inputTokens, outputTokens})` を呼びます。元の認証済み予算と明細を使い、使用量不明なら第3引数を省略して最大値を計上します。署名付きで追記し、確定済み ID の再実行は二重計上しません。予算未保存だった公開前 v1 の開始済み行にも使えます。`check`・再起動・公開登録は未完了依頼を自動精算するので、その前に行います。秘密鍵を表示したりコマンド引数に貼ったりしません。
 4. 精算後のファイルをバックアップし、同じ ID・データルート・モデル・上限で再起動します。完全な認証済み履歴を復元できない場合は停止を維持して保守者に相談し、上限を迂回しません。
+
 ## 呼ぶ前の入力サイズ
 
-全ワーカーは、手動承認・自動受付を無効にした場合も、実行前と日次／月次枠の消費前に **400行・48 KiB（UTF-8で49,152バイト）・10ファイル**を検査します。リレーの256 KiBの輸送／検査上限とは別です。所有者の `limits.maxDiffLines`・`maxDiffBytes`・`maxDiffFiles` で個別に上書きでき、正の安全な整数だけを受け付けます。紹介カードの `additionalProperties: false` は維持します。
+サイズ上限の既定は、日次／月次の未設定時と同じく**上限なし**です。持ち主が `limits.maxDiffLines`・`maxDiffBytes`・`maxDiffFiles` に正の安全な整数を選んだ項目だけを制限します。設定した上限は全アダプター・手動承認・自動受付オフにも適用し、実行前と日次／月次枠の消費前に確認します。リレーの256 KiBの輸送／検査上限とは別です。紹介カードの `additionalProperties: false` は維持します。
 
 ```sh
+# 公式ワーカー用：400行・49152バイト・10ファイルをまとめて設定
+sealbridge config auto-accept diff-size trial-reviewer
+# 個別にも設定可能。未設定の項目は上限なし
 sealbridge config auto-accept max-diff-lines 400
 sealbridge config auto-accept max-diff-bytes 49152
 sealbridge config auto-accept max-diff-files 10
-# 1項目を既定値へ戻す（サイズ上限に off はありません）
-sealbridge config auto-accept max-diff-lines default
+# 1項目、または全サイズ上限を解除。日次／月次上限と文言の選択は維持
+sealbridge config auto-accept max-diff-lines off
+sealbridge config auto-accept diff-size off
+# お試し用の文言は別途明示選択（プリセットでは変更しない）
+sealbridge config auto-accept monthly-limit-message trial-reviewer
 ```
 
-変更後はワーカーを再起動します。既存の `--max-input-tokens` と `--max-output-tokens` は引き続き申告予算を制限します。お試しの「中」はそれぞれ30000・4000です。
+変更後は再起動します。既存の `--max-input-tokens` と `--max-output-tokens` は引き続き申告予算を制限します。お試しの「中」はそれぞれ30000・4000です。サイズ上限の `off` で入力トークン予算の検証は無効になりません。
 
-依頼側のパスは開きません。行数は LF／CRLF／CR を区切りとし、末尾の空行を除き、差分ヘッダーと文脈行も含めます。JSON は全文字列の行数を合計し、バイト数は JSON 全体のシリアライズ後（文字列だけの入力は生の UTF-8）です。ファイル数は `diff --git` ヘッダー数、`+++` ヘッダー数、`files` 配列の要素数、`path`／`file`／`filename`／`filePath` の異なる値の数の最大とし、形式のないテキストは最低1ファイルです。unified diff または明示的なファイル一覧を送ります。リポジトリ解析や添付取得は行いません。
+依頼側のパスは開きません。行数は LF／CRLF／CR を区切りとし、末尾の空行を除き、差分ヘッダーと文脈行も含めます。JSON は全文字列の行数を合計します。バイト数は文字列だけの入力も含め、常に `Buffer.byteLength(JSON.stringify(input), 'utf8')` です。JSON の引用符・プロパティ名・エスケープも含むため、生の差分ファイルのバイト数ではありません。ファイル数は `diff --git` ヘッダー数、`+++` ヘッダー数、`files` 配列の要素数、`path`／`file`／`filename`／`filePath` の異なる値の数の最大とし、形式のないテキストは最低1ファイルです。unified diff または明示的なファイル一覧を送ります。リポジトリ解析や添付取得は行いません。
 
-OpenAI 互換アダプター（Anthropic 形式を含む）は、タイトル・説明・JSON エスケープ・出力スキーマを含めた送信メッセージ全体を検査します。UTF-8 バイト数にフレーミング用256トークンを加えた保守的な上界が `budget.maxInputTokens` を超えれば、API を呼ぶ前に拒否します。入力の切り捨てや承認済み予算の引き上げはしません。小さな予算の申告で月次の最大予算による精算をすり抜けることを防ぎます。独自のモデルアダプターも、実際のプロンプトに対応する `validateInput(manifest, input)` を実装してください。
+サイズ設定とは独立して、OpenAI 互換アダプター（Anthropic 形式を含む）は、タイトル・説明・JSON エスケープ・出力スキーマを含めた送信メッセージ全体の予算を**必ず**検証します。その UTF-8 バイト数にフレーミング用256トークンを加えた値が `budget.maxInputTokens` を超えれば、API を呼ぶ前に `INPUT_BUDGET_EXCEEDED` で拒否します。入力の切り捨てや承認済み予算の引き上げはしません。小さな予算の申告で月次の最大予算による精算をすり抜けることを防ぎます。独自のモデルアダプターも実際のプロンプトに対応する `validateInput(manifest, input)` を実装してください。
 
-検査に達した試行ごとに、ワーカーのデータ領域の `pre-call-audit/` へ所有者署名付きの `input_size_check` 記録を保存します。タスク／依頼者 ID・時刻・設定上限・結果を記録し、入力本文は保存しません。設定が読めない、数えられない、監査記録を書けない場合は拒否します。サイズ用の可変カウンターは不要です。他の監査証跡と一緒に保存してください。拒否では日次・月次枠を消費しません。
+呼出前に拒否した試行だけ、`pre-call-audit/` へ所有者署名付き・fsync 済みの `input_size_check` 記録を保存します。タスク／依頼者 ID・時刻・設定上限・確認できた件数・結果を記録し、入力本文は保存しません。通った依頼では、上限の有無を問わずサイズ監査ファイルを作らず、その保存先にも依存しません。設定が読めない、設定済み上限の計数ができない、拒否の監査記録を書けない場合は拒否します。可変カウンターは不要で、拒否では日次・月次枠を消費しません。
 
-依頼側 CLI／MCP はコードから固定の日英文を組み立て、ワーカーの自由文や余分な項目を表示しません。`INPUT_SIZE_LIMIT_REACHED` は差分の分割、`INPUT_SIZE_UNAVAILABLE` はサイズを確認できない旨を案内します。設定上限が異なる場合も誤表示しないよう数値を固定文に含めません。`MONTHLY_MODEL_UNSUPPORTED` も「現在受け付けられません」という中立文だけを返し、持ち主の設定変更案内は持ち主向けログ／文書に置きます。
+依頼側 CLI／MCP はコードから固定の日英文を組み立て、ワーカーの自由文や余分な項目を表示しません。`INPUT_SIZE_LIMIT_REACHED` の既定は「ワーカーのサイズ上限を超えています。小さく分けて送ってください」という通常文です。`monthly-limit-message trial-reviewer` を持ち主が明示選択した場合だけお試し用レビュアーの文言にし、`standard` で通常文に戻します。未知の文言指定も通常文です。予算検証の拒否は、お試し文言を選んでも通常の予算案内にします。`INPUT_SIZE_UNAVAILABLE` はサイズ確認不能の固定文です。設定によって変わる数値は固定文に含めません。`MONTHLY_MODEL_UNSUPPORTED` も中立文だけを返し、持ち主の設定変更は持ち主向け案内に置きます。
