@@ -75,8 +75,8 @@ For embedders, `WorkerNodeOptions.autoAccept` supplies the same typed rule, and
 future stateful limits. It must atomically read and reserve its counting state
 before returning exactly `true`; rejection, unavailable state or exceptions do not
 authorize automatic acceptance. A failed check never falls back to a policy
-provider. Monthly model-cost accounting is described below. Pre-call-size and
-shared-invite limits remain unimplemented (#257–#258).
+provider. Monthly model-cost accounting and pre-call size checks are described
+below. Shared invitations remain unimplemented (#258).
 Unknown limits and unsupported rule versions are rejected, rather than
 silently running without those protections. This feature does not implement
 per-connection standing approvals (#248), deploy a worker, or change relay code.
@@ -154,7 +154,7 @@ release their unused accounting entry at zero. An interrupted write/corrupt file
 is a storage failure, not an excuse to discard spending; that still fails closed.
 
 At the cap, new admissions get `MONTHLY_LIMIT_REACHED` while running tasks finish
-and can overshoot it. No monetary reservation or #257 size estimator is added.
+and can overshoot it. No monetary reservation is made; pre-call size checks are described below.
 Token reports count in the reporting month; a maximum-budget estimate counts in
 the settlement/recovery month. The month resets on the 1st at 00:00 UTC (09:00 JST).
 The strict signed AgentCard stays published with “Monthly intake closed.
@@ -228,3 +228,31 @@ For missing, corrupt or truncated storage (`MONTHLY_STATE_UNAVAILABLE`):
 4. Back up the reconciled files, then restart with the same identity, data root,
    model and cap. If a complete authenticated history cannot be reconstructed,
    keep the worker stopped and obtain maintainer help; do not bypass the cap.
+
+## Pre-call input size
+
+Size caps default to **unlimited**, just like omitted daily/monthly caps. Owners explicitly choose positive safe-integer `limits.maxDiffLines`, `maxDiffBytes`, and `maxDiffFiles`; only selected dimensions apply. Configured caps cover all adapters, including human-approved work and disabled automatic admission, before execution and daily/monthly counters. They are separate from the relay's 256 KiB transport/inspection cap. The public AgentCard retains `additionalProperties: false`.
+
+```sh
+# Official-worker preset: set all three caps (400 lines, 49152 bytes, 10 files).
+sealbridge config auto-accept diff-size trial-reviewer
+# Individual caps are independent; omitted dimensions stay unlimited.
+sealbridge config auto-accept max-diff-lines 400
+sealbridge config auto-accept max-diff-bytes 49152
+sealbridge config auto-accept max-diff-files 10
+# Remove one cap, or all three. Daily/monthly limits and message selection stay intact.
+sealbridge config auto-accept max-diff-lines off
+sealbridge config auto-accept diff-size off
+# Trial wording is a separate explicit choice (the preset does not change it).
+sealbridge config auto-accept monthly-limit-message trial-reviewer
+```
+
+Restart after configuration changes. Existing `--max-input-tokens` and `--max-output-tokens` still limit advertised budgets. For the medium trial configuration, set them to 30000 and 4000. Size `off` does not disable input-token budget validation.
+
+Counting never opens requester-supplied paths: text uses LF/CRLF/CR lines, excluding a final empty line, and includes unified-diff headers/context. JSON inputs sum every string leaf's lines. Byte count is `Buffer.byteLength(JSON.stringify(input), 'utf8')` for every input, including strings: JSON quotes, property names and escapes count too; this is not raw diff-file length. File count is the maximum of `diff --git` headers, `+++` headers, `files` array entries, and distinct `path`/`file`/`filename`/`filePath` fields, with one file for otherwise unstructured text. Send unified diffs or explicit file lists; this is an input-size bound, not a repository parser or an attachment fetcher.
+
+Independently of size caps, the OpenAI-compatible adapter (including Anthropic API style) **always** validates the complete outgoing user message, including title, description, JSON escaping and output schema. The UTF-8 bytes of that message plus 256 framing tokens must fit `budget.maxInputTokens`. An understated budget returns `INPUT_BUDGET_EXCEEDED` before fetch; do not truncate input or silently raise the approved budget. This prevents undercharging the monthly maximum-budget fallback. Custom model adapters should implement `validateInput(manifest, input)` for their exact provider prompt too.
+
+Only preflight refusals write owner-signed, fsynced `input_size_check` records under the worker's `pre-call-audit/`, containing task/requester IDs, time, configured limits, counts when available and outcome, without input text. Successful requests never create a size-audit file or depend on that destination, with or without caps. Unreadable configuration, uncountable input under an enabled cap or an unavailable rejection-audit destination fails closed. No mutable size counter is needed; refusals never spend daily or monthly quota.
+
+Requester CLI and MCP construct fixed bilingual text from codes, discarding worker prose and extra fields. `INPUT_SIZE_LIMIT_REACHED` normally says the input exceeds the worker's size limit and asks to split it. Only explicit `monthly-limit-message trial-reviewer` selects trial-reviewer size wording; `standard` restores ordinary wording. Unknown message kinds select ordinary wording. Budget failures always use ordinary budget guidance, even with trial wording selected. `INPUT_SIZE_UNAVAILABLE` reports unverifiable size. Fixed text does not claim numeric caps that might differ from configuration. `MONTHLY_MODEL_UNSUPPORTED` only says the worker cannot accept the request; model/cap changes belong in owner-facing guidance.

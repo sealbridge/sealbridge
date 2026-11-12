@@ -1100,3 +1100,7 @@ Keys, contacts and the data directory are reused: both distributions use the sam
 Replace `sealbridge worker start` with `sealbridge-local worker start`.
 Installers default to mainline; choose local with `sh install.sh --package sealbridge-local`,
 `./install.ps1 -PackageName sealbridge-local`, or `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local`.
+
+## Pre-call input limits
+
+Input-size caps default to **unlimited**. Owners can opt into the official-worker preset with `sealbridge config auto-accept diff-size trial-reviewer` (400 lines, 48 KiB of serialized JSON, 10 files), or set `max-diff-lines N`, `max-diff-bytes N`, and `max-diff-files N` individually. `diff-size off` removes all size caps; each individual setting also accepts `off`. Restart after changes. Configured caps apply before execution and daily/monthly counters, including manually approved work. The HTTP adapter always validates the complete outgoing prompt against `maxInputTokens`, even without size caps. Generic fixed rejection text is the default; `monthly-limit-message trial-reviewer` explicitly selects trial wording. Successful requests write no size-audit files. See [counting and audit details](docs/auto-accept.md#pre-call-input-size).

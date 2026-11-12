@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Json } from '@acp/core';
+import { checkInputSize, checkModelInputBudget, modelInputMessage } from '@acp/core';
+import type { Json, TaskManifest } from '@acp/core';
 import type { AgentAdapter, AgentTaskContext } from '@acp/runtime';
 import { parseJsonDeliverable } from './command.js';
 export interface OpenAICompatibleOptions {
@@ -21,7 +22,9 @@ export class OpenAICompatibleAdapter implements AgentAdapter {
   constructor(readonly options: OpenAICompatibleOptions) {
     this.#key = options.apiKey ?? process.env[options.apiKeyEnv ?? 'OPENAI_API_KEY'];
   }
+  validateInput(manifest: TaskManifest, input: Json): void { checkModelInputBudget(manifest, input); }
   async executeTask(context: AgentTaskContext): Promise<Json> {
+    checkInputSize(context.input, context.preCallSizeLimits);
     const started = Date.now(),
       anthropic = this.options.apiStyle === 'anthropic';
     const endpoint =
@@ -35,12 +38,8 @@ export class OpenAICompatibleAdapter implements AgentAdapter {
         headers['anthropic-version'] = '2023-06-01';
       } else headers.authorization = 'Bearer ' + this.#key;
     }
-    const prompt = JSON.stringify({
-      title: context.manifest.task.title,
-      description: context.manifest.task.description,
-      input: context.input,
-      outputSchema: context.manifest.io.outputSchema,
-    });
+    this.validateInput(context.manifest, context.input);
+    const prompt = modelInputMessage(context.manifest, context.input);
     try {
       const response = await (this.options.fetch ?? fetch)(endpoint, {
         method: 'POST',
@@ -49,7 +48,7 @@ export class OpenAICompatibleAdapter implements AgentAdapter {
         body: JSON.stringify({
           model: this.options.model,
           messages: [
-            { role: 'user', content: 'Return only a JSON deliverable for this task: ' + prompt },
+            { role: 'user', content: prompt },
           ],
           ...(anthropic
             ? { max_tokens: context.manifest.budget.maxOutputTokens }

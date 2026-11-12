@@ -56,6 +56,9 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "maxDiffLines": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                "maxDiffBytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                "maxDiffFiles": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
                 "maxMonthlyUsd": {
                   "type": "number",
                   "minimum": 0.000000001,

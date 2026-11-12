@@ -33,7 +33,10 @@ export function fixedLimitBody(body: Json): Json {
   const messages: Record<string, string> = {
     MONTHLY_LIMIT_REACHED: 'The monthly intake limit is reached. It resets on the 1st at 00:00 UTC (09:00 JST). 今月の受付上限に達しました。翌月1日 9:00 JST（UTC 0時）に戻ります。',
     MONTHLY_STATE_UNAVAILABLE: 'Monthly counting state is unavailable; task rejected. 月次の使用量状態を利用できないため、依頼を拒否しました。',
-    MONTHLY_MODEL_UNSUPPORTED: 'Monthly accounting supports gpt-6-luna only. Select that model or remove the monthly cap before retrying. 月次上限に対応するモデルは gpt-6-luna だけです。モデルか月次上限の設定を変更してください。',
+    MONTHLY_MODEL_UNSUPPORTED: 'The worker cannot accept this request right now. ワーカーは現在この依頼を受け付けられません。',
+    INPUT_SIZE_LIMIT_REACHED: 'This input exceeds the worker’s size limit. Split it into smaller parts. この入力はワーカーのサイズ上限を超えています。小さく分けて送ってください。',
+    INPUT_BUDGET_EXCEEDED: 'This request exceeds its input-token budget. Reduce the input or submit it with a sufficient budget. この依頼は入力トークン予算を超えています。入力を減らすか、十分な予算で送ってください。',
+    INPUT_SIZE_UNAVAILABLE: 'Input size could not be verified; task rejected. 入力の大きさを確認できないため、依頼を拒否しました。',
     AUTO_ACCEPT_DAILY_LIMIT_REACHED: 'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。',
     DAILY_LIMIT_REACHED: 'The daily task limit is reached. It resets at 00:00 UTC. 1日の件数上限に達しました。UTC 0時に戻ります。',
     INTAKE_RATE_LIMITED: 'Too many requests. Please try later. 依頼が多すぎます。時間をおいて試してください。',
@@ -46,7 +49,9 @@ export function fixedLimitBody(body: Json): Json {
     Number.isFinite(Date.parse(body.resetAt)) && new Date(body.resetAt).toISOString() === body.resetAt ? body.resetAt : undefined;
   const message = code === 'MONTHLY_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
     ? "The trial reviewer reached this month's limit and is paused until the 1st at 00:00 UTC. Try sealbridge demo or invite a friend. お試し用レビュアーは今月の上限に達したため、来月1日の日本時間朝9時まで停止しています。sealbridge demo か、友だちへの招待で試せます。"
-    : messages[code];
+    : code === 'INPUT_SIZE_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
+      ? 'This diff is too large for the trial reviewer. Split it into smaller parts. この差分はお試し用レビュアーには大きすぎます。小さく分けて送ってください。'
+      : messages[code];
   return { code, reason: message + (resetAt ? ' Resumes at ' + resetAt + ' (00:00 UTC / 日本時間の朝9時).' : ''),
     ...(resetAt ? { resetAt } : {}) };
 }
