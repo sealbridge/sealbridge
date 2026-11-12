@@ -32,6 +32,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- Honor HTTP proxy environment variables and NO_PROXY for relay HTTP, poll, SSE, WebSocket and doctor, with authenticated CONNECT, verified TLS, credential-safe diagnostics and unchanged direct SSRF pinning. Proxy-only sandboxes such as Muse no longer need `--allow-private-relay` for public relays. (#264)
+- 中継器の HTTP・ポーリング・SSE・WebSocket・doctor がプロキシ環境変数と NO_PROXY に対応しました。認証付き CONNECT と TLS 検証、認証情報を含まない診断を使い、直接接続の SSRF 検証・固定は維持します。Muse などのプロキシ専用環境でも、公開中継器に `--allow-private-relay` は不要です。(#264)
+
 - Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.
 - Docker と Smithery が旧ホストを固定せず CLI の公開中継器フォールバックを使うよう修正しました。明示的な中継指定を維持し、配布ファイルの URL の不一致を回帰テストで検出します。
 

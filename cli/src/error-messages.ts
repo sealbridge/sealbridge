@@ -2,6 +2,11 @@
 import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
+  [/RELAY_PROXY_AUTH_FAILED/, 'HTTP プロキシの認証に失敗しました。プロキシの認証設定を確認してください。'],
+  [/RELAY_PROXY_REFUSED/, 'HTTP プロキシが中継器への CONNECT を拒否しました。プロキシの接続先許可を確認してください。'],
+  [/RELAY_PROXY_UNSUPPORTED/, 'プロキシ URL は http:// のみ対応しています。プロキシ設定を確認してください。'],
+  [/RELAY_PROXY_TLS_FAILED/, 'プロキシ経由の TLS 検証に失敗しました。中継器の証明書と信頼する CA を確認してください。'],
+  [/RELAY_PROXY_UNAVAILABLE/, 'HTTP プロキシに接続できません。プロキシの接続設定を確認してください。'],
   [/ISOLATION_LEVEL_UNSUPPORTED|ISOLATION_LEVEL_MISMATCH/, '要求された隔離レベルに対応できないため、実行または納品を拒否しました。'],
   [/LOCAL_PC_CONSENT_REQUIRES_TERMINAL/, 'sealbridge-local config local-pc on は stdin と stderr が TTY の対話式端末で実行してください。非対話では毎回 --allow-local-pc を付けてください。'],
   [/LOCAL_PC_EXECUTION_REQUIRES_OPT_IN/, LOCAL_DISTRIBUTION ? 'ローカルPCでの実行には許可が必要です。対話式端末で sealbridge-local config local-pc on を実行するか、端末で初回起動時に確認してください。非対話では毎回 --allow-local-pc を付けてください。' : LOCAL_PC_DISABLED_JA + '\n' + LOCAL_PC_MIGRATION_JA],
@@ -42,6 +47,11 @@ const reasons: [RegExp, string][] = [
 ];
 
 const nextSteps: [RegExp, string][] = [
+  [/RELAY_PROXY_AUTH_FAILED/, 'HTTP proxy authentication failed. Check the configured proxy credentials.'],
+  [/RELAY_PROXY_REFUSED/, 'The HTTP proxy refused CONNECT to the relay. Check proxy destination permissions.'],
+  [/RELAY_PROXY_UNSUPPORTED/, 'Only http:// proxy URLs are supported. Check the proxy configuration.'],
+  [/RELAY_PROXY_TLS_FAILED/, 'TLS verification through the proxy failed. Check the relay certificate and trusted CA configuration.'],
+  [/RELAY_PROXY_UNAVAILABLE/, 'The HTTP proxy is unavailable. Check the proxy connection settings.'],
   [/OUTBOX_STORE_BUSY/, 'The local outbox index is busy (OUTBOX_STORE_BUSY). The proposal envelope is not invalid. Another process wrote the store, or an undelivered notification left the prepared index stale. Send a new task after that write finishes.'],
   [/INSPECTION_INCOMPLETE|INSPECTION_UNAVAILABLE/, 'Use sealbridge tasks list/show for individual held-task inspection in the standalone CLI. Display completion records an inspection receipt. tasks approve/reject close a terminal held attempt only. Explicitly submit a fresh task for live interactive worker owner approval. Use sealbridge requests list for peer intake metadata. For signed connection offers, check sealbridge connections review list; connection review does not inspect or open tasks. Human confirmation separately requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],
   [/CONNECTION_NOT_PENDING/, 'No reviewable signed connection offer matches this ID. A plain task creates only a pending task-derived item, not a reviewable connection offer. Run sealbridge connections review list with the same role/key and use a listed ID. If the list is empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent.'],

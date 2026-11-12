@@ -24,6 +24,7 @@ import {
 import type { InMemoryRelayOptions, RelayAuthContext, RelayInboxRole, RelayReceiveFilter } from './fetch.js';
 import type { SignedRelayDeliveryStatus } from './notifications.js';
 import { createPinnedRelayFetch, resolveAndValidateRelayEndpoint } from './ssrf.js';
+import { connectRelayProxy } from './proxy.js';
 import type { RelayClientSecurityOptions } from './ssrf.js';
 export * from './fetch.js';
 export * from './retry.js';
@@ -31,6 +32,7 @@ import { isTransientRelayError, relayRetryDelay, waitForRelayRetry, relayDeadlin
   RelayHttpError, RelayAuthRecoveryExhaustedError, validateRelayAuthRecoveryOptions } from './retry.js';
 import type { RelayConnectionStatus, RelayAuthOperation } from './retry.js';
 export { createPinnedRelayFetch, resolveAndValidateRelayEndpoint } from './ssrf.js';
+export { relayProxyFor, relayProxyLabel } from './proxy.js';
 export type {
   RelayClientSecurityOptions,
   RelayLookup,
@@ -819,8 +821,12 @@ export class WebSocketRelayClient extends RelayCredentials {
     if (this.stopped) return;
     const hostname = resolved.url.hostname.replace(/^\[|\]$/g, '');
     const secure = resolved.url.protocol === 'wss:';
+    const tunnel = resolved.proxy ? await connectRelayProxy(resolved.proxy, resolved.url,
+      this.security.requestTimeoutMs ?? 45_000) : undefined;
+    if (this.stopped) { tunnel?.destroy(); return; }
     const wsOptions = {
       lookup: resolved.lookup,
+      ...(tunnel ? { createConnection: () => tunnel } : {}),
       ...(secure ? { servername: hostname } : {}),
     };
     const socket = new WebSocket(this.url, wsOptions);
@@ -831,7 +837,7 @@ export class WebSocketRelayClient extends RelayCredentials {
     }
     if (socket.readyState === WebSocket.OPEN) return;
     await new Promise<void>((resolve, reject) => {
-      const fail = (error: Error) => reject(error);
+      const fail = (error: Error) => reject(resolved.proxy ? new Error('RELAY_PROXY_UNAVAILABLE') : error);
       socket.once('open', () => {
         socket.off('error', fail);
         resolve();
