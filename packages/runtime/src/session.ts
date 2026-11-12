@@ -2838,8 +2838,9 @@ export class RequesterClient {
       : findDiscoveredAgentCard(rawCards, options.to);
     if (options.discover && !card) throw new Error('WORKER_NOT_FOUND');
     const advertisedPolicy = (invite?.agentCard ?? card)?.payload.autoAccept;
+    const automationNotice = 'This worker responds automatically, not through a human. この相手は人ではなく自動で応じます。';
     const workerAutomation = advertisedPolicy?.enabled ? {
-      notice: 'This worker responds automatically, not through a human. \u3053\u306e\u76f8\u624b\u306f\u4eba\u3067\u306f\u306a\u304f\u81ea\u52d5\u3067\u5fdc\u3058\u307e\u3059\u3002',
+      notice: automationNotice,
       policy: advertisedPolicy,
     } : undefined;
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
@@ -3102,6 +3103,11 @@ export class RequesterClient {
         )
       )
         throw new Error('INVALID_ACCEPTANCE');
+      const responseAutomation = accept.approval.payload.authorization ? {
+        notice: automationNotice, authorization: accept.approval.payload.authorization,
+        ...(advertisedPolicy && digest(advertisedPolicy) === accept.approval.payload.authorization.ruleDigest
+          ? { policy: advertisedPolicy } : {}),
+      } : workerAutomation;
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       managedChild?.onAcceptedContract(accept.contract);
       gateway = new OwnerGateway(owner, accept.contract, policy);
@@ -3127,7 +3133,7 @@ export class RequesterClient {
           gate: 'final_verification',
           target: data,
           details: { manifest, deliverableDigest: data.artifact.payload.digest,
-            ...(workerAutomation ? { workerAutomation } : {}),
+            ...(responseAutomation ? { workerAutomation: responseAutomation } : {}),
             ...(approvalMode ? { delegateeOwnerDids: lineage!.delegateeOwnerDids,
               delegationDigests: data.delegation!.children.map(p => ({ linkDigest: digest(p.link),
                 contractDigest: p.childContract.contractDigest, grantDigest: digest(p.childContract.manifest.contextGrant!) })) } : {}) },

@@ -58,7 +58,7 @@ or enable writes. The former LLM allowlist requirement is removed. A custom `Pol
 unmatched rule. Embedders must explicitly configure `autoAccept.work: "write"` to
 automate adapters that can modify resources or execute commands.
 
-The signed AgentCard advertises the complete rule. CLI and MCP requester review
+The signed AgentCard advertises the complete rule. CLI, MCP requester review and invitation-page
 surfaces say “This worker responds automatically, not through a human.” The existing
 requester send and final verification approvals remain in place. Old cards omit
 the field; a remote advertisement never changes the local owner's settings.

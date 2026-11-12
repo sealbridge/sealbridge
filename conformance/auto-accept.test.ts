@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { autoAcceptPolicy, digest, signPayload, verifySigned, verifySignedAgentCard } from '../packages/core/src/index.js';
+import { autoAcceptPolicy, createInviteToken, digest, signPayload, verifySigned, verifySignedAgentCard } from '../packages/core/src/index.js';
 import type { ApprovalReceipt, AutoAcceptPolicy } from '../packages/core/src/index.js';
 import { matchesAutoAccept, readOnlyTask } from '../packages/runtime/src/auto-accept.js';
 import { workerIntakePath } from '../packages/runtime/src/index.js';
@@ -57,6 +57,17 @@ it('anyone is explicit opt-in, grants no connection, and persists each signed de
   const directory = join(dirname(workerIntakePath(f.owner.did, f.identityOptions)), 'auto-accept-audit');
   expect(readdirSync(directory)).toHaveLength(1);
   expect(readFileSync(join(directory, readdirSync(directory)[0]), 'utf8')).toContain('auto-policy');
+});
+it('discloses actual automatic approval at final review even with an older card', async () => {
+  const f = fixture(policy({ from: 'anyone' }));
+  const { autoAccept: _oldPolicy, ...legacyCard } = f.worker.agentCard.payload;
+  const token = createInviteToken({ agentCard: signPayload(legacyCard, f.owner) }, f.owner);
+  const approve = vi.spyOn(f.client.approvalProvider, 'approve');
+  expect((await f.attempt(token))[0].status).toBe('fulfilled');
+  const final = approve.mock.calls.find(([request]) => request.gate === 'final_verification')![0];
+  expect(final.details).toMatchObject({ workerAutomation: {
+    notice: expect.stringContaining('automatically'), authorization: { kind: 'auto-policy' },
+  } });
 });
 it.each([false, true])('write auto-accept needs an explicit write rule (enabled=%s)', async enabled => {
   const f = fixture(policy({ from: 'anyone', ...(enabled ? { work: 'write' as const } : {}) }));

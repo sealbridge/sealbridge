@@ -367,7 +367,7 @@ pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
   --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
 ```
 
-表示された `acp-invite:...` の1行をコピーします。このローカル例は、制限付き子プロセスで入力 JSON を返すアダプターを設定します。受付には後述の検査と所有者の操作が必要です。`--auto-accept` は契約受諾だけを許します。外部副作用と予算増額は、明示的な承認が引き続き必要です。対話式の `[y/N]` にするには、このフラグを外します。鍵と監査ログの出力先は、未使用のパスにしてください。
+表示された `acp-invite:...` の1行をコピーします。このローカル例は、制限付き子プロセスで入力 JSON を返すアダプターを設定します。受付には後述の検査と所有者の操作が必要です。`--auto-accept` は持ち主設定の受付範囲を広げません。sandbox・コマンドの自動実行には書き換え許可の明示設定が必要で、それ以外は対話式の承認を使います。予算増額は引き続き別の承認が必要です。鍵と監査ログの出力先は、未使用のパスにしてください。
 
 `sealbridge worker` は `--publish` を付けない限り、公開リレーのディレクトリへ AgentCard を登録しません。招待トークンを直接渡してください。`sealbridge discover` に出るのは `--publish` したワーカーだけです。
 
