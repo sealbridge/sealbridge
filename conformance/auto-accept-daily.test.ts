@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { autoAcceptPolicy, digest, generateKeyPair, verifySignedAgentCard } from '../packages/core/src/index.js';
+import { autoAcceptPolicy, digest, generateKeyPair, verifySignedAgentCard, schemaRegistry } from '../packages/core/src/index.js';
 import { RequesterClient, PolicyAutoApprovalProvider, workerIntakePath } from '../packages/runtime/src/index.js';
 import { consumeDailyTask } from '../packages/runtime/src/daily-limit.js';
 import { configCommand } from '../cli/src/config.js';
@@ -45,6 +47,17 @@ it('counts different owner DIDs independently', async () => {
   expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'AUTO_ACCEPT_DAILY_LIMIT_REACHED' } });
   expect(f.execute).toHaveBeenCalledTimes(2);
 });
+it('explains a repeated task ID without treating it as unavailable state or consuming another slot', async () => {
+  const f = fixture();
+  const result = await f.attempt(f.owner.did, { beforePropose: async ({ manifest }: { manifest: { taskId: string } }) => {
+    consumeDailyTask(path(f), 3, manifest.taskId);
+  } });
+  expect(result[0]).toMatchObject({ status: 'rejected', reason: {
+    code: 'AUTO_ACCEPT_DAILY_TASK_REPLAY', message: expect.stringContaining('already reserved'),
+  } });
+  expect(JSON.parse(readFileSync(path(f), 'utf8')).tasks).toHaveLength(1);
+  expect(f.execute).not.toHaveBeenCalled();
+});
 it.each(['corrupt', 'unreadable', 'locked', 'unwritable'] as const)('fails closed for %s counting state', async failure => {
   const f = fixture(); const file = path(f);
   // Match the production private-directory modes, including newly created ancestors.
@@ -78,6 +91,47 @@ it('configures the official three-task limit and removes it without changing aud
   expect(readApplicationConfig(f.identityOptions).autoAccept).toEqual({ ...autoAcceptPolicy(), limits: { maxTasksPerDayPerDid: 3 } });
   await configCommand(['auto-accept', 'max-tasks-per-day-per-did', 'off'], f.identityOptions);
   expect(readApplicationConfig(f.identityOptions).autoAccept?.limits).toEqual({});
+});
+it('validates advertised daily limits against the public AgentCard schema', () => {
+  const f = fixture();
+  const validate = schemaRegistry().getSchema('agent-card')!;
+  expect(validate(f.worker.agentCard), JSON.stringify(validate.errors)).toBe(true);
+  for (const limits of [{}, { maxTasksPerDayPerDid: 1 }, { maxTasksPerDayPerDid: Number.MAX_SAFE_INTEGER }]) {
+    const card = structuredClone(f.worker.agentCard); card.payload.autoAccept!.limits = limits;
+    expect(validate(card), JSON.stringify(validate.errors)).toBe(true);
+  }
+  for (const limits of [{ maxTasksPerDayPerDid: 0 }, { maxTasksPerDayPerDid: 1.5 },
+    { maxTasksPerDayPerDid: '3' }, { maxTasksPerDayPerDid: Number.MAX_SAFE_INTEGER + 1 }, { monthlyUsd: 3 }]) {
+    const card = structuredClone(f.worker.agentCard); card.payload.autoAccept!.limits = limits as never;
+    expect(validate(card)).toBe(false);
+  }
+});
+it('recovers a crashed process claim without losing reservations or resetting the cap', () => {
+  const f = fixture(2); const file = path(f);
+  consumeDailyTask(file, 2, 'first');
+  // Publish the real child PID, then terminate without releasing its claim.
+  const child = spawnSync(process.execPath, ['-e', `
+    const fs = require('node:fs'), crypto = require('node:crypto'), path = require('node:path');
+    fs.writeFileSync(path.join(process.argv[1], process.pid + '-' + crypto.randomUUID()), '', {mode: 0o600});
+    process.kill(process.pid, 'SIGKILL');
+  `, file + '.lock']);
+  expect(child.error).toBeUndefined();
+  expect(readdirSync(file + '.lock')).toHaveLength(1);
+  consumeDailyTask(file, 2, 'second');
+  expect(readdirSync(file + '.lock')).toEqual([]);
+  expect(JSON.parse(readFileSync(file, 'utf8')).tasks).toEqual(['first', 'second']);
+  expect(() => consumeDailyTask(file, 2, 'third')).toThrow('DAILY_LIMIT_REACHED');
+});
+it.each(['live', 'unknown', 'malformed'] as const)('never reclaims a %s owner claim', mode => {
+  const f = fixture(); const file = path(f), lock = file + '.lock';
+  mkdirSync(lock, { recursive: true, mode: 0o700 });
+  const name = mode === 'malformed' ? 'invalid' : `${process.pid}-${randomUUID()}`;
+  writeFileSync(join(lock, name), '', { mode: 0o600 });
+  if (mode === 'unknown') vi.spyOn(process, 'kill').mockImplementation(() => {
+    throw Object.assign(new Error('denied'), { code: 'EPERM' });
+  });
+  expect(() => consumeDailyTask(file, 3, 'first')).toThrow('DAILY_LIMIT_BUSY');
+  expect(readdirSync(lock)).toEqual([name]);
 });
 it.each([0, -1, 1.5, '3', null, Number.MAX_SAFE_INTEGER + 1])('rejects invalid configured limits: %s', value => {
   expect(() => autoAcceptPolicy({ ...autoAcceptPolicy(), limits: { maxTasksPerDayPerDid: value } })).toThrow('AUTO_ACCEPT_POLICY_INVALID');

@@ -1513,6 +1513,9 @@ export class WorkerNode {
         try {
           consumeDailyTask(path, this.autoAccept.limits.maxTasksPerDayPerDid, m.taskId, this.protocol.now());
         } catch (error) {
+          if (error instanceof Error && error.message === 'DAILY_TASK_REPLAY')
+            throw new ProposalRejectedError(
+              'This task ID already reserved a daily slot. Submit a new task ID. このタスク ID は日次枠を確保済みです。新しいタスク ID で依頼してください。', 'AUTO_ACCEPT_DAILY_TASK_REPLAY');
           if (error instanceof Error && error.message === 'DAILY_LIMIT_REACHED')
             throw new ProposalRejectedError(
               'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED');

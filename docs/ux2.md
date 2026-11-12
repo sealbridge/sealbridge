@@ -132,7 +132,10 @@ or execution. A subsequent crash/failure does not refund it. Failed validation
 or rejected owner approval does not consume a slot. Duplicate task IDs,
 clock rollback, invalid state and lock contention fail closed. Exclusive locks
 and atomic replacement prevent lost updates across restarts and processes.
-An interrupted lock requires operator recovery after confirming the owner
-process has stopped. Owners with filesystem/configuration access can delete
+Interrupted PID claims are recovered only after OS-confirmed process death;
+live or unverifiable claims fail closed. Legacy empty lock files still require
+operator recovery after confirming all workers have stopped. See the lock upgrade
+notes in [automatic acceptance](auto-accept.md#per-requester-daily-allowance).
+Owners with filesystem/configuration access can delete
 state, change clocks, change directories or disable the limit. The counter is
 scoped to the configured host data directory, independently of remote DIDs.

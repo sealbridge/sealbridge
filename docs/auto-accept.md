@@ -107,8 +107,17 @@ this automatic allowance; the worker-wide `--max-tasks-per-day` remains separate
 At exhaustion, `AUTO_ACCEPT_DAILY_LIMIT_REACHED` returns fixed English/Japanese
 text: “Today's free allowance is exhausted. It resets at 09:00 Japan time
 (00:00 UTC).” / 「今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。」
-Unreadable, corrupt, locked or unwritable counting state, replay and clock rollback
+Unreadable, corrupt, locked or unwritable counting state and clock rollback
 reject with `AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE`, without falling back to human or
 legacy policy approval for that attempt. First-use missing files initialize empty.
+Repeated task IDs return `AUTO_ACCEPT_DAILY_TASK_REPLAY` with fixed bilingual
+guidance that a slot was already reserved; the count is not incremented again.
+The persistent `.lock/` directory contains unique PID claims. A subsequent request
+reclaims claims only when the OS reports that their process no longer exists
+(`ESRCH`). Live/reused PIDs, permission errors and malformed claims fail closed.
+The directory remains in place to block older file-lock clients; stop older
+workers before upgrading all processes that share counting state. Legacy empty
+`.lock` files have no verifiable owner and require operator recovery after checking
+that no worker is running. Never delete a live claim or the lock directory.
 Owners must protect and retain the counting directory; deleting it loses history.
 DIDs can be created freely; this does not prevent one person using several DIDs.

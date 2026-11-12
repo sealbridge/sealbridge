@@ -21,6 +21,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- Recover daily-counter lock claims only after OS-confirmed owner process death, keeping live/unverifiable/legacy locks fail closed; validate advertised daily DID limits against the public AgentCard schema and report repeated task IDs separately from unavailable state. (#255)
+- 日次カウンターの残存ロックは OS で所有プロセスの不存在を確認できた場合だけ回収し、生存中・確認不能・旧形式のロックは拒否を維持します。公開 AgentCard スキーマに DID 別日次上限を追加し、同一タスク ID の再送を状態利用不能とは別に報告します。(#255)
+
 - Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.
 - Docker と Smithery が旧ホストを固定せず CLI の公開中継器フォールバックを使うよう修正しました。明示的な中継指定を維持し、配布ファイルの URL の不一致を回帰テストで検出します。
 
