@@ -4,6 +4,13 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Breaking / 破壊的変更
+
+- **Breaking:** Existing `codex`, `claude`, and `command` workers using `--auto-accept` with `--allow-requester` now reject unmatched work with `APPROVAL_CHANNEL_UNAVAILABLE` instead of holding it. To continue automatic execution, the owner must explicitly enable writes with `sealbridge config auto-accept connected write` (choose the intended audience), then restart the worker. (#254)
+- **破壊的変更:** `--auto-accept` と `--allow-requester` を併用していた `codex`・`claude`・`command` ワーカーは、ルール外の仕事を保留せず `APPROVAL_CHANNEL_UNAVAILABLE` で拒否します。自動実行を続ける場合は、持ち主が `sealbridge config auto-accept connected write`（対象は意図した範囲を選択）で書き換えの自動受付を明示的に許可し、ワーカーを再起動してください。(#254)
+- Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker. (#254)
+- 既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。(#254)
+
 ### Added
 
 - Add owner-configured automatic acceptance for every worker: invited/connected/anyone audiences, read-only by default, explicit write opt-in, signed rule provenance in per-task audit, advertised rules and requester notices. Reserve fail-closed hooks for future limits; remove the LLM-only allowlist gate. (#254)
