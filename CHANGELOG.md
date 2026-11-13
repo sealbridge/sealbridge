@@ -4,53 +4,63 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-### Fixed / 修正
+## [0.8.0] - 2026-11-13
 
-- Recover relay authentication across sandbox suspension using the full default recovery window and uncached nonces. Continuous workers stay unavailable and reconnect after exhaustion while preserving interrupted-session audit safety. Reject and acknowledge invalid proposals without occupying execution capacity; report clock-aware authentication diagnostics and sanitized requester poll retry codes, and propagate peer TASK_INTERRUPTED immediately. (#266)
-- サンドボックスの停止・再開に対し、既定の認証回復時間枠全体とキャッシュしない nonce を使用します。常駐ワーカーは回復失敗後も unavailable のまま再接続し、中断セッションの監査と再実行禁止を維持します。不正な提案は実行枠を使わず拒否して ack し、時計の差を考慮した認証診断と秘密を含まない依頼側ポーリング理由コードを表示します。相手の TASK_INTERRUPTED は直ちに伝播します。(#266)
+<!-- Preparation only; correct this date before tagging if publication changes. -->
 
-### Breaking / 破壊的変更
+### Breaking
 
-- **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#254)
-- **破壊的変更:** 連絡先の信頼設定や旧 grant で許可した相手の仕事を自動実行していた `codex`・`claude`・`command` の構成は、持ち主の自動受付ルール外の仕事を今後 `APPROVAL_CHANNEL_UNAVAILABLE` で拒否します。きっかけは `--allow-requester` ではありません。連絡先や旧 grant で信頼した相手は接続済みとは限らないため、自動実行を続けるには、接続済みなら `sealbridge config auto-accept connected write`、未接続の相手には `sealbridge config auto-accept anyone write` が必要になる場合があります。持ち主が書き換え許可を明示設定し、ワーカーを再起動してください。`anyone` は受付対象を広げるため、必要に応じて依頼者の明示的な許可リストを維持してください。(#254)
-- Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker. (#254)
-- 既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。(#254)
+- **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#259, #260)
+- **破壊的変更:** 連絡先の信頼設定や旧 grant で許可した相手の仕事を自動実行していた `codex`・`claude`・`command` の構成は、持ち主の自動受付ルール外の仕事を今後 `APPROVAL_CHANNEL_UNAVAILABLE` で拒否します。きっかけは `--allow-requester` ではありません。連絡先や旧 grant で信頼した相手は接続済みとは限らないため、自動実行を続けるには、接続済みなら `sealbridge config auto-accept connected write`、未接続の相手には `sealbridge config auto-accept anyone write` が必要になる場合があります。持ち主が書き換え許可を明示設定し、ワーカーを再起動してください。`anyone` は受付対象を広げるため、必要に応じて依頼者の明示的な許可リストを維持してください。(#259, #260)
+- Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker. (#259, #260)
+- 既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。(#259, #260)
+
+### Changed
+
+- Muse-first English/Japanese onboarding using npm 0.8.0, with GitHub main as a fallback; prepare paired sealbridge/sealbridge-local 0.8.0 distributions.
+- Muse を起点にした日英の導入案内で npm 0.8.0 を主経路にし、GitHub main を代替経路にしました。両配布物の 0.8.0 を準備します。
 
 ### Added
 
-- Add opt-in pre-call input-size caps (default unlimited), an official-worker preset of 400 lines / 48 KiB of serialized JSON / 10 files, individual and grouped off settings, and signed audit records for refusals only. Always bound the complete HTTP model prompt against the approved input-token budget. Requester CLI/MCP use ordinary fixed bilingual text by default; monthly-limit-message trial-reviewer explicitly selects trial size wording. Keep MONTHLY_MODEL_UNSUPPORTED neutral. (#257)
-- AI を呼ぶ前のサイズ上限を持ち主の明示選択で設定できます（既定は上限なし）。公式向け400行・JSON化した入力48 KiB・10ファイルのプリセット、個別／一括の off、拒否時だけの署名付き監査記録を追加しました。HTTP モデルのプロンプト全体と入力トークン予算の検証は常に維持します。依頼側 CLI／MCP は通常の固定日英文を既定とし、お試しのサイズ拒否文言は monthly-limit-message trial-reviewer で明示選択します。MONTHLY_MODEL_UNSUPPORTED は中立文を維持します。(#257)
+- Add opt-in pre-call input-size caps (default unlimited), an official-worker preset of 400 lines / 48 KiB of serialized JSON / 10 files, individual and grouped off settings, and signed audit records for refusals only. Always bound the complete HTTP model prompt against the approved input-token budget. Requester CLI/MCP use ordinary fixed bilingual text by default; monthly-limit-message trial-reviewer explicitly selects trial size wording. Keep MONTHLY_MODEL_UNSUPPORTED neutral. (#263)
+- AI を呼ぶ前のサイズ上限を持ち主の明示選択で設定できます（既定は上限なし）。公式向け400行・JSON化した入力48 KiB・10ファイルのプリセット、個別／一括の off、拒否時だけの署名付き監査記録を追加しました。HTTP モデルのプロンプト全体と入力トークン予算の検証は常に維持します。依頼側 CLI／MCP は通常の固定日英文を既定とし、お試しのサイズ拒否文言は monthly-limit-message trial-reviewer で明示選択します。MONTHLY_MODEL_UNSUPPORTED は中立文を維持します。(#263)
 
-- Add `autoAccept.limits.maxMonthlyUsd` and `config auto-accept max-monthly-usd USD|off`: worker-wide token-priced accounting including manually approved tasks, signed monthly append histories/checkpoints, fail-closed storage access and published closed cards. Interrupted/unreported calls settle using persisted tokens or the saved maximum token budget, including after crashes, without poisoning future admissions. Reset on the 1st at 00:00 UTC; running tasks finish and can overshoot. Price only gpt-6-luna ($0.10/$0.50 per million input/output tokens; official cap initially $20/month); reject unsupported models before execution without an unfinished row. Generic fixed text is the default; `monthly-limit-message trial-reviewer` explicitly selects official trial/demo/invitation guidance. Support decimal caps such as 19.99 and document signed-history recovery. (#256)
-- `autoAccept.limits.maxMonthlyUsd` と `config auto-accept max-monthly-usd USD|off` を追加しました。手動承認もワーカー ID 全体で合算し、月別の署名付き追記履歴・checkpoint、保存障害時の拒否、公開を維持する受付終了カードに対応します。中断・未報告・プロセス落ちは報告済みトークンか保存した最大予算で精算し、受付を停止したままにしません。毎月1日 UTC 0時に戻り、実行中の完了分だけ超過する場合があります。料金表は gpt-6-luna だけ（100万トークンあたり入力 $0.10・出力 $0.50、公式上限は最初月 $20）で、未知モデルは未完了記録を作らず実行前に拒否します。既定は通常の固定文、公式向け demo・招待案内は `monthly-limit-message trial-reviewer` で明示選択します。19.99 などの小数上限と、履歴を消さない復旧手順にも対応します。(#256)
-- Daily counters now use persistent `.lock/` directories with PID claims. Downgrading to an older file-lock client can leave the counter reporting BUSY; stop all workers sharing that counter, then remove its lock directory to recover. Temporary-file cleanup failures still release the current claim. (#255, #256)
-- 日次カウンターのロックは PID ごとの claim を持つ永続 `.lock/` ディレクトリになりました。古いファイルロック方式の版に戻すと BUSY のままになる場合があります。共有する全ワーカーを止めてから、該当カウンターのロック用ディレクトリを削除して復旧します。一時ファイルの削除が失敗しても現在の claim を解放します。(#255, #256)
+- Add `autoAccept.limits.maxMonthlyUsd` and `config auto-accept max-monthly-usd USD|off`: worker-wide token-priced accounting including manually approved tasks, signed monthly append histories/checkpoints, fail-closed storage access and published closed cards. Interrupted/unreported calls settle using persisted tokens or the saved maximum token budget, including after crashes, without poisoning future admissions. Reset on the 1st at 00:00 UTC; running tasks finish and can overshoot. Price only gpt-6-luna ($0.10/$0.50 per million input/output tokens; official cap initially $20/month); reject unsupported models before execution without an unfinished row. Generic fixed text is the default; `monthly-limit-message trial-reviewer` explicitly selects official trial/demo/invitation guidance. Support decimal caps such as 19.99 and document signed-history recovery. (#262)
+- `autoAccept.limits.maxMonthlyUsd` と `config auto-accept max-monthly-usd USD|off` を追加しました。手動承認もワーカー ID 全体で合算し、月別の署名付き追記履歴・checkpoint、保存障害時の拒否、公開を維持する受付終了カードに対応します。中断・未報告・プロセス落ちは報告済みトークンか保存した最大予算で精算し、受付を停止したままにしません。毎月1日 UTC 0時に戻り、実行中の完了分だけ超過する場合があります。料金表は gpt-6-luna だけ（100万トークンあたり入力 $0.10・出力 $0.50、公式上限は最初月 $20）で、未知モデルは未完了記録を作らず実行前に拒否します。既定は通常の固定文、公式向け demo・招待案内は `monthly-limit-message trial-reviewer` で明示選択します。19.99 などの小数上限と、履歴を消さない復旧手順にも対応します。(#262)
+- Daily counters now use persistent `.lock/` directories with PID claims. Downgrading to an older file-lock client can leave the counter reporting BUSY; stop all workers sharing that counter, then remove its lock directory to recover. Temporary-file cleanup failures still release the current claim. (#261, #262)
+- 日次カウンターのロックは PID ごとの claim を持つ永続 `.lock/` ディレクトリになりました。古いファイルロック方式の版に戻すと BUSY のままになる場合があります。共有する全ワーカーを止めてから、該当カウンターのロック用ディレクトリを削除して復旧します。一時ファイルの削除が失敗しても現在の claim を解放します。(#261, #262)
 
-- Recover daily-counter lock claims only after OS-confirmed owner process death, keeping live/unverifiable/legacy locks fail closed; validate advertised daily DID limits against the public AgentCard schema and report repeated task IDs separately from unavailable state. (#255)
-- 日次カウンターの残存ロックは OS で所有プロセスの不存在を確認できた場合だけ回収し、生存中・確認不能・旧形式のロックは拒否を維持します。公開 AgentCard スキーマに DID 別日次上限を追加し、同一タスク ID の再送を状態利用不能とは別に報告します。(#255)
+- Recover daily-counter lock claims only after OS-confirmed owner process death, keeping live/unverifiable/legacy locks fail closed; validate advertised daily DID limits against the public AgentCard schema and report repeated task IDs separately from unavailable state. (#261)
+- 日次カウンターの残存ロックは OS で所有プロセスの不存在を確認できた場合だけ回収し、生存中・確認不能・旧形式のロックは拒否を維持します。公開 AgentCard スキーマに DID 別日次上限を追加し、同一タスク ID の再送を状態利用不能とは別に報告します。(#261)
 
-- Add owner-configured `autoAccept.limits.maxTasksPerDayPerDid` and `config auto-accept max-tasks-per-day-per-did N|off`: persistent automatic-admission counters per requester owner DID, resetting at 00:00 UTC (09:00 Japan time), fixed bilingual exhaustion messages and fail-closed state access. Default unlimited; official workers explicitly set 3. (#255)
-- 自動受付に所有者 DID ごとの日次上限 `autoAccept.limits.maxTasksPerDayPerDid` と `config auto-accept max-tasks-per-day-per-did N|off` を追加しました。件数を保存し、UTC 0時（日本時間の朝9時）にリセットします。上限時は固定の英日メッセージを返し、状態の読み書き失敗時は拒否します。既定は上限なし、公式ワーカーは明示的に3件を設定します。(#255)
+- Add owner-configured `autoAccept.limits.maxTasksPerDayPerDid` and `config auto-accept max-tasks-per-day-per-did N|off`: persistent automatic-admission counters per requester owner DID, resetting at 00:00 UTC (09:00 Japan time), fixed bilingual exhaustion messages and fail-closed state access. Default unlimited; official workers explicitly set 3. (#261)
+- 自動受付に所有者 DID ごとの日次上限 `autoAccept.limits.maxTasksPerDayPerDid` と `config auto-accept max-tasks-per-day-per-did N|off` を追加しました。件数を保存し、UTC 0時（日本時間の朝9時）にリセットします。上限時は固定の英日メッセージを返し、状態の読み書き失敗時は拒否します。既定は上限なし、公式ワーカーは明示的に3件を設定します。(#261)
 
-- Add owner-configured automatic acceptance for every worker: invited/connected/anyone audiences, read-only by default, explicit write opt-in, signed rule provenance in per-task audit, advertised rules and requester notices. Reserve fail-closed hooks for future limits; remove the LLM-only allowlist gate. (#254)
-- すべてのワーカーに持ち主設定の自動受付を追加しました。招待・接続・誰でもの対象、既定の読み取り専用と明示的な書き換え許可、タスクごとの署名付きルール監査、紹介カードと依頼側の告知に対応します。今後の上限には fail closed の差込み先を用意し、LLM だけの許可リスト必須条件を廃止しました。(#254)
+- Add owner-configured automatic acceptance for every worker: invited/connected/anyone audiences, read-only by default, explicit write opt-in, signed rule provenance in per-task audit, advertised rules and requester notices. Reserve fail-closed hooks for future limits; remove the LLM-only allowlist gate. (#259, #260)
+- すべてのワーカーに持ち主設定の自動受付を追加しました。招待・接続・誰でもの対象、既定の読み取り専用と明示的な書き換え許可、タスクごとの署名付きルール監査、紹介カードと依頼側の告知に対応します。今後の上限には fail closed の差込み先を用意し、LLM だけの許可リスト必須条件を廃止しました。(#259, #260)
 
 ### Fixed
 
-- Honor HTTP proxy environment variables and NO_PROXY for relay HTTP, poll, SSE, WebSocket and doctor, with authenticated CONNECT, verified TLS, credential-safe diagnostics and unchanged direct SSRF pinning. Proxy-only sandboxes such as Muse no longer need `--allow-private-relay` for public relays. (#264)
-- 中継器の HTTP・ポーリング・SSE・WebSocket・doctor がプロキシ環境変数と NO_PROXY に対応しました。認証付き CONNECT と TLS 検証、認証情報を含まない診断を使い、直接接続の SSRF 検証・固定は維持します。Muse などのプロキシ専用環境でも、公開中継器に `--allow-private-relay` は不要です。(#264)
+- Keep proxied tunnels alive on the wire and retry initial sends; preserve sanitized failure stage/errno diagnostics. Persistent workers survive authentication recovery exhaustion and duplicate admission without closing the listener. (#269, #271, #273)
+- プロキシトンネルの実通信を維持し初回送信を再試行します。失敗段階と errno を安全に表示し、常駐ワーカーは認証復旧の失敗や重複依頼のあとも待受を維持します。(#269, #271, #273)
 
-- Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift.
+- Recover relay authentication across sandbox suspension using the full default recovery window and uncached nonces. Continuous workers stay unavailable and reconnect after exhaustion while preserving interrupted-session audit safety. Reject and acknowledge invalid proposals without occupying execution capacity; report clock-aware authentication diagnostics and sanitized requester poll retry codes, and propagate peer TASK_INTERRUPTED immediately. (#267)
+- サンドボックスの停止・再開に対し、既定の認証回復時間枠全体とキャッシュしない nonce を使用します。常駐ワーカーは回復失敗後も unavailable のまま再接続し、中断セッションの監査と再実行禁止を維持します。不正な提案は実行枠を使わず拒否して ack し、時計の差を考慮した認証診断と秘密を含まない依頼側ポーリング理由コードを表示します。相手の TASK_INTERRUPTED は直ちに伝播します。(#267)
+
+- Honor HTTP proxy environment variables and NO_PROXY for relay HTTP, poll, SSE, WebSocket and doctor, with authenticated CONNECT, verified TLS, credential-safe diagnostics and unchanged direct SSRF pinning. Proxy-only sandboxes such as Muse no longer need `--allow-private-relay` for public relays. (#265)
+- 中継器の HTTP・ポーリング・SSE・WebSocket・doctor がプロキシ環境変数と NO_PROXY に対応しました。認証付き CONNECT と TLS 検証、認証情報を含まない診断を使い、直接接続の SSRF 検証・固定は維持します。Muse などのプロキシ専用環境でも、公開中継器に `--allow-private-relay` は不要です。(#265)
+
+- Let Docker and Smithery inherit the CLI public relay fallback instead of pinning the legacy host; preserve explicit relay overrides and guard distribution files against relay URL drift. (#235)
 - Docker と Smithery が旧ホストを固定せず CLI の公開中継器フォールバックを使うよう修正しました。明示的な中継指定を維持し、配布ファイルの URL の不一致を回帰テストで検出します。
 
-- Reject out-of-enum MCP minimumIsolationLevel as invalid params before sending, and report unsupported worker isolation with ISOLATION_LEVEL_UNSUPPORTED instead of EXECUTION_FAILED. (#233)
-- MCP minimumIsolationLevel の列挙外の値を送信前に invalid params で拒否し、ワーカーの未対応の隔離を ISOLATION_LEVEL_UNSUPPORTED で報告します。(#233)
+- Reject out-of-enum MCP minimumIsolationLevel as invalid params before sending, and report unsupported worker isolation with ISOLATION_LEVEL_UNSUPPORTED instead of EXECUTION_FAILED. (#234)
+- MCP minimumIsolationLevel の列挙外の値を送信前に invalid params で拒否し、ワーカーの未対応の隔離を ISOLATION_LEVEL_UNSUPPORTED で報告します。(#234)
 
-- Use the distribution CLI name in root and subcommand usage help; confirm doctor already reports the 0.7.0 publication. (#232)
-- ルートとサブコマンドの Usage を配布物の CLI 名に合わせました。doctor の 0.7.0 公開済み表示も確認しました。(#232)
+- Use the distribution CLI name in root and subcommand usage help; confirm doctor already reports the 0.7.0 publication. (#234)
+- ルートとサブコマンドの Usage を配布物の CLI 名に合わせました。doctor の 0.7.0 公開済み表示も確認しました。(#234)
 
-- Clarify terminal-only persistent local-PC consent and per-invocation `--allow-local-pc` for scripts; use local-distribution consent errors without mainline migration guidance. (#231)
-- ローカルPCの保存許可には端末が必要で、非対話では毎回 `--allow-local-pc` を使うことを明記し、ローカル版の同意エラーを修正しました。(#231)
+- Clarify terminal-only persistent local-PC consent and per-invocation `--allow-local-pc` for scripts; use local-distribution consent errors without mainline migration guidance. (#234)
+- ローカルPCの保存許可には端末が必要で、非対話では毎回 `--allow-local-pc` を使うことを明記し、ローカル版の同意エラーを修正しました。(#234)
 
 ## [0.7.0] - 2026-11-11
 
@@ -209,6 +219,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Relay authentication recovery after HTTP 401 uses bounded retries and reports exhaustion. (#117)
 - Production site media delivery supports byte-range requests. (#147)
 
+[0.8.0]: https://github.com/sealbridge/sealbridge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/sealbridge/sealbridge/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/sealbridge/sealbridge/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/sealbridge/sealbridge/compare/v0.6.1...v0.6.2
