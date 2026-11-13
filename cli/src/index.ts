@@ -130,7 +130,7 @@ async function main(args: string[]) {
       break;
     case 'doctor':
       if (rest.includes('--help') || rest.includes('-h'))
-        console.log('Usage: ' + cliName + ' doctor [--offline] [--key <file>]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
+        console.log('Usage: ' + cliName + ' doctor [--offline] [--key <file>] [--relay <url>] [--allow-private-relay]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
       else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'setup':

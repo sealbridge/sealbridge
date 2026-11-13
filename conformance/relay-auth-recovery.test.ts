@@ -5,7 +5,7 @@ import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient
   isTransientRelayError, relayDiagnostic, RelayAuthRecoveryExhaustedError } from '../packages/relay/src/index.js';
 import type { RelayClientSecurityOptions } from '../packages/relay/src/index.js';
 import { receiveRelay, SessionWire } from '../packages/runtime/src/session-audit.js';
-import { relayRetryCode, RelayHttpError } from '../packages/relay/src/index.js';
+import { relayRetryCode, RelayHttpError, relayProxyError } from '../packages/relay/src/index.js';
 
 const origin = 'https://relay.example';
 const owner = generateKeyPair();
@@ -50,6 +50,24 @@ describe('bounded relay authentication recovery', () => {
       .toBe('ERR_TLS_CERT_ALTNAME_INVALID');
     expect(relayRetryCode(Object.assign(new Error(secret), { code: secret }))).toBe('RELAY_UNAVAILABLE');
     expect(JSON.stringify((console.warn as ReturnType<typeof vi.fn>).mock.calls)).not.toContain('password');
+  });
+
+  it('uses the same safe proxy detail in polling and authentication recovery retries', async () => {
+    const failure = relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response',
+      Object.assign(new Error('http://user:password@proxy.example/private'), { code: 'ECONNRESET' }));
+    const relay = { send() {}, receive: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(envelope()) };
+    const polling = receiveRelay(relay, owner.did);
+    await vi.advanceTimersByTimeAsync(125);
+    await polling;
+    expect(console.warn).toHaveBeenCalledWith('Relay poll retry 1 (RELAY_PROXY_UNAVAILABLE:response/ECONNRESET)');
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response('secret body', { status: 401 }))
+      .mockRejectedValueOnce(failure).mockResolvedValue(new Response(JSON.stringify({ envelopes: [] })));
+    const client = new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
+    const recovering = client.receive(owner.did, 1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await recovering;
+    expect(console.warn).toHaveBeenCalledWith('Relay authentication retry 2/3 (RELAY_PROXY_UNAVAILABLE:response/ECONNRESET)');
+    expect(JSON.stringify((console.warn as ReturnType<typeof vi.fn>).mock.calls)).not.toMatch(/password|proxy\.example|secret body/);
   });
 
   it('immediately rejects a signed TASK_INTERRUPTED with a restarted sequence', async () => {

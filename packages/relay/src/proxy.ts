@@ -2,7 +2,7 @@
 import http from 'node:http';
 import tls from 'node:tls';
 import { isIP, type Socket } from 'node:net';
-import { RelayTimeoutError } from './retry.js';
+import { RelayTimeoutError, relayProxyError, type RelayProxyStage } from './retry.js';
 
 /** Internal routing information. Never serialize this object: it contains credentials. */
 export interface RelayProxy {
@@ -71,6 +71,7 @@ export function connectRelayProxy(proxy: RelayProxy, target: URL, timeoutMs: num
       (target.port || (secure ? '443' : '80'));
     let tunnel: Socket | undefined;
     let settled = false;
+    let stage: RelayProxyStage = 'proxy_connect';
     const request = http.request({ hostname: proxy.hostname, port: proxy.port, method: 'CONNECT',
       path: authority, agent: false,
       headers: { Host: authority, ...(proxy.authorization ? { 'Proxy-Authorization': proxy.authorization } : {}) } });
@@ -84,22 +85,25 @@ export function connectRelayProxy(proxy: RelayProxy, target: URL, timeoutMs: num
       reject(error);
     };
     const abort = () => fail(Object.assign(new Error('ABORT'), { name: 'AbortError' }));
-    const timer = setTimeout(() => fail(new RelayTimeoutError()), timeoutMs);
-    request.on('error', () => fail(new Error('RELAY_PROXY_UNAVAILABLE')));
+    const timer = setTimeout(() => fail(new RelayTimeoutError(stage)), timeoutMs);
+    request.once('socket', socket => { socket.once('connect', () => { stage = 'connect_response'; }); });
+    request.on('error', error => fail(relayProxyError('RELAY_PROXY_UNAVAILABLE', stage, error)));
     request.once('connect', (response, socket, head) => {
       tunnel = socket;
       if (settled) { socket.destroy(); return; }
       if (response.statusCode !== 200) {
-        fail(new Error(response.statusCode === 407 ? 'RELAY_PROXY_AUTH_FAILED' : 'RELAY_PROXY_REFUSED'));
+        fail(relayProxyError(response.statusCode === 407 ? 'RELAY_PROXY_AUTH_FAILED' : 'RELAY_PROXY_REFUSED',
+          'connect_response', response.statusCode));
         return;
       }
       if (head.length) socket.unshift(head);
       if (!secure) { settled = true; cleanup(); resolve(socket); return; }
       // Default CA verification stays enabled. Never use the proxy host as TLS identity.
+      stage = 'tls';
       const tlsSocket = tls.connect({ socket, servername: isIP(hostname) ? undefined : hostname,
         checkServerIdentity: (_name, cert) => tls.checkServerIdentity(hostname, cert) });
       tunnel = tlsSocket;
-      tlsSocket.once('error', () => fail(new Error('RELAY_PROXY_TLS_FAILED')));
+      tlsSocket.once('error', error => fail(relayProxyError('RELAY_PROXY_TLS_FAILED', 'tls', error)));
       tlsSocket.once('secureConnect', () => { settled = true; cleanup(); resolve(tlsSocket); });
     });
     signal?.addEventListener('abort', abort, { once: true });

@@ -160,8 +160,9 @@ describe('doctor', () => {
     expect(process.exitCode).toBe(1);
   });
   it('parses offline and explicit key flags, rejecting unknown or missing values', () => {
+    expect(parseDoctorArgs(['--relay', 'http://127.0.0.1:8787', '--allow-private-relay'])).toEqual({ relay: 'http://127.0.0.1:8787', allowPrivateRelay: true });
     expect(parseDoctorArgs(['--offline', '--key', 'key.json'])).toEqual({ offline: true, keyFile: 'key.json' });
-    for (const args of [['--key'], ['--offline', '--offline'], ['--relay', 'https://other.example']])
+    for (const args of [['--key'], ['--offline', '--offline'], ['--relay']])
       expect(() => parseDoctorArgs(args)).toThrow();
   });
 });

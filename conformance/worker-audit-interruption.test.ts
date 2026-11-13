@@ -37,11 +37,12 @@ function liveFixture() {
   const review = new HeldRequestReview(owner, { ...identityOptions, provider: cliTaskInspection(() => {}) });
   const events: Record<string, unknown>[] = [];
   const worker = new WorkerNode({ owner, relay, relayUrl: 'https://relay.example', auditPath: path, inboxPath: inbox,
-    auditInterruptionFormat: 1, timeoutMs: 1200, identityOptions, heldReview: review,
+    // Bound the abandoned handshake independently of the fresh task's overall budget.
+    auditInterruptionFormat: 1, waitTimeoutMs: 3000, taskTimeoutMs: 120000, identityOptions, heldReview: review,
     approvalProvider: new PolicyAutoApprovalProvider(owner), ownerApprovalProvider: human,
     onEvent: (name, taskId, error) => { events.push(JSON.parse(workerJson({ event: name, taskId, ...error }))); if ((name === 'REJECTED' || name === 'INTERRUPTED') && error?.code !== 'AUDIT_INTERRUPTION_WRITE_FAILED') rejected.resolve(); },
     adapter: { id: 'echo', name: 'echo', skills: [], executeTask: async ctx => { executions++; return ctx.input; } } });
-  const client = new RequesterClient({ owner: requester, relay, timeoutMs: 5000, approvalProvider: new PolicyAutoApprovalProvider(requester) });
+  const client = new RequesterClient({ owner: requester, relay, waitTimeoutMs: 5000, taskTimeoutMs: 120000, approvalProvider: new PolicyAutoApprovalProvider(requester) });
   return { dir, path, inbox, journalPath: inbox + '.tasks.jsonl', owner, requester, relay, input, review, identityOptions, worker, client,
     events, prompt: () => prompt.promise, rejected: () => rejected.promise, executions: () => executions,
     reset: () => { prompt = event(); rejected = event(); } };
