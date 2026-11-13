@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createServer } from 'node:http';
-import { decodeAdmissionError } from './admission.js';
+import { decodeAdmissionError, RelayDuplicateEnvelopeError } from './admission.js';
 export { RelayAdmissionError, RelayDuplicateEnvelopeError, decodeAdmissionError } from './admission.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
@@ -492,18 +492,35 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     }
   }
   async send(envelope: SignedEnvelope): Promise<void> {
-    const result = await this.fetcher(this.url + '/envelopes', {
-      method: 'POST',
-      body: JSON.stringify(envelope),
-      headers: { 'content-type': 'application/json' },
-    });
-    if (!result.ok) {
-      throw await decodeAdmissionError(result);
-    }
-    const relayDid = result.headers.get('x-acp-relay-did');
-    if (relayDid) {
-      if (this.statusPins.size >= 16384) this.statusPins.delete(this.statusPins.keys().next().value!);
-      this.statusPins.set(envelope.payload.envelopeId, relayDid);
+    // Serialize once: an ambiguous admission must retry the identical envelope ID.
+    const body = JSON.stringify(envelope);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = await this.fetcher(this.url + '/envelopes', {
+          method: 'POST', body, headers: { 'content-type': 'application/json' },
+        });
+        if (!result.ok) {
+          const error = await decodeAdmissionError(result);
+          // The relay rejects repeated IDs before queue admission, including leased
+          // or already-consumed envelopes. Only our own ambiguous retry is success.
+          if (attempt > 0 && error instanceof RelayDuplicateEnvelopeError) return;
+          throw error;
+        }
+        const relayDid = result.headers.get('x-acp-relay-did');
+        await result.arrayBuffer();
+        if (relayDid) {
+          if (this.statusPins.size >= 16384) this.statusPins.delete(this.statusPins.keys().next().value!);
+          this.statusPins.set(envelope.payload.envelopeId, relayDid);
+        }
+        return;
+      } catch (error) {
+        // Admission refusals (especially 429), auth and TLS failures keep their
+        // existing semantics. Retry only temporary proxy transport failures.
+        if (attempt >= 4 || !(error instanceof Error) ||
+            error.message !== 'RELAY_PROXY_UNAVAILABLE' || !isTransientRelayError(error)) throw error;
+        console.warn('Relay send retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
+        await waitForRelayRetry(relayRetryDelay(attempt));
+      }
     }
   }
   /** Register an operator-configured channel; null unregisters it. Startup still drains the normal inbox. */
@@ -573,14 +590,24 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
   }
 
   async discover(): Promise<import('@acp/core').SignedAgentCard[]> {
-    const r = await this.fetcher(this.url + '/agents');
-    if (!r.ok) throw new Error('DISCOVERY_FAILED');
-    const cards = (await r.json()) as import('@acp/core').SignedAgentCard[];
-    if (!Array.isArray(cards)) throw new Error('INVALID_AGENT_CARD');
-    const { verifySignedAgentCard } = await import('@acp/core');
-    const now = Date.now();
-    return cards.filter((c) => verifySignedAgentCard(c, now));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await this.fetcher(this.url + '/agents');
+        if (!r.ok) { await r.body?.cancel(); throw new Error('DISCOVERY_FAILED'); }
+        const cards = (await r.json()) as import('@acp/core').SignedAgentCard[];
+        if (!Array.isArray(cards)) throw new Error('INVALID_AGENT_CARD');
+        const { verifySignedAgentCard } = await import('@acp/core');
+        const now = Date.now();
+        return cards.filter((c) => verifySignedAgentCard(c, now));
+      } catch (error) {
+        if (attempt >= 4 || !(error instanceof Error) ||
+            error.message !== 'RELAY_PROXY_UNAVAILABLE' || !isTransientRelayError(error)) throw error;
+        console.warn('Relay discovery retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
+        await waitForRelayRetry(relayRetryDelay(attempt));
+      }
+    }
   }
+
   async receive(
     recipientDid: string,
     waitMs?: number,

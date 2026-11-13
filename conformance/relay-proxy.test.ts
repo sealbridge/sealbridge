@@ -6,9 +6,13 @@ import tls from 'node:tls';
 import net from 'node:net';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { HttpRelayClient, SseRelayClient, WebSocketRelayClient, createPinnedRelayFetch,
   resolveAndValidateRelayEndpoint, relayProxyFor, relayProxyLabel, relayDiagnostic, relayRetryCode, relayProxyError, isTransientRelayError } from '../packages/relay/src/index.js';
+import { createRelayFetchHandler, InMemoryRelay } from '../packages/relay/src/fetch.js';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { formatCliError } from '../cli/src/error-messages.js';
@@ -51,11 +55,17 @@ async function listen(server: http.Server | https.Server): Promise<number> {
   return (server.address() as net.AddressInfo).port;
 }
 
-async function fixture(auth = false, status = 200, secure = true) {
-  const requests: Array<{ method?: string; path?: string; proxyAuth?: string }> = [];
+async function fixture(auth = false, status = 200, secure = true, behavior?: { resetFirst?: boolean; loseAdmission?: boolean }) {
+  const requests: Array<{ method?: string; path?: string; proxyAuth?: string; connection?: string }> = [];
+  const relay = new InMemoryRelay();
+  const relayHandler = createRelayFetchHandler({ relay });
+  const bodies: string[] = [];
+  const tunnels = new Set<net.Socket>();
+  const upgrades: string[] = [];
   let posted: unknown;
   const handler: http.RequestListener = (req, res) => {
-    requests.push({ method: req.method, path: req.url, proxyAuth: req.headers['proxy-authorization'] });
+    requests.push({ method: req.method, path: req.url, proxyAuth: req.headers['proxy-authorization'], connection: req.headers.connection });
+    if (behavior && (req.headers.connection === 'close' || behavior.resetFirst && requests.length === 1)) { req.socket.destroy(); return; }
     if (req.url?.startsWith('/stream')) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.flushHeaders();
@@ -64,11 +74,21 @@ async function fixture(auth = false, status = 200, secure = true) {
     } else if (req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
-      req.on('end', () => { posted = JSON.parse(body); res.end('{}'); });
+      req.on('end', async () => {
+        posted = JSON.parse(body); bodies.push(body);
+        if (behavior) {
+          const result = await relayHandler(new Request('https://relay.example/envelopes', {
+            method: 'POST', body, headers: { 'content-type': 'application/json' },
+          }));
+          if (behavior.loseAdmission && bodies.length === 1) { req.socket.destroy(); return; }
+          res.writeHead(result.status); res.end(await result.text());
+        } else res.end('{}');
+      });
     } else if (req.url?.startsWith('/envelopes')) res.end(JSON.stringify({ envelopes: [envelope] }));
     else res.end('[]');
   };
   const server = secure ? https.createServer({ key, cert }, handler) : http.createServer(handler);
+  server.on('upgrade', req => upgrades.push(req.headers.connection ?? ''));
   const wss = new WebSocketServer({ server, path: '/ws' });
   wss.on('connection', socket => socket.on('message', raw => {
     const value = JSON.parse(raw.toString());
@@ -80,6 +100,7 @@ async function fixture(auth = false, status = 200, secure = true) {
   const authorizations: Array<string | undefined> = [];
   const proxy = http.createServer();
   proxy.on('connect', (req, socket, head) => {
+    tunnels.add(socket as net.Socket); socket.on('close', () => tunnels.delete(socket as net.Socket));
     connects.push(req.url!); authorizations.push(req.headers['proxy-authorization']);
     if (status !== 200) { socket.end(`HTTP/1.1 ${status} secret-pass\r\nProxy-Authenticate: test-user\r\n\r\nsecret-pass`); return; }
     if (auth && req.headers['proxy-authorization'] !== 'Basic ' + Buffer.from('test-user:secret-pass').toString('base64')) {
@@ -98,10 +119,90 @@ async function fixture(auth = false, status = 200, secure = true) {
   const proxyUrl = `http://${auth ? 'test-user:secret-pass@' : ''}127.0.0.1:${proxyPort}`;
   vi.stubEnv(secure ? 'HTTPS_PROXY' : 'HTTP_PROXY', proxyUrl);
   const url = `${secure ? 'https' : 'http'}://relay.example:${port}`;
-  return { url, port, proxyPort, requests, connects, authorizations, posted: () => posted };
+  return { url, port, proxyPort, requests, connects, authorizations, tunnels, upgrades, bodies, relay, posted: () => posted };
 }
 
 describe('relay environment HTTP proxy conformance', () => {
+  it('lets a process exit after consuming a proxied response', async () => {
+    const f = await fixture(true, 200, true, {});
+    const moduleUrl = new URL('../packages/relay/dist/index.js', import.meta.url).href;
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e',
+      `import { createPinnedRelayFetch } from ${JSON.stringify(moduleUrl)};
+       const url = ${JSON.stringify(f.url)};
+       console.log(await (await createPinnedRelayFetch(url)(url + '/agents')).text());`], {
+      timeout: 5000,
+      env: { ...process.env, NODE_EXTRA_CA_CERTS: fileURLToPath(new URL('./fixtures/relay-proxy/ca.pem', import.meta.url)) },
+    });
+    expect(stdout.trim()).toBe('[]');
+    expect(stderr).not.toMatch(/test-user|secret-pass/);
+    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+  });
+  it.each([false, true])('uses keep-alive headers with single-use tunnels (TLS %s)', async secure => {
+    const f = await fixture(true, 200, secure, {});
+    const fetcher = createPinnedRelayFetch(f.url);
+    for (let i = 0; i < 2; i++) {
+      expect(await (await fetcher(f.url + '/agents')).json()).toEqual([]);
+      await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+    }
+    expect(f.connects).toHaveLength(2);
+    expect(f.requests.map(r => r.connection)).toEqual(['keep-alive', 'keep-alive']);
+    expect(f.requests.every(r => r.proxyAuth === undefined)).toBe(true);
+  });
+
+  it.each(['resetFirst', 'loseAdmission'] as const)('retries initial POST safely after %s', async mode => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const f = await fixture(true, 200, true, { [mode]: true });
+    const client = new HttpRelayClient(f.url, sender);
+    await client.send(envelope);
+    expect(warn).toHaveBeenCalledWith('Relay send retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)');
+    expect(f.requests).toHaveLength(2);
+    expect(f.requests.every(r => r.connection === 'keep-alive')).toBe(true);
+    expect(new Set(f.bodies).size).toBe(1);
+    expect(f.relay.receive(recipient.did)).toEqual(envelope);
+    expect(f.relay.receive(recipient.did)).toBeUndefined();
+    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1/);
+    // A new explicit send retains the existing duplicate-error contract.
+    await expect(client.send(envelope)).rejects.toMatchObject({ code: 'REPLAYED_ENVELOPE' });
+  });
+
+  it('retries the initial discovery GET before delegation by DID', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const f = await fixture(true, 200, true, { resetFirst: true });
+    expect(await new HttpRelayClient(f.url).discover()).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('Relay discovery retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)');
+    expect(f.connects).toHaveLength(2);
+    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+  });
+
+  it('bounds proxy send retries without retrying permanent failures', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = relayProxyError('RELAY_PROXY_UNAVAILABLE', 'request', Object.assign(new Error('secret-pass'), { code: 'ECONNRESET' }));
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(error);
+    await expect(new HttpRelayClient('https://relay.example', fetcher).send(envelope)).rejects.toBe(error);
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(new Set(fetcher.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
+    for (const message of ['RELAY_PROXY_AUTH_FAILED', 'RELAY_PROXY_TLS_FAILED', 'RELAY_PROXY_REFUSED']) {
+      fetcher.mockClear().mockRejectedValue(new Error(message));
+      await expect(new HttpRelayClient('https://relay.example', fetcher).send(envelope)).rejects.toThrow(message);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret-pass');
+  });
+
+  it.each(['cancel', 'abort', 'timeout'] as const)('closes a streaming tunnel on %s', async mode => {
+    const f = await fixture(true);
+    const controller = new AbortController();
+    const response = await createPinnedRelayFetch(f.url, { socketTimeoutMs: 80 })(f.url + '/stream', { signal: controller.signal });
+    if (mode === 'cancel') await response.body!.cancel();
+    else {
+      if (mode === 'abort') controller.abort();
+      await expect(response.text()).rejects.toThrow();
+    }
+    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+  });
+
   it.each([false, true])('tunnels send, poll, SSE and WebSocket with verified TLS (auth %s)', async auth => {
     const f = await fixture(auth);
     const security = { lookup: syntheticLookup, requestTimeoutMs: 3000, socketTimeoutMs: 2000 };
@@ -120,6 +221,7 @@ describe('relay environment HTTP proxy conformance', () => {
     expect(await ws.receive(recipient.did)).toEqual(envelope);
     expect(syntheticLookup).not.toHaveBeenCalled();
     expect(f.connects.length).toBeGreaterThanOrEqual(4);
+    expect(f.upgrades).toEqual(['Upgrade']);
     expect(f.connects.every(value => value === `relay.example:${f.port}`)).toBe(true);
     expect(f.requests.every(value => value.proxyAuth === undefined)).toBe(true);
     expect(f.authorizations.every(value => auth ? value?.startsWith('Basic ') : value === undefined)).toBe(true);
@@ -292,6 +394,7 @@ describe('relay environment HTTP proxy conformance', () => {
     await expect(new HttpRelayClient(f.url, { allowPrivateRelay: true,
       lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).discover()).resolves.toEqual([]);
     expect(f.connects).toEqual([]);
+    expect(f.requests[0]?.connection).toBe('close');
   });
 
   it.each([403, 407])('reports safe fixed diagnostics for CONNECT %s across all transports', async status => {

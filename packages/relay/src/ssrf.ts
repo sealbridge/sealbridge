@@ -160,9 +160,10 @@ async function pinnedRequest(
   const signal = init?.signal ?? undefined;
   const started = performance.now();
   const tunnel = pin.proxy ? await connectRelayProxy(pin.proxy, target, options.requestTimeoutMs ?? 45_000, signal) : undefined;
-  const agent = tunnel ? (secure ? new https.Agent() : new http.Agent()) : undefined;
+  const agent = tunnel ? (secure ? new https.Agent({ keepAlive: true }) : new http.Agent({ keepAlive: true })) : undefined;
+  // One agent per request: keep-alive controls the wire header, not tunnel reuse.
   if (agent && tunnel) agent.createConnection = () => tunnel;
-  return new Promise((resolve, reject) => {
+  return new Promise<Response>((resolve, reject) => {
     let response: http.IncomingMessage | undefined;
     const req = lib.request(
       {
@@ -178,6 +179,8 @@ async function pinnedRequest(
       },
       (incoming) => {
         response = incoming;
+        // Destroy even an idle/free tunnel once the body ends or is cancelled.
+        if (agent) incoming.once('close', () => { agent.destroy(); tunnel?.destroy(); });
         // SSE is intentionally long-lived; retain its idle timeout after headers arrive.
         if (target.pathname.endsWith('/stream') && incoming.headers['content-type']?.startsWith('text/event-stream'))
           clearTimeout(deadline);
@@ -239,7 +242,7 @@ async function pinnedRequest(
       ? Math.max(1, (options.requestTimeoutMs ?? 45_000) - (performance.now() - started))
       : options.requestTimeoutMs ?? 45_000);
     req.setTimeout(options.socketTimeoutMs ?? 35_000, timeout);
-    req.once('close', () => { clearTimeout(deadline); agent?.destroy(); });
+    req.once('close', () => { clearTimeout(deadline); agent?.destroy(); tunnel?.destroy(); });
     if (signal) {
       const onAbort = () => req.destroy(abortError(signal));
       if (signal.aborted) {
@@ -255,6 +258,10 @@ async function pinnedRequest(
     else if (typeof body === 'string' || body instanceof Uint8Array) req.end(body);
     else if (body instanceof URLSearchParams) req.end(body.toString());
     else req.destroy(new Error('UNSUPPORTED_BODY'));
+  }).catch(error => {
+    // Also cover synchronous request-construction failures (e.g. invalid headers).
+    agent?.destroy(); tunnel?.destroy();
+    throw error;
   });
 }
 
