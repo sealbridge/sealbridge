@@ -108,7 +108,8 @@ function readConfig(options: ApplicationConfigOptions): { config: ApplicationCon
   } catch (error) {
     if (!observed && errno(error) === 'ENOENT') return { config: { version: 1, relays: [DEFAULT_PUBLIC_RELAY] } };
     if (error instanceof ConfigSnapshotChangedError) throw error;
-    if (error instanceof Error && ['IDENTITY_INVALID', 'APP_CONFIG_INVALID'].includes(error.message))
+    if (error instanceof Error && (['IDENTITY_INVALID', 'APP_CONFIG_INVALID'].includes(error.message) ||
+        error.message.startsWith('DATA_DIR_PERMISSIONS:')))
       throw failure('APP_CONFIG_INVALID');
     throw failure('APP_CONFIG_UNREADABLE');
   } finally { if (fd !== undefined) io.closeSync(fd); }

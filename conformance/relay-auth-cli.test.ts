@@ -65,7 +65,7 @@ it.each(['worker', 'delegate'])('forwards auth settings on %s before creating a 
   const invite = createInviteToken({ agentCard: card }, target);
   const result = command === 'worker'
     ? networkCommand('worker', ['start', '--once', '--allow-local-pc', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
-    : networkCommand('delegate', [...flags, '--to', invite, '--title', 'local',
+    : networkCommand('delegate', [...flags, '--auto-approve', '--to', invite, '--title', 'local',
       '--description', 'local task', '--input', '{}']);
   const checked = expect(result).rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
   await vi.advanceTimersByTimeAsync(2000);

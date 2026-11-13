@@ -35,7 +35,7 @@ it('forwards delegate execution, overall, wait, connect, idle and heartbeat flag
   try {
     const key = join(dir, 'owner.private.json');
     writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
-    await networkCommand('delegate', ['--key', key, '--to', generateKeyPair().did,
+    await networkCommand('delegate', ['--auto-approve', '--key', key, '--to', generateKeyPair().did,
       '--relay', 'https://relay.example', '--title', 'local', '--description', 'local task', '--input', '{}',
       '--execution-timeout-ms', '240000', '--task-timeout-ms', '600000', '--wait-timeout-ms', '300000',
       '--connect-timeout-ms', '20000', '--transport-idle-timeout-ms', '45000', '--heartbeat-interval-ms', '10000']);

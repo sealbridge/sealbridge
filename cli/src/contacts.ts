@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { resolveDataRoot } from '@acp/runtime/local-identity';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseAndVerifyInviteToken, signPayload, verifySigned } from '@acp/core';
@@ -23,11 +23,7 @@ export interface Contact {
 }
 interface Contacts { version: 1; ownerDid: string; contacts: Contact[] }
 export function contactsPath(): string {
-  const base = process.env.ACP_DATA_DIR ?? (process.platform === 'win32'
-    ? join(process.env.LOCALAPPDATA ?? homedir(), 'AgentCollaborationPlatform')
-    : process.platform === 'darwin' ? join(homedir(), 'Library', 'Application Support', 'AgentCollaborationPlatform')
-    : join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'agent-collab-platform'));
-  return join(base, 'contacts.json');
+  return join(resolveDataRoot(), 'contacts.json');
 }
 export function loadContacts(path: string, ownerDid: string): Contact[] {
   let raw: string;

@@ -36,10 +36,10 @@ To probe a specific relay, run `sealbridge doctor --relay https://relay.sealbrid
 
 ### 2. Connect with an invitation
 
-Use the invitation you received from a worker — the official trial worker, or someone else’s. Passing the link as an argument is the most reliable method in Muse.
+Use the invitation you received from a worker — the official trial worker, or someone else’s. Save the received link in a private invitation.txt file, then pipe it with --stdin so it is absent from process arguments.
 
 ```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+sealbridge accept --stdin --alias reviewer < invitation.txt
 sealbridge invites list
 ```
 
@@ -89,11 +89,31 @@ Muse is often a proxy-only environment. Relay clients automatically use `HTTPS_P
 
 - If you see `Relay: Unreachable`, or a failure after `via proxy`, check the network and proxy, then run `sealbridge doctor` again.
 - `RELAY_PROXY_AUTH_FAILED` (407) means proxy credentials; `RELAY_PROXY_REFUSED` means CONNECT is not allowed. Never paste proxy credentials into logs or reports.
-- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pass the invitation as an argument, or pipe it with `--stdin`.
+- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pipe the invitation with `--stdin`.
 - Only loopback or private-relay invitations need `--allow-private-relay` on `accept` and `delegate`.
 - A continuous worker automatically retries relay authentication after a sandbox suspend/resume. See the docs below for details.
 
 For the full proxy and retry behavior, see [relay reliability](docs/relay-reliability.md).
+
+## Install on Grok Bot
+
+Paste `https://github.com/sealbridge/sealbridge` into Grok Bot and say "install this". You can also install from npm with `npm i -g sealbridge`. If the global directory is not writable, use:
+
+```sh
+npm i --prefix "$HOME/.local" sealbridge
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+sealbridge doctor
+```
+
+No network flags are needed. Grok Bot's synthetic DNS is detected automatically. Never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
+
+```sh
+sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge delegate --to reviewer --title "Quick check" --description "Return a short JSON reply" --input '{"text":"hello"}' --auto-approve
+sealbridge worker start --adapter openai --name "Grok Bot"
+```
+
+Agents usually have no TTY, so delegation needs `--auto-approve`; without it the command stops before sending. Read the result yourself. Configure the openai worker's API key (and endpoint/model if needed) in the host environment. It needs no `--allow-local-pc`; sandbox / codex / claude workers do. Owner acceptance rules still apply. One invite is for one requester: a second requester receives `PENDING_OWNER_APPROVAL`. Work outside the automatic rule needs owner approval.
 
 ## Other environments
 

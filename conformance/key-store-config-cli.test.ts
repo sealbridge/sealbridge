@@ -276,10 +276,11 @@ describe('CLI identity stores', () => {
     expect(fs.existsSync(join(root, 'identities'))).toBe(false);
   });
 
-  it('retains default contacts and reciprocal output directories with keychain selection', async () => {
+  it('uses the shared contacts and reciprocal root with keychain selection', async () => {
     const log = offline();
     const { options, home } = fixture();
     const contactsRoot = join(home, 'contacts-root');
+    vi.stubEnv('SEALBRIDGE_DATA_DIR', contactsRoot);
     vi.stubEnv('ACP_DATA_DIR', contactsRoot);
     setApplicationKeyStore('keychain', options);
     const peer = incoming(home);

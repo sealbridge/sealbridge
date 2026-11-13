@@ -45,6 +45,16 @@ describe('application identity paths', () => {
 });
 
 describe('persistent role identities', () => {
+  it.skipIf(process.platform === 'win32')('explains an existing nonprivate data directory without changing it', () => {
+    const options = fixture();
+    const root = resolveDataRoot(options);
+    fs.mkdirSync(root, { mode: 0o755 });
+    fs.chmodSync(root, 0o755);
+    expect(() => resolveOrCreateIdentity('requester', options)).toThrow('DATA_DIR_PERMISSIONS');
+    expect(() => resolveOrCreateIdentity('worker', options)).toThrow('chmod 700');
+    expect(fs.statSync(root).mode & 0o777).toBe(0o755);
+    expect(fs.existsSync(join(root, 'identities'))).toBe(false);
+  });
   it('creates once, reuses across instances, and keeps roles distinct', () => {
     const options = fixture();
     const requester = resolveOrCreateIdentity('requester', options);

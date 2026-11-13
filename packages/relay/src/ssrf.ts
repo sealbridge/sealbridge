@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { lookup as nodeLookup } from 'node:dns';
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { Readable } from 'node:stream';
@@ -33,8 +35,9 @@ export interface ResolvedRelayEndpoint {
   url: URL;
   proxy?: RelayProxy;
   addresses: ResolvedAddress[];
-  /** Returns only the addresses accepted before the socket is opened. */
+  /** Pins validated direct answers; synthetic TLS egress uses hostname lookup. */
   lookup: LookupFunction;
+  syntheticDns?: boolean;
 }
 
 async function systemLookup(hostname: string): Promise<ResolvedAddress[]> {
@@ -63,6 +66,26 @@ function pinnedNodeLookup(addresses: ResolvedAddress[]): LookupFunction {
     callback(null, chosen[0].address, chosen[0].family);
   };
   return lookup;
+}
+
+function benchmarkOnly(addresses: ResolvedAddress[]): boolean {
+  return Array.isArray(addresses) && addresses.length > 0 && addresses.every(item => item &&
+    item.family === 4 && typeof item.address === 'string' && /^198\.(?:18|19)\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})$/.test(item.address) &&
+    item.address.split('.').every(part => Number(part) <= 255));
+}
+
+// One bounded canary per process resolver (including injected test resolvers).
+// Cache failures too; a timeout or real NXDOMAIN must never enable this route.
+const syntheticResolvers = new WeakMap<RelayLookup, Promise<boolean>>();
+function syntheticResolver(lookup: RelayLookup, timeoutMs: number): Promise<boolean> {
+  let pending = syntheticResolvers.get(lookup);
+  if (!pending) {
+    pending = relayDeadline(Promise.resolve().then(() =>
+      lookup('sb-' + randomUUID() + '.invalid', { all: true, verbatim: true })),
+      Math.min(timeoutMs, 2000)).then(benchmarkOnly, () => false);
+    syntheticResolvers.set(lookup, pending);
+  }
+  return pending;
 }
 
 function literalAddress(hostname: string): ResolvedAddress | undefined {
@@ -110,6 +133,15 @@ export async function resolveAndValidateRelayEndpoint(
       address: item.address,
       family: item.family === 6 ? 6 : 4,
     }));
+    if ((url.protocol === 'https:' || url.protocol === 'wss:') && benchmarkOnly(addresses) &&
+        await syntheticResolver(options.lookup ?? systemLookup, options.requestTimeoutMs ?? 45_000)) {
+      // A random .invalid name cannot resolve on real DNS. This local sinkhole is
+      // an SNI egress route: the egress proxy selects the destination by hostname,
+      // with the same trust as explicit HTTPS_PROXY. An invite cannot configure
+      // the local resolver. Keep URL/literal policy above and normal TLS/SNI
+      // verification; never pin benchmark IPs or enable plaintext on this path.
+      return { url, addresses: [], lookup: nodeLookup, syntheticDns: true };
+    }
     for (const item of addresses)
       validateIpAddress(item.address, { allowPrivateRelay: options.allowPrivateRelay });
   }

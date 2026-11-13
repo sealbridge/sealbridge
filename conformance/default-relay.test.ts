@@ -222,7 +222,7 @@ describe('multiple local candidates, one active route', () => {
       .toMatchObject({ ownerDid: owner.did, relayUrl: loopback, agentCard: { payload: { relayEndpoint: loopback } } });
     expect(fetcher).not.toHaveBeenCalled();
     await expect(networkCommand('discover', ['--relay', loopback], application)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
-    await expect(networkCommand('delegate', ['--to', token, '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}'], application))
+    await expect(networkCommand('delegate', ['--to', token, '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}', '--auto-approve'], application))
       .rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
     expect(fetcher).not.toHaveBeenCalled();
     await networkCommand('discover', ['--relay', loopback, '--allow-private-relay'], application);

@@ -85,9 +85,9 @@ export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform
 }
 export function checkStat(stat: fs.Stats, directory = false): void {
   if (directory ? !stat.isDirectory() : !stat.isFile()) throw failure('IDENTITY_INVALID');
-  if (process.platform !== 'win32' &&
-      (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
-    throw failure('IDENTITY_INVALID');
+  if (process.platform !== 'win32' && stat.uid !== process.getuid!()) throw failure('IDENTITY_INVALID');
+  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0)
+    throw failure(directory ? 'DATA_DIR_PERMISSIONS: private directory required; run chmod 700 on the data directory (所有者専用の権限にしてください)' : 'IDENTITY_INVALID');
 }
 export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
   checkPath(path, io, platform);
@@ -128,7 +128,7 @@ export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, p
     return bytes.subarray(0, length).toString('utf8');
   } catch (error) {
     if (errno(error) === 'ENOENT' && !observed) return undefined;
-    if (error instanceof Error && error.message === 'IDENTITY_INVALID') throw error;
+    if (error instanceof Error && (error.message === 'IDENTITY_INVALID' || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
     throw failure('IDENTITY_UNREADABLE');
   } finally { if (fd !== undefined) io.closeSync(fd); }
 }
@@ -165,7 +165,7 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
       try {
         inspectDirectory(directory, io, platform);
       } catch (error) {
-        if (error instanceof Error && error.message === 'IDENTITY_INVALID') throw error;
+        if (error instanceof Error && (error.message === 'IDENTITY_INVALID' || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
         throw failure('IDENTITY_UNREADABLE');
       }
     }
@@ -229,7 +229,7 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
       else throw error;
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('IDENTITY_')) throw error;
+    if (error instanceof Error && (error.message.startsWith('IDENTITY_') || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
     throw failure('IDENTITY_STORE_UNWRITABLE');
   } finally {
     if (temporaryCreated) io.unlinkSync(temporary);
