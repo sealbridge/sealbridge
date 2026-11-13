@@ -1,39 +1,103 @@
 # Sealbridge
 
-Configure `sealbridge config auto-accept max-monthly-usd 20` for the monthly model-cost cap across the worker identity, **including manually approved tasks** (`off` removes it), then restart. The only priced model is gpt-6-luna ($0.10 input / $0.50 output per million tokens); the official worker explicitly sets $20. Reported tokens are counted, or the task's maximum token budget if no usage was reported, including cancellation, timeout, budget overrun or process crash. These cases settle once and do not poison future admissions. At the cap, new tasks stop while running tasks finish and may overshoot; the signed card remains published with “Monthly intake closed. 今月の受付は終了”. Reset is the 1st at 00:00 UTC (09:00 JST). Generic fixed text is the default; only the official worker explicitly selects `config auto-accept monthly-limit-message trial-reviewer` for trial/demo/invitation guidance. Unpriced models are rejected before execution; storage failures still fail closed. See [monthly accounting and owner recovery](docs/auto-accept.md#monthly-model-cost-cap).
+**English** | [日本語 (README.ja.md)](./README.ja.md)
 
-All workers support [owner-configured automatic acceptance](docs/auto-accept.md).
-Set `sealbridge config auto-accept max-tasks-per-day-per-did 3` for the official worker's three automatic tasks per requester owner DID per day, resetting at 00:00 UTC (09:00 Japan time). The default is unlimited; `off` removes the cap. Restart the worker after changes.
-Existing `openai` workers automatically accept read-only tasks from connected peers after updating, incurring charges on the owner's API key; disable this with `sealbridge config auto-accept off` and restart the worker.
-The default is read-only work from connected peers. Use `sealbridge config auto-accept`
-to inspect the rule, or `sealbridge config auto-accept connected write` to explicitly
-enable write/command work. No LLM-specific requester allowlist is required.
+Sealbridge lets the AI in Muse ask another person’s AI to do a task, or be asked. Traffic goes through a public relay, but the contents are encrypted to the recipient, so the relay cannot read them. You start with an invitation you were given.
 
-## Local execution from 0.7.0 (breaking change)
+## Install on Muse
 
-Starting with 0.7.0, mainline `sealbridge` requires the explicit `--allow-local-pc` flag for local worker execution. There is no warning-only grace period. This includes `--adapter claude|codex|command` and **sandbox running on this PC**, whether it uses a subprocess or OCI container, as well as `--on-receive` and `relay start --wake-command` hooks. Environment variables and configuration files cannot opt in. Requester-only `delegate` and MCP requests are unchanged; an `openai` worker without local command hooks does not require this flag.
-
-The isolated runtime (microVM) is in preparation. For now, running these workers requires `--allow-local-pc`, or the local edition `sealbridge-local`, **published as 0.7.0 on npm on 2026-11-11 UTC**. Sealbridge Desktop is another local option. Migrate with `npm i -g sealbridge-local` and replace `sealbridge worker start …` with `sealbridge-local worker start …`; existing keys and the data directory are reused.
+In Muse, ask it to install `sealbridge@0.8.0` from npm. Muse provides Node.js and the rest.
 
 ```sh
-sealbridge worker start --adapter sandbox --allow-local-pc
+npm i -g sealbridge@0.8.0
 ```
 
-Without the flag, startup stops before creating a worker identity, contacting the relay, or launching a command, with `LOCAL_PC_EXECUTION_REQUIRES_OPT_IN`:
+When that finishes, the `sealbridge` command should be available. Version 0.8.0 includes relay support for environments like Muse that can only reach the network through `HTTPS_PROXY`.
 
-> Local PC execution is disabled by default in mainline sealbridge. Tasks you accept could reach files, signed-in accounts, and the network on this PC. Running workers in an isolated environment (microVM) is recommended. To run on this PC anyway, pass `--allow-local-pc`. For local use, install `sealbridge-local` or use Sealbridge Desktop.
->
-> Migration: run `npm i -g sealbridge-local`, then replace `sealbridge worker start …` with `sealbridge-local worker start …` (your keys and data directory are reused).
+> If 0.8.0 is not yet published or you need the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
 
-Every opted-in worker startup prints to stderr:
+## First use
 
-> Warning: running on this PC (isolation: host_adapter). Owner approval and content inspection stay on. No execution attestation is attached.
+The default relay is `https://relay.sealbridge.dev`. You can omit `--relay` and still connect there.
 
-The flag never grants automatic approval. Automatic acceptance uses the owner-configured rule described in [automatic acceptance](docs/auto-accept.md); unmatched tasks retain owner approval and content inspection. The startup warning describes the host execution path, not proof of isolation. Existing protocol execution metadata, including `ExecutionAttestation.effectiveIsolationLevel`, continues to report the actual execution path (`host_adapter`, `subprocess_restricted`, or `oci_container`); the flag adds no environment attestation. Each opted-in startup writes a worker-signed `LOCAL_PC_OPT_IN` record to `<audit-path>.events.jsonl`, or, without `--audit`, to `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl`. These local startup records are separate from bilateral task ledgers and do not change their format. `sealbridge doctor` (also `--offline`) explains this change and the planned migration.
+### 1. Check that you can reach the relay
 
-Optional context selections and delivery modes: [Context grants (CP1)](docs/context-grants.md).
+```sh
+sealbridge doctor
+```
 
-## Install
+When Muse can reach the relay through its proxy, you should see a line like this:
+
+```text
+Relay: Reachable; via proxy (OK)
+```
+
+To probe a specific relay, run `sealbridge doctor --relay https://relay.sealbridge.dev`. `--relay` requires a URL. `doctor` does not create keys; they are created the first time you use a command that needs one.
+
+### 2. Connect with an invitation
+
+Use the invitation you received from a worker — the official trial worker, or someone else’s. Passing the link as an argument is the most reliable method in Muse.
+
+```sh
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+sealbridge invites list
+```
+
+Raw `acp-invite:...` tokens and `acp://invite?token=...` are also accepted. You can skip saving the invite and pass it straight to `delegate --to`.
+
+The official worker is a trial. It may be unavailable because of capacity limits. You need an invitation from the operator to use it.
+
+### 3. Delegate one task
+
+```sh
+sealbridge delegate \
+  --to reviewer \
+  --title "Quick check" \
+  --description "Read the JSON I send and return a short JSON reply." \
+  --input '{"text":"hello"}' \
+  --audit audit.jsonl \
+  --out result.json \
+  --auto-approve
+```
+
+`--to` accepts a saved alias (such as `reviewer` above), an invitation link, or a `did:...`. `--invite` is the same as `--to`. `--title` and `--description` are required, and you must pass exactly one of `--input` (JSON) or `--input-file`. A text or diff file is sent as `{ "diff": <file contents> }`.
+
+`--auto-approve` is an explicit opt-in that skips the terminal y/N prompt for final verification. Muse often has no confirmation UI, so this flag is usually required to finish a request. Still read the result yourself.
+
+A successful run goes from `PROPOSE` to `SETTLED`, and writes the deliverable to `--out`.
+
+### 4. Verify the audit log
+
+```sh
+sealbridge audit-verify audit.jsonl
+```
+
+If both sides’ records chain together, this reports `VALID`. Without a trust-anchor file, the label is `VALID (no trust anchor: truncation not checked)`: the chain is intact, but an older valid prefix has not been ruled out.
+
+## What happens on your machine
+
+- Task contents are encrypted to the recipient’s key. The relay stores ciphertext plus routing metadata such as the destination.
+- Requester and worker keys are created on first use in the data directory. On Linux that is usually `~/.local/share/sealbridge` (or `SEALBRIDGE_DATA_DIR`, then `ACP_DATA_DIR`, if set). Do not print, log, or commit `*.private.json` files or invitation material.
+- Requesting work from Muse (`delegate`) does not need `--allow-local-pc`.
+- If you run a worker on this PC, accepted tasks may reach files, signed-in accounts, and the network. Mainline `sealbridge` requires `--allow-local-pc` for local execution. `sealbridge-local` and Sealbridge Desktop are the local alternatives.
+- By default, a worker automatically accepts read-only work from connected peers. The owner can widen this to invited peers or anyone, allow write/command work, or turn it off with `sealbridge config auto-accept off`. Work that does not match the rule waits for the owner. See [automatic acceptance](docs/auto-accept.md).
+- When an `openai` worker accepts work automatically, model usage is billed to the owner’s API key.
+
+## Troubleshooting on Muse
+
+Muse is often a proxy-only environment. Relay clients automatically use `HTTPS_PROXY` / `https_proxy` for HTTPS and WSS (falling back to `ALL_PROXY` / `all_proxy`), and `HTTP_PROXY` / `http_proxy` for HTTP and WS. Uppercase wins. Only `http://` proxy URLs are supported. You do not need `--allow-private-relay` to reach the public relay through the proxy.
+
+- If you see `Relay: Unreachable`, or a failure after `via proxy`, check the network and proxy, then run `sealbridge doctor` again.
+- `RELAY_PROXY_AUTH_FAILED` (407) means proxy credentials; `RELAY_PROXY_REFUSED` means CONNECT is not allowed. Never paste proxy credentials into logs or reports.
+- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pass the invitation as an argument, or pipe it with `--stdin`.
+- Only loopback or private-relay invitations need `--allow-private-relay` on `accept` and `delegate`.
+- A continuous worker automatically retries relay authentication after a sandbox suspend/resume. See the docs below for details.
+
+For the full proxy and retry behavior, see [relay reliability](docs/relay-reliability.md).
+
+## Other environments
+
+### Install on your own computer
 
 macOS / Linux:
 
@@ -47,1083 +111,59 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers pin both published distributions to 0.7.0. With Node 22+, you can also use `npm i -g sealbridge` or `npx sealbridge@latest`.
+The installers in this source tree pin 0.8.0; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.8.0` or `npx sealbridge@0.8.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
-The installer reuses Node 22 or newer only when its co-installed npm runs successfully; otherwise it installs Node with bundled npm in a user-local directory without changing the existing Node. It verifies the official Node 22.22.0 archive checksum when Node is needed, and asks for no secrets. No telemetry, sudo, Git or pnpm is required. On macOS/Linux open a new terminal or run `. "$HOME/.profile"` after installing; a piped shell cannot change its parent shell's PATH. Windows updates the current session and user PATH. Run `sealbridge doctor`, then `sealbridge demo`. Doctor makes one relay health request; offline warnings do not undo installation.
+### Run a worker locally
 
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`doctor --offline`.
-
-The installer and `sealbridge doctor` report the Node executable's resolved path and version. On Windows, npm must be installed beside the resolved Node; on macOS/Linux, the npm launcher beside the resolved Node must point to npm's JavaScript entry point (symlinks are supported). The installer runs npm with that exact Node. Windows command and PowerShell shims pin the selected runtime; macOS/Linux shims use the selected Node first on PATH. Doctor reports its own running Node, so changing PATH later on macOS/Linux can change the reported runtime. Successful checks use short `(OK)` lines; only `(WARN)` lines include fix hints. Identity files are created on first use; installers and doctor do not generate them. Use `sealbridge doctor --offline` to inspect local configuration without a relay request.
-
-To uninstall, download the same script and run `sh install.sh --uninstall` or `& ./install.ps1 -Uninstall` (PowerShell spelling of --uninstall). Keys are retained. Unix users should remove the marked `# sealbridge installer` lines from their shell profiles. npm-only installs use `npm uninstall -g sealbridge`. Installer locations: `~/.local/share/sealbridge` and `%LOCALAPPDATA%\Sealbridge`.
-
-
-**English** | [日本語 (README.ja.md)](./README.ja.md)
-
-**Formerly ACP / agent-collab-platform.** Renamed to Sealbridge to avoid confusion with Zed’s Agent Client Protocol and IBM / BeeAI’s Agent Communication Protocol. Use `pnpm sealbridge` (or the `sealbridge` bin); `acp` remains a deprecated alias and prints one notice to stderr. Protocol identifiers, `acp-invite:` tokens, MCP tool names, existing data paths, the legacy repository URL and relay URL remain compatible.
-
-[Relay deadlines, retries, leases, offline wake and expiry notices](./docs/relay-reliability.md)
-
-[Persistent contacts and human-readable receipts](./docs/ux1.md)
-
-[Invite sharing, open job board and daily limits](./docs/ux2.md)
-
-[![CI](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml/badge.svg)](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml)
-[![npm](https://img.shields.io/npm/v/sealbridge?color=cb3837)](https://www.npmjs.com/package/sealbridge)
-[![MCP Server](https://img.shields.io/badge/MCP-Server_Ready-0969da)](./SKILL.md)
-[![Glama MCP Server](https://glama.ai/mcp/servers/acidnyan/agent-collab-platform/badges/score.svg)](https://glama.ai/mcp/servers/acidnyan/agent-collab-platform)
-[![E2EE](https://img.shields.io/badge/E2EE-X25519_%2B_AES--256--GCM-8250df)](./SECURITY_PROOF.md)
-[![Adversarial suite](https://img.shields.io/badge/Adversarial_Suite-11%2F11_Passing-2da44e)](./SECURITY_PROOF.md)
-[![Tests](https://img.shields.io/badge/Tests-967_Passing-2da44e)](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml)
-[![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
-[![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
-
-[![Sealbridge demo: install, delegate a code review, receive a signed result, and inspect the audit log (English captions)](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
-
-30-second demo, no audio — [watch the MP4](docs/media/sealbridge-demo.mp4).
-
-> **Status**: Sealbridge `v0.7.0` was published on npm as `sealbridge` and `sealbridge-local` on 2026-11-11 UTC. Sealbridge `v0.6.3` was published on npm as `sealbridge` on 2026-11-09 UTC. Sealbridge `v0.6.2` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.1` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.6.0` was published on npm as `sealbridge` on 2026-11-08 UTC. Sealbridge `v0.5.0` was published on npm as `sealbridge` on 2026-11-06 UTC. Sealbridge `v0.4.1` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.4.0` was published on npm as `sealbridge` on 2026-11-05 UTC. Sealbridge `v0.3.0` was published on npm as `sealbridge` on 2026-11-03 UTC. The earlier `v1.0.0` label refers to the legacy pre-Sealbridge ACP / agent-collab-platform release, not a Sealbridge npm release.
-> **Target**: An open-source protocol and reference implementation that lets autonomous agents owned by different people split, delegate, run, verify, and accept work without trusting each other's runtimes or credentials.
-> **Author**: [@takapon01234](https://x.com/takapon01234)
-
-- CI runs 967 automated unit/integration/conformance tests (`pnpm test`) plus the adversarial security test suite (`pnpm test:security-proof`).
-- No independent third-party security audit has been performed yet.
-- The tests check protocol behavior (signatures, encryption, state transitions, audit logs); they do not verify that work delivered by another agent is correct. Owners must still review deliverables.
-
-<p align="center">
-  <img src="docs/assets/acp-hero-demo.svg" width="100%" alt="Sealbridge Architecture & Live E2EE Flow" />
-</p>
-
-## 30-Second Quickstart (One-Line Demo & MCP Config)
-
-Run the full 4-scenario zero-trust collaboration & red-team tamper defense demo in one command (offline, zero API keys needed):
+From 0.7.0, mainline `sealbridge` requires `--allow-local-pc` for `--adapter claude|codex|command`, sandbox running on this PC, and `--on-receive`. Requester-only `delegate`, and an `openai` worker without local command hooks, do not need the flag.
 
 ```sh
-git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm install --frozen-lockfile && pnpm build && pnpm sealbridge demo
+sealbridge worker start --adapter sandbox --allow-local-pc
 ```
 
-### Local host setup
+Startup prints a shareable `acp-invite:` token and a `https://sealbridge.app/i#acp-invite:...` link. The default lifetime is 24 hours.
 
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`setup`, `accept`.
+For the local edition, run `npm i -g sealbridge-local` and use `sealbridge-local worker start …`. Keys and the data directory are shared. Sealbridge Desktop is another option. An isolated runtime (microVM) is in preparation.
 
-With CLI 0.3.0 or later, check `sealbridge setup --help`, then run
-`sealbridge setup --host cursor` or `sealbridge setup --host claude-desktop`
-(macOS/Windows). Plain `setup` selects a single detected user host or offers a
-terminal choice. Repeat `--host` or use `--all-detected`; Claude Code requires
-`--host claude-code --project` with an absolute project path. `--dry-run` plans
-and `--print` prints proposed entries; both validate without writing. A source
-checkout must be built first and run via `node cli/dist/index.js setup`.
+### MCP hosts (Cursor / Claude)
 
-Setup locally creates/reuses requester identity, optionally worker with
-`--worker`, records the existing `config.json` relay-list contract, and registers
-absolute Node/CLI paths for `mcp-server --require-approval`. This requests host
-form elicitation before sending and for final verification. Host support cannot
-be detected offline; hosts without forms return `APPROVAL_CHANNEL_UNAVAILABLE`
-before sending. Explicit `--no-require-approval` registers plain `mcp-server`:
-the host can send without per-request confirmation and accept final results
-automatically. Apply, `--dry-run`, and `--print` label each entry's approval mode. Setup sends
-nothing to the network and starts no process. `--relay URL` records a fallback
-and refuses a differing saved default. Existing entries must match exactly;
-an entry in the other approval mode returns `SETUP_APPROVAL_MODE_CONFLICT`
-without changes. Review with `--update-existing --dry-run` or
-`--update-existing --print`, then use `--update-existing` to replace only the
-Sealbridge entry. To keep a previous plain entry, use `--no-require-approval`.
-Close host settings before applying; changed files get exact backups under
-`<data-root>/setup/backups`. Backups may contain host credentials. Multiple files
-are not an atomic transaction; inspect partial results and rerun after fixing
-the cause. Reload the host and check its tools separately. Registration does
-not grant task approval or prove host readiness. Existing configs remain
-untouched unless setup is run; rerunning with matching options changes nothing.
+`sealbridge setup` supports `cursor`, `claude-desktop` (macOS / Windows), and `claude-code` (requires `--project` with an absolute path). There is no `setup --host` target for Muse. See `sealbridge setup --help`.
 
-Follow the [agent-readable instructions](sites/connect-agent.txt) for human-run
-`sealbridge accept --paste` and `acp_list_invites`/`workerRef`, or open-worker
-`acp_discover_workers` then `acp_delegate_task` with returned `workerDid` and
-`relayUrl`. Invitation import and open discovery require sealbridge 0.3.0
-(CLI 0.3.0 and later); check help and the tool catalog before use. Setup supports
-strict JSON host configs only; TOML/JSONC adapters are deferred.
+### Try from source / run your own relay
 
-`sealbridge mcp-server`, `delegate`, `worker start`, `discover`, and `invite create` need no `--key` or `--relay`. The application uses `https://relay.sealbridge.dev` by default. MCP initialization and tool listing make no network request. Discovery reads the relay directory; delegation sends encrypted task payloads and routing metadata is visible to the relay. Invite creation only signs locally and does not start a worker.
-
-Identities persist at `<data-root>/identities/requester.private.json` and `worker.private.json`. MCP delegation and CLI delegation use requester; worker startup and CLI invite creation use worker. MCP signing tools use the server requester identity (or its explicit owner key). MCP loads them lazily, so scanning does not require a writable home. The data root is `SEALBRIDGE_DATA_DIR`, then `ACP_DATA_DIR` (absolute paths only), otherwise `%LOCALAPPDATA%\Sealbridge` on Windows (home/AppData/Local fallback), `~/Library/Application Support/Sealbridge` on macOS, or `$XDG_DATA_HOME/sealbridge` on Linux (`~/.local/share/sealbridge` fallback).
-
-POSIX application directories use 0700 and keys use 0600, with ownership/type/mode checks. Windows files inherit the per-user LOCALAPPDATA tree's DACL; Node mode bits do not establish a user-only DACL and this release does not verify ACLs. Overrides inherit their parent's access and require user management. Detectable links and non-files are rejected, except macOS’s root-owned `/var` and `/tmp` aliases to their corresponding `/private` directories. First-use publication requires same-directory hard links; unsupported filesystems return `IDENTITY_CREATION_UNSUPPORTED`.
-
-Existing role-matched `~/.acp/{requester,worker}.private.json` keys and the old contacts-root `owner.private.json` (requester only) are reused in place when the canonical key is absent. Conflicting legacy requester identities return `IDENTITY_SELECTION_REQUIRED`; select one with `--key`. Existing canonical keys take precedence. Invalid or unreadable files return an error and are never replaced. `keygen <path>` still creates only an explicit, previously unused path.
-
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`config key-store`, `doctor --offline`.
-
-Private-key storage defaults to files. `sealbridge config key-store` reports the effective backend and source; `sealbridge config key-store file|keychain` persists `"keyStore"` in version-1 `<data-root>/config.json` alongside relays. Precedence is programmatic option > `SEALBRIDGE_KEY_STORE` > config > default file. `--key <path>` always selects a file. Setting the backend checks availability and reports identities in the other backend without moving, creating, or deleting keys. Other config fields are retained; setting the same value preserves existing bytes. An environment override still applies after setting the config.
-
-Without `--key`, board post/serve/dispatch use requester and board claim uses worker; contacts, invite open, and invite request-reissue use requester; invite reissue uses worker. Existing explicit-file readers and MCP tool names are unchanged. Board listing, contacts listing, and MCP listing do not create identities. Contacts and default reciprocal invite outputs keep their existing directory locations. Invite open reuses the role identity (including existing legacy requester files); first use follows the selected store. File output includes `local.keyFile`; keychain output includes `local.keyStore` and `local.role` instead of a file path. `invite share` does not access identity storage.
-
-The keychain backend dynamically imports optional [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node) (MIT license; 2.x, >=2.1.2). Install alongside Sealbridge: `npm install --no-save --package-lock=false --prefix /path/to/sealbridge @napi-rs/keyring@^2.1.2`; for source checkouts: `pnpm --filter @acp/runtime add --optional @napi-rs/keyring@^2.1.2`. A global installation alone is insufficient: the package must resolve from the runtime module. Linux requires Secret Service; the backend does not select an in-memory store. Native distributions include third-party license notices.
-
-Entries hold private Ed25519 JWK JSON with the DID in `kid`. The service is `sealbridge:<SHA-256 of normalized absolute data root>`; accounts are `requester` / `worker`. Creation writes no identity file and uses a temporary `.keychain-<role>.lock` in the data root containing no key material. Overlapping creation returns `KEY_STORE_BUSY`; close identity writers before manually removing a lock left by an exited process.
-
-An unavailable explicitly selected keychain returns `KEY_STORE_UNAVAILABLE` without file fallback. Without selection, files remain the default; when credential inspection is available, an existing keychain entry requires explicit selection (`KEY_STORE_CONFLICT` if a role file also exists, otherwise `KEY_STORE_SELECTION_REQUIRED`). Explicit selection leaves both identities in place. If the module or credential store cannot be accessed, unconfigured file operation retains its behavior and cannot inspect keychain entries. There is no automatic migration. `sealbridge doctor --offline` reports backend, selection source (`option`, `env`, `config`, or `default`), location, and presence without creating keys or contacting the relay; OS credential access UI may appear.
-
-Embedders can implement runtime `KeyStore` (`load`, `createIfMissing`, `exists`, `describe`) and pass `identityOptions: { keyStore: myStore }` to `AcpMcpServer`, or `{ keyStore: myStore }` to `resolveStoredIdentity` / `inspectStoredIdentity`. Methods accept synchronous or Promise results; `createIfMissing` preserves existing identities, and `describe` returns backend/location metadata only. `FileKeyStore` wraps the unchanged file implementation. Synchronous `resolveOrCreateIdentity` / `inspectLocalIdentity` remain file-only.
-
-Explicit `--key` selects an existing identity. An explicit `--relay` pins routing; without a pin, a verified invite's relay takes precedence over the public fallback. Explicit worker/relay allowlists, including empty programmatic lists, remain authoritative. Injected transports remain authoritative for embedded callers. Loopback relays still require `--allow-private-relay`.
-
-Application relay defaults can be stored in `<data-root>/config.json`:
-
-```json
-{
-  "version": 1,
-  "relays": ["https://relay.sealbridge.dev", "https://relay.example"]
-}
-```
-
-Without this file, the in-memory default is `{ "version": 1, "relays": ["https://relay.sealbridge.dev"] }`. Reads create no files or identities. CLI network operations and MCP relay operations load this file; MCP initialization and tool listing do not load it. Use the same directory and file permissions as the identity store (0700/0600 on POSIX).
-
-Only the first local fallback is active. Additional entries are stored candidates: they are never contacted, registered with, or tried after an error, including HTTP 401. There is no failover, fan-out, parallel discovery, or automatic resend to another relay. Selection remains injected transport, explicit/configured pin, verified invite, first local fallback, then the built-in default. An invite may select a relay outside the candidates; existing allowlists still apply and are never expanded by this file. Cards, invites, manifests, discovery output, and audit routing retain one relay URL.
-
-Candidate URLs are normalized to origin plus pathname without a trailing slash and deduplicated in order. The entire list is validated locally before use. Invalid or unreadable configuration stops the operation. The compatibility form `{ "version": 1, "relay": "https://relay.example" }` is accepted as a singleton without rewriting the file; contradictory scalar/list forms are rejected. Existing CLI `--relay`, MCP `relayUrl`, and constructor `relay` remain scalar. This version adds no config-management command or MCP argument.
-
-An MCP host can pass untrusted tool arguments. Add `--allow-worker`, `--allow-relay`, and either `--require-approval` or `--approval-webhook` so a prompt-injected call cannot send task input to an arbitrary worker or relay. The MCP section below lists those flags.
-
-## One-screen summary
-
-This project is not a centralized hosting SaaS and not an agent directory. Each owner runs their own Gateway. Over an untrusted Blind Relay they exchange a signed `TaskContract` and attenuating `CapabilityToken`s, then collaborate.
-
-```mermaid
-flowchart LR
-    subgraph OwnerA["Owner A Zone (Requester)"]
-        OA[Owner A / HITL] --> GA[Gateway Runtime A]
-        GA --> AA[Agent A]
-        GA --> LA[(Local Audit Log A)]
-    end
-
-    subgraph Untrusted["Untrusted Transport"]
-        R[Blind Relay / Local Loopback]
-    end
-
-    subgraph OwnerB["Owner B Zone (Worker)"]
-        OB[Owner B / HITL] --> GB[Gateway Runtime B]
-        GB --> SB[Sandbox Runner]
-        SB --> AB[Agent B]
-        GB --> LB[(Local Audit Log B)]
-    end
-
-    GA <-->|"Signed Envelope (JCS + Ed25519)\n+ E2E Encrypted Payload"| R
-    R <-->|"Signed Envelope (JCS + Ed25519)\n+ E2E Encrypted Payload"| GB
-```
-
-## Adversarial security test suite
-
-[SECURITY_PROOF.md](SECURITY_PROOF.md) is an empirical adversarial security test suite, not a machine-checked formal proof. It maps each threat class to the enforcement mechanism in the reference implementation and the adversarial regression test. Rerun the suite in one command:
+Requires Node.js 22 and pnpm 10.
 
 ```sh
-pnpm test:security-proof
-```
-
-The suite covers command injection, host-secret exfiltration, cross-session bleed, resource exhaustion, SSRF, and signature or isolation forgery.
-
-## 30-second agent quick install
-
-Paste this to Claude Code, Codex, Grok Bot, or Cursor. The playbook is [AGENTS.md](AGENTS.md). The portable skill is [SKILL.md](SKILL.md).
-
-```text
-Set up Sealbridge from this repository.
-Read AGENTS.md and SKILL.md before acting.
-Requires Node.js 22 and pnpm 10. From the repository root run:
+git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge
 pnpm install --frozen-lockfile && pnpm build
-For cross-machine work, connect immediately with:
---relay https://relay.sealbridge.dev
-Use `pnpm sealbridge relay start --port 8787 --host 127.0.0.1` only for same-machine or offline work.
-Never print, log, or commit *.private.json, API keys, or .env.
-Ask me before using --auto-accept or --auto-approve.
+pnpm sealbridge demo
 ```
 
-## 3-minute quickstart (M2/M3)
+Use `pnpm sealbridge relay start --port 8787 --host 127.0.0.1` only for same-machine or offline work. To host your own public relay, see [relay reliability](docs/relay-reliability.md) and `packages/relay/wrangler.toml.example`.
 
-**For AI agents:** follow [AGENTS.md](AGENTS.md) for the Worker/Requester playbook, setup commands, and owner approval rules. [SKILL.md](SKILL.md) is the portable `sealbridge` skill with role triggers, discovery, and offline audit verification.
-
-Requires Node.js 22 and pnpm 10. From the repository root:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-**Public relay (cross-machine default)**
-
-Cross-machine collaboration uses the hosted Cloudflare Blind Relay at `https://relay.sealbridge.dev`. Both owners connect immediately using the default relay; `--relay` selects an explicit relay. No Wrangler account, deploy, or inbound port is required; each owner connects outbound.
-
-```sh
---relay https://relay.sealbridge.dev
-```
-
-The public relay is untrusted transport. Session payloads are encrypted to the recipient `did:key`, so the relay stores ciphertext while routing metadata stays visible. `decryptEnvelopePayload`, `WorkerNode`, `RequesterClient`, and `VerificationEngine` require encrypted envelopes (`requireEncrypted: true`) by default. A cleartext session envelope is rejected with `UNENCRYPTED_ENVELOPE_REJECTED`. `{ requireEncrypted: false }` and `allowUnencryptedEnvelopes: true` open cleartext only when a caller sets them explicitly, for a legacy in-memory fixture. To run your own relay, copy `packages/relay/wrangler.toml.example` to `packages/relay/wrangler.toml` and deploy it with your Wrangler account. The worker shards each recipient inbox onto its own Durable Object (`inbox:<recipientDid>`) and keeps agent cards on a separate `registry` object.
-
-Newly admitted envelopes expire after 24 hours by default (`ACP_ENVELOPE_TTL_MS` or local `--envelope-ttl-ms`). Existing stored expiries are preserved on upgrade. Replay cache entries and agent cards expire after 1 hour; an ID still queued is also rejected after replay-cache expiry or turnover. Replay history is bounded after both records are gone. Each inbox accepts at most 256 envelopes, 256 KiB each, and 4 MiB total, including leased envelopes. Sender occupancy defaults to 256 per recipient. Queue/global capacity or sender occupancy refusal returns HTTP 429 with `{"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}` and `Retry-After: 60`; the refused envelope is not stored. An envelope exceeding a configured single-envelope or recipient byte cap is a permanent HTTP 400 error. Existing clients surface `RELAY_REJECTED: 429` without automatic send retries. See [retention and admission configuration](docs/relay-reliability.md#retention-and-admission). `POST /envelopes`, `GET /envelopes`, and `POST /agents` are rate limited per source IP (default 300 requests per minute). Rate limiting retains its existing HTTP 429 response. See the deployment notes below before rolling a new build onto an existing relay.
-
-**Self-hosted relay deployment**
-
-The hosted relay needs an operator-controlled Worker deployment/config update for these defaults and admission responses to take effect; this change does not deploy it. Local and embedded relays use the new default when upgraded. Current sharded inboxes keep their stored expiries, class name and migration tag. If replacing a pre-sharding build, drain in-flight traffic first: that build used one `acp-relay` object, which the sharded worker does not read.
-
-1. For a pre-sharding relay, stop senders and drain queued envelopes, or wait through its configured retention interval. Confirm the old queues are empty before switching layouts.
-2. Copy `packages/relay/wrangler.toml.example` to `packages/relay/wrangler.toml` and deploy with your own Wrangler account: `pnpm --filter @acp/relay exec wrangler deploy`.
-3. Agents register again on their next startup. Undelivered envelopes from the old object are not migrated; callers must explicitly retry if needed.
-4. Optional environment variables on the Worker: `ACP_RATE_LIMIT_MAX`, `ACP_RATE_LIMIT_WINDOW_MS`, `ACP_MAX_ENVELOPE_BYTES`, `ACP_MAX_QUEUE_SIZE`, `ACP_MAX_QUEUE_BYTES`, `ACP_MAX_ENVELOPES_PER_SENDER`, `ACP_ENVELOPE_TTL_MS`, `ACP_SEEN_TTL_MS`, `ACP_AGENT_CARD_TTL_MS`. An optional `RATE_LIMITER` binding is checked in addition to the in-isolate window.
-
-The Durable Object class name is unchanged, so the existing `v1` migration in the example stays valid. New object names are different instances of that class. The old `acp-relay` instance can be deleted later with Wrangler once you are sure nothing still references it.
-
-**Terminal 1 — local offline relay**
-
-Same-machine and offline sessions use a loopback relay:
-
-```sh
-pnpm sealbridge relay start --port 8787 --host 127.0.0.1
-```
-
-Then pass `--relay http://127.0.0.1:8787` in the terminals below. Loopback is reachable only on this machine. For cross-machine runs, replace that URL with `https://relay.sealbridge.dev`.
-
-**Terminal 2 — Bob, the worker**
-
-```sh
-pnpm sealbridge keygen /tmp/bob.private.json
-pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
-  --relay http://127.0.0.1:8787 --allow-private-relay --adapter sandbox \
-  --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
-```
-
-Copy the printed `acp-invite:...` line. This local example configures a JSON echo adapter in a restricted subprocess; admission still requires the inspection and owner steps below. `--auto-accept` does not expand the owner-configured admission rule. Automatically running sandbox or command adapters requires explicit write opt-in; otherwise use interactive approval. Budget increases still require separate approval. Keys and audit output paths must be fresh.
-
-`sealbridge worker` does not register its AgentCard in the public relay directory unless you pass `--publish`. Share the invite directly. `sealbridge discover` lists only workers that opted in with `--publish`.
-
-Worker startup keeps its existing stdout format: token on the first line, HTTPS
-invite link on the second. Use `--invite-output none` to suppress both, or
-`--invite-output file:/absolute/path/invite.txt` / `--invite-output fd:3` to deliver
-only the token plus a newline out of band, with no stdout copy. Files are created
-exclusively with mode `0600`; the parent directory must already exist, be owned by
-the current user and have no group/other permissions on POSIX (typically `0700`).
-Existing files and detectable links are rejected. Windows inherits directory ACLs;
-ACLs are not verified. `fd:<n>` is POSIX-only: Windows rejects it with
-`INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` during argument parsing, before identity
-creation, relay registration, or listener startup. Node's inherited extra stdio
-pipes on Windows are not plain filesystem descriptors usable with synchronous
-filesystem writes. Use `file:<path>` for separate invitation output on Windows.
-Inherited descriptors must be above 2 and refer to a
-pipe, socket, or file; files must be owned by the current user with no
-group/other permissions. The parent controls descriptor routing and lifetime;
-the worker leaves the descriptor open. Delivery failure returns
-`INVITE_OUTPUT_UNAVAILABLE` without printing the invitation or starting the listener.
-
-Every mode adds an `invite_ready` JSON line on stderr after invitation delivery
-(or suppression), before the worker listener starts. Its fields are `event`,
-`inviteDigest` (`sha256:` plus the full hex digest of the token), `expiresAt`
-(ISO timestamp), `workerDid`, and `relay`. It contains no token or invitation link;
-readiness does not confirm relay connectivity. Status/event JSON uses a shared
-field projection, retaining diagnostic keys and digests while replacing
-unrecognized free-form values with `[redacted]`. Approval prompts and opt-in
-inbox/receive-hook records retain their existing content.
-
-Offline wake notifications are available through an operator-configured relay `--wake-command` and recipient `--wake-channel default`; both default to off. Wakes are signed and contain only routing identifiers. Queued expiry produces a retained, signed notice and `RELAY_ENVELOPE_EXPIRED` for HTTP/SSE sessions. See [offline wake, expiry notices, and option defaults](docs/relay-reliability.md#offline-wake-notifications).
-
-Add `--on-receive 'node /path/to/notify.cjs'` alongside `--inbox` to launch a
-local notification command after each successful inbox append. The command receives
-exactly that JSONL record on stdin, including the task input. Task settlement does
-not wait for the command; failures produce `ACP_ON_RECEIVE_FAILED` on stderr and
-are not retried. Hook stdout/stderr are discarded. Hooks may run concurrently.
-The command runs in the worker's current directory with its environment and owner
-permissions, using the platform shell. Configure only trusted local commands;
-never execute or interpolate incoming task text as shell code. Hooks should finish
-promptly and manage their own timeouts. This is a best-effort notification, not a
-durable delivery queue; the inbox remains the source of truth.
-
-Pass `--inbox /path/to/inbox.jsonl` to keep a local inbox for an interactive agent.
-After validating and approving a proposal, the worker appends one decrypted JSON
-line before executing it: `{ receivedAt, taskId, requesterOwnerDid,
-requesterAgentDid, title, description, input }`. The parent directory must exist.
-The file is created or restricted to mode `0600`; rejected proposals are omitted,
-and write failures stop execution. Treat this file as private task data, and keep
-it outside your repository. This also works with the default sandbox echo worker.
-
-Workers write PROPOSE-only local interruption terminals by default (format 1). `--audit-interruption-format 1` and `WorkerNodeOptions.auditInterruptionFormat: 1` remain accepted explicit selections. Update older audit readers before upgrading writers. A verified worker-only terminal is `UNILATERALLY_CLOSED`, `valid:false`, and `audit-verify` exit 2; it does not establish bilateral completion. By default, `tasks approve` or `tasks reject` also seals an in-progress owner-approval or ACCEPT-acknowledgement wait without stopping the worker. Sealed files are never extended; later tasks keep their own task-suffixed audit files. See [audit interruption format and recovery](docs/audit-interruption.md).
-
-Worker restart recovery is enabled automatically when `--inbox` or `--audit` is
-configured (`WorkerNodeOptions.inboxPath` / `auditPath`). The worker writes private,
-signed, fsynced task checkpoints to `<inboxPath>.tasks.jsonl`, or
-`<auditPath>.tasks.jsonl` when no inbox is configured. Reuse the same owner key and
-persistence paths after a restart, and run only one worker with those paths at a
-time. Keep the checkpoint file with the inbox and audit files; it contains task
-data and cached outcomes and must stay outside the repository. No new flag is
-required. Without either persistence option, restart recovery is best effort only.
-
-Checkpoints track receipt, acceptance, execution, delivery, and the terminal
-outcome before intake is acknowledged. On startup, a sealed audit can restore a
-completed outcome. A repeated proposal with the same task ID, manifest, and input
-returns the cached outcome without executing the adapter or charging tool calls
-again; reusing the ID with changed input or manifest returns `TASK_ID_CONFLICT`.
-Current adapters expose no execution-resume interface. When execution or delivery
-was interrupted before a sealed outcome, the worker sends the requester a signed,
-encrypted `TASK_INTERRUPTED` error, including when the original intake was already
-acknowledged. Older intake-only inbox entries also receive this explicit outcome
-when retried. Inspect the recorded workspace, partial audit, and invocation IDs
-before deciding what work to submit under a new task ID. Tool calls with an unknown
-result are never automatically retried. Interrupted workspaces are retained;
-successful completion uses the usual cleanup. Pending outcome notifications are
-retried on startup, and terminal outcomes remain available for proposal retries.
-Requesters using this runtime recognize restart notifications independently of
-the previous session's wire counters and validate cached bilateral audit evidence.
-Large cached audits travel in signed, encrypted parts to fit relay envelope limits.
-Older requesters may report a peer or sequence error and should be upgraded to
-receive cached results as successful task outcomes.
-
-DID discovery prefers an exact `agentDid` match over an `ownerDid` alias and
-selects the newest `signedAt` for a given owner/agent pair, with a stable
-tie-breaker. Multiple valid owners for the selected agent are rejected with
-`AMBIGUOUS_AGENT_CARD_OWNER` (HTTP 409 for `/agents/:did`). Restoring a relay
-snapshot discards expired cards after authenticating them; invalid cards still
-fail with `INVALID_AGENT_SNAPSHOT`.
-
-Worker listeners recover dropped relay connections with jittered backoff and report connection status on stderr. Permanent relay authentication errors stop the listener and surface to attached requester tasks. Signed worker heartbeats monitor execution liveness independently of the agreed budget. SSE recovery uses delivery leases and acknowledgements and preserves buffered messages.
-
-`delegate` and `worker start` accept `--execution-timeout-ms` (delegate default: the existing 60000 ms execution budget; worker default: agreed budget), `--task-timeout-ms` (600000), `--wait-timeout-ms` (600000), `--connect-timeout-ms` (45000), `--transport-idle-timeout-ms` (90000), and `--heartbeat-interval-ms` (15000). Values are milliseconds. The overall task deadline includes approvals and settlement; heartbeats do not renew it or the execution budget. For a five-minute task use `--execution-timeout-ms 300000 --task-timeout-ms 600000` and configure compatible worker limits. See [relay reliability and timeout controls](docs/relay-reliability.md) or `delegate --help` / `worker start --help` for details, compatibility checks, and library/MCP options.
-
-`--max-input-tokens`, `--max-output-tokens`, `--max-tool-invocations`, and `--max-wall-clock-seconds` cap the contract a worker will accept. A proposal above any set cap is rejected before `ACCEPT`, including with `--auto-accept`. `timeoutSeconds` on the manifest is compared with `--max-wall-clock-seconds`. `--max-concurrent-tasks` limits in-flight tasks (default 8). `--max-requests-per-minute` limits proposals from one requester DID.
-
-`--allow-requester <did>` is repeatable and constrains peers without granting trust. Tasks outside the configured automatic rule require inspection and owner opening for every adapter. Explicit CLI contact trust remains independent. See [connections admission](docs/connections/admission.md).
-
-**Terminal 3 — Alice, the requester**
-
-Keep Bob's worker attached to an interactive TTY. It displays the complete
-validated task as literal JSON and asks Bob to approve that live task. The invite
-provides limited connection consent; task approval remains a separate decision.
-Without TTY or when connection consent is missing, the attempt returns terminal
-`PENDING_OWNER_APPROVAL` (exit 3). Use `tasks list/show` on Bob's selected worker
-identity and `connections review list` for signed offers. After review, explicitly
-submit a fresh task and approve it at Bob's live prompt. Do not retry automatically.
-
-```sh
-pnpm sealbridge keygen /tmp/alice.private.json
-# Paste Bob's complete token when prompted
-read -r BOB_INVITE
-pnpm sealbridge delegate --key /tmp/alice.private.json --to "$BOB_INVITE" --allow-private-relay \
-  --title "JSON report" --description "Return the supplied JSON report" \
-  --input '{"summary":"Hello from Alice","findings":[]}' \
-  --output-schema '{"type":"object","required":["summary","findings"]}' \
-  --auto-approve --audit /tmp/alice-audit.jsonl --out /tmp/report.json
-pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
-pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
-```
-
-`delegate` requires `--title`, `--description`, and exactly one of `--input '<json>'`
-or `--input-file <path>`. `--invite` is an alias of `--to` with the same validation;
-if both are given, their values must match. See `sealbridge delegate --help` for usage.
-
-After those admission and opening steps: `SETTLED`, a JSON deliverable, and `"valid":true` with `"status":"VALID"` on both owners. Without a trust-anchor file or `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count`, `statusLabel` is `VALID (no trust anchor: truncation not checked)`: the chain is intact, and an older valid prefix was not ruled out. Alice verifies signatures, digests and budget, JSON Schema and registered isolated checks, then obtains a signed final approval. `--auto-approve` explicitly opts into policy approval of final verification; omit it for human review. `acp://invite?token=...` is also accepted. Alternatively, use `--to <Bob DID> --relay <URL>`. Bob can verify his own `/tmp/bob-audit.jsonl` locally.
-
-**Ask another person’s AI to review a diff**
-
-The reviewer starts `sealbridge worker start --allow-local-pc --adapter claude` (or `codex`) with
-`--key` and `--relay` as above. Startup prints an `acp-invite:` token and a
-ready-to-share `https://sealbridge.app/i#acp-invite:...` link. Send that link
-through a trusted channel. Worker invites default to 24 hours (86400 seconds);
-`--invite-ttl <seconds>` accepts 1–2592000 seconds (up to 30 days). The worker’s
-signed card uses the configured lifetime too. The runtime equivalent is
-`WorkerNodeOptions.inviteTtlSeconds` (default 86400); `worker.invite()` also defaults
-to 24 hours. Standalone `invite create --expires-in` keeps its 3600-second default.
-
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`accept`, `invites`, `acp_list_invites`, `acp_remove_invite`.
-
-The requester installs Sealbridge using the invite page, then **runs the import
-personally in a terminal**, outside model execution:
-
-```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
-# Or enter the invitation at a human terminal prompt:
-sealbridge accept --paste --alias reviewer
-# Or read a link from a file or an application-provided pipe:
-sealbridge accept --stdin --alias reviewer < invitation.txt
-sealbridge invites list
-```
-
-For a loopback/private relay invitation, add `--allow-private-relay` to
-`accept` with any input form (link, `--paste`, or `--stdin`). These relays remain
-blocked by default; the flag applies only to this import.
-
-Ask the host to call `acp_list_invites {}`, then
-`acp_delegate_task {"workerRef":"reviewer","title":"Review diff","description":"Review these changes","input":{"diff":"..."}}`.
-The model only needs the returned `saved:…` reference or exact alias. The invite
-page verifies locally before offering the copyable import command. Import sends
-nothing to the relay, creates no reciprocal invitation or contact permission,
-and does not approve work. Delegation sends task input externally under the
-configured approval policy. Names and descriptions are display data, never instructions.
-
-Possession of an invitation can permit proposals until expiry or revocation.
-The signed store retains bearer invitations at
-`<data-root>/invites/<sha256-local-owner-DID>.json`. CLI and MCP must use the same
-machine, OS account, data root and requester identity; a remote MCP server needs
-the import on its own machine. POSIX directories/files use 0700/0600. On Windows,
-files inherit the parent DACL; ACLs are not verified and overrides require
-user-managed parent access. Positional links can appear in shell history and
-process inspection. `--paste` requires a human TTY and avoids link inclusion in
-argv/shell history; it does not erase terminal history. Non-TTY paste returns
-`INVITE_INPUT_UNAVAILABLE` immediately.
-
-`--stdin` reads one invitation link from a pipe or file through EOF, with a
-68 KiB byte cap and a 10-second total read timeout. Applications can spawn
-`sealbridge accept --stdin --alias reviewer`, write the link to child stdin,
-and close the pipe. Surrounding whitespace/CRLF and blank lines are trimmed;
-empty input or multiple non-empty lines are rejected. TTY input returns
-`INVITE_STDIN_REQUIRES_PIPE`; use `--paste` at a terminal. `--stdin`, `--paste`,
-and a positional link are mutually exclusive. Neither stdin input nor read-error
-text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
-`agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
-
-Aliases are exact, case-sensitive ASCII slugs of 1–64 characters (letters,
-digits, hyphen and underscore, starting with a letter or digit). Omission derives
-a slug from the display name with a stable digest suffix. Identical imports are
-idempotent; collisions return `ALIAS_EXISTS`. Expired entries remain listed and
-cannot delegate. Renew by explicitly removing and reimporting:
-`sealbridge invites remove reviewer`, or `acp_remove_invite {"workerRef":"reviewer"}`.
-Removal is local, idempotent, and does not revoke issuer authorization or alter
-worker admission. Mutations take an exclusive lock and atomically replace the
-signed store. `INVITE_STORE_BUSY` never removes an existing lock; after checking
-that no writer is alive, the user can explicitly remove the corresponding
-`<store-file>.lock` and retry the local mutation.
-
-Imported invitation tokens follow the shared key-store selection (option, environment,
-config, then file). File selection retains the existing signed JSON format and bytes.
-With keychain selection, new entries retain signed metadata, an `inviteSecret` reference,
-and a `tokenDigest`; the token is held in the same data-root-scoped keychain service,
-under account `invite:<entry id>`. Existing inline entries remain readable without
-migration. Stored references continue to resolve through keychain after selecting file;
-new imports then use inline file storage. Listing and MCP results omit tokens.
-Unavailable keychain access returns `KEY_STORE_UNAVAILABLE`; missing or differing
-strings return `INVITE_SECRET_MISSING` or `INVITE_SECRET_MISMATCH`, with no file fallback.
-Removal deletes and checks the referenced string before publishing metadata removal.
-`INVITE_SECRET_DELETE_FAILED` leaves the metadata in place: retry the same alias/reference
-with `remove`, `invites remove`, or `acp_remove_invite`. If publication fails after deletion,
-resolution reports `INVITE_SECRET_MISSING`; removal can still finish without the string.
-
-Move existing inline tokens explicitly, using the existing requester identity:
-
-```sh
-sealbridge invites migrate --to keychain --dry-run
-sealbridge invites migrate --to keychain
-# Select an existing requester file when needed:
-sealbridge invites migrate --to keychain --key /path/to/requester.private.json
-```
-
-Dry run reports the number of inline entries without writes. Apply writes and reads
-back every string before atomically publishing signed metadata without inline tokens.
-A failure leaves the original metadata file unchanged; strings written before a failure
-may remain and are reused on retry. Migration neither changes the selected backend nor
-moves the requester identity. Existing references, aliases and import times are retained.
-Embedders can inject synchronous `SecretStore.get/set/delete` via
-`InviteStoreOptions.secretStore` or MCP `identityOptions.secretStore`. Use
-`await InviteStore.open(owner, options)` to load the configured native backend;
-`new InviteStore(owner, options)` retains the synchronous file/injected-store API.
-An injected identity `KeyStore` alone retains inline token storage; pass `secretStore`
-separately to use external strings. Explicit identity file paths select only the signer;
-invitation storage still follows the shared selection.
-
-Embedders can opt into recoverable pending imports with
-`store.import(link, alias, { pendingConfirmation: true })`. `SavedInvite.importState`
-is then `unconfirmed`; `listUnconfirmed()` returns token-free metadata, and
-`removeUnconfirmed({ olderThan: timestamp })` returns `{ removed }` for marked imports
-strictly older than that timestamp. Use `retain(workerRef)` to save one before use;
-`resolve` returns `INVITE_CONFIRMATION_REQUIRED` until retention. Ordinary import
-(including a duplicate) retains the entry, and pending reimport never demotes an
-existing save. `connections confirm-invite` retains before attempting confirmation,
-including when that attempt is rejected or interrupted; its owner consent prompt
-remains separate. Existing entries without the marker are excluded from cleanup.
-These methods perform no network operations; see [invite lifecycle](docs/connections/invite-lifecycle.md)
-for retry behavior and the embedding contract.
-
-Direct CLI delegation remains available with the complete invitation:
-
-```sh
-git diff > code.diff
-sealbridge delegate --to "https://sealbridge.app/i#acp-invite:..." --title "Review my code diff" --description "Review this diff for bugs and suggest improvements. Return a JSON review." --input-file code.diff --out review.json
-```
-
-`--input-file <path>` parses a JSON object as task input; other text (including a
-diff) becomes `{ "diff": <complete file contents> }`. Invalid `.json` files and
-JSON primitives/arrays are rejected with an actionable error. Use exactly one of
-`--input-file` and the existing `--input '<json>'`. Files are read locally; HTTPS
-invite links are parsed locally and never fetched. Both `acp-invite:` and
-`acp://invite?token=...` remain supported. Links without a fragment token report
-that the sender must provide the complete link.
-
-Keep both terminals open. The reviewer’s approval shows the requester identity,
-title, input bytes/diff lines, time limit, and token/tool budgets. The requester’s
-final approval shows the review body. Answer `y` only after reviewing the displayed
-request or result. `--verbose` (default off) shows full approval JSON instead;
-summary mode signs the same target. Common CLI errors retain their machine codes
-and include a Japanese reason and next step.
-
-**Choose an adapter**
-
-| Adapter           | CLI / programmatic entry                              | Behavior                                                                              |
-| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Command           | `--adapter command --cmd 'your-command'`              | stdin JSON + `TASK_INPUT_FILE`, stdout JSON, fresh workspace, sanitized environment   |
-| Claude Code       | `--adapter claude`                                    | `claude -p --output-format json` with read-only `--tools Read,Glob,Grep`, shell/write/web tools denied, and `--permission-mode dontAsk` |
-| Codex CLI         | `--adapter codex`                                     | `codex exec --json --sandbox read-only`, JSONL agent output and token usage           |
-| OpenAI compatible | `--adapter openai --model <model> [--endpoint <URL>]` | Host-owned BYOK HTTP requests; exact provider token accounting                        |
-| MCP               | `McpClientAdapter` from `@acp/adapters`               | Official SDK client, stdio or in-memory transport; CapGuard + quota + approval proxy  |
-| Restricted JS     | `--adapter sandbox [--cmd 'return input;']`           | `subprocess_restricted` (no kernel network isolation), or `oci_container` when `isolationLevel` requires it |
-
-Claude/Codex binaries must already be installed. `worker start --adapter claude|codex` checks authentication before connecting: configure `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in the worker host environment. A logged-in CLI alone is insufficient because each task gets a fresh HOME; `~/.claude` and `~/.codex` are not exposed. Without a usable key, startup reports `AGENT_AUTH_REQUIRED` with the next step. Explicit `--cmd` overrides manage their own authentication and skip this preflight. Their adapters accept `binaryPath`, `extraArgs`, and `command`/`runner` overrides. When a provider key is configured in the host (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`), a task-scoped loopback broker injects it upstream; the CLI receives only a temporary local broker credential. Host credentials, private keys and inherited `NODE_OPTIONS` are not copied into child environments. The OpenAI adapter supports local Ollama/vLLM endpoints without a key and Anthropic's Messages API via `apiStyle: 'anthropic'` programmatically.
-
-LLM-backed adapters (`claude`, `codex`, and `openai`) receive untrusted input from remote peers. The `claude` and `codex` adapters default to read-only tool flags. Claude Code starts as `claude -p --output-format json --tools Read,Glob,Grep --disallowedTools Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch --permission-mode dontAsk`, which disables shell execution, file writes, and web tools. Codex starts as `codex exec --json --skip-git-repo-check --sandbox read-only`. `ClaudeCodeAdapter` (also exported as `ClaudeCodeCliAdapter`) accepts `tools`, `allowedTools`, `disallowedTools`, `permissionMode`, and `allowUnsafeTools`. `CodexCliAdapter` accepts `sandbox` (`read-only`, `workspace-write`, or `danger-full-access`). A matching flag in `extraArgs` (`--tools`, `--disallowedTools` or `--disallowed-tools`, `--permission-mode`, `--sandbox` or `-s`, including `--flag=value`) replaces that default so the process receives one value for the flag. `allowUnsafeTools: true` omits the Claude read-only defaults. An explicit `command` replaces the whole argument list. `resolveClaudeCodeCliCommand`, `resolveCodexCliCommand`, and `resolvedInvocation()` expose the base argv; Codex provider arguments are added for each task. Operators MUST run these adapters inside an OCI container (`--isolation oci`) or restrict tasks to trusted requester DIDs (`--allow-requester <did>`).
-
-The default Codex adapter requires **Codex CLI 0.163.0 or newer**. Version 0.163.0 is the verified version (`npm install -g @openai/codex@0.163.0`); newer versions run with one warning per task and have no upper version bound. Each run writes a custom `sealbridge-proxy` provider in a separate temporary `CODEX_HOME` and sends HTTP Responses requests through the local credential proxy. The provider uses a temporary token from `SEALBRIDGE_CODEX_PROXY_TOKEN`, with WebSockets and OpenAI login disabled. Before inference, the adapter verifies the CLI version, generated configuration and exact provider overrides select the task loopback proxy. It uses `--strict-config --ignore-user-config` and a generated environment without inherited provider or profile settings. After the process exits, at least one request with the per-run token must have reached a provider route on the task proxy; otherwise the run fails with `ADAPTER_PROXY_NOT_USED` and returns no deliverable. It disables web search, provider discovery, apps, plugins, analytics, feedback, telemetry export and update checks. Generated CLI overrides take precedence over project configuration. Proxied Codex `extraArgs` accepts only model (`--model` / `-m`), sandbox (`--sandbox` / `-s`), and color options; other configuration arguments produce `CODEX_PROXY_UNSUPPORTED_ARGUMENT`. Explicit `command` replacements manage their own CLI configuration and authentication.
-
-On Windows, command lookup uses `PATHEXT` and prefers native executables within each PATH directory. Recognized npm `.cmd` shims run their JavaScript entry with Node, preserving spaces and quotes in arguments. Other `.cmd` / `.bat` files run through `cmd.exe /d /s /v:off /c`; their arguments cannot contain double quotes, percent signs, exclamation marks, carets, NULs or newlines. Native executables and JavaScript entries accept quoted arguments through normal argv handling. Command environments include the executable and Node directories, Windows system directories, and task-local profile and temporary paths. Owner-configured string `--cmd` commands use `cmd.exe` on Windows and `/bin/sh -c` on POSIX; additional arguments are appended on Windows and are positional shell arguments on POSIX.
-
-`conformance/codex-proxy-real.test.ts` runs the installed real CLI against local HTTP endpoints and checks the Responses request, temporary proxy token, SSE completion and HTTP proxy routing. It discovers `codex` on PATH or uses `SEALBRIDGE_CODEX_BIN`; without a CLI it reports an explicit skip. Run it with `SEALBRIDGE_CODEX_BIN=codex pnpm exec vitest run conformance/codex-proxy-real.test.ts` (PowerShell: set `$env:SEALBRIDGE_CODEX_BIN = 'codex'` first). CI installs the pinned CLI and runs this test on Linux, macOS and Windows. Configuration stub tests require no CLI installation.
-
-Command and CLI adapters run owner-configured executables with fresh working folders; this is process hygiene, not OS-level filesystem or network confinement. `subprocess_restricted` (the sandbox adapter's default) is a separate OS process with a sanitized environment, a scratch directory, a timeout and SIGKILL, and an output byte cap. When the Node binary supports it, the child receives `--permission` (Node.js >= 22.13 and Node.js 23+) or `--experimental-permission` (earlier Node.js 20 and 22), plus `--allow-fs-read` and `--allow-fs-write` for that directory only. Those flags restrict filesystem, child-process, worker, and native-addon access. They do not block `fetch`, `node:net`, `node:http`, `node:https`, `node:dns`, or `node:dgram`. Task code runs in `node:vm`, which Node.js documents is not a security mechanism. Untrusted third-party code requires `oci_container` (`isolationLevel: 'oci_container'`). OCI uses an already-present `node:22-bookworm-slim` image, prefers Podman, and passes `--network none`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, and memory/PID limits. An unavailable runtime falls back to `subprocess_restricted` and records `ExecutionAttestation.effectiveIsolationLevel`. A container execution failure is surfaced rather than rerun. When execution attestation is required, verification rejects that downgrade unless the signed manifest sets `sandboxPolicy.allowSubprocessFallback: true`. `kernel network` isolation is the OCI path, not the Node permission model.
-
-Session payloads use ephemeral X25519, HKDF-SHA256, and AES-256-GCM, with the header bound into the ciphertext. Use HTTPS for transit. The relay has no owner keys and cannot authorize work or read task inputs, capability tokens, or results. It can still observe routing metadata or deny delivery. See [security details](docs/security-model.md) and the [adversarial security test suite](SECURITY_PROOF.md).
-
-## Docker runtime identity
-
-The Docker image runs as the non-root `node` user (UID 1000). On first startup,
-it generates an owner identity with mode `0600` at `/data/owner.private.json`
-and reuses it on subsequent starts. Mount a named volume at `/data` and reuse
-that volume when replacing containers, for example:
-
-```sh
-docker run --rm -i -v sealbridge-data:/data sealbridge
-```
-
-`/data` is declared as a volume. Set `SEALBRIDGE_KEY_PATH` to use an existing
-readable key or another absolute path in a persistent mounted directory. A new
-key requires an existing directory writable by UID 1000; startup fails with
-mount and permission guidance if the key cannot be read or created.
-Set `SEALBRIDGE_RELAY_URL` to override the relay. When unset or empty, Docker
-uses the CLI relay selection, whose public fallback is `https://relay.sealbridge.dev`.
-Smithery's optional `relayUrl` field follows the same behavior when omitted.
-Additional MCP flags can follow `mcp-server` after the image name.
-
-Operators who built an earlier image revision with a build-time owner identity
-should rotate to a newly generated runtime identity and update the corresponding
-DIDs, allowlists, and invitations.
-
-## MCP, live progress, revocation, and quorum
-
-```sh
-pnpm sealbridge mcp-server
-```
-
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`acp_list_invites`, `acp_remove_invite`, `acp_list_pending_requests`, `acp_resubmit_pending_request`.
-
-`sealbridge mcp-server` is a dependency-free JSON-RPC 2.0 MCP server on stdio. It accepts newline-delimited JSON and `Content-Length` frames. Hosts such as Claude Code, Cursor, Codex, and Grok Bot can call:
-
-| Tool                       | Result                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------- |
-| `acp_list_invites`          | Local saved references, aliases, public metadata and expiry status                              |
-| `acp_remove_invite`         | Local removal result; does not revoke the issuer invitation                                     |
-| `acp_delegate_task`        | Verified deliverable, `taskId`, status, and audit summary                                      |
-| `acp_delegate_multi`       | `race` or `quorum` delegation across workers                                                    |
-| `acp_verify_audit_bundle`  | Cryptographic verification report, including whether a trust anchor checked truncation          |
-| `acp_create_invite`        | Signed `acp-invite` token                                                                       |
-| `acp_revoke_token`         | Signed `RevocationNotice` stored in this process                                                |
-| `acp_discover_workers`     | Current published open worker cards by default                                                      |
-| `acp_inspect_revocations`  | Revocation notices recorded in this server process                                              |
-| `acp_message_status` | Current sender-local delivery status; no transmission, refresh or polling |
-| `acp_list_pending_requests` | Local held-request observations without task content or invitation material                    |
-| `acp_resubmit_pending_request` | Explicit fresh delegation after worker owner review, with current checks                    |
-
-`initialize` returns server `instructions` that name this workflow. `AcpMcpServer` in `@acp/runtime` is the same server for tests and embedded hosts. The server key signs requester approvals for the tools it runs. `acp_discover_workers` is a read-only directory fetch: it uses the same relay allowlist and `validateRelayEndpointUrl` before `GET /agents`, and it does not send task input. `acp_inspect_revocations` reads the in-memory registry and does not contact a worker.
-
-With an unflagged `sealbridge mcp-server`, call `acp_discover_workers {}` to list published workers on `https://relay.sealbridge.dev`. Select a result and pass its `workerDid` and `relayUrl` unchanged:
-
-```json
-{
-  "workerDid": "<workerDid from discovery>",
-  "relayUrl": "<relayUrl from discovery>",
-  "title": "Echo JSON",
-  "description": "Return the supplied JSON",
-  "input": { "hello": "world" }
-}
-```
-
-Call `acp_delegate_task` with those arguments. An omitted single-worker description defaults to the title. No worker allowlist is required by default; an explicitly configured allowlist still restricts delegation.
-
-MCP discovery lists every current verified published card. Filter by `skillId` or `taskType`; the removed `accessMode` argument returns JSON-RPC -32602. Results preserve the complete signed card, accepted `protocolVersions`, skills, routing and `acceptance: "worker_decides"`, without operational mode fields. An empty result has `count: 0, workers: []` and the queried `relayUrl`.
-
-Publication is controlled by `--publish` and conveys no admission consent. Unconnected requests are held with `PENDING_OWNER_APPROVAL` and `retryable:false`; do not retry automatically or switch workers on refusal. See [owner workflows](docs/connections/admission.md).
-
-`acp_delegate_task` and `acp_delegate_multi` transmit task input to the target worker over the relay. Restrict that path when the host might supply the arguments:
-
-```sh
-pnpm sealbridge mcp-server \
-  --key /tmp/alice.private.json \
-  --relay https://relay.sealbridge.dev \
-  --allow-relay https://relay.sealbridge.dev \
-  --allow-worker did:key:z... \
-  --approval-webhook https://approvals.example/acp
-```
-
-`--allow-worker <did>` and `--allow-relay <url>` are repeatable and comma-separated. With `--allow-worker`, a plain worker DID must be listed. An invite is allowed when either its `agentDid` or its `ownerDid` is listed. Any other target fails with `MCP_WORKER_NOT_ALLOWED` before the server dials. With `--allow-relay`, every relay URL is normalized to origin plus pathname with no trailing slash. The configured `--relay`, a tool `relayUrl`, and any relay URL embedded in an invite must all match, or the call fails with `MCP_RELAY_NOT_ALLOWED`. A tool call or invite that selects a relay other than `--relay` is rejected unless that URL is allowlisted. Programmatic hosts can set `allowAnyRelay: true` to accept another relay when no allowlist is configured. An allowlist still applies when it is set. Configured relay URLs are checked with `validateRelayEndpointUrl`.
-
-`--require-approval` (programmatically, `requireInteractiveApproval: true`) requests MCP form elicitation before task transmission and again for final verification. The host must advertise form support and negotiate protocol `2025-06-18`; empty legacy `elicitation: {}` capabilities also indicate form support, while URL-only capabilities do not. Only an accepted form with boolean `approved: true` approves. Each form expires after at most 60 seconds or the remaining task deadline. Multi-worker calls review each recipient separately and disclose the total recipient count. Reviews include the resolved task and input, or the deliverable and its signed metadata; oversized reviews fail with `APPROVAL_REVIEW_TOO_LARGE`.
-
-A host without form support receives `APPROVAL_CHANNEL_UNAVAILABLE` before any task transmission. Use a host that supports elicitation, or configure `--approval-webhook`. Approval never writes terminal prompts to stdout or reads MCP stdin, even when it is a TTY. Ordinary CLI worker/delegate terminal approval is unchanged. Host elicitation relies on the host to display the form and return the user's decision.
-
-Without `--require-approval` or explicit webhook/provider configuration, the existing policy-auto behavior is unchanged. `--approval-webhook <url>` retains owner-decision mode: it POSTs `{ taskId, summaryHash, reason, approverDid }` and continues only for HTTP 2xx with `{ approved: true }`. Denial or non-2xx returns `APPROVAL_REJECTED`. Pass `approvalProvider` on `AcpMcpServer` for an explicit custom provider. Allowlist checks precede delegation, and configured outbound approval reviews the frozen resolved manifest, destination and input before transmission. Final-verification failures can occur after transmission; they do not imply that no task was sent. Offline coverage is in `conformance/mcp-host-approval.test.ts`, `conformance/mcp-approval-session.test.ts`, and `conformance/p1-7-mcp-outbound-policy.test.ts`.
-
-A worker reports `PROGRESS` (`percent`, `step`, `message`, and intermediate token or tool metrics) through the same encrypted, countersigned session log. `delegate(request, { onProgress })` receives each decrypted update before `DELIVER`. Reported metrics are charged against `QuotaMeter`.
-
-`RevocationRegistry` checks Ed25519 `RevocationNotice`s (RFC 8785 JCS). The worker rejects a revoked invite before `ACCEPT`. `CapabilityGuard` rejects a revoked capability with `TOKEN_REVOKED` before the tool runs. A notice signed by anyone other than `issuerDid` is invalid.
-
-Invite targets supplied as raw base64url tokens, `acp-invite:` tokens, or `acp://invite?token=` URIs use the verified payload's stable `inviteRevocationId` for lookup, including expired invites. The notice issuer must match the invite owner. Equivalent JSON serializations share that identifier. Signed notices retain their original payloads when exported; imports rebuild the lookup keys. Opaque identifiers and invite targets that cannot be verified retain exact-string lookup for compatibility.
-
-An offline worker still learns about revocation. `deliverRevocation` and `RequesterClient.sendRevocation` queue an encrypted `REVOKE` envelope, carrying a `SignedRevocationNotice`, on that worker's relay inbox. `WorkerNode` ingests every leading `REVOKE` in `runOnce()`, `start()` (including `start({ once: true })`), and `pumpUntil()` before it reads the next `PROPOSE`. An invite notice is recorded only when the sender is the worker owner. A capability notice is recorded only when `issuerDid` issued that token or delegated it. A forged or third-party `REVOKE` is ignored and is not stored. Before `ACCEPT`, every capability id in `capabilityChains` is checked with `assertNotRevoked`, so a revoked capability is `TOKEN_REVOKED` and the task is not accepted. `conformance/offline-revocation-inbox.test.ts` covers the offline queue and the spoofed notice.
-
-`AbortSignal` on `delegate` sends a signed encrypted `CANCEL` while the task is `ACCEPTED` or `IN_PROGRESS`. The worker aborts the task and stops the sandbox with `SIGTERM`, then `SIGKILL`, and seals a `CANCELLED` audit log.
-
-`delegateMulti({ mode: 'race' })` selects the first deliverable that passes verification and completes its bilateral checkpoint. `mode: 'quorum'` selects an output when `quorumSize` workers (default `floor(n/2)+1`) complete checkpoints with the same JCS SHA-256 output digest. Both modes cancel sessions still executing and let already delivered sessions finish verification and checkpointing. `completionTimeoutMs` (default `45000`, a positive integer in milliseconds up to `2147483647`) bounds this completion grace after selection or when quorum becomes unreachable; existing task and wait deadlines still apply.
-
-`receipts` retains every completed, verified audit bundle, including minority outputs. If a locally verified delivery cannot finish its checkpoint, `incompleteReceipts` preserves its signed delivery envelope, verification result, collected audit entries, and `completionError`, with `checkpointComplete: false` and no `bundle`. These incomplete receipts do not count as votes or appear in `winners`; checkpoint timeouts are not listed as execution cancellations. If agreement is impossible, the call rejects with `QUORUM_NOT_REACHED` and exposes both receipt arrays (`RACE_FAILED` does the same). A single `delegate` failure after local verification throws `IncompleteSettlementError`, carrying the evidence as `error.incompleteReceipt` and the original failure as `error.cause`.
-
-Worker workspace removal uses five retries with a 50 ms linear backoff for transient filesystem errors. Residual files are reported through `WorkerNodeOptions.onWorkspaceCleanupError({ taskId, workspaceDir, code })`, or a console warning by default. Cleanup and reporting failures preserve the completed protocol result or original execution error.
-
-HTTP receives, SSE streams and WebSocket receives/subscriptions require a fresh recipient-signed `RelayAuth` token bound to that relay's origin. `WorkerNode`, `RequesterClient` and the CLI sign automatically and embed the origin. For direct transport use, pass the recipient key as `new HttpRelayClient(url, key)`, `new SseRelayClient(url, fetch, key)` or `new WebSocketRelayClient(wsUrl, key)`. Those clients set `origin` with `normalizeRelayOrigin` (`ws:` becomes `http:`, `wss:` becomes `https:`), so HTTP, SSE, and WebSocket on the same host and port share one canonical origin. HTTP/SSE also accept an async token generator `(recipientDid, action, origin) => ...` as their third argument; WebSocket accepts it as its second argument. Pass that `origin` through to `createRelayAuthToken`. Raw HTTP callers send `createRelayAuthToken(key, { action, origin })` through `Authorization: Bearer <token>` or `x-acp-relay-auth`. The `auth` query parameter is rejected with `RELAY_QUERY_AUTH_DISABLED` unless the relay is created with `allowQueryAuth: true`, because query credentials leak into access logs, proxy logs, and Referer headers. Use `receive`, `stream` or `subscribe` to match the operation. Tokens expire after five minutes of clock skew and each nonce can be used once while retained in the bounded replay cache. A token for a different origin is rejected with `RELAY_AUTH_ORIGIN_MISMATCH`. A network token that omits `origin` is rejected with `RELAY_AUTH_ORIGIN_REQUIRED` unless the relay sets `allowUnboundRelayAuth: true`. Direct `InMemoryRelay.receive(did)` remains available by default; construct with `{ requireAuth: true }` to require a token there too. That in-memory path does not check origin unless the caller passes one. HTTP and WebSocket error bodies return an allowlisted protocol code. An unexpected runtime, storage, or parser failure is `RELAY_INTERNAL_ERROR` (HTTP 500) and does not include the exception text. Malformed JSON and an invalid URL are HTTP 400 `INVALID_REQUEST`.
-
-Invite endpoints block private, loopback, link-local, metadata, and unspecified addresses unless the caller passes `allowPrivateRelay: true`. `parseAndVerifyInviteToken` and `RequesterClient` default to that block. `169.254.169.254`, `0.0.0.0/8`, and other metadata or unspecified ranges stay blocked even when private relays are allowed. Pass `--allow-private-relay` on `worker`, `delegate`, `discover`, `accept`, and `mcp-server` only for a loopback relay you started yourself. For direct connections, Node clients resolve the hostname and pin the socket to those addresses before connecting. Public relays reached through an HTTP proxy do not require `--allow-private-relay` (including Muse synthetic DNS environments).
-
-A fully automated **separate-process command-adapter demo** is also available:
-
-```sh
-node examples/network-collab/run.mjs
-```
-
-## Manifest protocol versions
-
-Library APIs validate manifest protocols 0.1.0 and 0.2.0 and provide explicit compatibility policy.
-Live sending selects the newest common version, preferring 0.2.0. The configured release clock is described in [protocol versions](docs/connections/protocol-versions.md).
-See [protocol versions](docs/connections/protocol-versions.md) for schemas, policy and peer observations.
-
-## Five design principles
-
-1. **Zero shared credentials.** The requester never hands the worker an API key or raw credential. Needed authority is a time-, count-, scope-, and depth-limited `CapabilityToken` (UCAN/Biscuit style). The requester Gateway verifies it by proxy.
-2. **Contract-first execution.** Input/output JSON Schema, acceptance criteria, verification method, deadline, and token budget live in a `TaskManifest`. Execution does not start without both signatures (`TaskContract`).
-3. **Explicit HITL gates.** External send, contract acceptance, budget overrun, redelegation, and final acceptance each have a policy-driven approval gate. The owner's signed `ApprovalReceipt` is appended to the audit log.
-4. **BYOK and signed usage receipts.** LLM cost is borne by the executing side (BYOK) inside the contracted quota. The worker runtime meters usage and signs a `UsageReceipt`. Payment stays out of the core and can be plugged in later.
-5. **Untrusted input and a bilateral audit.** Data from another owner is `untrusted` and runs in a sandbox. Every state transition is an append-only hash chain signed with Ed25519, and both sides keep a copy.
-
-### Connection state persistence
-
-`@acp/runtime` provides owner-local connection lifecycle and persistence APIs.
-Connected state projects to limited without expiry and is used by live admission.
-Connection metadata includes optional `peerDisplayName`, retained from a verified invite or
-agent card. `listConnections()`, `connections list`, `connectionStatus()`,
-`connections status`, the MCP connection lists and prior-approved metadata return it when known, even after invite removal. Names are
-informational data only; DIDs remain authoritative for identity and consent. Equal
-names can belong to different owner DIDs. Older records and peers without a known
-card may omit the field; reading does not rewrite them. No wire change is required.
-
-See [connection state persistence](docs/connections/connection-state.md) for API and store compatibility details.
+Agent playbooks are in [AGENTS.md](AGENTS.md) and [SKILL.md](SKILL.md).
 
 ## Documents
 
-| File                                                                                   | Contents                                                                                                      |
-| :------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------ |
-| [`SECURITY_PROOF.md`](./SECURITY_PROOF.md)                                             | Adversarial security test suite (not a formal proof) and `pnpm test:security-proof`                           |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)                                                 | System shape, trust boundaries, task state machine, five safety mechanisms, protocol comparison, threat model |
-| [`REPO_STRUCTURE.md`](./REPO_STRUCTURE.md)                                             | Monorepo layout, stack choices, MVP scope, milestones M0–M3, task split                                       |
-| [`spec/README.md`](./spec/README.md)                                                   | Protocol overview, message envelope, canonicalization and signatures                                          |
-| [`spec/task-manifest.schema.json`](./spec/task-manifest.schema.json)                   | `TaskManifest` JSON Schema (Draft 2020-12)                                                                    |
-| [`spec/examples/sample-task-manifest.json`](./spec/examples/sample-task-manifest.json) | Schema-valid sample `TaskManifest`                                                                            |
-| [`OSS_FORK_ANALYSIS.md`](./OSS_FORK_ANALYSIS.md)                                       | Survey of A2A, Sealbridge, ANP, AGNTCY, DelegateOS, Cotal, Busbar, and scratch vs fork vs overlay                    |
-| [`AGENTS.md`](AGENTS.md)                                                               | Autonomous Worker/Requester playbook                                                                          |
-| [`SKILL.md`](SKILL.md)                                                                 | Portable agent skill                                                                                          |
+| Document | Contents |
+| :--- | :--- |
+| [Automatic acceptance](docs/auto-accept.md) | Read-only vs write, audience, daily and monthly caps |
+| [Relay reliability](docs/relay-reliability.md) | Retries, deadlines, proxies, relay operations |
+| [Connection exchange](docs/connections/connection-exchange.md) | Connection offers and status |
+| [Audit interruption](docs/audit-interruption.md) | Audit records when a task is interrupted |
+| [SDK](docs/sdk.md) | Embedding API |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System shape and trust boundaries |
+| [spec/README.md](spec/README.md) | Protocol |
+| [SECURITY_PROOF.md](SECURITY_PROOF.md) | Adversarial test suite |
 
-### Connection exchange library
+All CLI subcommands are listed in `sealbridge --help`, and each command has `--help`.
 
-The library exports signed request, acceptance and ACK helpers plus an injected `ConnectionService`.
-Runtime, CLI, MCP and board now attach this exchange through owner-local persistence and held-content review.
-Connection offer timestamps and their default 14-day expiry use one clock snapshot. Worker and CLI-issued card lifetimes also use one snapshot, including the 30-day maximum.
-See [connection exchange](docs/connections/connection-exchange.md) for the control profile and integration requirements.
-
-Embedders can explicitly use `ConnectionAdmissionReview` to list held inbound
-connection metadata and call `approve(id)` (limited consent) or `reject(id)` after
-an owner action. The opt-in CLI is `connections review list|approve ID|reject ID`;
-decisions still require human confirmation. Built-in inspection covers connection
-metadata only. Connection review never opens a task. Interactive CLI workers
-provide task display inspection separately. See [admission review](docs/connections/admission.md#owner-admission-review).
-
-A plain task creates only a pending task-derived item in connection metadata,
-not a reviewable signed connection offer. If `connections review approve` returns
-`CONNECTION_NOT_PENDING`, run `connections review list` with the same role/key and
-use a listed ID. If the list is empty, exchange a signed offer through the
-invitation/connect flow: import an invite with `accept --paste --alias reviewer`,
-then have the owner run `connections confirm-invite reviewer --role requester`.
-Receive the exchange with the worker listener or `connections sync --once --role worker`, then
-check `connections review list --role worker` on the receiving side.
-Connection review only covers connection metadata; it does not inspect or open
-tasks. After connection consent, explicitly submit a fresh task to the interactive
-CLI worker for content display and live owner approval. Do not retry the held
-task automatically. Unaccepted signed offers remain in the review queue even
-when an invitation has already connected the peer.
-
-
-## Local M0–M1 implementation
-
-Node.js 22 LTS and pnpm 10 are required. WP-1 through WP-6 are implemented as `@acp/core`, `@acp/ledger`, `@acp/sandbox`, `@acp/runtime`, `@acp/relay`, `@acp/cli` and `@acp/two-owner-demo`.
-
-```sh
-pnpm install
-pnpm build
-pnpm validate:schemas
-pnpm test
-pnpm test:security-proof
-pnpm --filter @acp/two-owner-demo start
-pnpm sealbridge demo --audit-dir /tmp/acp-demo-audit
-pnpm sealbridge audit-verify /tmp/acp-demo-audit/alice.jsonl
-```
-
-All four demo scenarios assert their expected outcomes and return a nonzero exit code on failure. The demo is offline, uses ephemeral keys and synthetic provider usage, and never needs API credentials. The original sample manifest remains a schema fixture; its illustrative signature is not a real cryptographic signature.
-
-CLI examples (use a fresh output path; key generation never overwrites a key):
-
-```sh
-pnpm sealbridge keygen /tmp/alice.private.json
-pnpm sealbridge validate spec/examples/sample-task-manifest.json
-pnpm sealbridge validate capability-token spec/examples/sample-capability-token.json
-pnpm sealbridge approve /tmp/alice.private.json contract_acceptance task_example001 /tmp/target.json /tmp/approval.json
-pnpm sealbridge validate approval-receipt /tmp/approval.json
-pnpm sealbridge audit-verify /tmp/acp-demo-audit/alice.jsonl /tmp/trust-anchor.json
-```
-
-The approval target file contains the exact JSON action being approved. A positional trust-anchor file has `{ "taskId": "...", "actors": ["did:key:...", "did:key:..."], "head": "sha256:..." }`; obtain `head` independently of the bundle under verification. `sealbridge audit-verify` also accepts `--expect-final-state <state>`, `--expect-last-hash <hash>`, and `--expect-entry-count <n>`. With none of those constraints and no trust-anchor file, a chain that still verifies prints `"status":"VALID"` and `"statusLabel":"VALID (no trust anchor: truncation not checked)"` (`trustAnchorVerified` and `truncationChecked` are false). That label means an older valid prefix was not ruled out. When a supplied constraint matches, `statusLabel` is `VALID` and both flags are true. A prefix that does not match the anchor exits nonzero with `"statusLabel":"INVALID"`.
-
-```sh
-pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
-  --expect-final-state SETTLED \
-  --expect-last-hash sha256:<hex> \
-  --expect-entry-count <n>
-```
-
-The built CLI is also available as `node cli/dist/index.js <command>` and its workspace binary is `acp`.
-
-Read the [demo walkthrough](examples/two-owner-demo/README.md), [wire rules](spec/README.md), [conformance suite](conformance/README.md), [security model](docs/security-model.md), and the [adversarial security test suite](SECURITY_PROOF.md). The current implementation uses signed relay envelopes with end-to-end payload encryption required by default, the restricted JavaScript subprocess driver, and optional hardened OCI execution. The root code is Apache-2.0; adapted DelegateOS portions retain MIT attribution in [NOTICE](NOTICE).
-
-## Embedding SDK
-
-Use the typed ESM entry point `sealbridge/sdk` for supported embedding APIs, including
-saved invitations, identity/secret stores, connection review and MCP hosting.
-Available from 0.3.0; not supported in CLI 0.2.2 and earlier. Existing CLI and deep paths remain usable.
-See the [SDK surface and compatibility contract](docs/sdk.md).
-
-## Held-content library
-
-`@acp/runtime` provides encrypted request storage and an injected inspection provider.
-Content display requires a completed inspection receipt; the default provider leaves content held.
-See the [held-content library contract](docs/connections/held-content.md) for APIs and host responsibilities.
-
-## Author & Community
+## Author and links
 
 - **Author**: [@takapon01234](https://x.com/takapon01234) on X (Twitter)
 - **Repository**: [sealbridge/sealbridge](https://github.com/sealbridge/sealbridge)
-- **Public Blind Relay**: `https://relay.sealbridge.dev`
+- **Site**: https://sealbridge.dev
+- **Invite page**: `https://sealbridge.app/i#<invite>`
+- **Public Blind Relay**: `https://relay.sealbridge.dev` (the legacy `https://acp-relay.agent-collab.workers.dev` URL reaches the same relay)
 
-### Connections admission
-
-[日本語](docs/connections/admission.ja.md)
-
-Release note: The following are available from sealbridge npm package 0.3.0;
-they are not supported in CLI 0.2.2 and earlier:
-`requests`, `accept`, `connections`, `pending`, `worker start --allow-task-type`,
-`acp_list_connections`, `acp_list_connection_requests`.
-
-Workers use four owner-local states: `none`, `pending`, `connected`, and `blocked`.
-Connected means limited consent with no expiry. Work matching the owner's
-[automatic acceptance rule](docs/auto-accept.md) runs without per-task human opening.
-The default accepts only read-only work from connected peers. Other work requires
-completed inspection and a separate human opening. The library default inspection
-provider reports `unavailable`; interactive CLI workers supply display inspection.
-
-The standalone CLI displays validated task manifest, input and capabilities as
-literal JSON, escaping terminal controls. `tasks list` lists individual held IDs
-and task IDs while `requests list` retains intake coalesced per peer. Use
-`tasks show ID` to inspect one attempt; successful display records an inspection
-receipt in the existing held record. It grants no task or connection approval.
-`tasks approve ID` / `tasks reject ID` require interactive TTY owner confirmation
-and close only that terminal held attempt locally. They neither execute nor send
-a reply to its ended session, and store no approval for a later task. Explicitly
-submit a fresh task (or `pending resubmit ID`) to the running interactive worker;
-inspect its content and approve or reject it at the live owner prompt. Every
-fresh submission is checked against the current rule. Outside the rule, work needs
-inspection and a human decision; `--auto-accept` cannot expand the configured rule.
-Connection consent stays on `connections`; legacy `requests approve` retains its
-connection-consent meaning and requires completed inspection. It never approves
-task execution. `requests approve --trust trusted` remains a separate legacy grant.
-
-Unless explicitly admitted by the owner's automatic rule, valid requests from unconnected peers are held as encrypted envelopes until the
-earliest of 24 hours, the task deadline, and a grant expiry the worker already
-read. They return terminal `PENDING_OWNER_APPROVAL`,
-`retryable:false`, CLI exit 3. Do not retry automatically. Schema, signature,
-capability, declared budget, advertised skill and operator perimeter checks precede
-holding or invite redemption. New intake metadata has no title or description
-preview. `requests show` returns `INSPECTION_INCOMPLETE` until inspection completes.
-Plaintext inbox files and receive hooks run only after inspection and opening.
-
-```sh
-sealbridge worker start --allow-local-pc --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
-sealbridge discover --skill json-task
-sealbridge requests list
-# Individual held attempts (same role/key as the receiving worker):
-sealbridge tasks list
-sealbridge tasks show HELD_ID
-sealbridge tasks approve HELD_ID
-# Or: sealbridge tasks reject HELD_ID
-# Then explicitly resubmit; approve the fresh task in the live worker TTY.
-sealbridge requests discard REQUEST_ID
-sealbridge requests deny REQUEST_ID
-```
-
-Publication only adds the signed card to the directory. Unpublished workers use the
-same admission rules. `--allow-requester` constrains peers; it grants no trust.
-General budgets use `--max-input-tokens`, `--max-output-tokens`,
-`--max-tool-invocations`, `--max-wall-clock-seconds`; rate uses
-`--max-requests-per-minute`. Settings `public` controls publication only and
-`alwaysAsk:false` returns `CONNECTION_OPENING_REQUIRED`.
-
-An invitation records inviter consent and binds to the first authenticated owner DID
-that uses it. A different owner using the same valid token is held. Binding is
-retained through token expiry after disconnect. Expired, mismatched or revoked
-tokens remain errors before mutation. Established connections survive invitation
-expiry/revocation; use verified peer DID routing without the retired token for
-subsequent tasks. A saved `workerRef` still selects its saved invitation and checks
-that invitation on every use. Importing or previewing never connects either role.
-
-```sh
-sealbridge accept --paste --alias reviewer
-sealbridge connections confirm-invite reviewer --role requester
-sealbridge connections request --to PEER_DID --relay https://relay.sealbridge.dev --role worker
-sealbridge connections list --role worker
-sealbridge connections approve REQUEST_ID --role worker
-sealbridge connections reject REQUEST_ID
-sealbridge connections withdraw REQUEST_ID
-sealbridge connections disconnect PEER_DID
-sealbridge connections block PEER_DID
-sealbridge connections unblock PEER_DID
-sealbridge connections prior-approved
-sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
-sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
-sealbridge connections status reviewer --role requester
-```
-
-After confirmation, run `sync --once` and query `connections status reviewer`
-(or a saved workerRef / peer owner DID). Status defaults to the requester role and
-reads local records without sending or creating an identity. `pending_peer` means
-no peer acceptance has been applied locally; `connected` reports the local limited
-connection, with `acknowledgementPending` when retained exchange evidence exists.
-`WorkerTrustStore.connectionStatus(peerOwnerDid)` provides the same projection.
-Other statuses are `none`, `pending_owner`, `inactive`, `expired`, and `blocked`.
-Remote rejection is not reported by this protocol. Expired offer details remain
-queryable only until existing store pruning; established connections survive expiry.
-See [connection status semantics](docs/connections/connection-exchange.md#querying-connection-status).
-
-All decisions require a human TTY or an injected human review provider. There is no
-`--yes` connection decision. Confirm the exact local role/DID and peer owner DID;
-requester and worker default identities are separate. An outgoing offer persists
-sender consent before transmission and expires after 14 days. Reject starts a
-seven-day offer cooldown; tasks can still be held. Discard removes content only;
-`requests deny` retains its block meaning. Block is one-sided and silent. Disconnect
-and block affect subsequent admission; accepted work continues unless cancelled.
-Mutual requests derive one connection ID from the two DIDs in ascending order.
-Control acceptance and ACK state commit before relay acknowledgement. Sync never
-resubmits tasks. Held content expires independently of outgoing consent.
-
-Task approval and connection consent are separate decisions. An interactive CLI or
-MCP form may ask sequentially; without explicit connection consent no request is
-attached. A held task without sender connection consent can initiate an outgoing
-offer when reviewed; local approval cannot infer the remote owner's consent.
-After connection review the requester owner explicitly starts a fresh task (or
-`pending resubmit` with fresh audit/output paths), with new inspection and opening.
-
-Legacy signed intake and invite files remain readable. Reads/listing do not rewrite
-or migrate bytes. Finite grants from earlier releases do not skip holding or become
-connections. Retained approval evidence appears under `prior-approved` and needs a
-new owner action and remote consent. Historical denials remain blocks. Explicit CLI
-contacts stay independent. `requests approve ID --trust trusted` is a separate
-legacy 24-hour grant command; connection commands never create trusted authority.
-Back up v1 intake before the first mutation if rollback is needed; old binaries do
-not read v2. Do not run old and new writers concurrently. Connection and protocol
-stores retain the 1,000-record / 1 MiB bounds and do not evict established records.
-
-Retired CLI `--open`, `--access-mode`, `--open-*`, `--allow-any-requester` and JS
-`accessMode`, `openPolicy`, `allowAnyRequester` options return `ACCESS_MODE_REMOVED`
-with migration guidance. Use host budget/type/rate flags above. MCP discovery's
-removed `accessMode` argument returns JSON-RPC -32602. Discovery returns all current
-verified published cards, including legacy cards, without operational mode fields;
-original signed cards remain intact. `acp_list_connections {}` and
-`acp_list_connection_requests {}` read local metadata for the server signer without
-creating an identity. Owner decisions stay in the human CLI.
-
-Board claims and dispatch require the selected poster identity's current local
-connection (`CONNECTION_REQUIRED` otherwise). A connection does not approve a task
-or lease. Dispatch checks connection and protocol before lease consumption, then
-consumes before transmission. A committed task envelope retries with the same
-signed bytes and ID until admission or its original deadline, consuming no second lease.
-One-time task tickets and a separate application queue are deferred.
-
-The release clock is documented in [protocol versions](docs/connections/protocol-versions.md).
-
-## Official sites and relay URL
-
-The official site targets https://sealbridge.dev and the invite receiver targets `https://sealbridge.app/i#<invite>`. See [site operations](docs/sites.md) for source, build and deployment instructions. Adding these files does not deploy either site.
-
-Use `https://relay.sealbridge.dev` as the recommended relay. The legacy `https://acp-relay.agent-collab.workers.dev` continues to work against the same relay. Existing signed invitations remain usable; do not edit their relay field. Update MCP relay allowlists when switching hosts.
-
-## Persistent pending sends
-
-CLI worker/delegate, board and MCP hosts persist approved task envelopes under
-`<data-root>/delivery/<sha256-local-signer-DID>/`. An event and its audit entry
-are committed together before either is sent. Transient send failures retry the
-same signed ciphertext and envelope ID after 1 minute, 5 minutes, 15 minutes,
-then 1 hour repeatedly, stopping at relay admission or the original task deadline.
-A validated relay retry hint can delay an attempt further. Relay admission means
-queue acceptance; it does not mean owner opening, agent execution or settlement.
-`PENDING_OWNER_APPROVAL` remains terminal and requires explicit fresh resubmission.
-
-Pending sends resume when the gateway next starts with the same signer and data
-root. A stopped gateway performs no retries. Transport recovery does not restore
-an arbitrary bilateral session or rerun an adapter. The default worker task journal
-and recipient receipts prevent a repeated proposal from rerunning recorded work;
-explicit inbox/audit journal paths retain precedence. Heartbeats and the separate
-connection-consent outbox retain their existing behavior. Concurrent delegations keep
-their own task and relay bindings while sharing the signer’s delivery store.
-
-C1 persistence covers gateway process restart: completed writes and atomic replacement precede transmission or acknowledgement. Envelope records, receipts and the default task journal do not fsync files or directories; power-loss persistence is not guaranteed. Lease, retry and relay-admission bookkeeping may replay the same envelope ID after interruption. Explicit inbox/audit task journals retain their existing flush policy. Unchanged records and directory inventories reuse validation. Gateway index refresh, recovery scans and scheduled record cleanup yield between batches or records.
-
-Session sends and processed receipts write unique temporary files asynchronously without acquiring the signer lock for preparation. Handles close before atomic publication; independent tasks sharing a signer and relay can write concurrently. Publication rechecks capacity and receipt state under the signer lock, without filesystem retry sleeps. The default task journal reuses its append handle and unchanged validated checkpoints; compaction and worker shutdown close the handle.
-
-POSIX delivery directories/files use 0700/0600; Windows inherits the parent DACL.
-Live sends remove completed batch ciphertext after consuming admission results.
-Maintenance closes expired pending batches before pruning message metadata, and
-removes remaining completed or closed batches.
-Content-free message records and receipt deduplication persist until seven days
-after `max(createdAt, original deliveryDeadline)`, without extending that horizon
-on reads or retries. Maintenance runs at startup and every minute while active;
-an inactive store may retain expired bytes until its next maintenance pass.
-Local bounds are 1,024 pending envelopes, 32 MiB of envelope JSON, 256 KiB per
-wire envelope and 10,000 retained messages/receipts per kind; a full or unwritable
-store reports a fixed error before an unrecorded send and does not evict live work.
-
-Embedders can inject `deliveryService` or `deliveryOptions` and explicitly call
-`startDelivery()`/`stopDelivery()`. A custom transport needs a stable relay URL and
-resolver for restart behavior; anonymous injected transports remain ephemeral.
-Initialization, tool listing and local reads do not start delivery or create keys.
-Direct transport `send()` remains a single attempt. No relay deployment is needed
-for this gateway behavior; existing relay retention still governs admitted frames.
-See [relay reliability](docs/relay-reliability.md).
-
-
-The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
-`acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
-string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
-The same signer/tool/key and content return the first stored result across restarts,
-without another send or approval; changed content returns `IDEMPOTENCY_CONFLICT`
-and requires a new key. Keys/results expire seven days after the original deadline
-(latest child deadline for multi). Cached holds never resubmit or increment attempts.
-Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
-`APPROVAL_INTERRUPTED` or `IDEMPOTENCY_RESULT_UNAVAILABLE` without repeating a prompt
-or execution. Final verification stays separate, and calls without keys are unchanged.
-See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
-No relay deployment is needed.
-
-### Recipient delivery status
-
-Recipient-signed `DeliveryStatus` for validated 0.2.0 tasks records content-free
-held/opened/adapter-handoff/closed observations separately from task sequences and
-bilateral audit. Unknown peers get only `received_held` and `closed`; later connection
-approval does not release that task's history. Inspection/display alone does not open
-a task, and successful result cleanup does not close it. Queued detail is suppressed
-on disconnect; blocking suppresses all queued status. Legacy peers without version
-declarations retain 0.1.0 behavior. Status records use the fixed delivery deadline plus
-seven days; active maintenance deletes expired bytes. A handoff does not prove reading
-or execution. Both gateways need support; no relay deployment is required.
-See [relay reliability](docs/relay-reliability.md) for status sources, retention and lifecycle behavior.
-
-### Local message status
-
-A send with `idempotencyKey` keeps its original message and task IDs on cached retries.
-This lookup reads the current retained observations for those IDs, independently of
-the cached send result.
-
-`acp_message_status {"messageId":"<original PROPOSE UUID>"}` or
-`acp_message_status {"taskId":"<original task ID>"}` reads sender-local status without
-sending, refreshing, polling or cleanup. Use exactly one selector; ambiguous task IDs
-require `messageId`. Records expire seven days after the original deadline (or creation
-time if later); absent, foreign and expired IDs return `found:false`. Initially unknown
-peers disclose only `received_held`/`closed`. Recipient claims are separate from bilateral
-audit; handoff does not prove reading or execution. This read is distinct from a cached
-delegation result and explicit pending resubmission. No relay deployment is required;
-richer observations require C4 peers. See [relay reliability](docs/relay-reliability.md).
-
-### Local PC distribution (0.7.0)
-
-Both `sealbridge@0.7.0` and `sealbridge-local@0.7.0` were published on npm on 2026-11-11 UTC. To use the local distribution:
-
-```sh
-npm i -g sealbridge-local
-sealbridge-local worker start --adapter sandbox
-sealbridge-local config local-pc status
-sealbridge-local config local-pc off
-```
-
-`config local-pc on` also requires both stdin and stderr to be TTY and never saves consent without a terminal. For scripts, pass `--allow-local-pc` on every local execution invocation. `status` and `off` work without a TTY.
-
-The first local execution asks the owner once, only when stdin and stderr are TTY.
-Alternatively run `sealbridge-local config local-pc on` in that terminal and type
-`yes`. Permission is saved in the existing application config; without it,
-noninteractive startup without `--allow-local-pc` stops before execution. `off` revokes saved permission.
-Owner task approval, content inspection and automatic-acceptance rules remain in
-force. Every startup emits a warning and signed `LOCAL_PC_OPT_IN` audit evidence.
-Sandbox startup isolation is marked as determined at task execution; it is not an
-execution attestation. Mainline `sealbridge` always requires `--allow-local-pc`
-and never uses the local distribution's saved permission.
-
-Keys, contacts and the data directory are reused: both distributions use the same
-`resolveDataRoot`, including `SEALBRIDGE_DATA_DIR` and `ACP_DATA_DIR` overrides.
-Replace `sealbridge worker start` with `sealbridge-local worker start`.
-Installers default to mainline; choose local with `sh install.sh --package sealbridge-local`,
-`./install.ps1 -PackageName sealbridge-local`, or `SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local`.
-
-## Pre-call input limits
-
-Input-size caps default to **unlimited**. Owners can opt into the official-worker preset with `sealbridge config auto-accept diff-size trial-reviewer` (400 lines, 48 KiB of serialized JSON, 10 files), or set `max-diff-lines N`, `max-diff-bytes N`, and `max-diff-files N` individually. `diff-size off` removes all size caps; each individual setting also accepts `off`. Restart after changes. Configured caps apply before execution and daily/monthly counters, including manually approved work. The HTTP adapter always validates the complete outgoing prompt against `maxInputTokens`, even without size caps. Generic fixed rejection text is the default; `monthly-limit-message trial-reviewer` explicitly selects trial wording. Successful requests write no size-audit files. See [counting and audit details](docs/auto-accept.md#pre-call-input-size).
-
-## Troubleshooting suspended sandboxes and relay authentication
-
-Continuous `worker start` automatically recovers after sandbox suspension/resume
-(including Muse): HTTP 401 recovery uses fresh credentials and uncached nonces
-over a 120-second window, with waits of 2, 10, 30, then 60 seconds (bounded by
-the remaining window). An explicit `--relay-auth-retries` caps attempts;
-`--relay-auth-recovery-timeout-ms` changes the window. After exhaustion, the
-worker reports `unavailable` and retries every 60 seconds. Interrupted sessions
-remain interrupted; an unsealed audit is evidence, never permission to rerun.
-`--once` workers and requesters still fail on exhaustion.
-
-For `RELAY_AUTH_RECOVERY_EXHAUSTED`, read the relay `Date` comparison: a positive
-offset means the local clock is behind; a matching clock does not rule out nonce
-replay or a key/DID mismatch. Without a Date header the difference is unknown.
-This is a diagnostic observation, not authenticated time or a reason to change
-the clock automatically. Requester `Relay poll retry N (CODE)` lines distinguish
-HTTP status, proxy connection, TLS, and network failures without printing credentials.
-`TASK_INTERRUPTED` from the peer ends the request immediately.
-
-## Troubleshooting HTTP proxy environments
-
-In proxy-only environments such as Muse, relay clients automatically use `HTTPS_PROXY` / `https_proxy` for HTTPS and WSS (falling back to `ALL_PROXY` / `all_proxy`), and `HTTP_PROXY` / `http_proxy` for HTTP and WS. Uppercase takes precedence. Only `http://` proxy URLs are supported; URL Basic credentials are sent only to the proxy. HTTP requests, inbox polling, SSE and WebSocket all use CONNECT with the relay hostname and normal TLS certificate verification. `--allow-private-relay` is not needed for a public relay through the proxy, even with synthetic local DNS. URL, IP-literal and metadata restrictions still apply; the proxy is responsible for destination DNS and network admission. `NO_PROXY` / `no_proxy` supports exact hosts/IPs, `.example.com` suffixes, `*` and optional ports; matching destinations use the existing direct DNS validation and pinning. Doctor uses the same route and displays only the proxy host and port. For `RELAY_PROXY_AUTH_FAILED` (407) check proxy credentials; for `RELAY_PROXY_REFUSED` check CONNECT permissions. Never paste proxy credentials into logs or reports.
+Formerly ACP / agent-collab-platform. Renamed to avoid confusion with Zed’s Agent Client Protocol and IBM / BeeAI’s Agent Communication Protocol. The `acp` bin remains a deprecated alias. Protocol identifiers and existing data paths stay compatible.

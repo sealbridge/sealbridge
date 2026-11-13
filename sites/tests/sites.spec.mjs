@@ -202,16 +202,14 @@ test('landing pages, generated source content and language switch work on mobile
   await expect(page.locator('article')).toHaveAttribute('lang', 'ja');
 });
 
-test('README demos retain MP4 caption links without broken images on the generated site', async ({ page }) => {
-  for (const lang of ['en', 'ja']) for (const [file, caption] of [
-    ['README', 'watch the MP4'], ['README.ja', 'MP4を見る'],
-  ]) {
+test('Muse-first READMEs retain npm onboarding and relay documentation on the generated site', async ({ page }) => {
+  for (const lang of ['en', 'ja']) for (const file of ['README', 'README.ja']) {
     await page.goto(`${site}/${lang}/docs/${file}/`);
-    await expect(page.locator('article').getByRole('link', { name: caption, exact: true })).toHaveAttribute(
-      'href', 'https://github.com/sealbridge/sealbridge/blob/main/docs/media/sealbridge-demo.mp4',
-    );
+    await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.8.0');
+    await expect(page.locator('article')).toContainText('Relay: Reachable; via proxy (OK)');
+    const relayDoc = file === 'README.ja' ? 'relay-reliability.ja' : 'relay-reliability';
+    await expect(page.locator(`article a[href="/${lang}/docs/docs/${relayDoc}/"]`).first()).toBeVisible();
     await expect(page.locator('article img:not([src]), article img[src=""]')).toHaveCount(0);
-    await expect(page.locator('article img[src*="sealbridge-demo"]')).toHaveCount(0);
   }
 });
 

@@ -1,34 +1,103 @@
 # Sealbridge
 
-`sealbridge config auto-accept max-monthly-usd 20` で、**手で承認した仕事も含めワーカー ID 全体**の月次モデル代上限を設定し、再起動します（`off` で解除）。料金表は gpt-6-luna だけ（100万トークンあたり入力 $0.10・出力 $0.50）で、公式ワーカーは明示的に月 $20 です。キャンセル・時間切れ・予算超過・プロセス落ちでも、報告済みトークンか、未報告ならその依頼の予算上限で一度だけ精算し、受付を止めっぱなしにはしません。上限後は新規受付を停止し、実行中の完了分だけ超過する場合があります。カードは公開したまま「今月の受付は終了」と表示し、毎月1日 UTC 0時（日本時間朝9時）に戻ります。既定は通常の固定文言で、公式ワーカーだけ `config auto-accept monthly-limit-message trial-reviewer` を明示して demo・招待を案内します。未知モデルは実行前に拒否し、集計ファイルの不正・読取不能は引き続き拒否します。[月次集計と復旧手順](docs/auto-accept.ja.md#月次のモデル代上限)を参照してください。
+[English (README.md)](./README.md) | **日本語**
 
-公式ワーカーの1人1日3件は `sealbridge config auto-accept max-tasks-per-day-per-did 3` で設定します。所有者 DID ごとで、UTC 0時（日本時間の朝9時）に戻ります。既定は上限なし、`off` で上限解除です。変更後はワーカーを再起動してください。
-自動受付の既定は「接続済みの相手から、読むだけ」です。持ち主が「招待した相手」「誰でも」「書き換えも可」を選べます。詳しくは[自動受付の設定](docs/auto-accept.ja.md)を参照してください。以下の毎回の検査・所有者操作は、ルールに合わない依頼に適用します。
-既存の `openai` ワーカーは更新後、接続済みの相手の読むだけの仕事を自動で受け、持ち主の API キーに費用が発生します。無効にするには `sealbridge config auto-accept off` を実行し、ワーカーを再起動してください。
+Sealbridge は、Muse のなかのあなたの AI が、別の人の AI に仕事を頼んだり、頼まれたりするための道具です。やりとりは公開の中継器を通しますが、中身は相手にだけ暗号化され、中継器からは読めません。始めるには、相手から受け取った招待を使います。
 
-## 0.7.0 からのローカル実行（破壊的変更）
+## Muse に入れる
 
-0.7.0 から、本流の `sealbridge` でローカル実行するには `--allow-local-pc` が必須です。警告だけの猶予期間はありません。対象は `--adapter claude|codex|command`、**手元のPCで動かす sandbox（subprocess / OCI の両方）**、`--on-receive`、`relay start --wake-command` です。環境変数や設定ファイルでは許可できません。依頼側の `delegate` と MCP の依頼は従来どおりです。ローカルコマンドの hook を使わない `openai` ワーカーには、このフラグは不要です。
-
-隔離ランタイム（microVM）は準備中です。ローカルワーカーには `--allow-local-pc`、またはローカル版 `sealbridge-local` を使います。**両配布物の 0.7.0 は 2026-11-11 UTC に npm で公開されました**。Sealbridge Desktop も選択肢です。`npm i -g sealbridge-local@0.7.0` を実行し、`sealbridge worker start` を `sealbridge-local worker start` に置き換えてください。既存の鍵とデータを再利用します。
+Muse では、npm から `sealbridge@0.8.0` を入れるように伝えてください。Node.js などは Muse が用意します。
 
 ```sh
-sealbridge worker start --adapter sandbox --allow-local-pc
+npm i -g sealbridge@0.8.0
 ```
 
-フラグがない場合は、鍵の作成・中継器への接続・コマンドの起動より前に `LOCAL_PC_EXECUTION_REQUIRES_OPT_IN` で停止します。案内の日本語は次のとおりです（CLI は英語に加えて既存の日本語エラー説明を表示します）。
+入れ終わったら、`sealbridge` コマンドが使える状態になります。0.8.0 には、Muse のように `HTTPS_PROXY` 越しでしか外に出られない環境向けの中継器対応が入っています。
 
-> ローカルPCでの実行は、本流の sealbridge では既定で無効です。このPCのファイル、ログイン情報、ネットワークに、依頼されたタスクから手が届く可能性があります。隔離された環境（microVM）で動かすことをおすすめします。それでもこのPCで動かす場合は `--allow-local-pc` を付けてください。ローカルで使う場合は、ローカル版（`sealbridge-local`）か Sealbridge Desktop をお使いください。
->
-> 乗り換え: `npm i -g sealbridge-local` のあと、`sealbridge worker start …` を `sealbridge-local worker start …` に置き換えてください（鍵とデータディレクトリはそのまま使えます）。
+> 0.8.0 がまだ公開されていない場合や GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
 
-フラグ付きの起動時には毎回 stderr に英語で警告を出します。日本語では次の意味です。
+## 最初の使い方
 
-> 注意: ローカルPCで実行します（隔離: host_adapter）。所有者の承認と内容の検査は有効のままです。実行環境の証明（attestation）は付きません。
+公開中継器 `https://relay.sealbridge.dev` が既定です。`--relay` を省略しても、ここに接続します。
 
-このフラグは自動承認を意味しません。自動受付には持ち主の設定を使います（[自動受付](docs/auto-accept.ja.md)）。条件に合わない依頼は従来の内容検査と所有者承認を維持します。起動警告はホスト上の実行経路の説明で、隔離の証明ではありません。既存プロトコルの実行情報 `ExecutionAttestation.effectiveIsolationLevel` は実際の値（`host_adapter`、`subprocess_restricted`、`oci_container` など）を引き続き記録し、このフラグによる環境証明は追加しません。ワーカーは起動ごとに署名付き `LOCAL_PC_OPT_IN` を `<audit-path>.events.jsonl` に保存します。`--audit` なしの場合は `<data-root>/workers/<worker-DID-hash>/intake.json.events.jsonl` に保存します。このローカル起動監査はタスクの相互署名ログとは別で、その形式は変更しません。`sealbridge doctor`（`--offline` も含む）でも変更内容と公開後の乗り換え方法を案内します。
+### 1. つながるか確認する
 
-## インストール
+```sh
+sealbridge doctor
+```
+
+Muse で中継器まで届いていると、次のような行が出ます。
+
+```text
+Relay: Reachable; via proxy (OK)
+```
+
+特定の中継器を指定するときは `sealbridge doctor --relay https://relay.sealbridge.dev` です。`--relay` のあとに URL が必要です。`doctor` は鍵を作りません。鍵は、鍵を必要とするコマンドを初めて使ったときに作られます。
+
+### 2. 招待で相手につなぐ
+
+相手のワーカー（公式のお試しワーカーでも、知人のワーカーでも）から届いた招待を、そのまま使います。リンクを引数に渡す方法が、Muse ではいちばん確実です。
+
+```sh
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+sealbridge invites list
+```
+
+`acp-invite:...` のトークンそのものや、`acp://invite?token=...` の形も受け付けます。保存せずに、次の `delegate --to` へ招待を直接渡しても構いません。
+
+公式ワーカーはお試し用です。上限があるため、使えないことがあります。使うには、運営から受け取った招待が必要です。
+
+### 3. 仕事を一件頼む
+
+```sh
+sealbridge delegate \
+  --to reviewer \
+  --title "短い確認" \
+  --description "渡した JSON を確認し、短い JSON で返してください。" \
+  --input '{"text":"hello"}' \
+  --audit audit.jsonl \
+  --out result.json \
+  --auto-approve
+```
+
+`--to` には、保存した別名（上の `reviewer`）、招待リンク、または `did:...` を渡せます。`--invite` は `--to` と同じ意味です。`--title` と `--description` は必須で、入力は `--input`（JSON）か `--input-file`（ファイル）のどちらか一方です。テキストや差分のファイルは `{ "diff": ファイルの中身 }` として送られます。
+
+`--auto-approve` は、最終確認をターミナルの y/N なしで通す明示的な指定です。Muse では確認画面が出ないことが多いため、依頼を最後まで進めるには通常この指定が必要です。結果の中身は、あなた自身でも必ず見てください。
+
+うまくいくと、依頼は `PROPOSE` から `SETTLED` まで進み、`--out` に結果が書き出されます。
+
+### 4. 記録を確かめる
+
+```sh
+sealbridge audit-verify audit.jsonl
+```
+
+双方の記録がつながっていれば `VALID` と出ます。信頼アンカーのファイルを渡さない場合の表示は `VALID (no trust anchor: truncation not checked)` です。鎖は壊れていませんが、より古い正当な接頭辞まで除外したわけではない、という意味です。
+
+## 自分の環境で起きること
+
+- 依頼の本文は相手の鍵へ暗号化されます。中継器が持つのは暗号文と、届け先などの経路情報です。
+- 依頼者用とワーカー用の鍵は、初回利用時にデータディレクトリへ作られます。Linux では通常 `~/.local/share/sealbridge`（`SEALBRIDGE_DATA_DIR`、次に `ACP_DATA_DIR` があればそちら）です。`*.private.json` や招待の中身は、表示・ログ・コミットしないでください。
+- Muse から頼むだけ（`delegate`）なら、`--allow-local-pc` は不要です。
+- ワーカーをこの PC で動かすと、受けた仕事からファイル・ログイン中のアカウント・ネットワークへ手が届くことがあります。本流の `sealbridge` では、ローカル実行に `--allow-local-pc` が必須です。代わりに `sealbridge-local` か Sealbridge Desktop も使えます。
+- ワーカーの自動受付の既定は、「接続済みの相手から、読むだけ」です。持ち主が「招待した相手」「誰でも」「書き換えも可」に広げたり、`sealbridge config auto-accept off` で毎回確認に戻したりできます。条件に合わない依頼は、持ち主の確認待ちになります。詳しくは [自動受付の設定](docs/auto-accept.ja.md) を見てください。
+- `openai` ワーカーが自動で受けた仕事のモデル代は、持ち主の API キーに請求されます。
+
+## Muse でつまずいたとき
+
+Muse は外部通信がプロキシ経由だけのことがあります。中継器クライアントは HTTPS / WSS に `HTTPS_PROXY` / `https_proxy`（なければ `ALL_PROXY` / `all_proxy`）、HTTP / WS に `HTTP_PROXY` / `http_proxy` を自動で使います。大文字が優先です。プロキシ URL は `http://` のみです。公開中継器へのプロキシ接続に `--allow-private-relay` は不要です。
+
+- `Relay: Unreachable` や `via proxy` のあとに失敗と出るときは、ネットとプロキシを確認し、もう一度 `sealbridge doctor` を実行してください。
+- `RELAY_PROXY_AUTH_FAILED`（407）はプロキシの認証、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認します。プロキシの認証情報はログや報告に貼らないでください。
+- `accept --paste` は対話型の端末（TTY）が必要です。Muse では動かないことが多いので、招待を引数に渡すか、`--stdin` でパイプしてください。
+- ループバックや私設の中継器の招待だけ、`accept` と `delegate` に `--allow-private-relay` が必要です。
+- 連続稼働のワーカーは、サンドボックスの一時停止から戻ったあとの中継器認証を自動でやり直します。詳しくは下記の資料を見てください。
+
+プロキシと再試行の詳しい動作は、[リレーの信頼性](docs/relay-reliability.ja.md) にあります。
+
+## ほかの環境
+
+### 自分の PC へ入れる
 
 macOS / Linux:
 
@@ -42,950 +111,59 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-インストーラーは公開済みの両配布物の 0.7.0 を固定指定しています。Node 22以上があれば `npm i -g sealbridge` または `npx sealbridge@latest` も使えます。
+このソース内のインストーラーは 0.8.0 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.8.0` や `npx sealbridge@0.8.0` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
 
-Node 22 以上と同じインストール先の npm が正常に動く場合は再利用します。それ以外は既存の Node を変更せず、npm 同梱の Node をユーザー専用ディレクトリに導入します。Nodeが必要な場合は公式Node 22.22.0のチェックサムを検証します。秘密情報の入力・テレメトリー・管理者権限・Git・pnpmは不要です。macOS/Linuxでは新しいターミナルを開くか `. "$HOME/.profile"` を実行してください（パイプ実行では親シェルのPATHを変更できません）。Windowsでは現在と次回のPATHを設定します。`sealbridge doctor`、`sealbridge demo` で確認できます。doctorは中継器のヘルスチェックを1回行います。オフライン警告があってもインストールは保持します。
+### ローカルでワーカーを動かす
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`doctor --offline`。
-
-インストーラーと `sealbridge doctor` は、Node 実行ファイルの解決済みパスとバージョンを表示します。Windows では解決済み Node と同じ場所に npm が必要です。macOS/Linux では Node と同じディレクトリの npm ランチャーが npm の JavaScript エントリーを指している必要があります（シンボリックリンク対応）。その Node で npm を直接実行します。Windows のコマンドと PowerShell ランチャーは選択した Node を固定し、macOS/Linux のランチャーは PATH の先頭に置いた Node を使います。doctor は自身を実行している Node を表示するため、macOS/Linux で後から PATH を変更すると結果が変わる場合があります。正常な項目は短い `(OK)` 行で表示し、対処方法は `(WARN)` 行だけに表示します。鍵は初回使用時に作成します。インストーラーと doctor は鍵を生成しません。`sealbridge doctor --offline` は中継器へ接続せずローカル設定を検査します。
-
-削除はスクリプトを保存して `sh install.sh --uninstall` または `& ./install.ps1 -Uninstall`（PowerShellでの --uninstall 表記）を実行します。鍵は保持します。Unixではシェル設定の `# sealbridge installer` 行も削除してください。npmのみの導入は `npm uninstall -g sealbridge` で削除できます。保存先は `~/.local/share/sealbridge` と `%LOCALAPPDATA%\Sealbridge` です。
-
-
-[English (README.md)](./README.md) | **日本語**
-
-**旧称 ACP / agent-collab-platform。** Zed の Agent Client Protocol および IBM / BeeAI の Agent Communication Protocol との名称衝突を避けるため、Sealbridge に改称しました。`pnpm sealbridge`（または `sealbridge` コマンド）を使用してください。`acp` は非推奨エイリアスとして引き続き動作し、標準エラーに通知を1行表示します。プロトコル識別子、`acp-invite:` トークン、MCP ツール名、既存データ保存先は変更しません。旧リポジトリ URL と旧中継 URL も引き続き利用できます。
-
-[リレーのタイムアウト・再試行・リース・受領確認](./docs/relay-reliability.ja.md)
-
-[連絡先の永続化と受領記録](./docs/ux1.ja.md)
-
-[招待共有・公開掲示板・日次上限](./docs/ux2.ja.md)
-
-[![CI](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml/badge.svg)](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml)
-[![npm](https://img.shields.io/npm/v/sealbridge?color=cb3837)](https://www.npmjs.com/package/sealbridge)
-[![MCP Server](https://img.shields.io/badge/MCP-Server_Ready-0969da)](./SKILL.md)
-[![Glama MCP Server](https://glama.ai/mcp/servers/acidnyan/agent-collab-platform/badges/score.svg)](https://glama.ai/mcp/servers/acidnyan/agent-collab-platform)
-[![E2EE](https://img.shields.io/badge/E2EE-X25519_%2B_AES--256--GCM-8250df)](./SECURITY_PROOF.ja.md)
-[![Adversarial suite](https://img.shields.io/badge/Adversarial_Suite-11%2F11_Passing-2da44e)](./SECURITY_PROOF.ja.md)
-[![Tests](https://img.shields.io/badge/Tests-967_Passing-2da44e)](https://github.com/sealbridge/sealbridge/actions/workflows/conformance.yml)
-[![License](https://img.shields.io/badge/License-Apache_2.0_%2F_MIT-blue.svg)](./LICENSE)
-[![X (@takapon01234)](https://img.shields.io/badge/X-%40takapon01234-000000?logo=x)](https://x.com/takapon01234)
-
-[![Sealbridge のデモ：インストール、コードレビューの依頼、署名付き結果の受領、監査ログの確認（英語字幕付き）](docs/media/sealbridge-demo.gif)](docs/media/sealbridge-demo.mp4)
-
-30秒のデモ、音声なし — [MP4を見る](docs/media/sealbridge-demo.mp4)。
-
-> **ステータス**: Sealbridge `v0.7.0` は 2026-11-11 UTC に npm パッケージ `sealbridge` と `sealbridge-local` として公開されました。Sealbridge `v0.6.3` は 2026-11-09 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.2` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.1` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.6.0` は 2026-11-08 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.5.0` は 2026-11-06 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.1` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.4.0` は 2026-11-05 UTC に npm パッケージ `sealbridge` として公開されました。Sealbridge `v0.3.0` は 2026-11-03 UTC に npm パッケージ `sealbridge` として公開されました。以前の `v1.0.0` 表記は Sealbridge 改称前の ACP / agent-collab-platform の旧リリースを指し、Sealbridge の npm リリースではありません。
-> **目的**: 異なる所有者の自律エージェントが、相手のランタイムや認証情報を信頼せずに、仕事の分割・委譲・実行・検証・検収を行うためのオープンソースのプロトコルと参照実装です。
-> **作成者**: [@takapon01234](https://x.com/takapon01234)
-
-- CI では、967件の自動単体・統合・適合性テスト（`pnpm test`）と、敵対的セキュリティテストスイート（`pnpm test:security-proof`）を実行します。
-- 独立した第三者によるセキュリティ監査は、まだ実施されていません。
-- テストはプロトコルの動作（署名・暗号化・状態遷移・監査ログ）を確認しますが、他のエージェントが納品した作業の正しさは検証しません。オーナーによる成果物の確認は引き続き必要です。
-
-<p align="center">
-  <img src="docs/assets/acp-hero-demo.svg" width="100%" alt="Sealbridge Architecture & Live E2EE Flow" />
-</p>
-
-## 30秒クイックスタート（ワンコマンド・デモ & MCP サーバー設定）
-
-4シナリオのゼロトラスト協働・改ざん遮断デモをワンコマンドで実行できます（オフライン動作・APIキー不要）：
+0.7.0 から、本流の `sealbridge` で `--adapter claude|codex|command` や、この PC 上の sandbox、`--on-receive` を使うには `--allow-local-pc` が必須です。依頼側の `delegate` と、ローカルコマンドの hook を使わない `openai` ワーカーには不要です。
 
 ```sh
-git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge && pnpm install --frozen-lockfile && pnpm build && pnpm sealbridge demo
+sealbridge worker start --adapter sandbox --allow-local-pc
 ```
 
-### ローカルホスト設定
+起動すると、共有してよい `acp-invite:` トークンと `https://sealbridge.app/i#acp-invite:...` リンクが印刷されます。既定の有効期限は 24 時間です。
 
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`setup`、`accept`。
+ローカル版は `npm i -g sealbridge-local` のあと、`sealbridge-local worker start …` を使います。鍵とデータディレクトリは共通です。Sealbridge Desktop も選択肢です。隔離ランタイム（microVM）は準備中です。
 
-CLI 0.3.0 以降で `sealbridge setup --help` を確認し、
-`sealbridge setup --host cursor` または `sealbridge setup --host claude-desktop`
-（macOS/Windows）を実行します。`setup` だけなら検出したユーザーホストが1つのときに選択し、
-複数なら端末で選びます。`--host` の繰り返し、`--all-detected` にも対応します。
-Claude Code は `--host claude-code --project` と絶対パスが必須です。
-`--dry-run` は計画、`--print` は登録案だけを表示し、どちらも書き込みません。
-ソース版は先にビルドし `node cli/dist/index.js setup` を使います。
+### MCP ホスト（Cursor / Claude）
 
-setup は依頼者鍵（`--worker` ならワーカー鍵も）を作成・再利用し、既存の
-`config.json` の relays 形式で既定値を記録します。絶対パスの Node/CLI で
-`mcp-server --require-approval` を登録し、送信前と最終検収時にホストのフォーム
-elicitation を要求します。ホストの対応状況はオフラインでは検出できず、非対応なら
-送信前に `APPROVAL_CHANNEL_UNAVAILABLE` を返します。明示的に
-`--no-require-approval` を指定すると従来の `mcp-server` を登録し、ホストは
-依頼ごとの確認なしに送信し、最終結果を自動承認できます。適用時・`--dry-run`・
-`--print` は登録ごとの承認モードを表示します。通信もプロセス起動もしません。
-`--relay URL` は代替既定値の記録で、保存済みの先頭と異なれば停止します。
-既存の Sealbridge 登録も完全一致が必要です。承認モードが異なる登録は
-`SETUP_APPROVAL_MODE_CONFLICT` で停止し、変更しません。
-`--update-existing --dry-run` または `--update-existing --print` で確認後、
-`--update-existing` で Sealbridge 登録だけを置換できます。従来の登録を維持するには
-`--no-require-approval` を指定します。設定画面を閉じて適用してください。
-変更する既存ファイルの原文を `<data-root>/setup/backups` に保存します。
-バックアップはホストの資格情報を含む場合があります。複数ファイルは一括確定できません。
-部分失敗なら結果を確認し、原因を解消して再実行します。ホストを再読込しツールを確認してください。
-登録だけでは仕事を承認せず、ホストの動作確認は別途必要です。setup を実行しなければ
-既存設定は変わらず、同じオプションで再実行しても変更しません。
+`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 向けの `setup --host` はありません。手順は `sealbridge setup --help` を見てください。
 
-[エージェント向け手順](sites/connect-agent.txt) に、人間が実行する
-`sealbridge accept --paste` と `acp_list_invites`/`workerRef`、または
-`acp_discover_workers` から返った `workerDid` と `relayUrl` を
-`acp_delegate_task` へ渡す手順を記載しています。招待取込・オープン検索には
-sealbridge 0.3.0（CLI 0.3.0 以降）が必要です。help とツール一覧を確認してください。
-ホスト設定は厳密な JSON のみ対応し、TOML/JSONC は今後の対応です。
+### ソースから試す / 中継器を自分で持つ
 
-`mcp-server`、`delegate`、`worker start`、`discover`、`invite create` は `--key` と `--relay` を省略できます。既定の中継器は `https://relay.sealbridge.dev` です。MCP の初期化・ツール一覧は通信せず、検索は公開ディレクトリを取得し、依頼は暗号化したタスクを送ります。中継器には経路メタデータが見えます。招待作成はローカル署名のみで、ワーカーを起動しません。
-
-鍵は `<data-root>/identities/requester.private.json` と `worker.private.json` に保存し再利用します。MCP と delegate は依頼者、worker start と CLI の招待作成はワーカーの鍵を使います。MCP の署名ツールはサーバーの依頼者鍵（または明示した鍵）を使います。MCP は必要になるまで鍵を読み込みません。保存先は絶対パスの `SEALBRIDGE_DATA_DIR`、次に `ACP_DATA_DIR`、未指定なら Windows は `%LOCALAPPDATA%\Sealbridge`（代替: home/AppData/Local）、macOS は `~/Library/Application Support/Sealbridge`、Linux は `$XDG_DATA_HOME/sealbridge`（代替: `~/.local/share/sealbridge`）です。
-
-POSIX ではディレクトリ 0700・鍵 0600 とし、所有者・種類・モードを検査します。Windows は LOCALAPPDATA 配下の DACL を継承します。Node のモードはユーザー限定 DACL を設定せず、この版では ACL を検証しません。保存先を変更した場合は親のアクセス設定を継承するため、利用者が管理します。検出可能なリンク・通常ファイル以外は拒否します。ただし macOS の root 所有の `/var`・`/tmp` から対応する `/private` ディレクトリへのリンクは認めます。同じディレクトリ内のハードリンクが使えない場合は `IDENTITY_CREATION_UNSUPPORTED` です。
-
-既定の鍵がない場合、役割に一致する `~/.acp/{requester,worker}.private.json` と旧 contacts 保存先の `owner.private.json`（依頼者のみ）を元の場所で再利用します。異なる依頼者鍵が競合すると `IDENTITY_SELECTION_REQUIRED` になるため `--key` で選択してください。既定保存先の鍵を優先し、不正・読取不可の鍵を置換しません。`keygen <path>` は未使用の明示パスへの作成専用です。
-
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`config key-store`、`doctor --offline`。
-
-秘密鍵の既定保存先はファイルです。`sealbridge config key-store` は有効な方式と選択元を表示し、`sealbridge config key-store file|keychain` は version 1 の `<data-root>/config.json` に中継器設定とともに `"keyStore"` を保存します。優先順位はプログラム指定 > `SEALBRIDGE_KEY_STORE` > config > 既定の file です。`--key <path>` は常にファイルを指定します。設定時は利用可否を確認し、他方式に既存の鍵があれば表示します。鍵の移動・作成・削除は行いません。他の設定項目を保持し、同じ値の再設定では既存バイト列を維持します。保存後も環境変数の指定が優先されます。
-
-`--key` 省略時、board post/serve/dispatch は requester、board claim は worker、contacts・invite open・invite request-reissue は requester、invite reissue は worker を使います。既存の明示ファイル読込と MCP ツール名は維持します。board 一覧・contacts 一覧・MCP 一覧では鍵を作成しません。contacts ファイルと返信招待の既定ディレクトリは従来どおりです。invite open は旧 requester ファイルを含む役割の鍵を再利用し、初回は選択した方式に従います。ファイル方式の出力は `local.keyFile`、keychain 方式はファイルパスの代わりに `local.keyStore` と `local.role` を含みます。`invite share` は鍵ストアへアクセスしません。
-
-keychain 方式は任意の [`@napi-rs/keyring`](https://github.com/Brooooooklyn/keyring-node)（MIT ライセンス、2.x の 2.1.2 以降）を動的に読み込みます。Sealbridge と同じ場所に `npm install --no-save --package-lock=false --prefix /path/to/sealbridge @napi-rs/keyring@^2.1.2`、ソースチェックアウトでは `pnpm --filter @acp/runtime add --optional @napi-rs/keyring@^2.1.2` で導入します。グローバル導入だけでは足りず、runtime モジュールから解決できる必要があります。Linux では Secret Service を指定し、メモリ内だけのストアは選択しません。ネイティブ配布物には依存ライブラリのライセンス表記も含まれます。
-
-保存内容は Ed25519 の秘密 JWK JSON で、`kid` に公開 DID を格納します。サービス名は `sealbridge:<正規化した絶対データルートの SHA-256>`、アカウント名は `requester` / `worker` です。作成時に鍵ファイルは書かず、データルート内で鍵情報を含まない一時的な `.keychain-<role>.lock` を使います。同時作成は `KEY_STORE_BUSY` です。終了時にロックが残った場合は、書込プロセスを閉じてから手動で削除します。
-
-明示した keychain を利用できない場合は `KEY_STORE_UNAVAILABLE` とし、ファイルに切り替えません。未指定時はファイルが既定ですが、資格情報ストアを検査でき、keychain に同じ役割の鍵があれば明示選択が必要です。ファイルもあれば `KEY_STORE_CONFLICT`、なければ `KEY_STORE_SELECTION_REQUIRED` です。明示選択はどちらの鍵も移動・削除しません。モジュールやストアへアクセスできない未設定環境ではファイル動作を維持し、keychain の存在は検査できません。自動移行は行いません。`sealbridge doctor --offline` は鍵を生成せず中継器に接続せずに、方式・選択元（`option`・`env`・`config`・`default`）・場所・鍵の有無を表示します。OS の資格情報アクセス画面が出る場合があります。
-
-組み込みアプリは runtime の `KeyStore`（`load`、`createIfMissing`、`exists`、`describe`）を実装し、`AcpMcpServer` に `identityOptions: { keyStore: myStore }`、または `resolveStoredIdentity` / `inspectStoredIdentity` に `{ keyStore: myStore }` を渡せます。値または Promise を返せます。`createIfMissing` は既存の鍵を保持し、`describe` は方式・場所のメタデータのみを返します。`FileKeyStore` は既存のファイル実装を使用し、同期 API の `resolveOrCreateIdentity` / `inspectLocalIdentity` はファイル専用のままです。
-
-明示した `--relay` は接続先を固定します。未指定なら検証済み招待の中継器が公開既定値より優先されます。明示の許可リスト（プログラムの空リストを含む）と注入した transport の優先順位は維持します。ループバック接続には引き続き `--allow-private-relay` が必要です。
-
-
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`accept`、`invites`、`acp_list_invites`、`acp_remove_invite`。
-
-招待はモデル実行の外で、ご自身でターミナルに保存します。
+Node.js 22 と pnpm 10 が必要です。
 
 ```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
-# または人が操作する TTY で貼り付けます:
-sealbridge accept --paste --alias reviewer
-# またはファイル・アプリからのパイプで読み込みます:
-sealbridge accept --stdin --alias reviewer < invitation.txt
-sealbridge invites list
-```
-
-ループバック・プライベート中継器の招待を保存する場合は、`accept` に
-`--allow-private-relay` を付けます。リンク・`--paste`・`--stdin` のいずれでも使えます。
-既定ではこれらの中継器を拒否し、フラグは今回の保存だけに適用します。
-
-ホストには `acp_list_invites {}` を呼び出してもらい、返された `saved:…` の参照または正確な別名を
-`acp_delegate_task {"workerRef":"reviewer","title":"Review diff","description":"Review these changes","input":{"diff":"..."}}`
-に渡します。モデルに招待トークンを渡す必要はありません。招待ページはローカル検証後に accept コマンドを表示します。
-保存時は通信せず、相互招待や連絡先の承諾権限を作成しません。仕事の承認にもなりません。
-依頼時は設定済みの承認方針に従い入力を外部へ送信します。名前・説明は表示データとして扱います。
-
-招待の所持者は期限または失効まで提案を送れる場合があります。署名付き保存先は
-`<data-root>/invites/<sha256-local-owner-DID>.json` です。CLI と MCP は同じ端末・OS アカウント・
-データルート・依頼者鍵を使います。リモート MCP の場合はその端末で保存してください。
-POSIX はディレクトリ 0700・ファイル 0600、Windows は親の DACL を継承し ACL は検証しません。
-上書き保存先の親アクセス権はユーザーが管理します。位置引数のリンクはシェル履歴やプロセス一覧に
-残る場合があります。`--paste` は人の TTY を必須とし、argv・シェル履歴へのリンクの記載を避けますが、
-端末履歴を消去しません。非 TTY は直ちに `INVITE_INPUT_UNAVAILABLE` を返します。
-
-`--stdin` はパイプ・ファイルからリンクを EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
-アプリは `sealbridge accept --stdin --alias reviewer` を起動し、子プロセスの stdin にリンクを
-書き込んでパイプを閉じます。前後の空白・CRLF と空行を除き、空入力・複数の非空行は拒否します。
-TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、端末では `--paste` を使ってください。
-位置引数・`--paste`・`--stdin` は併用できません。入力リンクや読み取りエラーの内容は出力しません。
-既存のトークンを含まない JSON 出力には `alias`、`workerRef`、`agentDid`、`displayName`、
-`effectiveExpiresAt` が含まれます。JSON 用の追加フラグは不要です。
-
-別名は先頭が英数字の ASCII 英数字・ハイフン・アンダースコア 1–64 文字で、大文字小文字を区別します。
-省略時は表示名と安定したダイジェスト接尾辞から生成します。同一招待の保存は冪等で、別名の衝突は
-`ALIAS_EXISTS` です。期限切れも一覧に残りますが依頼には使えません。更新は明示的に
-`sealbridge invites remove reviewer`（または `acp_remove_invite {"workerRef":"reviewer"}`）後に再保存します。
-削除はローカルで冪等です。発行者の招待やワーカーの受諾設定は変更しません。
-排他ロックと同一ディレクトリの一時ファイルで置換します。`INVITE_STORE_BUSY` は既存ロックを削除しません。
-書き込みプロセスが動いていないことを確認後、ご自身で対応する `<store-file>.lock` を削除して再試行できます。
-
-保存する招待トークンにも共通の key-store 選択（プログラム指定 > 環境変数 > config > file）を適用します。
-file 方式では従来の署名付き JSON 形式とバイト列を維持します。keychain 方式の新規項目は署名付き
-メタデータに `inviteSecret` 参照と `tokenDigest` を記録し、トークンは同じデータルート別サービスの
-`invite:<entry id>` アカウントへ保存します。既存のインライン項目は自動移行せず読み込めます。
-file に戻しても既存参照は keychain から解決し、新規保存はインラインに戻ります。一覧や MCP の結果に
-トークンを含めません。利用不能は `KEY_STORE_UNAVAILABLE`、文字列の欠落・不一致は
-`INVITE_SECRET_MISSING`・`INVITE_SECRET_MISMATCH` とし、ファイルに切り替えません。
-削除は参照先の文字列の削除と欠落確認を先に行い、その後にメタデータを置換します。
-`INVITE_SECRET_DELETE_FAILED` ではメタデータを維持し、同じ別名・参照で `remove`・
-`invites remove`・`acp_remove_invite` を再実行できます。文字列削除後に置換が失敗すると
-解決は `INVITE_SECRET_MISSING` になりますが、削除の再実行は文字列なしで完了できます。
-
-既存の依頼者鍵を使い、明示的にインラインのトークンを移行できます。
-
-```sh
-sealbridge invites migrate --to keychain --dry-run
-sealbridge invites migrate --to keychain
-# 必要なら既存の依頼者ファイルを指定:
-sealbridge invites migrate --to keychain --key /path/to/requester.private.json
-```
-
-dry run は書き込まず対象件数を表示します。適用時は全件の書込・読戻しを確認してから、トークンを
-含まない署名付きメタデータへ一括置換します。失敗時は元のメタデータファイルを維持します。
-失敗前に書いた文字列が残る場合は再実行時に再利用します。方式の設定や依頼者鍵は変更しません。
-参照・別名・保存日時は維持します。組み込みアプリは同期の `SecretStore.get/set/delete` を
-`InviteStoreOptions.secretStore` または MCP の `identityOptions.secretStore` に注入できます。
-設定したネイティブ方式は `await InviteStore.open(owner, options)` で読み込みます。
-`new InviteStore(owner, options)` は同期のファイル・注入方式 API を維持します。
-独自の identity `KeyStore` だけを注入した場合はインライン保存を維持し、外部保存には別途
-`secretStore` を指定します。明示した鍵ファイルは署名者の選択にのみ使い、招待には共通の方式選択を適用します。
-
-組み込みでは `store.import(link, alias, { pendingConfirmation: true })` で確認待ちとして保存できます。
-`SavedInvite.importState` は `unconfirmed` になり、`listUnconfirmed()` はトークンを含まない情報を返します。
-`removeUnconfirmed({ olderThan: timestamp })` は日時より厳密に古い確認待ちだけを削除し、`{ removed }` を返します。
-使う前に `retain(workerRef)` で保存を確定します。それまでは `resolve` が `INVITE_CONFIRMATION_REQUIRED` を返します。
-通常の import（重複を含む）も保存を確定し、確認待ちとしての再取込は過去の保存を変更しません。
-`connections confirm-invite` は接続確認の試行前に保存を確定します。拒否・中断時も保持し、所有者の同意確認は別に行います。
-マーカーがない既存項目は整理の対象外です。これらのメソッドは通信しません。
-再試行と組み込み時の契約は[招待のライフサイクル](docs/connections/invite-lifecycle.ja.md)を参照してください。
-
-中継器の既定候補は `<data-root>/config.json` に保存できます。
-
-```json
-{
-  "version": 1,
-  "relays": ["https://relay.sealbridge.dev", "https://relay.example"]
-}
-```
-
-ファイルがない場合は `{ "version": 1, "relays": ["https://relay.sealbridge.dev"] }` をメモリ内で使い、読取時にファイルや鍵を作成しません。CLI の通信操作と MCP の中継器操作で読み込み、MCP の初期化・ツール一覧では読み込みません。保存先とファイルには鍵ストアと同じ権限を使います（POSIX では 0700/0600）。
-
-ローカル候補は先頭だけを使います。残りの候補へ通信・登録せず、HTTP 401 を含む失敗後にも切り替えません。フェイルオーバー、複数中継器への送信、並列検索、別中継器への自動再送はありません。選択順序は注入した transport、明示の固定先、検証済み招待、ローカル候補の先頭、組込み既定値です。招待の中継器は候補リストに含まれていなくても選べますが、既存の許可リストは引き続き適用し、候補によって拡張しません。カード・招待・マニフェスト・検索結果・監査経路は単一の URL を維持します。
-
-候補の URL は origin と pathname（末尾スラッシュなし）に正規化し、順序を維持して重複を除きます。通信前に全候補をローカル検証し、不正・読取不可の設定では操作を停止します。互換形式 `{ "version": 1, "relay": "https://relay.example" }` は単一候補として受け入れ、読取で書き換えません。矛盾する `relay` と `relays` は拒否します。既存の CLI `--relay`、MCP `relayUrl`、コンストラクターの `relay` は単一値のままです。設定管理コマンドや MCP 引数の追加はありません。
-
-MCP ホストは、信頼できないツール引数を渡すことがあります。`--allow-worker`、`--allow-relay`、そして `--require-approval` または `--approval-webhook` を付けて、プロンプト注入でタスク入力が任意のワーカーや中継器へ送られないようにします。フラグの説明は下の MCP の節にあります。
-
-## 1画面サマリ
-
-このプロジェクトは、中央のホスティング SaaS でも、エージェントの検索サイトでもありません。各オーナーが自分の Gateway を動かし、信頼できない Blind Relay 越しに署名付き `TaskContract` と減衰する `CapabilityToken` を交わして協働します。
-
-```mermaid
-flowchart LR
-    subgraph OwnerA["Owner A Zone (Requester)"]
-        OA[Owner A / HITL] --> GA[Gateway Runtime A]
-        GA --> AA[Agent A]
-        GA --> LA[(Local Audit Log A)]
-    end
-
-    subgraph Untrusted["Untrusted Transport"]
-        R[Blind Relay / Local Loopback]
-    end
-
-    subgraph OwnerB["Owner B Zone (Worker)"]
-        OB[Owner B / HITL] --> GB[Gateway Runtime B]
-        GB --> SB[Sandbox Runner]
-        SB --> AB[Agent B]
-        GB --> LB[(Local Audit Log B)]
-    end
-
-    GA <-->|"Signed Envelope (JCS + Ed25519)\n+ E2E Encrypted Payload"| R
-    R <-->|"Signed Envelope (JCS + Ed25519)\n+ E2E Encrypted Payload"| GB
-```
-
-## 敵対的セキュリティテストスイート
-
-[SECURITY_PROOF.ja.md](SECURITY_PROOF.ja.md) は、機械検査された形式的証明ではなく、経験的な敵対的セキュリティテストスイートです。脅威の種類ごとに、参照実装で止めるコードと、対応する敵対的回帰テストを対応づけています。レッドチーム一式は次の1コマンドで再実行できます。
-
-```sh
-pnpm test:security-proof
-```
-
-対象は、コマンド注入、ホスト秘密情報の持ち出し、セッション間の漏えい、リソース枯渇、SSRF、署名改ざん、隔離レベルの偽装です。
-
-## 30秒エージェント・クイックインストール
-
-Claude Code、Codex、Grok Bot、Cursor に、次の文を貼ってください。運用手順は [AGENTS.md](AGENTS.md)、持ち運び用スキルは [SKILL.md](SKILL.md) です。
-
-```text
-このリポジトリの Sealbridge をセットアップしてください。
-作業の前に AGENTS.md と SKILL.md を読んでください。
-Node.js 22 と pnpm 10 が必要です。リポジトリ直下で次を実行してください:
+git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge
 pnpm install --frozen-lockfile && pnpm build
-別マシン間の協働では、公開中継器へすぐに接続してください:
---relay https://relay.sealbridge.dev
-`pnpm sealbridge relay start --port 8787 --host 127.0.0.1` は、同一マシンまたはオフラインのときだけ使ってください。
-*.private.json、API キー、.env は表示・記録・コミットしないでください。
---auto-accept と --auto-approve は、私に確認してから使ってください。
+pnpm sealbridge demo
 ```
 
-## 3分クイックスタート (M2/M3)
-
-**AI エージェント向け:** Worker / Requester の手順、セットアップ、オーナー承認の規則は [AGENTS.md](AGENTS.md) です。役割のきっかけ、検索、オフライン監査は [SKILL.md](SKILL.md) の持ち運び用スキル `sealbridge` にまとまっています。
-
-Node.js 22 と pnpm 10 を用意し、リポジトリ直下で実行します。
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-**公開中継器（別マシン間の既定）**
-
-別マシン間では、ホスト済みの Cloudflare Blind Relay `https://relay.sealbridge.dev` を使います。両オーナーは `--relay https://relay.sealbridge.dev` だけで、すぐに外向き接続できます。Wrangler のアカウント、デプロイ、受信ポートの開放は不要です。
-
-```sh
---relay https://relay.sealbridge.dev
-```
-
-公開中継器は非信頼の転送路です。セッションのペイロードは受信者の `did:key` へ暗号化され、中継器が保存するのは暗号文です。経路のメタデータは見えたままです。`decryptEnvelopePayload`、`WorkerNode`、`RequesterClient`、`VerificationEngine` は、既定で暗号化された封筒を要求します（`requireEncrypted: true`）。平文のセッション封筒は `UNENCRYPTED_ENVELOPE_REJECTED` で拒否されます。`{ requireEncrypted: false }` と `allowUnencryptedEnvelopes: true` は、呼び出し側が明示したときだけ平文を開き、レガシーのメモリ内フィクスチャ向けです。自前で動かす場合は `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。ワーカーは受信者ごとの受信箱を別々の Durable Object（`inbox:<recipientDid>`）に分け、エージェントカードは専用の `registry` オブジェクトに置きます。
-
-新しく受理する封筒の保持期間は既定24時間です（`ACP_ENVELOPE_TTL_MS` またはローカルの `--envelope-ttl-ms`）。更新前に保存した期限は維持します。再送記録とエージェントカードは1時間で期限切れになります。再送記録の期限切れ・入替後も、キュー内に同じ ID があれば拒否します。両方の記録がなくなった後の再送履歴は保持しません。受信箱の上限はリース中も含め256件、1件256 KiB、合計4 MiBです。送信者ごとの上限は宛先ごとに既定256件です。キュー・全体容量や送信者の件数による一時拒否は HTTP 429、`{"error":"RELAY_RETRY_LATER","retryable":true,"retryAfterMs":60000}`、`Retry-After: 60` を返し、その封筒を保存しません。1件または宛先のバイト上限に単体でも収まらない封筒は恒久エラーの HTTP 400 です。既存クライアントは送信を自動再試行せず `RELAY_REJECTED: 429` を返します。[保持と受理の設定](docs/relay-reliability.ja.md#保持と受理)を参照してください。`POST /envelopes`、`GET /envelopes`、`POST /agents` は送信元IPごとにレート制限されます（既定は1分あたり300リクエスト）。レート制限は従来の HTTP 429 を維持します。既存の中継器へ新しいビルドを載せる前に、下のデプロイ手順を読んでください。
-
-**自前中継器のデプロイ**
-
-公開中継器で既定値・受理応答を変えるには、運用者による Worker のデプロイ・設定更新が必要です。この変更ではデプロイしません。ローカル・組み込みの中継器は更新後に新しい既定値を使います。現在の宛先別受信箱は保存済み期限・クラス名・マイグレーションタグを維持します。宛先別に分ける前の版を置き換える場合は、先に通信を排出してください。その版の単一 `acp-relay` オブジェクトは現在のワーカーから読みません。
-
-1. 宛先別に分ける前の版では送信を止め、キューを排出するか、設定した保持期間を待ちます。配置を変える前に古いキューが空であることを確認してください。
-2. `packages/relay/wrangler.toml.example` を `packages/relay/wrangler.toml` にコピーし、自分の Wrangler アカウントでデプロイします。`pnpm --filter @acp/relay exec wrangler deploy`
-3. エージェントは次の起動時に再登録します。古いオブジェクトの未配送の封筒は移行されません。必要な再試行は呼び出し側が明示的に行います。
-4. Worker に任意で置ける環境変数は `ACP_RATE_LIMIT_MAX`、`ACP_RATE_LIMIT_WINDOW_MS`、`ACP_MAX_ENVELOPE_BYTES`、`ACP_MAX_QUEUE_SIZE`、`ACP_MAX_QUEUE_BYTES`、`ACP_MAX_ENVELOPES_PER_SENDER`、`ACP_ENVELOPE_TTL_MS`、`ACP_SEEN_TTL_MS`、`ACP_AGENT_CARD_TTL_MS` です。任意の `RATE_LIMITER` バインディングは、アイソレート内のウィンドウに加えて検査されます。
-
-Durable Object のクラス名は変わらないので、例にある `v1` マイグレーションはそのまま使えます。新しいオブジェクト名は、同じクラスの別インスタンスです。古い `acp-relay` インスタンスは、参照が残っていないことを確認してから Wrangler で削除できます。
-
-**ターミナル 1 — 同一マシン・オフラインの中継器**
-
-同じマシン、またはオフラインではループバック中継器を使います。
-
-```sh
-pnpm sealbridge relay start --port 8787 --host 127.0.0.1
-```
-
-続くターミナルでは `--relay http://127.0.0.1:8787` を渡します。ループバックはこのマシンからしか届きません。別マシン間では、この URL を `https://relay.sealbridge.dev` に置き換えます。
-
-**ターミナル 2 — 受託側 Bob**
-
-```sh
-pnpm sealbridge keygen /tmp/bob.private.json
-pnpm sealbridge worker start --allow-local-pc --key /tmp/bob.private.json \
-  --relay http://127.0.0.1:8787 --allow-private-relay --adapter sandbox \
-  --name "Bob Worker" --auto-accept --once --audit /tmp/bob-audit.jsonl
-```
-
-表示された `acp-invite:...` の1行をコピーします。このローカル例は、制限付き子プロセスで入力 JSON を返すアダプターを設定します。受付には後述の検査と所有者の操作が必要です。`--auto-accept` は持ち主設定の受付範囲を広げません。sandbox・コマンドの自動実行には書き換え許可の明示設定が必要で、それ以外は対話式の承認を使います。予算増額は引き続き別の承認が必要です。鍵と監査ログの出力先は、未使用のパスにしてください。
-
-`sealbridge worker` は `--publish` を付けない限り、公開リレーのディレクトリへ AgentCard を登録しません。招待トークンを直接渡してください。`sealbridge discover` に出るのは `--publish` したワーカーだけです。
-
-ワーカー起動時の標準出力は従来どおり、1行目がトークン、2行目が HTTPS 招待リンクです。
-`--invite-output none` で両方を省略できます。`--invite-output file:/absolute/path/invite.txt`
-または `--invite-output fd:3` は、トークンと改行だけを別の出力先へ渡し、標準出力には複製しません。
-ファイルは未使用パスへモード `0600` で排他的に作成します。親ディレクトリは事前に作成し、
-POSIX では現在のユーザーが所有し、グループ・他ユーザーの権限を付けないでください（通常 `0700`）。
-既存ファイルと検出可能なリンクは拒否します。Windows は親の ACL を継承し、ACL は検証しません。
-`fd:<n>` は POSIX 専用です。Windows では引数解析時に `INVITE_OUTPUT_FD_UNSUPPORTED_PLATFORM` で
-拒否し、鍵の作成・リレーへの登録・待受開始は行いません。Windows の Node が継承する追加の stdio
-パイプは、同期ファイル書き込みに使える通常のファイル記述子ではありません。
-Windows で招待を別の出力先へ渡すには `file:<path>` を使ってください。
-継承する記述子は 2 より大きく、パイプ・ソケット・ファイルを指定します。ファイルは
-現在のユーザーが所有し、グループ・他ユーザーの権限がないことが必要です。出力先と寿命は親プロセスが
-管理し、ワーカーは記述子を閉じません。配送に失敗すると `INVITE_OUTPUT_UNAVAILABLE` で停止し、
-招待の表示と待受開始は行いません。
-
-すべてのモードで、招待の配送（または省略）後、待受開始前に stderr へ `invite_ready` JSON を1行出します。
-フィールドは `event`、`inviteDigest`（`sha256:` とトークンの完全な16進ダイジェスト）、
-`expiresAt`（ISO 日時）、`workerDid`、`relay` です。トークンや招待リンクは含みません。
-このイベントは中継器への接続完了を表しません。状態・イベント JSON は共通のフィールド選択処理を使い、
-診断キーとダイジェストを維持し、認識しない自由形式の値を `[redacted]` に置き換えます。
-承認プロンプトと、明示的に有効にした受信箱・受信フックの内容は従来どおりです。
-
-`--inbox /path/to/inbox.jsonl` を指定すると、対話エージェント向けの受信箱を保存します。
-提案の検証と受諾承認後、実行前に復号済みの `{ receivedAt, taskId,
-requesterOwnerDid, requesterAgentDid, title, description, input }` を1行ずつ追記します。
-親ディレクトリは事前に作成してください。ファイルはモード `0600` で作成し、既存ファイルも
-同じモードに制限します。拒否した提案は保存せず、書き込みに失敗したタスクは実行しません。
-受信内容は私的なタスクデータとして扱い、リポジトリ外へ保存してください。
-既定の sandbox echo ワーカーでも利用できます。
-
-DID による検索は `agentDid` の完全一致を `ownerDid` の別名一致より優先し、
-同じ所有者・エージェントの組では最新の `signedAt` を決定論的に選びます。
-対象エージェントに複数の有効な所有者がある場合は `AMBIGUOUS_AGENT_CARD_OWNER`
-（`/agents/:did` では HTTP 409）で拒否します。リレーのスナップショット復元では、
-期限切れカードも署名・構造を検証してから除外します。不正カードは引き続き
-`INVALID_AGENT_SNAPSHOT` で拒否します。
-
-`--max-input-tokens`、`--max-output-tokens`、`--max-tool-invocations`、`--max-wall-clock-seconds` は、ワーカーが受ける契約の上限です。どれかを超える提案は、`--auto-accept` でも `ACCEPT` の前に拒否されます。マニフェストの `timeoutSeconds` は `--max-wall-clock-seconds` と比較します。`--max-concurrent-tasks` は同時実行数の上限です（既定は 8）。`--max-requests-per-minute` は、依頼者 DID ごとの提案回数の上限です。
-
-`--allow-requester <did>` は対象を制限するだけで、信頼を付けません。自動受付ルールに合わない limited の依頼に検査と所有者が開く操作が必要です。CLI contacts の明示的な信頼は独立して維持します。
-
-### つながりによる受付
-
-[English](docs/connections/admission.md)
-
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`requests`、`accept`、`connections`、`pending`、`worker start --allow-task-type`、`acp_list_connections`、`acp_list_connection_requests`。
-
-状態は所有者の端末ごとの `none`・`pending`・`connected`・`blocked` です。
-connected は期限なしの limited 同意です。すべてのアダプターで、limited の依頼は
-検査完了と所有者が開く操作を経てから受諾します。自動承認方針では省略できません。
-ライブラリの既定の検査器は `unavailable` です。対話式 CLI ワーカーは表示による検査を行います。
-
-単体 CLI は検証済みの manifest・入力・能力を、端末制御文字をエスケープした
-JSON 文字列として表示します。`tasks list` は個別の保留 ID・タスク ID、`requests list` は
-依頼者ごとの受付を一覧します。`tasks show ID` の表示成功時だけ、既存の保留レコードに
-検査記録を保存します。表示は実行や接続同意の承認ではありません。
-`tasks approve ID` / `tasks reject ID` は対話式 TTY で所有者が確認し、その終端の保留内容だけを
-ローカルで閉じます。実行・終了済みセッションへの返信・次のタスクへの承認の保存は行いません。
-新しいタスクを明示的に送信するか `pending resubmit ID` を使い、稼働中の対話式ワーカーで
-新たな内容を確認し、所有者プロンプトで承認・拒否してください。新しい依頼は現在の自動受付ルールを確認します。
-自動受付ルールに合わない limited タスクは、TTY がなければ保留です。`--auto-accept` は受付対象や書き換えの許可を広げません。
-接続同意は `connections` で行います。従来の `requests approve` は検査済みの依頼に対する
-接続同意の意味を維持し、実行を承認しません。`--trust trusted` は別の従来の権限付与です。
-
-未接続の相手からの有効な依頼は、暗号化済み封筒として、24時間、依頼の期限、ワーカーがすでに読んだ grant の期限の早い方まで
-保存し、終端の `PENDING_OWNER_APPROVAL`・`retryable:false`・CLI 終了値3を返します。
-自動再試行はしません。署名・スキーマ・能力・申告予算・公開スキル・運用者の制限は
-保存や招待の結び付けより前に確認します。新しい受付情報には題名・説明のプレビューを
-保存しません。未検査の `requests show` は `INSPECTION_INCOMPLETE` です。
-平文の受信箱と受信フックは、検査と所有者が開く操作の後だけ使います。
-
-```sh
-sealbridge worker start --allow-local-pc --adapter sandbox --publish --allow-task-type json --max-input-tokens 50000
-sealbridge discover --skill json-task
-sealbridge requests list
-# 受信ワーカーと同じ役割・鍵で個別の保留タスクを確認:
-sealbridge tasks list
-sealbridge tasks show HELD_ID
-sealbridge tasks approve HELD_ID
-# または sealbridge tasks reject HELD_ID
-# 明示的に再送し、対話式ワーカーで新しいタスクを承認します。
-sealbridge requests discard REQUEST_ID
-sealbridge requests deny REQUEST_ID
-```
-
-`--publish` はディレクトリへの掲載だけを行います。未掲載のワーカーも同じ受付規則です。
-`--allow-requester` は対象を制限するだけで信頼を付けません。予算は
-`--max-input-tokens`・`--max-output-tokens`・`--max-tool-invocations`・
-`--max-wall-clock-seconds`、頻度は `--max-requests-per-minute` で設定します。
-公開設定の `public` は掲載だけを制御し、`alwaysAsk:false` は
-`CONNECTION_OPENING_REQUIRED` を返します。
-
-招待は発行者だけが同意済みの接続申し込みで、最初に使った所有者 DID に結び付きます。
-別の所有者が同じ有効な招待を使うと保留です。接続解除後も招待の期限まで結び付けを保持します。
-期限切れ・相手の不一致・失効した招待は保存前に拒否します。成立済みの接続は招待の期限や
-失効では消えません。後続の依頼は古いトークンを添付せず、確認済みの相手 DID を使います。
-保存済み `workerRef` は引き続き招待を選び、使うたびに期限を確認します。
-取り込みやプレビューだけでは、どちらの役割にも接続同意を付けません。
-
-```sh
-sealbridge accept --paste --alias reviewer
-sealbridge connections confirm-invite reviewer --role requester
-sealbridge connections request --to PEER_DID --relay https://relay.sealbridge.dev --role worker
-sealbridge connections list --role worker
-sealbridge connections approve REQUEST_ID --role worker
-sealbridge connections reject REQUEST_ID
-sealbridge connections withdraw REQUEST_ID
-sealbridge connections disconnect PEER_DID
-sealbridge connections block PEER_DID
-sealbridge connections unblock PEER_DID
-sealbridge connections prior-approved
-sealbridge connections connect-prior PEER_DID --relay https://relay.sealbridge.dev
-sealbridge connections sync --role requester --relay https://relay.sealbridge.dev --once
-sealbridge connections status reviewer --role requester
-```
-
-確認送信後に `sync --once` を実行し、`connections status reviewer` で照会します。
-保存済み workerRef または相手の所有者 DID も指定できます。既定の役割は requester です。
-照会はローカルの記録だけを読み、送信や鍵の作成はしません。`pending_peer` は相手の承認が
-ローカルに未適用、`connected` はローカルの limited 接続です。交換記録がある場合は
-`acknowledgementPending` も返します。同じ情報を
-`WorkerTrustStore.connectionStatus(peerOwnerDid)` から取得できます。
-ほかの状態は `none`・`pending_owner`・`inactive`・`expired`・`blocked` です。
-このプロトコルは相手側の拒否を通知しません。期限切れの申し込みの詳細は既存の削除処理まで
-照会でき、成立済みの接続は期限切れで消えません。
-詳しくは[接続状態の照会](docs/connections/connection-exchange.ja.md#接続状態の照会)を参照してください。
-
-判断には人間の TTY または注入された人間用審査プロバイダーが必要で、`--yes` はありません。
-ローカルの役割・DID と相手の所有者 DID を確認してください。requester と worker の既定鍵は別です。
-送信側の同意は送信前に保存し、申し込みは14日で失効します。reject は申し込みだけを7日間
-受け付けなくし、その間も依頼は保留できます。discard は内容だけを削除し、deny はブロックです。
-ブロックは片方向で、相手に応答しません。解除・ブロックは次の受付から効き、受諾済みの仕事は
-明示的な CANCEL で止めます。同時の申し込みは2つの DID を昇順にして同じ接続 ID を導きます。
-承認・ACK の状態を保存してからリレー受信確認を返します。sync は依頼を再送しません。
-内容の保存期限と送信済み同意の14日は別の期限です。
-
-依頼の承認と接続への同意は別の判断です。CLI や MCP フォームで順に確認でき、明示的な
-接続同意がなければ申し込みを添付しません。相手の署名付き同意がない保留依頼を承認した場合、
-こちらから申し込みます。こちらの判断だけで相手の同意は作りません。接続の確認後は依頼者の
-所有者が新しい依頼を明示的に開始します。`pending resubmit` も未使用の監査・出力パスを使い、
-新しい依頼として改めて検査し、所有者が開きます。
-
-既存の署名付き受付・招待ファイルは読み取れ、一覧・読み取りで書き換えません。従来の有限の
-許可は保留を省略せず、接続へ自動変換しません。残っている承認履歴は `prior-approved` から
-所有者の操作で申し込みます。相手の同意も必要です。従来の拒否はブロックとして残ります。
-CLI の明示的な contacts 設定は独立して維持します。`requests approve ID --trust trusted` は
-別系統の従来の24時間許可です。接続の操作から trusted は作りません。最初の変更で v2 に進むため、
-旧版へ戻す必要があれば事前に v1 を保存してください。新旧の書き込み処理は併用しません。
-接続・版の記録は1,000件・1 MiBの境界を維持し、成立済みの記録を自動削除しません。
-
-廃止した CLI の `--open`・`--access-mode`・`--open-*`・`--allow-any-requester` と JS の
-`accessMode`・`openPolicy`・`allowAnyRequester` は移行案内付きの `ACCESS_MODE_REMOVED` です。
-MCP 検索の旧 `accessMode` 引数は JSON-RPC -32602 です。検索は署名と期限を確認した
-最新の掲載カードすべてを返し、運用モードの欄は返しません。旧カードの署名済み原本は保持します。
-`acp_list_connections {}`・`acp_list_connection_requests {}` は鍵を作らず、サーバーの署名者の
-ローカル情報だけを返します。所有者の判断は人間用 CLI で行います。
-
-board の claim と dispatch は、選択した投稿者の現在の接続が必要です。
-未接続なら `CONNECTION_REQUIRED` で、接続だけでは依頼・リースを承認しません。
-接続と版を確認してからリースを消費します。保存済みのタスク封筒は、同じ署名済みバイト列と ID で受理または元の期限まで再試行し、リースを再消費しません。
-一度だけの入場券と別の応募キューは後続の検討です。
-
-[プロトコル版とリリース時計](docs/connections/protocol-versions.ja.md)も参照してください。
-
-依頼側は CLI/MCP の保留依頼を既存のデータルート内の
-`requesters/<requester-did-hash>/pending.private.json` に24時間保存します（POSIX 0600）。
-非公開レコードにはタスク本文・入力と、使用した場合は招待参照を含みます。
-一覧・エラーには招待情報やタスク本文を返しません。保留応答には `pendingId`、
-`originalTaskId` と次の操作案内が加わります。元のタスク ID または依頼者 DID を
-ワーカー所有者に伝え、審査対象を確認してください。
-
-```sh
-sealbridge pending list
-sealbridge pending resubmit PENDING_ID --audit ./fresh-audit.jsonl --out ./fresh-result.json
-sealbridge pending remove PENDING_ID
-```
-
-同じ依頼者の鍵・データルートを使い、明示的な鍵には `--key FILE` を指定します。
-再送は現在の承認方針（CLI の既定は対話承認）に従い、`--auto-approve` は所有者が
-明示的に許可した場合だけ指定します。監査・出力には未使用のパスを指定します。
-中継器・承認設定を再確認し、保存済み招待の期限・失効も引き続き確認します。
-保存した workerRef を使った保留記録には参照だけを保持し、招待トークンを複製せず、明示的な再送時に参照を解決し直します。
-MCP は `acp_list_pending_requests {}` と `acp_resubmit_pending_request {pendingId}` を提供し、
-現在の送信先確認と必須のホスト承認を適用します。再送は新しいタスク ID を作り、
-再度の保留は同じレコードを更新、完了は resolved、その他のエラーは failed として記録します。
-保存期限は延長せず、期限切れのレコードは次の保存更新時に削除します。一覧は最後に観測したローカル状態で、遠隔の承認状態は取得せず、
-自動再送もしません。再送時に対応版を選び直し、新しい検査と所有者が開く操作を行います。状態照会・通知は今後の検討事項です。
-
-`--allowed-peer DID` は繰り返し・カンマ区切りで、全信頼レベルの受信とセッション送信（進捗・復旧を含む）を制限します。対象外には応答しないため、別の手段で伝えてください。公開登録は引き続き `--publish` の指定が必要です。
-
-**ターミナル 3 — 依頼側 Alice**
-
-Bob のワーカーを対話式 TTY で稼働させます。検証済みタスクの内容を JSON 文字列で
-表示し、Bob がそのライブのタスクを承認します。招待による limited の接続同意と、
-タスク実行の承認は別の判断です。TTY がない場合や接続同意がない場合は、終端の
-`PENDING_OWNER_APPROVAL`（終了値3）になります。受信ワーカーと同じ鍵・役割で
-`tasks list/show`、接続申し込みは `connections review list` で確認します。
-確認後に新しい依頼を明示的に送り、Bob のライブプロンプトで承認します。自動再試行はしません。
-
-```sh
-pnpm sealbridge keygen /tmp/alice.private.json
-# プロンプトが出たら Bob のトークン全体を貼り付ける
-read -r BOB_INVITE
-pnpm sealbridge delegate --key /tmp/alice.private.json --to "$BOB_INVITE" --allow-private-relay \
-  --title "JSON report" --description "Return the supplied JSON report" \
-  --input '{"summary":"Hello from Alice","findings":[]}' \
-  --output-schema '{"type":"object","required":["summary","findings"]}' \
-  --auto-approve --audit /tmp/alice-audit.jsonl --out /tmp/report.json
-pnpm sealbridge audit-verify /tmp/alice-audit.jsonl
-pnpm sealbridge discover --relay http://127.0.0.1:8787 --allow-private-relay
-```
-
-`delegate` には `--title`、`--description` と、`--input '<json>'` または
-`--input-file <path>` のどちらか一方が必要です。`--invite` は `--to` と同じ検証を行う別名です。
-両方を指定する場合は同じ値にしてください。使用法は `sealbridge delegate --help` で確認できます。
-
-受付と所有者が開く操作を経た後の結果は、双方の `SETTLED`、JSON の成果物、`"valid":true` と `"status":"VALID"` です。トラストアンカーファイルも `--expect-final-state` / `--expect-last-hash` / `--expect-entry-count` も無いとき、`statusLabel` は `VALID (no trust anchor: truncation not checked)` です。ハッシュ鎖は検証できていますが、より古い妥当な接頭辞は排除していません。Alice は署名・ダイジェスト・予算、JSON Schema、登録済みの隔離チェックを検証し、最後に署名付きの最終承認を取ります。`--auto-approve` は最終検収をポリシー承認にする明示的な選択です。人間が確認するときは外してください。`acp://invite?token=...` も受け付けます。招待の代わりに `--to <Bob の DID> --relay <URL>` も使えます。Bob は手元の `/tmp/bob-audit.jsonl` を自分で検証できます。
-
-**アダプタを選ぶ**
-
-| アダプタ            | CLI / プログラム上の入口                              | 動作                                                                                    |
-| ------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Command             | `--adapter command --cmd 'your-command'`              | 標準入力 JSON と `TASK_INPUT_FILE`、標準出力 JSON、新しい作業ディレクトリ、浄化済み環境 |
-| Claude Code         | `--adapter claude`                                    | `claude -p --output-format json`。既定は読み取り専用 `--tools Read,Glob,Grep`、シェル・書き込み・Web の拒否、`--permission-mode dontAsk` |
-| Codex CLI           | `--adapter codex`                                     | `codex exec --json --sandbox read-only`。JSONL のエージェント出力とトークン使用量       |
-| OpenAI 互換         | `--adapter openai --model <model> [--endpoint <URL>]` | ホスト側 BYOK の HTTP。プロバイダーのトークン数をそのまま計量                           |
-| MCP                 | `@acp/adapters` の `McpClientAdapter`                 | 公式 SDK クライアント。stdio またはメモリ内転送。CapGuard・クォータ・承認プロキシ       |
-| 制限付き JavaScript | `--adapter sandbox [--cmd 'return input;']`           | `subprocess_restricted`（カーネルのネットワーク隔離はない）。`isolationLevel` が要求するときは `oci_container` |
-
-Claude / Codex のバイナリは、あらかじめインストールされている必要があります。各アダプタは `binaryPath`、`extraArgs`、`command` / `runner` の上書きを受け付けます。ホストにプロバイダー鍵（`ANTHROPIC_API_KEY` または `OPENAI_API_KEY`）があるとき、タスク単位のループバック仲介が上流へ鍵を付け、CLI には一時的なローカル資格情報だけを渡します。ホストの資格情報、秘密鍵、継承された `NODE_OPTIONS` は子プロセスの環境へコピーしません。OpenAI アダプタは鍵なしのローカル Ollama / vLLM にも対応し、プログラムからは `apiStyle: 'anthropic'` で Anthropic Messages API を使えます。
-
-LLM を使うアダプタ（`claude`、`codex`、`openai`）は、遠隔のピアから信頼できない入力を受け取ります。`claude` と `codex` は、既定で読み取り専用のツール制限を付けます。Claude Code は `claude -p --output-format json --tools Read,Glob,Grep --disallowedTools Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch --permission-mode dontAsk` として起動し、シェル実行、ファイル書き込み、Web ツールを無効にします。Codex は `codex exec --json --skip-git-repo-check --sandbox read-only` として起動します。`ClaudeCodeAdapter`（`ClaudeCodeCliAdapter` としても公開）は `tools`、`allowedTools`、`disallowedTools`、`permissionMode`、`allowUnsafeTools` を受け付けます。`CodexCliAdapter` は `sandbox`（`read-only`、`workspace-write`、`danger-full-access`）を受け付けます。`extraArgs` に同じフラグ（`--tools`、`--disallowedTools` または `--disallowed-tools`、`--permission-mode`、`--sandbox` または `-s`。`--flag=value` 形式を含む）を渡すと、そのフラグの既定値は出さず、プロセスが受け取る値は1つです。`allowUnsafeTools: true` は Claude の読み取り専用の既定を外します。`command` を渡すと引数リスト全体を置き換えます。`resolveClaudeCodeCliCommand`、`resolveCodexCliCommand`、`resolvedInvocation()` は基本の引数を返し、Codex のプロバイダー引数はタスクごとに追加します。運用者は、これらのアダプタを OCI コンテナの中で動かす（`--isolation oci`）か、信頼できる依頼者 DID にタスクを制限する（`--allow-requester <did>`）かしなければなりません。
-
-既定の Codex アダプタには **Codex CLI 0.163.0 以降**が必要です。検証済みバージョンは 0.163.0 です（`npm install -g @openai/codex@0.163.0`）。新しいバージョンには上限を設けず、タスクごとに警告を1行出して実行します。タスクごとに独立した一時 `CODEX_HOME` に `sealbridge-proxy` プロバイダーを作成し、HTTP Responses をローカル資格情報プロキシへ送ります。一時トークンは `SEALBRIDGE_CODEX_PROXY_TOKEN` で渡し、WebSocket と OpenAI ログインは無効にします。推論前に CLI バージョンを確認し、生成した設定ファイルと実際のプロバイダー上書き引数がタスク用ループバックプロキシを選択していることを検証します。`--strict-config --ignore-user-config` を指定し、親環境のプロバイダーやプロファイル設定を引き継がない環境で起動します。プロセス終了後、実行ごとのトークンで認証されたリクエストがタスク用プロキシのプロバイダールートに1件以上届いたことを確認します。0件の場合は `ADAPTER_PROXY_NOT_USED` として失敗し、成果物を返しません。Web 検索、プロバイダー検出、アプリ、プラグイン、分析、フィードバック、テレメトリー送信、更新確認を無効にします。生成した CLI 設定がプロジェクト設定より優先されます。プロキシを使う Codex の `extraArgs` はモデル（`--model` / `-m`）、サンドボックス（`--sandbox` / `-s`）、色指定のみ受け付け、他の設定引数は `CODEX_PROXY_UNSUPPORTED_ARGUMENT` になります。明示的な `command` の置き換えは、CLI 設定と認証を自分で管理します。
-
-Windows では `PATHEXT` に従ってコマンドを探し、各 PATH ディレクトリ内で実行ファイルを優先します。認識できる npm `.cmd` シムは JavaScript エントリーを Node で起動し、引数内の空白や引用符を保持します。他の `.cmd` / `.bat` は `cmd.exe /d /s /v:off /c` で起動し、引数の二重引用符、`%`、`!`、`^`、NUL、改行を拒否します。実行ファイルと JavaScript エントリーには通常の argv として引用符を渡せます。子プロセスには実行ファイル、Node、Windows システムの各ディレクトリと、タスク専用のプロファイル・一時パスを設定します。所有者指定の文字列 `--cmd` は Windows では `cmd.exe`、POSIX では `/bin/sh -c` を使い、追加引数は Windows では末尾に追加、POSIX ではシェルの位置引数になります。
-
-`conformance/codex-proxy-real.test.ts` は実際の CLI をローカル HTTP エンドポイントへ接続し、Responses リクエスト、一時トークン、SSE による完了、HTTP プロキシ経路を確認します。`SEALBRIDGE_CODEX_BIN` または PATH の `codex` を使い、未インストール時は理由付きでスキップします。CI は固定バージョンをインストールして Linux・macOS・Windows で実行します。設定スタブのテストには CLI は不要です。
-
-Command と CLI アダプタは、オーナーが設定した実行ファイルを新しい作業ディレクトリで動かします。これはプロセスの衛生管理であり、OS レベルのファイルシステム隔離やネットワーク隔離ではありません。`subprocess_restricted`（サンドボックスアダプタの既定）は別の OS プロセスです。環境変数は浄化され、スクラッチディレクトリ、時間切れと SIGKILL、出力のバイト上限があります。Node が対応しているとき、子プロセスは `--permission`（Node.js 22.13 以上と Node.js 23 以降）または `--experimental-permission`（それより前の Node.js 20 / 22）と、そのディレクトリだけの `--allow-fs-read` と `--allow-fs-write` を受け取ります。これらのフラグはファイルシステム、子プロセス、ワーカー、ネイティブアドオンを制限します。`fetch`、`node:net`、`node:http`、`node:https`、`node:dns`、`node:dgram` は止めません。タスクコードは `node:vm` で動きます。Node.js の文書では `node:vm` はセキュリティ機構ではないです。信頼できない第三者コードには `oci_container`（`isolationLevel: 'oci_container'`）が必要です。OCI は、すでに存在する `node:22-bookworm-slim` イメージを使い、Podman を優先し、`--network none`、`--read-only`、`--cap-drop ALL`、`--security-opt no-new-privileges`、メモリと PID の上限を付けます。ランタイムが無いときは `subprocess_restricted` へフォールバックし、`ExecutionAttestation.effectiveIsolationLevel` に実際の隔離レベルを記録します。コンテナの実行失敗は、再実行せずに表面化します。実行証明が必須のとき、署名済みマニフェストが `sandboxPolicy.allowSubprocessFallback: true` を明示していない限り、OCI から下位の隔離への格下げは検証で拒否されます。カーネルのネットワーク隔離は OCI の経路であり、Node の権限モデルではありません。
-
-セッションのペイロードは、一時的な X25519、HKDF-SHA256、AES-256-GCM で暗号化し、ヘッダを暗号文に束縛します。転送には HTTPS を使います。中継器はオーナーの鍵を持たず、仕事を認可できず、タスク入力も CapabilityToken も結果も読めません。経路のメタデータの観測と、配送の拒否はできます。詳細は [セキュリティモデル](docs/security-model.md) と [敵対的セキュリティテストスイート](SECURITY_PROOF.ja.md) を見てください。
-
-## Docker の実行時 ID
-
-Docker イメージは非 root の `node` ユーザー（UID 1000）で動作します。
-初回起動時に `/data/owner.private.json` へモード `0600` でオーナー ID を生成し、
-次回以降は同じ鍵を再利用します。`/data` に名前付きボリュームをマウントし、
-コンテナを置き換えるときも同じボリュームを使ってください。例:
-
-```sh
-docker run --rm -i -v sealbridge-data:/data sealbridge
-```
-
-`/data` はボリュームとして宣言されています。既存の読み取り可能な鍵、または
-永続ボリューム内の別の絶対パスを使うには `SEALBRIDGE_KEY_PATH` を設定します。
-新しい鍵の生成には UID 1000 が書き込める既存ディレクトリが必要です。
-鍵の読み取りや生成ができない場合、起動は失敗し、マウントと権限の確認を案内します。
-`SEALBRIDGE_RELAY_URL` で中継 URL を指定できます。未設定または空の場合は
-CLI の中継選択に従い、公開中継器のフォールバックは `https://relay.sealbridge.dev` です。
-Smithery の任意項目 `relayUrl` も、省略時は同じ動作になります。MCP の追加フラグは、
-イメージ名の後の `mcp-server` に続けて指定できます。
-
-ビルド時にオーナー ID を生成していた以前のイメージを利用している場合は、
-新しい実行時 ID に切り替え、対応する DID、許可リスト、招待を更新してください。
-
-## MCP、進捗、失効、クォーラム
-
-```sh
-pnpm sealbridge mcp-server
-```
-
-リリース注記：次の機能は sealbridge npm パッケージの 0.3.0 から利用できます。CLI 0.2.2 以前では対応していません：`acp_list_invites`、`acp_remove_invite`、`acp_list_pending_requests`、`acp_resubmit_pending_request`。
-
-`sealbridge mcp-server` は、依存ライブラリを増やさない JSON-RPC 2.0 の MCP サーバーです。標準入力に、改行区切り JSON と `Content-Length` フレームの両方を受けます。Claude Code、Cursor、Codex、Grok Bot から次のツールを呼べます。
-
-| ツール                     | 戻り値                                                                 |
-| -------------------------- | ---------------------------------------------------------------------- |
-| `acp_list_invites`          | 保存した参照・別名・公開メタデータ・期限状態                           |
-| `acp_remove_invite`         | ローカル削除結果。発行者の招待は失効しません                           |
-| `acp_delegate_task`        | 検証済み成果物、`taskId`、状態、監査の要約                             |
-| `acp_delegate_multi`       | 複数ワーカーへの `race` または `quorum` 委任                           |
-| `acp_verify_audit_bundle`  | 暗号検証レポート。トラストアンカーで末尾切断を見たかも含む             |
-| `acp_create_invite`        | 署名済み `acp-invite` トークン                                         |
-| `acp_revoke_token`         | このプロセスに保存した署名済み `RevocationNotice`                      |
-| `acp_discover_workers`     | 既定では公開済み open ワーカーの現在のカード                           |
-| `acp_inspect_revocations`  | このサーバープロセスに記録された失効通知                               |
-| `acp_message_status` | 送信側のローカル状態。送信・更新取得・ポーリングはしません |
-| `acp_list_pending_requests` | タスク本文・招待情報を含まないローカルの保留記録                       |
-| `acp_resubmit_pending_request` | 所有者の審査後、現在の確認・承認を適用して新しいタスクを送信        |
-
-`initialize` は、この手順を示したサーバー `instructions` を返します。同じ実装が `@acp/runtime` の `AcpMcpServer` です。サーバー鍵は、ツールが行う依頼側の承認に署名します。`acp_discover_workers` はディレクトリの読み取り専用です。`GET /agents` の前に、委任と同じリレー許可リストと `validateRelayEndpointUrl` を使い、タスク入力は送りません。`acp_inspect_revocations` はメモリ上のレジストリを読むだけで、ワーカーには接続しません。
-
-フラグなしの `sealbridge mcp-server` で `acp_discover_workers {}` を呼ぶと、既定の `https://relay.sealbridge.dev` に公開されたワーカーを列挙します。結果を選び、その `workerDid` と `relayUrl` をそのまま `acp_delegate_task` に渡します。
-
-```json
-{
-  "workerDid": "<検索結果の workerDid>",
-  "relayUrl": "<検索結果の relayUrl>",
-  "title": "Echo JSON",
-  "description": "入力された JSON を返す",
-  "input": { "hello": "world" }
-}
-```
-
-単一ワーカーへの委任で `description` を省略すると、タイトルを使います。既定ではワーカー許可リストの設定は不要ですが、明示された許可リストは引き続き適用されます。
-
-MCP 検索は最新の署名と期限を確認した掲載カードすべてを返します。`skillId` と `taskType` で絞り込み、旧 `accessMode` は JSON-RPC -32602 です。元の署名付きカード・スキル・`protocolVersions`・`workerDid`・`relayUrl`・`acceptance: "worker_decides"` を返し、運用モードは返しません。
-
-掲載は `--publish` で選び、接続や依頼の承認を意味しません。未接続の依頼は終端の `PENDING_OWNER_APPROVAL` です。拒否時に別の相手へ切り替えたり自動再試行したりしません。
-
-`acp_delegate_task` と `acp_delegate_multi` は、タスク入力を中継器経由で対象ワーカーへ送ります。ホストが引数を組み立てるときは、送信先を制限します。
-
-```sh
-pnpm sealbridge mcp-server \
-  --key /tmp/alice.private.json \
-  --relay https://relay.sealbridge.dev \
-  --allow-relay https://relay.sealbridge.dev \
-  --allow-worker did:key:z... \
-  --approval-webhook https://approvals.example/acp
-```
-
-`--allow-worker <did>` と `--allow-relay <url>` は、繰り返しとカンマ区切りの両方を受けます。`--allow-worker` があるとき、素のワーカー DID は一覧と一致しなければなりません。招待トークンは、その `agentDid` または `ownerDid` のどちらかが一覧にあれば許可されます。それ以外は、接続する前に `MCP_WORKER_NOT_ALLOWED` で拒否します。`--allow-relay` があるとき、リレー URL は末尾スラッシュを除いたオリジンとパスへ正規化します。設定した `--relay`、ツールの `relayUrl`、招待トークンに埋め込まれたリレー URL は、すべて一覧と一致しなければなりません。一致しなければ `MCP_RELAY_NOT_ALLOWED` です。ツール呼び出しや招待が `--relay` と別の中継器を選ぶ場合も、その URL が一覧になければ拒否します。許可リストを付けないプログラムからの利用では、`allowAnyRelay: true` を明示したときだけ別の中継器を選べます。許可リストがあるときは、そちらが優先されます。設定したリレー URL は `validateRelayEndpointUrl` で検査します。
-
-`--require-approval`（プログラムでは `requireInteractiveApproval: true`）は、タスク送信前と最終検収時に MCP のフォーム elicitation を要求します。ホストはフォーム対応を広告し、プロトコル `2025-06-18` を使用する必要があります。従来の空の `elicitation: {}` もフォーム対応として扱いますが、URL のみの対応では利用できません。`action: accept` かつ真偽値の `approved: true` の場合だけ承認します。各フォームの待機は最大60秒で、タスクの残り期限も超えません。複数ワーカーには送信先ごとに総数を示して確認します。送信時は解決済みタスクと入力、検収時は成果物と署名済みメタデータを表示し、大きすぎる確認内容は `APPROVAL_REVIEW_TOO_LARGE` で拒否します。
-
-フォーム非対応のホストでは、タスク送信前に `APPROVAL_CHANNEL_UNAVAILABLE` を返します。elicitation 対応ホスト、または `--approval-webhook` を使用してください。標準出力への端末プロンプト表示や MCP 標準入力からの承認読み取りは、TTY でも行いません。通常の CLI worker/delegate の端末承認は従来どおりです。フォーム表示と利用者の決定の返却はホストに依存します。
-
-`--require-approval` も明示的な webhook/provider 設定もない場合、従来の policy-auto 動作は変わりません。`--approval-webhook <url>` は所有者決定モードを維持し、`{ taskId, summaryHash, reason, approverDid }` を POST して HTTP 2xx かつ `{ approved: true }` の場合のみ続行します。拒否または非2xxは `APPROVAL_REJECTED` です。独自の承認器は `AcpMcpServer.approvalProvider` で指定できます。許可リスト検査の後、送信承認では確定したマニフェスト・宛先・入力を確認します。最終検収の失敗は送信後にも発生するため、失敗が未送信を意味するとは限りません。関連テストは `conformance/mcp-host-approval.test.ts`、`conformance/mcp-approval-session.test.ts`、`conformance/p1-7-mcp-outbound-policy.test.ts` です。
-
-ワーカーは実行中に `PROGRESS`（`percent`、`step`、`message`、途中のトークン数やツール回数）を送れます。ほかのセッション封筒と同じ暗号と相互署名の監査に入ります。`delegate(request, { onProgress })` は、`DELIVER` の前に復号した更新を受け取ります。申告された使用量は `QuotaMeter` に計上されます。
-
-`RevocationRegistry` は Ed25519 の `RevocationNotice`（RFC 8785 JCS）を検査します。ワーカーは失効した招待を `ACCEPT` の前に拒否します。`CapabilityGuard` は失効した能力を、ツール実行の前に `TOKEN_REVOKED` で拒否します。`issuerDid` 以外の署名は無効です。
-
-ワーカーがオフラインでも失効は届きます。`deliverRevocation` と `RequesterClient.sendRevocation` は、`SignedRevocationNotice` を載せた暗号化 `REVOKE` 封筒を、そのワーカーのリレー受信箱へ並べます。`WorkerNode` は `runOnce()`、`start()`（`start({ once: true })` を含む）、`pumpUntil()` で、次の `PROPOSE` を読む前に先頭の `REVOKE` を取り込みます。招待の通知は、送信者がワーカーの所有者であるときだけ記録します。能力の通知は、`issuerDid` がそのトークンを発行した、または委任したときだけ記録します。偽造や第三者の `REVOKE` は無視し、保存しません。`ACCEPT` の前に `capabilityChains` の各能力 ID を `assertNotRevoked` で検査するので、失効済みの能力は `TOKEN_REVOKED` となり、タスクは受諾されません。オフラインのキューと偽装通知は `conformance/offline-revocation-inbox.test.ts` が覆います。
-
-`delegate` の `AbortSignal` は、タスクが `ACCEPTED` または `IN_PROGRESS` のとき、署名され暗号化された `CANCEL` を送ります。ワーカーはタスクを止め、サンドボックスへ `SIGTERM` のあと `SIGKILL` を送り、`CANCELLED` の監査ログを封印します。
-
-`delegateMulti({ mode: 'race' })` は、検証を通過した最初の成果物を採用し、残りを取り消します。`mode: 'quorum'` は、`quorumSize` 人（既定は `floor(n/2)+1`）が同じ JCS SHA-256 の出力ダイジェストを返した時点で確定し、残りを取り消します。合意が不可能なら `QUORUM_NOT_REACHED` で拒否し、検証済みの受領は残します。
-
-HTTP の受信、SSE ストリーム、WebSocket の受信と購読には、宛先リレーのオリジンに束縛された、受信者が新しく署名した `RelayAuth` トークンが必要です。`WorkerNode`、`RequesterClient`、CLI は自動で署名し、オリジンを含めます。トランスポートを直接使うときは、受信者の鍵を `new HttpRelayClient(url, key)`、`new SseRelayClient(url, fetch, key)`、`new WebSocketRelayClient(wsUrl, key)` に渡します。これらのクライアントは `normalizeRelayOrigin` で `origin` を決めます（`ws:` は `http:`、`wss:` は `https:`）。同じホストとポートの HTTP、SSE、WebSocket は一つの正規オリジンを共有します。HTTP / SSE は第3引数に非同期のトークン生成関数 `(recipientDid, action, origin) => ...` も受け付け、WebSocket は第2引数で受け付けます。その `origin` を `createRelayAuthToken` に渡してください。生の HTTP では `createRelayAuthToken(key, { action, origin })` を `Authorization: Bearer <token>` または `x-acp-relay-auth` に載せます。`auth` クエリは、アクセスログ、プロキシログ、Referer へ資格情報が漏れるため、リレーを `allowQueryAuth: true` で作らない限り `RELAY_QUERY_AUTH_DISABLED` で拒否します。操作に合わせて `receive`、`stream`、`subscribe` を使います。トークンは時計のずれ5分で期限切れになり、ノンスは境界付きの再生キャッシュに残っているあいだ一度だけ使えます。別オリジン向けのトークンは `RELAY_AUTH_ORIGIN_MISMATCH` です。ネットワーク要求で `origin` の無いトークンは、リレーが `allowUnboundRelayAuth: true` でない限り `RELAY_AUTH_ORIGIN_REQUIRED` です。`InMemoryRelay.receive(did)` は既定ではトークンなしで使えます。そこでも要求するときは `{ requireAuth: true }` で構築します。このメモリ内の経路は、呼び出し側がオリジンを渡さない限りオリジンを検査しません。HTTP と WebSocket のエラー本文は、許可リストにあるプロトコルコードだけを返します。想定外の実行時エラー、ストレージ障害、パーサ例外は `RELAY_INTERNAL_ERROR`（HTTP 500）になり、例外の本文は含めません。壊れた JSON と不正な URL は HTTP 400 `INVALID_REQUEST` です。
-
-招待の接続先は、`allowPrivateRelay: true` を明示しない限り、プライベート、ループバック、リンクローカル、メタデータ、未指定アドレスを拒否します。`parseAndVerifyInviteToken` と `RequesterClient` の既定はこの拒否です。`169.254.169.254`、`0.0.0.0/8`、その他のメタデータと未指定範囲は、プライベート中継を許可しても拒否します。自分で起動したループバック中継に限って、`worker`、`delegate`、`discover`、`accept`、`mcp-server` に `--allow-private-relay` を渡します。直接接続する Node クライアントは接続前にホスト名を解決し、検証済みアドレスへソケットを固定します。HTTP プロキシ経由で公開中継器へ接続する場合（Muse の合成 DNS 環境を含む）、`--allow-private-relay` は不要です。
-
-プロセスを分けたコマンドアダプタの自動デモもあります。
-
-```sh
-node examples/network-collab/run.mjs
-```
-
-## マニフェストのプロトコル版
-
-ライブラリはマニフェスト0.1.0と0.2.0を検証し、明示的な互換方針を提供します。
-送信は相互に対応する最新の版を選び、0.2.0 を優先します。設定済みのリリース時計は [版の説明](docs/connections/protocol-versions.ja.md)を参照してください。
-スキーマ・方針・相手の観測については[プロトコル版](docs/connections/protocol-versions.ja.md)を参照してください。
-
-## 5つの設計原則
-
-1. **認証情報を共有しない。** 依頼側は、API キーや生の資格情報を受託側へ渡しません。必要な権限は、期限・回数・スコープ・委譲深さを絞った `CapabilityToken`（UCAN / Biscuit 風）として発行し、依頼側 Gateway がプロキシ検証します。
-2. **契約が先、実行は後。** 入出力の JSON Schema、受入基準、検証方法、期限、トークン予算は `TaskManifest` に書きます。双方の署名（`TaskContract`）が無ければ実行を始めません。
-3. **人間の承認ゲートを明示する。** 外部送信、契約受諾、予算超過、再委譲、最終検収の5箇所に、ポリシーで駆動する承認ゲートを置きます。オーナーの署名付き `ApprovalReceipt` を監査ログへ追記します。
-4. **BYOK と署名付き利用レシート。** LLM の費用は、契約クォータの範囲で実行側が自己負担します（BYOK）。実行側ランタイムが計量し、`UsageReceipt` に署名します。決済手段はコアから切り離し、後からプラグインにできます。
-5. **信頼できない入力と、双方が持つ監査証跡。** 他オーナーからのデータは `untrusted` としてサンドボックスで処理します。すべての状態遷移は Ed25519 署名の追記専用ハッシュチェーンになり、双方がコピーを保持します。
-
-### つながりの状態と永続化
-
-`@acp/runtime` は、所有者のローカル操作用のつながり状態・永続化APIを提供します。
-connected は期限なしの limited に対応し、ライブ経路の受付に使います。
-接続 metadata は、検証済みの招待・エージェントカードから得た任意の `peerDisplayName` を保持します。
-`listConnections()`・`connections list`・`connectionStatus()`・`connections status`・
-MCP の接続一覧・過去の承認候補一覧は、
-招待の削除後も既知の表示名を返します。表示名は情報としてのみ扱い、識別と同意の判断は
-DID に基づきます。同じ表示名でも所有者 DID は異なる場合があります。
-旧記録や相手のカードが不明な場合は省略でき、読み取りで書き換えません。通信形式の変更はありません。
-
-APIとストアの互換性は[つながりの状態と永続化](docs/connections/connection-state.ja.md)を参照してください。
-
-## ドキュメント
-
-| ファイル                                                                               | 内容                                                                                                |
-| :------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------- |
-| [`SECURITY_PROOF.ja.md`](./SECURITY_PROOF.ja.md)                                       | 敵対的セキュリティテストスイート（形式的証明ではない）と `pnpm test:security-proof`                 |
-| [`ARCHITECTURE.ja.md`](./ARCHITECTURE.ja.md)                                           | 全体像、信頼境界、タスク状態機械、5つの制御、既存プロトコルとの比較、信頼の前提                 |
-| [`REPO_STRUCTURE.ja.md`](./REPO_STRUCTURE.ja.md)                                       | モノレポ構成、技術選定、MVP の範囲、マイルストーン M0〜M3、実装タスクの分割                         |
-| [`spec/README.ja.md`](./spec/README.ja.md)                                             | プロトコル概要、メッセージエンベロープ、正規化と署名                                                |
-| [`spec/task-manifest.schema.json`](./spec/task-manifest.schema.json)                   | `TaskManifest` の JSON Schema（Draft 2020-12）                                                      |
-| [`spec/examples/sample-task-manifest.json`](./spec/examples/sample-task-manifest.json) | スキーマ検証済みのサンプル `TaskManifest`                                                           |
-| [`OSS_FORK_ANALYSIS.ja.md`](./OSS_FORK_ANALYSIS.ja.md)                                 | A2A、Sealbridge、ANP、AGNTCY、DelegateOS、Cotal、Busbar の調査と、スクラッチ / フォーク / オーバーレイ比較 |
-| [`AGENTS.md`](AGENTS.md)                                                               | 自律 Worker / Requester の運用手順                                                                  |
-| [`SKILL.md`](SKILL.md)                                                                 | 持ち運び用エージェントスキル                                                                        |
-
-### つながり交換ライブラリ
-
-署名付きの申し込み・承認・ACK と、永続化・検査・所有者確認・通信を注入する
-`ConnectionService` を公開します。runtime・CLI・MCP・board に所有者ごとの永続化と保留内容の審査を接続します。
-接続の申し込み時刻と既定の14日後の期限は、一度取得した時刻から計算します。ワーカーと CLI が発行するカードも、最大30日を含め同じ方法で有効期間を計算します。
-詳細は[つながり交換](docs/connections/connection-exchange.ja.md)を参照してください。
-
-組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
-一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
-CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
-接続審査の組み込み検査は接続情報だけが対象で、タスクを開きません。
-対話式 CLI ワーカーは別途タスク内容を表示して検査します。[受信接続の審査](docs/connections/admission.ja.md#受信接続の審査)を参照してください。
-
-通常のタスクが接続情報に作るのはタスク由来の保留項目だけで、審査可能な署名付き接続
-申し込みではありません。`connections review approve` が `CONNECTION_NOT_PENDING` を
-返したら、同じ役割・鍵で `connections review list` を確認し、一覧の ID を使ってください。
-空なら招待・接続フローで署名付き申し込みを交換します。`accept --paste --alias reviewer`
-で招待を取り込み、所有者が `connections confirm-invite reviewer --role requester` を実行します。
-ワーカーの待受または `connections sync --once --role worker` で交換を受信し、受信側の
-`connections review list --role worker` を確認してください。接続審査の対象は接続情報だけで、
-タスクを検査・開封しません。接続同意後は新しいタスクを明示的に送信し、対話式 CLI
-ワーカーで内容を確認して実行を承認します。招待で接続済みでも未承認の署名付き申し込みは
-審査一覧に残ります。保留タスクは自動再試行しません。
-
-
-## ローカルの M0–M1 実装
-
-Node.js 22 LTS と pnpm 10 が必要です。WP-1 から WP-6 は `@acp/core`、`@acp/ledger`、`@acp/sandbox`、`@acp/runtime`、`@acp/relay`、`@acp/cli`、`@acp/two-owner-demo` として実装されています。
-
-```sh
-pnpm install
-pnpm build
-pnpm validate:schemas
-pnpm test
-pnpm test:security-proof
-pnpm --filter @acp/two-owner-demo start
-pnpm sealbridge demo --audit-dir /tmp/acp-demo-audit
-pnpm sealbridge audit-verify /tmp/acp-demo-audit/alice.jsonl
-```
-
-4つのデモシナリオは、期待する結果を自分で確認し、失敗するとゼロ以外の終了コードを返します。デモはオフラインで、一時鍵と合成したプロバイダー使用量だけを使い、API 資格情報は不要です。元のサンプルマニフェストはスキーマの見本であり、そこに書いてある署名は実際の暗号署名ではありません。
-
-CLI の例です。出力先は未使用のパスを使い、鍵生成は既存の鍵を上書きしません。
-
-```sh
-pnpm sealbridge keygen /tmp/alice.private.json
-pnpm sealbridge validate spec/examples/sample-task-manifest.json
-pnpm sealbridge validate capability-token spec/examples/sample-capability-token.json
-pnpm sealbridge approve /tmp/alice.private.json contract_acceptance task_example001 /tmp/target.json /tmp/approval.json
-pnpm sealbridge validate approval-receipt /tmp/approval.json
-pnpm sealbridge audit-verify /tmp/acp-demo-audit/alice.jsonl /tmp/trust-anchor.json
-```
-
-承認対象ファイルには、承認する JSON アクションそのものを入れます。位置引数のトラストアンカーは `{ "taskId": "...", "actors": ["did:key:...", "did:key:..."], "head": "sha256:..." }` です。`head` は検証する束とは別に入手してください。`sealbridge audit-verify` は `--expect-final-state <state>`、`--expect-last-hash <hash>`、`--expect-entry-count <n>` も受け付けます。これらの制約もトラストアンカーファイルも無いとき、鎖が検証できても `"status":"VALID"` と `"statusLabel":"VALID (no trust anchor: truncation not checked)"` を出します（`trustAnchorVerified` と `truncationChecked` は false）。この表示は、より古い妥当な接頭辞を排除していないという意味です。制約が一致すると `statusLabel` は `VALID` になり、両方のフラグは true です。アンカーと一致しない接頭辞は、終了コードが非ゼロで `"statusLabel":"INVALID"` になります。
-
-```sh
-pnpm sealbridge audit-verify /tmp/alice-audit.jsonl \
-  --expect-final-state SETTLED \
-  --expect-last-hash sha256:<hex> \
-  --expect-entry-count <n>
-```
-
-ビルド済み CLI は `node cli/dist/index.js <command>` でも起動でき、ワークスペースのバイナリ名は `acp` です。
-
-[デモの手順](examples/two-owner-demo/README.md)、[ワイヤ規約](spec/README.ja.md)、[適合性テスト](conformance/README.md)、[セキュリティモデル](docs/security-model.md)、[敵対的セキュリティテストスイート](SECURITY_PROOF.ja.md) を読んでください。現在の実装は、既定でエンドツーエンドのペイロード暗号化を必須とする署名付きリレーエンベロープ、制限付き JavaScript 子プロセス、任意の強化 OCI 実行を使います。ルートのコードは Apache-2.0 です。DelegateOS から取り込んだ部分の MIT 表記は [NOTICE](NOTICE) に残しています。
-
-## 組み込み SDK
-
-型付き ESM 入口 `sealbridge/sdk` は、保存済み招待・鍵と秘密のストア・接続の審査・
-MCP のホストなどの公開 API を提供します。0.3.0 から利用でき、CLI 0.2.2 以前では対応していません。
-既存の CLI と内部パスも引き続き利用できます。
-[公開範囲と互換性の契約](docs/sdk.ja.md)を参照してください。
-
-## 保留内容のライブラリ
-
-`@acp/runtime` は、暗号化済みリクエストの保存と注入用の検査プロバイダーを提供します。
-内容の表示には検査完了の受領書が必要で、既定のプロバイダーは保留を継続します。
-API とホストの役割は[保留内容のライブラリ契約](docs/connections/held-content.ja.md)を参照してください。
+公開中継器を使わず、同じマシンやオフラインだけで試すときだけ `pnpm sealbridge relay start --port 8787 --host 127.0.0.1` を使います。自前の公開中継器は [リレーの信頼性](docs/relay-reliability.ja.md) と `packages/relay/wrangler.toml.example` を見てください。
+
+エージェント向けの手順は [AGENTS.md](AGENTS.md) と [SKILL.md](SKILL.md) です。
+
+## 詳しい資料
+
+| 資料 | 内容 |
+| :--- | :--- |
+| [自動受付の設定](docs/auto-accept.ja.md) | 読むだけ／書き換え、相手の範囲、日次・月次の上限 |
+| [リレーの信頼性](docs/relay-reliability.ja.md) | 再試行、期限、プロキシ、中継器の運用 |
+| [つながりの交換](docs/connections/connection-exchange.ja.md) | 接続の申し込みと状態 |
+| [監査の中断](docs/audit-interruption.md) | 中断時の監査（英語） |
+| [SDK](docs/sdk.ja.md) | 組み込み用 API |
+| [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) | 全体像と信頼境界 |
+| [spec/README.ja.md](spec/README.ja.md) | プロトコル |
+| [SECURITY_PROOF.ja.md](SECURITY_PROOF.ja.md) | 敵対的テストスイート |
+
+CLI のすべてのサブコマンドは `sealbridge --help`、各コマンドの `--help` で確認できます。
 
 ## 作成者・リンク
 
 - **作成者 (X / Twitter)**: [@takapon01234](https://x.com/takapon01234)
 - **リポジトリ**: [sealbridge/sealbridge](https://github.com/sealbridge/sealbridge)
-- **公開 Blind Relay**: `https://relay.sealbridge.dev`
+- **サイト**: https://sealbridge.dev
+- **招待ページ**: `https://sealbridge.app/i#<invite>`
+- **公開中継器**: `https://relay.sealbridge.dev`（従来の `https://acp-relay.agent-collab.workers.dev` も同じ中継器です）
 
-## 公式サイトと中継 URL
-
-公式サイトは https://sealbridge.dev、招待受信ページは `https://sealbridge.app/i#<invite>` を想定しています。静的サイトのソース・ビルド・公開手順は [Web サイトの運用](docs/sites.ja.md) を参照してください。このリポジトリへの追加だけでは公開されません。
-
-推奨の中継 URL は `https://relay.sealbridge.dev` です。従来の `https://acp-relay.agent-collab.workers.dev` も同じ中継器として引き続き利用できます。既存の署名付き招待を編集せず、そのまま利用してください。新ホストへ切り替える場合は MCP の中継許可リストも更新します。
-
-## 保存済みの送信待ち
-
-CLI worker/delegate・board・MCP ホストは、承認済みのタスク封筒を
-`<data-root>/delivery/<sha256-local-signer-DID>/` に保存します。
-イベントと監査エントリの両方を保存してから送信します。一時的な送信失敗では、
-同じ署名済み暗号文・封筒 ID を、1分、5分、15分、その後は1時間ごとに再試行します。
-検証済みの relay の待機指定があれば、さらに待ちます。relay の受理または元のタスク期限で
-再試行を止めます。受理はキューへの保存であり、所有者による開封・エージェントの実行・
-検収完了を示しません。`PENDING_OWNER_APPROVAL` は終端のままで、再依頼は明示操作です。
-
-同じ署名者・データルートでゲートウェイを次回起動すると送信待ちを再開します。
-停止中は再試行しません。通信の復旧は任意の双方向セッションの復元やアダプターの再実行を
-意味しません。既定のワーカーのタスクジャーナルと受信記録で記録済み依頼の再実行を抑止し、
-明示した inbox/audit のジャーナルパスを優先します。heartbeat と接続同意用 outbox は従来どおりです。
-
-C1 の永続化はゲートウェイのプロセス再起動を対象とし、送信・受領確認より前に書き込みとアトミックな置換を完了します。封筒・受信記録・既定のタスクジャーナルではファイルやディレクトリを fsync せず、電源断時の永続化は保証しません。lease・再試行・relay 受理の管理情報は、中断後に同じ封筒 ID で再送する場合があります。明示した inbox/audit のタスクジャーナルは従来の flush 方針を維持します。変更のないレコードとディレクトリ一覧の検証を再利用し、索引更新・復元時の走査・定期削除はバッチまたはレコードごとにイベントループへ制御を返します。
-
-セッションの送信と処理済み受信記録は、準備時に署名者ロックを取得せず、一意の一時ファイルへ非同期に書き込みます。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して書き込めます。公開時に署名者ロックの下で容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。既定のタスクジャーナルは追記ハンドルと変更のない検証済みチェックポイントを再利用し、圧縮時とワーカー停止時にハンドルを閉じます。
-並行する依頼は、署名者の送信ストアを共有し、それぞれのタスクと relay の対応を維持します。
-
-POSIX のディレクトリ・ファイルは 0700/0600、Windows は親の DACL を継承します。
-稼働中の送信は、受理の結果を取得した後に完了済みバッチの暗号文を削除します。
-保守処理は期限切れの送信待ちを閉じてからメッセージ情報を削除し、残った完了・終了済み
-バッチも削除します。中身を含まないメッセージ情報と
-受信重複処理の記録は `max(createdAt, 元の deliveryDeadline)` の7日後まで保持します。
-読み取り・再試行で期限を延ばしません。保守処理は起動時と稼働中の毎分に行い、停止中の
-期限切れファイルは次回の保守まで残る場合があります。ローカル上限は送信待ち1,024通、
-封筒 JSON 合計32 MiB、封筒1通256 KiB、メッセージ・受信記録は各10,000件です。
-容量不足・保存失敗は固定のエラーとして報告し、未保存の送信や有効な記録の追い出しは行いません。
-
-組み込みホストは `deliveryService` または `deliveryOptions` を注入し、
-`startDelivery()`/`stopDelivery()` で稼働を制御できます。独自の transport で再起動後も
-送るには固定の relay URL と resolver が必要です。名前のない注入 transport は従来の
-一時的な動作です。初期化・道具の一覧・ローカル読み取りでは送信を開始せず、鍵も作りません。
-transport の `send()` 単体は1回の試行のままです。この変更に relay の配備は不要で、
-受理後の封筒には既存の relay の保持期間が適用されます。
-[relay の動作](docs/relay-reliability.ja.md)も参照してください。
-
-
-MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
-`acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。
-Unicode 文字列を正規化せず UTF-8 の1〜200バイトで指定します
-（例: `"idempotencyKey":"review-2026-11-02"`）。同じ署名者・道具・キー・内容なら
-再起動後も最初の結果を返し、送信と承認を繰り返しません。内容が違えば
-`IDEMPOTENCY_CONFLICT` となり、新しいキーが必要です。キーと結果は元の期限
-（複数では最も遅い子の期限）の7日後まで保持します。保留の再参照では再依頼せず、
-試行回数も増やしません。別サーバーは `IDEMPOTENCY_IN_PROGRESS`、中断後は
-`APPROVAL_INTERRUPTED` または `IDEMPOTENCY_RESULT_UNAVAILABLE` を返し、承認や実行を
-やり直しません。最終検収は別で、キー省略時の動作は従来どおりです。
-保持期間・ランタイムのフック・復旧は[relay の動作](docs/relay-reliability.ja.md)を参照します。
-relay のデプロイは不要です。
-
-### 受信側の配達状態
-
-検証済みの 0.2.0 タスクでは、受信側署名付き `DeliveryStatus` で本文を含まない
-保留・開く・アダプターへの引き渡し・終了を記録します。タスク連番・双方向監査とは別です。
-未接続の相手には `received_held` と `closed` だけを返し、後の接続承認でも元の履歴を
-送りません。検査・表示だけでは開かず、結果成功時の後片付けでは閉じません。
-接続解除は待機中の詳細を、ブロックは待機中の全状態を送信対象から外します。
-版の宣言がない相手は従来の 0.1.0 の動作です。記録は元の配達期限から7日後まで保持し、
-稼働中の保守が期限切れを削除します。引き渡しは既読や実行の証明ではありません。
-両ゲートウェイの対応が必要で、relay の配備は不要です。
-状態の記録元・保持・動作は [relay の動作](docs/relay-reliability.ja.md)を参照してください。
-
-### ローカルの送信状態
-
-`idempotencyKey` 付き送信のキャッシュ再参照でも、元のメッセージ ID・タスク ID を使います。
-状態照会は送信結果のキャッシュとは独立して、その ID に保存された最新の観測を返します。
-
-`acp_message_status {"messageId":"<元の PROPOSE UUID>"}` または
-`acp_message_status {"taskId":"<元のタスク ID>"}` は、送信・更新取得・ポーリング・削除を
-せず送信側の記録を読みます。指定は一方だけにし、複数一致するタスク ID は `messageId` で
-選びます。元の期限（作成時刻が後ならその時刻）の7日後に失効し、不明・別の署名者・
-期限切れは `found:false` です。当初未接続の相手の詳細は `received_held`/`closed` だけです。
-受信側の主張は双方向監査とは別で、引き渡しは既読・実行の証明ではありません。
-委任結果のキャッシュや保留の明示的な再依頼とは別の読み取りです。relay の配備は不要で、
-詳細な観測には相手の C4 対応が必要です。[relay の動作](docs/relay-reliability.ja.md)を参照してください。
-
-ワーカーは既定で、PROPOSE 一件だけの承認待ちに対する単独署名の中断終端（形式 1）を記録します。`--audit-interruption-format 1`（`WorkerNodeOptions.auditInterruptionFormat: 1`）による明示指定も引き続き利用できます。書き込み側を更新する前に、古い監査の読み取り側を更新してください。検証結果は `UNILATERALLY_CLOSED`・`valid:false`・`audit-verify` 終了コード 2 となり、双方の完了合意を表しません。既定で、`tasks approve` または `tasks reject` は、ワーカーを止めなくても進行中の所有者承認待ちまたは ACCEPT 確認待ちを閉じます。封印済みファイルには追記せず、後続タスクはタスク別の監査ファイルに記録します。[形式・復元・照合規則（英語）](docs/audit-interruption.md)を参照してください。
-
-### ローカル PC 版（0.7.0）
-
-両配布物の 0.7.0 は 2026-11-11 UTC に npm で公開されました。ローカル版は次のように使えます。
-
-```sh
-npm i -g sealbridge-local
-sealbridge-local worker start --adapter sandbox
-sealbridge-local config local-pc status
-sealbridge-local config local-pc off
-```
-
-`config local-pc on` も stdin と stderr が TTY の端末を必要とします。非対話では許可を保存せず、毎回 `--allow-local-pc` を付けてください。`status` と `off` は TTY なしで使えます。
-
-初回のローカル実行時に所有者が一度確認します。stdin と stderr が両方 TTY の端末でのみ
-確認でき、`yes` と答えると既存の設定ファイルに保存します。
-`sealbridge-local config local-pc on` でも同じ確認ができます。
-未設定の非対話環境で `--allow-local-pc` がなければ起動前に停止します。`status` で状態を確認し、`off` で取り消せます。
-所有者のタスク承認、内容の検査、LLM の自動受諾制限は引き続き有効です。
-起動時の警告と署名付き `LOCAL_PC_OPT_IN` 監査記録は毎回出します。
-sandbox の起動時隔離はタスク実行時に決定される旨を記録し、実行証明とは区別します。
-本流 `sealbridge` は保存済み許可を使わず、毎回 `--allow-local-pc` が必要です。
-
-鍵・連絡先・データディレクトリはそのまま使えます。両版は同じ `resolveDataRoot` と
-`SEALBRIDGE_DATA_DIR` / `ACP_DATA_DIR` を使用します。
-`sealbridge worker start` を `sealbridge-local worker start` に置き換えてください。
-インストーラーの既定は本流です。`sh install.sh --package sealbridge-local`、
-`./install.ps1 -PackageName sealbridge-local`、または環境変数
-`SEALBRIDGE_INSTALL_PACKAGE=sealbridge-local` で選択できます。
-
-## AI を呼ぶ前の入力上限
-
-サイズ上限の既定は**上限なし**です。持ち主は `sealbridge config auto-accept diff-size trial-reviewer` で公式ワーカー用の400行・48 KiB（JSON 化した入力）・10ファイルをまとめて選べます。`max-diff-lines N`・`max-diff-bytes N`・`max-diff-files N` で個別にも設定できます。`diff-size off` は全サイズ上限を解除し、各項目も `off` に対応します。変更後は再起動します。設定した上限は手動承認にも適用し、実行前・日次／月次枠の消費前に確認します。HTTP アダプターのプロンプト全体と `maxInputTokens` の予算検証は、サイズ上限なしでも必ず行います。拒否文言の既定は通常の固定文で、お試し文言は `monthly-limit-message trial-reviewer` で明示選択します。通った依頼にはサイズ監査ファイルを作りません。[数え方と監査記録](docs/auto-accept.ja.md#呼ぶ前の入力サイズ)を参照してください。
-
-## 一時停止するサンドボックスと中継器認証のトラブルシューティング
-
-常駐の `worker start` は Muse などのサンドボックスの一時停止・再開後も自動で回復します。
-401 には毎回新しいトークンとキャッシュしない nonce を使い、既定120秒の枠内で
-2秒・10秒・30秒・60秒と待ちます（残り時間で制限）。`--relay-auth-retries` の明示指定は
-回数を制限し、`--relay-auth-recovery-timeout-ms` は時間枠を変更します。
-回復を使い切っても `unavailable` を表示して60秒ごとに再接続します。
-実行中だったセッションは中断として閉じます。未封印の監査は証拠であり、再実行の許可にはなりません。
-`--once` と依頼側は回復失敗をエラーとして終了します。
-
-`RELAY_AUTH_RECOVERY_EXHAUSTED` が出たら中継器の `Date` と端末時計の差を確認してください。
-時計がほぼ一致している場合は nonce の再利用や鍵と DID の不一致も候補です。
-Date がなければ差は不明です。この比較は診断情報であり、認証された時刻や時計の自動補正には使いません。
-依頼側の `Relay poll retry N (CODE)` は HTTP 状態、プロキシ接続、TLS、ネットワークの原因を
-認証情報なしで示します。相手から `TASK_INTERRUPTED` が届けば直ちにその理由で終了します。
-
-## HTTP プロキシ環境のトラブルシューティング
-
-Muse のように外部通信がプロキシ経由だけの環境では、中継器クライアントが自動で HTTPS / WSS に `HTTPS_PROXY` / `https_proxy`（なければ `ALL_PROXY` / `all_proxy`）、HTTP / WS に `HTTP_PROXY` / `http_proxy` を使います。大文字が優先です。プロキシ URL は `http://` のみ対応し、URL の Basic 認証情報はプロキシだけに送ります。通常の要求・受信ポーリング・SSE・WebSocket はすべて中継器のホスト名で CONNECT し、TLS 証明書を通常どおり検証します。公開中継器へのプロキシ接続には、ローカル DNS が合成 IP を返しても `--allow-private-relay` は不要です。URL・IP リテラル・メタデータの制限は維持し、宛先の名前解決と接続許可はプロキシに委ねます。`NO_PROXY` / `no_proxy` はホスト名・IP の完全一致、`.example.com` の後方一致、`*`、ポート指定に対応し、一致した接続先は従来の直接 DNS 検証・固定を使います。doctor も同じ経路を使い、プロキシのホスト名とポートだけを表示します。`RELAY_PROXY_AUTH_FAILED`（407）は認証設定、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認してください。認証情報をログや報告に貼らないでください。
+旧称は ACP / agent-collab-platform です。Zed の Agent Client Protocol および IBM / BeeAI の Agent Communication Protocol との名称衝突を避けるため改称しました。`acp` コマンドは非推奨の別名として残っています。プロトコル識別子や既存のデータ場所はそのまま使えます。

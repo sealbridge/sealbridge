@@ -555,7 +555,6 @@ describe('P2-13 documentation states the vm and permission-model limits', () => 
   it.each([
     'SECURITY_PROOF.md',
     'ARCHITECTURE.md',
-    'README.md',
     'docs/security-model.md',
     'AGENTS.md',
     'SKILL.md',
@@ -570,13 +569,19 @@ describe('P2-13 documentation states the vm and permission-model limits', () => 
   it.each([
     'SECURITY_PROOF.ja.md',
     'ARCHITECTURE.ja.md',
-    'README.ja.md',
     'spec/README.ja.md',
   ])('%s states the same boundary in Japanese', (name) => {
     const text = readDoc(name);
     for (const token of codeTokens) expect(text, token).toContain(token);
     expect(text).toContain('セキュリティ機構ではない');
     expect(text).toContain('カーネル');
+  });
+
+  it.each(['', '.ja'])('concise README%s links to the detailed isolation boundaries', suffix => {
+    const text = readDoc(`README${suffix}.md`);
+    expect(text).toContain(`](ARCHITECTURE${suffix}.md)`);
+    expect(text).toContain(`](SECURITY_PROOF${suffix}.md)`);
+    expect(text).toContain('--allow-local-pc');
   });
 });
 
