@@ -1,5 +1,4 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { lookup as nodeLookup } from 'node:dns';
 import { resolveAndValidateRelayEndpoint, HttpRelayClient, relayRetryCode } from '../packages/relay/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
 
@@ -11,14 +10,27 @@ function dns(canary: 'synthetic' | 'real' = 'synthetic', answers = ['198.18.0.1'
     return (hostname.endsWith('.invalid') ? ['198.19.255.254'] : answers).map(address => ({ address, family: 4 as const }));
   });
 }
-it('detects a synthetic resolver once and uses hostname lookup for HTTPS and WSS', async () => {
+it('detects a synthetic resolver once and pins its validated answers for HTTPS and WSS', async () => {
   const lookup = dns();
   for (const scheme of ['https', 'wss', 'https']) {
     const endpoint = await resolveAndValidateRelayEndpoint(`${scheme}://relay.example`, { lookup });
-    expect(endpoint).toMatchObject({ addresses: [], syntheticDns: true });
-    expect(endpoint.lookup).toBe(nodeLookup);
+    expect(endpoint).toMatchObject({ addresses: [{ address: '198.18.0.1', family: 4 }], syntheticDns: true });
+    const callback = vi.fn();
+    endpoint.lookup('relay.example', { all: true }, callback);
+    expect(callback).toHaveBeenCalledWith(null, [{ address: '198.18.0.1', family: 4 }]);
   }
   expect(lookup.mock.calls.filter(([host]) => /^sb-.+\.invalid$/.test(host))).toHaveLength(1);
+});
+it('does not re-resolve synthetic answers when the connection lookup runs', async () => {
+  const lookup = dns('synthetic', ['198.18.1.2', '198.19.3.4']);
+  const endpoint = await resolveAndValidateRelayEndpoint('https://relay.example', { lookup });
+  lookup.mockImplementation(async () => [{ address: '127.0.0.1', family: 4 }]);
+  const callback = vi.fn();
+  endpoint.lookup('relay.example', { all: true }, callback);
+  expect(callback).toHaveBeenCalledWith(null, [
+    { address: '198.18.1.2', family: 4 }, { address: '198.19.3.4', family: 4 },
+  ]);
+  expect(lookup).toHaveBeenCalledTimes(2);
 });
 it('blocks benchmark DNS when the canary has NXDOMAIN and caches the negative result', async () => {
   const lookup = dns('real');

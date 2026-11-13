@@ -378,9 +378,9 @@ describe('relay environment HTTP proxy conformance', () => {
     await expect(new HttpRelayClient(f.url, { lookup: syntheticLookup }).discover()).resolves.toEqual([]);
     expect(syntheticLookup).not.toHaveBeenCalled();
     vi.stubEnv('NO_PROXY', 'relay.example');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [] });
+    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [{ address: '198.18.202.102', family: 4 }] });
     vi.stubEnv('NO_PROXY', ''); vi.stubEnv('HTTPS_PROXY', '');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [] });
+    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [{ address: '198.18.202.102', family: 4 }] });
   });
 
   it('NO_PROXY connects directly using the validated address', async () => {

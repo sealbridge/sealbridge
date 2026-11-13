@@ -36,10 +36,10 @@ To probe a specific relay, run `sealbridge doctor --relay https://relay.sealbrid
 
 ### 2. Connect with an invitation
 
-Use the invitation you received from a worker — the official trial worker, or someone else’s. Save the received link in a private invitation.txt file, then pipe it with --stdin so it is absent from process arguments.
+Use the invitation you received from a worker — the official trial worker, or someone else’s. Passing the link as an argument is the most reliable method in Muse.
 
 ```sh
-sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 sealbridge invites list
 ```
 
@@ -89,7 +89,7 @@ Muse is often a proxy-only environment. Relay clients automatically use `HTTPS_P
 
 - If you see `Relay: Unreachable`, or a failure after `via proxy`, check the network and proxy, then run `sealbridge doctor` again.
 - `RELAY_PROXY_AUTH_FAILED` (407) means proxy credentials; `RELAY_PROXY_REFUSED` means CONNECT is not allowed. Never paste proxy credentials into logs or reports.
-- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pipe the invitation with `--stdin`.
+- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pass the invitation link as an argument as shown above.
 - Only loopback or private-relay invitations need `--allow-private-relay` on `accept` and `delegate`.
 - A continuous worker automatically retries relay authentication after a sandbox suspend/resume. See the docs below for details.
 
@@ -105,7 +105,7 @@ export PATH="$HOME/.local/node_modules/.bin:$PATH"
 sealbridge doctor
 ```
 
-No network flags are needed. Grok Bot's synthetic DNS is detected automatically. Never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
+From the next release after 0.8.0, no network flags are needed: Grok Bot's synthetic DNS is detected automatically. With that version, never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
 
 ```sh
 sealbridge accept --stdin --alias reviewer < invitation.txt

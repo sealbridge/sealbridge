@@ -345,7 +345,10 @@ class RecipientInbox {
   private delivery?: { service: GatewayDeliveryService; url: string; active: boolean };
   setDelivery(service: GatewayDeliveryService, url: string, active: boolean): void {
     this.delivery = { service, url, active };
-    this.readAbort?.abort(); this.wake?.(); this.wake = undefined;
+    // Refresh may finish while an HTTP receive has already leased a task frame.
+    // Cancelling that response discards the frame and exposes the next sequence.
+    // The bounded poll picks up status IDs on its next iteration; wake idle readers.
+    this.wake?.(); this.wake = undefined;
     if (active && !this.started) { this.started = true; registerRequesterInbox(this.did, this); void this.pump(); }
   }
   private statusIds(): string[] {

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { lookup as nodeLookup } from 'node:dns';
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -35,7 +34,7 @@ export interface ResolvedRelayEndpoint {
   url: URL;
   proxy?: RelayProxy;
   addresses: ResolvedAddress[];
-  /** Pins validated direct answers; synthetic TLS egress uses hostname lookup. */
+  /** Pins validated direct answers, including detected synthetic TLS egress. */
   lookup: LookupFunction;
   syntheticDns?: boolean;
 }
@@ -139,8 +138,9 @@ export async function resolveAndValidateRelayEndpoint(
       // an SNI egress route: the egress proxy selects the destination by hostname,
       // with the same trust as explicit HTTPS_PROXY. An invite cannot configure
       // the local resolver. Keep URL/literal policy above and normal TLS/SNI
-      // verification; never pin benchmark IPs or enable plaintext on this path.
-      return { url, addresses: [], lookup: nodeLookup, syntheticDns: true };
+      // verification. Pin these validated synthetic answers so a second lookup
+      // cannot switch the connection to an unvalidated address.
+      return { url, addresses, lookup: pinnedNodeLookup(addresses), syntheticDns: true };
     }
     for (const item of addresses)
       validateIpAddress(item.address, { allowPrivateRelay: options.allowPrivateRelay });
