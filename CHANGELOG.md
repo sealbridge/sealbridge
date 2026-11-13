@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Detect Grok Bot synthetic DNS for TLS relay connections while retaining URL guards and SSRF diagnostics in doctor.
+- Refuse noninteractive delegation before sending unless automatic approval is explicit; explain private directory permissions and share contacts data-root selection.
+- Document Grok Bot installation and stdin invitation import in English and Japanese.
+
 ## [0.8.0] - 2026-11-13
 
 <!-- Preparation only; correct this date before tagging if publication changes. -->

@@ -3,6 +3,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { realpathSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// These tests inspect interactive approval wiring rather than non-TTY refusal.
+const streams = [process.stdin, process.stderr];
+const ttyDescriptors = streams.map(stream => Object.getOwnPropertyDescriptor(stream, 'isTTY'));
+beforeEach(() => streams.forEach(stream => Object.defineProperty(stream, 'isTTY', { configurable: true, value: true })));
+afterEach(() => streams.forEach((stream, index) => {
+  if (ttyDescriptors[index]) Object.defineProperty(stream, 'isTTY', ttyDescriptors[index]!);
+  else delete (stream as { isTTY?: boolean }).isTTY;
+}));
 import { generateKeyPair, parseAndVerifyInviteToken, createSignedAgentCard, createInviteToken } from '../packages/core/src/index.js';
 import type { DelegateOptions, WorkerNodeOptions } from '../packages/runtime/src/session.js';
 

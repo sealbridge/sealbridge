@@ -74,7 +74,9 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
       ...(!response.ok && { remediation: 'Check your connection and try again.' }) });
   } catch (error) {
     const code = relayRetryCode(error);
-    checks.push({ name: 'Relay', ok: false, message: 'Unreachable' + relayRoute + (code === 'RELAY_UNAVAILABLE' ? '' : ` (${code})`), remediation: 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
+    checks.push({ name: 'Relay', ok: false, message: (code === 'SSRF_BLOCKED_RELAY_URL' ? 'Blocked' : 'Unreachable') + relayRoute + (code === 'RELAY_UNAVAILABLE' ? '' : ` (${code})`), remediation: code === 'SSRF_BLOCKED_RELAY_URL'
+      ? 'Relay URL or local DNS returned a blocked private/benchmark address; check the URL or set HTTPS_PROXY for your trusted proxy. 中継器URL・DNSが拒否対象です。URLを確認するか信頼するプロキシを HTTPS_PROXY に設定してください。'
+      : 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
   }
   return checks;
 }

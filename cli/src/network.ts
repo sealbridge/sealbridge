@@ -241,7 +241,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   --max-queue-bytes <n>          Queued JSON bytes per recipient (default: 4194304).
   --max-envelope-bytes <n>       Signed envelope JSON bytes (default: 262144).
   --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` :
-      (command === 'delegate' ? DELEGATE_USAGE : WORKER_USAGE) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
+      (command === 'delegate' ? DELEGATE_USAGE + '\nNoninteractive delegation requires --auto-approve before sending (stdin/stderr must otherwise be TTY). 非対話環境は --auto-approve が必要です。' : WORKER_USAGE) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
@@ -504,6 +504,8 @@ export async function networkCommand(command: string, args: string[], applicatio
       ? application.pendingRequest.to ?? ''
       : text(f, 'to', f.has('--discover') || f.has('--task-type') ? '' : undefined);
     if (f.has('--save-contact')) text(f, 'to');
+    if (!automatic && (!process.stdin.isTTY || !process.stderr.isTTY))
+      throw new Error('APPROVAL_REQUIRED: delegate requires stdin/stderr TTY or --auto-approve before sending. 非対話環境では送信前に --auto-approve を明示してください。');
     const key = await getKey();
     const workerRef = application.pendingRequest?.workerRef ??
       (target && !isInviteTarget(target) && !target.startsWith('did:') ? target : undefined);

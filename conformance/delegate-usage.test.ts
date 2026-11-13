@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 afterEach(() => { vi.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
-const taskArgs = () => ['--key', key, '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}'];
+const taskArgs = () => ['--auto-approve', '--key', key, '--title', 'Echo', '--description', 'Echo JSON', '--input', '{}'];
 function target(form: string): string {
   const owner = generateKeyPair();
   if (form === 'did') return owner.did;
@@ -43,6 +43,22 @@ function target(form: string): string {
   const token = createInviteToken({ agentCard }, owner);
   return form === 'link' ? 'https://sealbridge.app/i#' + token : token;
 }
+
+it.each(['stdin', 'stderr'] as const)('refuses before any transport when %s is not TTY without automatic approval', async stream => {
+  const descriptors = [process.stdin, process.stderr].map(value => Object.getOwnPropertyDescriptor(value, 'isTTY'));
+  Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stream !== 'stdin' });
+  Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: stream !== 'stderr' });
+  try {
+    await expect(networkCommand('delegate', [...taskArgs().filter(a => a !== '--auto-approve'), '--to', target('did')], { transportFactory })).rejects.toThrow('APPROVAL_REQUIRED');
+  } finally {
+    [process.stdin, process.stderr].forEach((value, index) => {
+      if (descriptors[index]) Object.defineProperty(value, 'isTTY', descriptors[index]!);
+      else delete (value as { isTTY?: boolean }).isTTY;
+    });
+  }
+  expect(transportFactory).not.toHaveBeenCalled();
+  expect(captured.delegate).not.toHaveBeenCalled();
+});
 
 it('prints the same delegate synopsis for --help and an empty invocation', async () => {
   await networkCommand('delegate', ['--help']);
@@ -127,7 +143,7 @@ it.each(['alias', 'workerRef'])('retains the saved %s selector for pending reque
   const workerRef = form === 'alias' ? saved.alias : saved.workerRef;
   await networkCommand('delegate', [...taskArgs(), '--to', workerRef], { identityOptions, transportFactory });
   expect(captured.delegate.mock.calls[0][0]).toMatchObject({ to: token, workerRef });
-  await networkCommand('delegate', ['--key', key], { identityOptions, transportFactory,
+  await networkCommand('delegate', ['--key', key, '--auto-approve'], { identityOptions, transportFactory,
     pendingRequest: { to: workerRef, workerRef, title: 'Echo', description: 'Echo JSON', input: {} },
   });
   expect(captured.delegate.mock.calls[1][0]).toMatchObject({ to: token, workerRef });

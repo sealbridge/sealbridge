@@ -161,7 +161,7 @@ export function relayRetryCode(error: unknown): string {
     if (status) return 'HTTP_' + status;
     const code = (current as NodeJS.ErrnoException).code;
     if (code && /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|CERT_HAS_EXPIRED|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(code)) return code;
-    if (/^(?:RELAY_PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNAVAILABLE|UNSUPPORTED)|SSE_CLOSED|RELAY_IDLE_TIMEOUT|RELAY_AUTH_RECOVERY_EXHAUSTED)$/.test(current.message)) return current.message;
+    if (/^(?:SSRF_BLOCKED_RELAY_URL|RELAY_PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNAVAILABLE|UNSUPPORTED)|SSE_CLOSED|RELAY_IDLE_TIMEOUT|RELAY_AUTH_RECOVERY_EXHAUSTED)$/.test(current.message)) return current.message;
   }
   return 'RELAY_UNAVAILABLE';
 }

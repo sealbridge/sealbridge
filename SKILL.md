@@ -288,7 +288,7 @@ For MCP alias delegation, have the human run the import outside model execution,
 on the MCP server's machine and OS account with the same data root/requester identity:
 
 ```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
+sealbridge accept --stdin --alias reviewer < invitation.txt
 # Or paste at a human TTY prompt:
 sealbridge accept --paste --alias reviewer
 # Or read a link from a file or an application-provided pipe:

@@ -373,14 +373,14 @@ describe('relay environment HTTP proxy conformance', () => {
     expect(f.connects).toHaveLength(3);
   });
 
-  it('does not resolve synthetic destination DNS through proxy; direct and NO_PROXY still reject it', async () => {
+  it('skips local DNS through proxy and detects synthetic DNS on direct and NO_PROXY routes', async () => {
     const f = await fixture();
     await expect(new HttpRelayClient(f.url, { lookup: syntheticLookup }).discover()).resolves.toEqual([]);
     expect(syntheticLookup).not.toHaveBeenCalled();
     vi.stubEnv('NO_PROXY', 'relay.example');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [] });
     vi.stubEnv('NO_PROXY', ''); vi.stubEnv('HTTPS_PROXY', '');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [] });
   });
 
   it('NO_PROXY connects directly using the validated address', async () => {
@@ -429,12 +429,15 @@ describe('relay environment HTTP proxy conformance', () => {
 
   it('doctor cannot report Reachable when the direct SSRF DNS policy blocks the relay', async () => {
     const f = await fixture();
-    vi.mocked(dnsLookup).mockResolvedValue([{ address: '198.18.202.102', family: 4 }] as never);
+    vi.mocked(dnsLookup).mockImplementation(async hostname => {
+      if (String(hostname).endsWith('.invalid')) throw Object.assign(new Error('NXDOMAIN'), { code: 'ENOTFOUND' });
+      return [{ address: '198.18.202.102', family: 4 }] as never;
+    });
     const options = { home: process.env.HOME, identityOptions: { keyStore: 'file' as const } };
     expect((await diagnose(options)).at(-1)?.ok).toBe(true);
     expect(dnsLookup).not.toHaveBeenCalled();
     vi.stubEnv('NO_PROXY', 'relay.sealbridge.dev');
-    expect((await diagnose(options)).at(-1)).toMatchObject({ ok: false, message: 'Unreachable' });
+    expect((await diagnose(options)).at(-1)).toMatchObject({ ok: false, message: 'Blocked (SSRF_BLOCKED_RELAY_URL)' });
     expect(dnsLookup).toHaveBeenCalled();
     expect(f.connects).toEqual(['relay.sealbridge.dev:443']);
   });

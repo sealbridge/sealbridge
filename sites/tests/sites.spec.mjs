@@ -207,6 +207,9 @@ test('Muse-first READMEs retain npm onboarding and relay documentation on the ge
     await page.goto(`${site}/${lang}/docs/${file}/`);
     await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.8.0');
     await expect(page.locator('article')).toContainText('Relay: Reachable; via proxy (OK)');
+    await expect(page.locator('article')).toContainText('Grok Bot');
+    await expect(page.locator('article')).toContainText('sealbridge accept --stdin --alias reviewer < invitation.txt');
+    await expect(page.locator('article')).toContainText('npm i --prefix "$HOME/.local" sealbridge');
     const relayDoc = file === 'README.ja' ? 'relay-reliability.ja' : 'relay-reliability';
     await expect(page.locator(`article a[href="/${lang}/docs/docs/${relayDoc}/"]`).first()).toBeVisible();
     await expect(page.locator('article img:not([src]), article img[src=""]')).toHaveCount(0);
