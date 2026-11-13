@@ -838,11 +838,30 @@ export class WorkerNode {
     }
   }
   private continuous = false;
+  private workerRelayCauses(error: unknown): Error[] {
+    const causes: Error[] = [];
+    for (let current = error; current instanceof Error && !causes.includes(current) && causes.length < 16;
+      current = current.cause) causes.push(current);
+    return causes;
+  }
+  private permanentWorkerRelayCause(causes: readonly Error[]): Error | undefined {
+    return causes.find(cause => {
+      const status = /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(\d{3})\b/.exec(cause.message)?.[1];
+      return (status !== undefined && Number(status) < 500 && ![401, 408, 429].includes(Number(status))) ||
+        /^(?:SSRF_BLOCKED_RELAY_URL\b|RELAY_(?:AUTH_REQUIRED|TAMPERING_DETECTED|PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNSUPPORTED)|BIND)\b|SSE_(?:BUFFER_OVERFLOW|CAPACITY)\b)/.test(cause.message) ||
+        /^(?:CERT_HAS_EXPIRED|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID)$/.test((cause as NodeJS.ErrnoException).code ?? '');
+    });
+  }
   private retryableWorkerRelayError(error: unknown): boolean {
-    return isTransientRelayError(error) || error instanceof Error && (
-      'code' in error && error.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' ||
-      /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(?:408|429|5\d\d)\b/.test(error.message) ||
-      error.message === 'RELAY_DEDUPE_CAPACITY');
+    const causes = this.workerRelayCauses(error);
+    // A permanent cause wins over an outer transport wrapper or retryable cause.
+    if (this.permanentWorkerRelayCause(causes)) return false;
+    // Persistent workers retry raw 401s even when a bounded auth episode (or
+    // explicitly disabled transport-level recovery) has already ended. Unlike
+    // 403, 401 is not evidence of a permanent authorization policy refusal.
+    return isTransientRelayError(error) || causes.some(cause =>
+      'code' in cause && cause.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' ||
+      /^(?:RELAY_|SSE_)/.test(cause.message));
   }
   private status?: RelayConnectionStatus;
   private listenerStatus(status: RelayConnectionStatus, error?: Error): void {
@@ -927,9 +946,10 @@ export class WorkerNode {
         // A rejected one-shot task may be followed by another start on this node.
         // Only a terminal listener failure shuts down the worker and all of its tasks.
         if (error instanceof Error && ((!options.once &&
-            (/^RELAY_|^SSE_|^SSRF_BLOCKED_RELAY_URL/.test(error.message) || isTransientRelayError(error))) ||
+            (this.workerRelayCauses(error).some(cause => /^RELAY_|^SSE_|^SSRF_BLOCKED_RELAY_URL/.test(cause.message)) || isTransientRelayError(error))) ||
             'code' in error && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code)))) {
-          const diagnostic = relayDiagnostic(error);
+          const diagnostic = relayDiagnostic(options.once ? error :
+            this.permanentWorkerRelayCause(this.workerRelayCauses(error)) ?? error);
           this.listenerStatus('unavailable', diagnostic);
           for (const mailbox of this.mailboxes.values()) mailbox.close(diagnostic);
           this.controller.abort(diagnostic);

@@ -173,6 +173,68 @@ describe('session liveness and recovery', () => {
     await running;
   });
 
+  it.each(['http-401', 'wrapped-401', 'wrapped-registration-401', 'message-exhausted', 'wrapped-message-exhausted'])(
+    'retries reconciliation after auth exhaustion and three %s failures, then accepts a task', async failure => {
+      vi.useFakeTimers();
+      const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const directory = mkdtempSync(join(tmpdir(), 'worker-recovery-401-'));
+      cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+      const inboxPath = join(directory, 'inbox.jsonl');
+      let failPoll = true, notifications = 0, ended = false, seeded = false;
+      const diagnostics: string[] = [], credentials: string[] = [];
+      const f = fixture({ fetcher: base => async (input, init) => {
+        const url = new URL(String(input));
+        const auth = new Headers(init?.headers).get('authorization');
+        if (auth) credentials.push(auth);
+        if (failPoll && url.searchParams.get('recipient') === f.workerKey.did)
+          return new Response('private auth body', { status: 401 });
+        if (init?.method === 'POST' && JSON.parse(String(init.body)).payload.eventType === 'ERROR' && ++notifications <= 3) {
+          if (failure === 'http-401') return new Response('private send body', { status: 401 });
+          const cause = new Error(failure === 'wrapped-registration-401' ? 'RELAY_REGISTRATION_REJECTED: 401 private detail'
+            : failure === 'wrapped-401' ? 'RELAY_REJECTED: 401 private detail'
+            : 'RELAY_AUTH_RECOVERY_EXHAUSTED: private detail');
+          if (failure === 'message-exhausted') throw cause;
+          throw new TypeError('fetch failed', { cause: new Error('transport wrapper private detail', { cause }) });
+        }
+        return base(input, init);
+      }, worker: { inboxPath, onStatus: (status, error) => {
+        diagnostics.push(workerJson({ status, ...(error ? { error } : {}) }));
+        if (error && 'code' in error && error.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' && !seeded) {
+          seeded = true;
+          const journal = (f.worker as unknown as { taskJournal: TaskJournal }).taskJournal;
+          journal.save({ version: 1, taskId: 'previous-task', requesterDid: f.requesterKey.did,
+            envelopeId: 'previous-envelope', proposalDigest: 'sha256:' + 'a'.repeat(64), phase: 'terminal',
+            invocations: [], outcome: { code: 'TASK_INTERRUPTED' }, notificationPending: true });
+        }
+      } } });
+      const running = f.worker.start().finally(() => { ended = true; });
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(seeded).toBe(true);
+      failPoll = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(notifications).toBe(attempt - 1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(notifications).toBe(attempt);
+        expect(diagnostics.at(-1)).toContain('unavailable');
+        expect(ended).toBe(false);
+      }
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(notifications).toBe(4);
+      expect(ended).toBe(false);
+      const task = f.task();
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+      const output = JSON.stringify([diagnostics, warnings.mock.calls]);
+      expect(output).not.toContain('private auth body');
+      expect(output).not.toContain('private send body');
+      expect(output).not.toContain('private detail');
+      for (const credential of credentials) expect(output).not.toContain(credential);
+      expect(output).not.toContain(f.workerKey.privateKey);
+      f.worker.stop();
+      await running;
+    });
+
   it.each([false, true])('preserves duplicate failure outside persistent start (once=%s)', async once => {
     const owner = generateKeyPair();
     const worker = new WorkerNode({ owner, adapter: adapter(), relay: {
@@ -457,7 +519,55 @@ describe('session liveness and recovery', () => {
     expect(statuses.at(-1)).toBe('unavailable');
   });
 
-  it.each([401, 403])('stops a worker on permanent HTTP %s without a restart loop', async status => {
+  it.each([
+    'RELAY_REJECTED: 403', 'RELAY_REGISTRATION_REJECTED: 403',
+    'RELAY_REJECTED: 400', 'RELAY_AUTH_REQUIRED', 'RELAY_TAMPERING_DETECTED',
+    'RELAY_PROXY_AUTH_FAILED', 'RELAY_PROXY_TLS_FAILED', 'SSRF_BLOCKED_RELAY_URL',
+    'SSE_BUFFER_OVERFLOW', 'SSE_CAPACITY',
+  ])('does not hide permanent %s behind a recoverable 401 wrapper', async failure => {
+    const owner = generateKeyPair();
+    const register = vi.fn(async () => {
+      throw new Error('RELAY_REGISTRATION_REJECTED: 401 private wrapper', {
+        cause: new Error(failure + (failure.includes(':') ? ' private body' : '')),
+      });
+    });
+    const statuses: string[] = [];
+    const worker = new WorkerNode({ owner, adapter: adapter(), publishToRegistry: true,
+      relay: { send() {}, receive() { return undefined; }, register },
+      onStatus: (status, error) => statuses.push(workerJson({ status, error })) });
+    cleanup.push(() => worker.stop());
+    await expect(worker.start()).rejects.toThrow(failure.replace('RELAY_REGISTRATION_REJECTED', 'RELAY_REJECTED'));
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toContain('unavailable');
+    expect(statuses.join()).not.toContain('private');
+  });
+
+  it.each(['RELAY_NEW_TEMPORARY_FAILURE', 'SSE_NEW_TEMPORARY_FAILURE', 'cyclic-401'])(
+    'retries unclassified relay failures and bounded cyclic causes: %s', async failure => {
+      vi.useFakeTimers();
+      let registrations = 0;
+      const cyclic = new Error('RELAY_REGISTRATION_REJECTED: 401');
+      cyclic.cause = cyclic;
+      const f = fixture({ fetcher: base => async (input, init) => {
+        if (new URL(String(input)).pathname === '/agents' && ++registrations === 1)
+          throw failure === 'cyclic-401' ? cyclic : new Error(failure);
+        return base(input, init);
+      }, worker: { publishToRegistry: true } });
+      let ended = false;
+      const running = f.worker.start().finally(() => { ended = true; });
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(registrations).toBe(1);
+      expect(ended).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(registrations).toBe(2);
+      const task = f.task();
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+      f.worker.stop();
+      await running;
+    });
+
+  it.each([403])('stops a worker on permanent HTTP %s without a restart loop', async status => {
     const owner = generateKeyPair();
     const receive = vi.fn().mockRejectedValue(new Error('RELAY_REJECTED: ' + status + ' private response text'));
     const statuses: string[] = [];
