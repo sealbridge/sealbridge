@@ -6,8 +6,6 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [0.8.0] - 2026-11-13
 
-<!-- Preparation only; correct this date before tagging if publication changes. -->
-
 ### Breaking
 
 - **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#259, #260)
