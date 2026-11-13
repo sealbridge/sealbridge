@@ -881,11 +881,16 @@ export class WorkerNode {
       return true;
     });
     this.continuous = !options.once;
+    let initialize = true;
     try {
-      while (!idleSignal.aborted) {
+      while (initialize || !idleSignal.aborted) {
+        initialize = false;
         try {
           if (this.publishes() && !this.registered) await this.register();
           await this.reconcileTasks();
+          // Startup recovery also runs for an already-aborted caller, as before.
+          // It seals durable interrupted audits without starting a new task.
+          if (idleSignal.aborted) break;
           // revocationAwareRelay ingests a leading REVOKE before this read returns.
           const envelope = pendingEnvelope ?? await this.listen(idleSignal);
           pendingEnvelope = envelope;
