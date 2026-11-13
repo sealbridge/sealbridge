@@ -15,6 +15,9 @@ import {
 } from '../packages/runtime/src/index.js';
 import type { AgentAdapter, WorkerAcceptancePolicy } from '../packages/runtime/src/index.js';
 import { networkCommand } from '../cli/src/network.js';
+import { WorkerNode as CliWorkerNode } from '../packages/runtime/dist/index.js';
+
+const startCliWorker = CliWorkerNode.prototype.start;
 
 const cleanup: (() => Promise<unknown>)[] = [];
 const cliRelays: (() => Promise<void>)[] = [];
@@ -335,17 +338,22 @@ describe('acp worker CLI acceptance guard', () => {
   async function relay() {
     const server = await startLocalRelay();
     const runs: Promise<unknown>[] = [];
+    const workers = new Set<CliWorkerNode>();
     let closing: Promise<void> | undefined;
+    vi.spyOn(CliWorkerNode.prototype, 'start').mockImplementation(function (this: CliWorkerNode, options) {
+      workers.add(this);
+      if (closing) this.stop();
+      return startCliWorker.call(this, options);
+    });
     const close = () => closing ??= (async () => {
-      // Network outages are retried. Keep the relay open until the CLI readers exit
-      // after the intentional permanent auth error, including bounded auth recovery.
-      server.relay.openInbox = () => { throw new Error('RELAY_UNAUTHORIZED'); };
+      // A raw 401 no longer terminates persistent workers. Model owner shutdown
+      // explicitly, and keep the relay open until every CLI reader has exited.
+      for (const worker of workers) worker.stop();
       try { await Promise.allSettled(runs); }
       finally { await server.close(); }
     })();
     function worker(args: string[]) {
-      // Teardown deliberately injects 401; opt out of recovery for these startup tests.
-      const run = networkCommand('worker', [...args, '--relay-auth-retries', '0']);
+      const run = networkCommand('worker', args);
       runs.push(run);
       void run.catch(() => undefined);
       return run;
