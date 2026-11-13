@@ -11,7 +11,7 @@ export function agentCard(name: string, url: string): AgentCard {
     name,
     description: 'Sealbridge owner gateway',
     supportedInterfaces: [{ url, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION }],
-    version: '0.8.0',
+    version: '0.8.1',
     capabilities: { streaming: false },
     defaultInputModes: ['application/json'],
     defaultOutputModes: ['application/json'],
