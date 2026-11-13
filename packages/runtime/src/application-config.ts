@@ -27,6 +27,10 @@ export interface ApplicationConfigOptions extends DataRootOptions {
 const MAX_CONFIG_BYTES = 64 * 1024;
 const failure = (code: string) => new Error(code);
 const errno = (error: unknown) => (error as NodeJS.ErrnoException).code;
+// Keep public reads fail-closed; only the bounded writer wait may retry a new snapshot.
+class ConfigSnapshotChangedError extends Error {
+  constructor() { super('APP_CONFIG_INVALID'); }
+}
 
 /** Validate every candidate without DNS or network requests. */
 export function validateApplicationConfig(value: unknown, options: ApplicationConfigOptions = {}): ApplicationConfig {
@@ -89,7 +93,9 @@ function readConfig(options: ApplicationConfigOptions): { config: ApplicationCon
       (fs.constants.O_NONBLOCK ?? 0));
     const stat = io.fstatSync(fd);
     checkPrivateStat(stat);
-    if (stat.dev !== before.dev || stat.ino !== before.ino) throw failure('APP_CONFIG_INVALID');
+    // A cooperating writer publishes by rename. Reject this snapshot and let
+    // bounded key-store polling validate a fresh one rather than call it corrupt.
+    if (stat.dev !== before.dev || stat.ino !== before.ino) throw new ConfigSnapshotChangedError();
     const bytes = Buffer.alloc(MAX_CONFIG_BYTES + 1);
     let length = 0;
     while (length < bytes.length) {
@@ -101,6 +107,7 @@ function readConfig(options: ApplicationConfigOptions): { config: ApplicationCon
     raw = bytes.subarray(0, length).toString('utf8');
   } catch (error) {
     if (!observed && errno(error) === 'ENOENT') return { config: { version: 1, relays: [DEFAULT_PUBLIC_RELAY] } };
+    if (error instanceof ConfigSnapshotChangedError) throw error;
     if (error instanceof Error && ['IDENTITY_INVALID', 'APP_CONFIG_INVALID'].includes(error.message))
       throw failure('APP_CONFIG_INVALID');
     throw failure('APP_CONFIG_UNREADABLE');
@@ -127,7 +134,8 @@ function lockPresent(io: typeof fs, lock: string): boolean {
 function peekConfig(options: ApplicationConfigOptions): ApplicationConfig | undefined {
   try { return readConfig(options).config; }
   catch (error) {
-    if (error instanceof Error && error.message === 'APP_CONFIG_UNREADABLE') return undefined;
+    if (error instanceof ConfigSnapshotChangedError ||
+        (error instanceof Error && error.message === 'APP_CONFIG_UNREADABLE')) return undefined;
     throw error;
   }
 }

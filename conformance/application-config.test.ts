@@ -174,7 +174,7 @@ describe('application config storage', () => {
     const options = fixture();
     createApplicationConfig({ version: 1, relays: [first], keyStore: 'file' }, options);
     const results = await raceKeyStore(options, ['file', 'keychain']);
-    expect(results.every(result => result === 'SET' || result === 'APP_CONFIG_BUSY')).toBe(true);
+    expect(results.every(result => result === 'SET' || result === 'APP_CONFIG_BUSY'), JSON.stringify(results)).toBe(true);
     expect(results).toContain('SET');
     const stored = readApplicationConfig(options);
     expect(stored.relays).toEqual([first]);
@@ -183,6 +183,27 @@ describe('application config storage', () => {
     expect(['file', 'keychain']).toContain(stored.keyStore);
     expect(fs.readdirSync(resolveDataRoot(options))).toEqual(['config.json']);
   });
+  it('rechecks a config atomically replaced between stat and open while waiting for a writer', () => {
+    const options = fixture();
+    createApplicationConfig({ version: 1, relays: [first], keyStore: 'file' }, options);
+    const root = resolveDataRoot(options), path = join(root, 'config.json'), lock = join(root, '.config.lock');
+    fs.writeFileSync(lock, '', { mode: 0o600 });
+    const replacement = join(root, 'replacement.json');
+    fs.writeFileSync(replacement, JSON.stringify({ version: 1, relays: [first], keyStore: 'keychain' }), { mode: 0o600 });
+    let replaced = false;
+    const io = { ...fs, openSync: ((file, ...args) => {
+      if (file === path && !replaced) {
+        replaced = true;
+        fs.renameSync(replacement, path);
+      }
+      return fs.openSync(file, ...args);
+    }) as typeof fs.openSync };
+    expect(setApplicationKeyStore('keychain', { ...options, fs: io }).keyStore).toBe('keychain');
+    expect(replaced).toBe(true);
+    expect(fs.existsSync(lock)).toBe(true);
+    expect(readApplicationConfig(options)).toMatchObject({ relays: [first], keyStore: 'keychain' });
+  });
+
   it('accepts a matching key store while a foreign lock is held', () => {
     const options = fixture();
     createApplicationConfig({ version: 1, relays: [first], keyStore: 'keychain' }, options);
