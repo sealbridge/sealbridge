@@ -6,15 +6,15 @@ Sealbridge lets the AI in Muse ask another person’s AI to do a task, or be ask
 
 ## Install on Muse
 
-In Muse, ask it to install `sealbridge@0.8.0` from npm. Muse provides Node.js and the rest.
+In Muse, ask it to install `sealbridge@0.8.1` from npm. Muse provides Node.js and the rest.
 
 ```sh
-npm i -g sealbridge@0.8.0
+npm i -g sealbridge@0.8.1
 ```
 
 When that finishes, the `sealbridge` command should be available. Version 0.8.0 includes relay support for environments like Muse that can only reach the network through `HTTPS_PROXY`.
 
-> If 0.8.0 is not yet published or you need the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
+> If 0.8.1 is not yet published or you need the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
 
 ## First use
 
@@ -105,7 +105,7 @@ export PATH="$HOME/.local/node_modules/.bin:$PATH"
 sealbridge doctor
 ```
 
-From the next release after 0.8.0, no network flags are needed: Grok Bot's synthetic DNS is detected automatically. With that version, never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
+With 0.8.1 or later, no network flags are needed: Grok Bot's synthetic DNS is detected automatically. With that version, never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
 
 ```sh
 sealbridge accept --stdin --alias reviewer < invitation.txt
@@ -131,7 +131,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers in this source tree pin 0.8.0; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.8.0` or `npx sealbridge@0.8.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
+The installers in this source tree pin 0.8.1; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.8.1` or `npx sealbridge@0.8.1`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
 ### Run a worker locally
 

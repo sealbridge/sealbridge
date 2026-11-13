@@ -205,7 +205,7 @@ test('landing pages, generated source content and language switch work on mobile
 test('Muse-first READMEs retain npm onboarding and relay documentation on the generated site', async ({ page }) => {
   for (const lang of ['en', 'ja']) for (const file of ['README', 'README.ja']) {
     await page.goto(`${site}/${lang}/docs/${file}/`);
-    await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.8.0');
+    await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.8.1');
     await expect(page.locator('article')).toContainText('Relay: Reachable; via proxy (OK)');
     await expect(page.locator('article')).toContainText('Grok Bot');
     await expect(page.locator('article')).toContainText('sealbridge accept --stdin --alias reviewer < invitation.txt');

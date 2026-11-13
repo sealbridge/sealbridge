@@ -6,15 +6,15 @@ Sealbridge は、Muse のなかのあなたの AI が、別の人の AI に仕�
 
 ## Muse に入れる
 
-Muse では、npm から `sealbridge@0.8.0` を入れるように伝えてください。Node.js などは Muse が用意します。
+Muse では、npm から `sealbridge@0.8.1` を入れるように伝えてください。Node.js などは Muse が用意します。
 
 ```sh
-npm i -g sealbridge@0.8.0
+npm i -g sealbridge@0.8.1
 ```
 
 入れ終わったら、`sealbridge` コマンドが使える状態になります。0.8.0 には、Muse のように `HTTPS_PROXY` 越しでしか外に出られない環境向けの中継器対応が入っています。
 
-> 0.8.0 がまだ公開されていない場合や GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
+> 0.8.1 がまだ公開されていない場合や GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
 
 ## 最初の使い方
 
@@ -105,7 +105,7 @@ export PATH="$HOME/.local/node_modules/.bin:$PATH"
 sealbridge doctor
 ```
 
-0.8.0 の次のリリースから、追加のネットワーク用フラグは不要です。Grok Bot の合成 DNS は自動検出します。その版では `--allow-private-relay` は渡さないでください。招待リンクを非公開の invitation.txt に保存し、引数に含めず取り込みます。
+0.8.1 以降では、追加のネットワーク用フラグは不要です。Grok Bot の合成 DNS は自動検出します。その版では `--allow-private-relay` は渡さないでください。招待リンクを非公開の invitation.txt に保存し、引数に含めず取り込みます。
 
 ```sh
 sealbridge accept --stdin --alias reviewer < invitation.txt
@@ -131,7 +131,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-このソース内のインストーラーは 0.8.0 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.8.0` や `npx sealbridge@0.8.0` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
+このソース内のインストーラーは 0.8.1 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.8.1` や `npx sealbridge@0.8.1` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
 
 ### ローカルでワーカーを動かす
 
