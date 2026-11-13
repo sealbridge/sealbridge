@@ -1,7 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 export class RelayTimeoutError extends Error {
   readonly code = 'ETIMEDOUT';
-  constructor() { super('RELAY_REQUEST_TIMEOUT'); this.name = 'RelayTimeoutError'; }
+  readonly relayProxyFailure?: { stage: RelayProxyStage; code: 'ETIMEDOUT' };
+  constructor(stage?: RelayProxyStage) {
+    super('RELAY_REQUEST_TIMEOUT'); this.name = 'RelayTimeoutError';
+    if (stage) this.relayProxyFailure = { stage, code: 'ETIMEDOUT' };
+  }
+}
+
+export type RelayProxyStage = 'proxy_connect' | 'connect_response' | 'tls' | 'request' | 'response';
+const proxyStages: readonly string[] = ['proxy_connect', 'connect_response', 'tls', 'request', 'response'];
+const proxyCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+  'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE', 'ECONNABORTED', 'ERR_STREAM_PREMATURE_CLOSE',
+  'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID', 'ERR_SSL_WRONG_VERSION_NUMBER', 'OTHER']);
+
+/** Retain only bounded diagnostic values, never the original Error or transport text. */
+export function relayProxyError(message: 'RELAY_PROXY_UNAVAILABLE' | 'RELAY_PROXY_REFUSED' | 'RELAY_PROXY_AUTH_FAILED' | 'RELAY_PROXY_TLS_FAILED' | 'RELAY_REQUEST_TIMEOUT', stage: RelayProxyStage, error: unknown): Error {
+  const value = typeof error === 'number' ? error
+    : error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  const code = typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value : typeof value === 'string' && proxyCodes.has(value) ? value : 'OTHER';
+  return Object.assign(new Error(message), { relayProxyFailure: { stage, code } });
+}
+
+function proxyFailureCode(error: Error): string | undefined {
+  const detail = (error as Error & { relayProxyFailure?: unknown }).relayProxyFailure;
+  if (!detail || typeof detail !== 'object') return;
+  const { stage, code } = detail as { stage?: unknown; code?: unknown };
+  if (typeof stage !== 'string' || !proxyStages.includes(stage)) return;
+  const safeCode = typeof code === 'number' && Number.isInteger(code) && code >= 100 && code <= 599
+    ? String(code) : typeof code === 'string' && proxyCodes.has(code) ? code : 'OTHER';
+  return 'RELAY_PROXY_UNAVAILABLE:' + stage + '/' + safeCode;
 }
 
 export interface RelayAuthRecoveryOptions {
@@ -73,6 +103,14 @@ export function relayDiagnostic(error: unknown): Error {
         Number.isSafeInteger(detail.clockOffsetMs) ? detail.clockOffsetMs : undefined);
     }
   }
+  for (const current of seen) {
+    const proxyCode = proxyFailureCode(current);
+    if (proxyCode) {
+      const [, stage, code] = /^RELAY_PROXY_UNAVAILABLE:([^/]+)\/(.+)$/.exec(proxyCode)!;
+      return Object.assign(new Error(proxyCode), { code: 'RELAY_TERMINAL',
+        relayProxyFailure: { stage, code: /^[1-5][0-9]{2}$/.test(code) ? Number(code) : code } });
+    }
+  }
   const message = error instanceof Error ? error.message : '';
   const status = /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(\d{3})\b/.exec(message)?.[1];
   const code = /^(?:RELAY_[A-Z_]+|SSE_[A-Z_]+|SSRF_BLOCKED_RELAY_URL)$/.test(message)
@@ -116,6 +154,8 @@ export function relayRetryCode(error: unknown): string {
   const seen = new Set<Error>();
   for (let current = error; current instanceof Error && !seen.has(current) && seen.size < 16; current = current.cause) {
     seen.add(current);
+    const proxyCode = proxyFailureCode(current);
+    if (proxyCode) return proxyCode;
     if (current instanceof RelayHttpError) return 'HTTP_' + current.status;
     const status = /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(\d{3})\b/.exec(current.message)?.[1];
     if (status) return 'HTTP_' + status;

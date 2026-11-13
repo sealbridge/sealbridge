@@ -3,7 +3,7 @@ import { LOCAL_DISTRIBUTION, cliName } from './distribution.js';
 import { delimiter, join } from 'node:path';
 import { inspectStoredIdentity, keyStoreSelection } from '@acp/runtime/key-store';
 import { DEFAULT_PUBLIC_RELAY } from '@acp/runtime/relay-selection';
-import { HttpRelayClient, relayProxyFor, relayProxyLabel } from '@acp/relay';
+import { HttpRelayClient, relayProxyFor, relayRetryCode } from '@acp/relay';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
 export interface DoctorOptions {
   version?: string;
@@ -13,6 +13,8 @@ export interface DoctorOptions {
   exists?: (path: string) => boolean;
   fetch?: typeof fetch;
   offline?: boolean;
+  relay?: string;
+  allowPrivateRelay?: boolean;
   keyFile?: string;
   identityOptions?: IdentityStoreOptions;
 }
@@ -60,17 +62,19 @@ export async function diagnose(options: DoctorOptions = {}): Promise<DoctorCheck
     checks.push({ name: 'Relay', ok: true, message: 'Skipped (offline)' });
     return checks;
   }
+  const relay = options.relay ?? DEFAULT_PUBLIC_RELAY;
   let relayRoute = '';
   try {
-    const proxy = relayProxyFor(new URL(DEFAULT_PUBLIC_RELAY));
-    relayRoute = proxy ? `; via proxy (${relayProxyLabel(proxy)})` : '';
-    const client = new HttpRelayClient(DEFAULT_PUBLIC_RELAY, options.fetch ?? fetch, { requestTimeoutMs: 8000 });
-    const response = await client.fetcher(DEFAULT_PUBLIC_RELAY + '/health', { signal: AbortSignal.timeout(8000), redirect: 'error' });
+    const proxy = relayProxyFor(new URL(relay));
+    relayRoute = proxy ? '; via proxy' : '';
+    const client = new HttpRelayClient(relay, options.fetch ?? fetch, { requestTimeoutMs: 8000, allowPrivateRelay: options.allowPrivateRelay });
+    const response = await client.fetcher(relay.replace(/\/$/, '') + '/health', { signal: AbortSignal.timeout(8000), redirect: 'error' });
     await response.body?.cancel();
     checks.push({ name: 'Relay', ok: response.ok, message: (response.ok ? 'Reachable' : `HTTP ${response.status}`) + relayRoute,
       ...(!response.ok && { remediation: 'Check your connection and try again.' }) });
-  } catch {
-    checks.push({ name: 'Relay', ok: false, message: 'Unreachable' + relayRoute, remediation: 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
+  } catch (error) {
+    const code = relayRetryCode(error);
+    checks.push({ name: 'Relay', ok: false, message: 'Unreachable' + relayRoute + (code === 'RELAY_UNAVAILABLE' ? '' : ` (${code})`), remediation: 'Check internet, proxy or firewall settings, then run sealbridge doctor again.' });
   }
   return checks;
 }
@@ -88,8 +92,10 @@ export function parseDoctorArgs(args: string[]): DoctorOptions {
     if (seen.has(arg)) throw new Error('Duplicate option: ' + arg);
     seen.add(arg);
     if (arg === '--offline') result.offline = true;
+    else if (arg === '--allow-private-relay') result.allowPrivateRelay = true;
+    else if (arg === '--relay' && args[i + 1] && !args[i + 1].startsWith('--')) result.relay = args[++i];
     else if (arg === '--key' && args[i + 1] && !args[i + 1].startsWith('--')) result.keyFile = args[++i];
-    else throw new Error('Usage: ' + cliName + ' doctor [--offline] [--key <file>]');
+    else throw new Error('Usage: ' + cliName + ' doctor [--offline] [--key <file>] [--relay <url>] [--allow-private-relay]');
   }
   return result;
 }

@@ -17,6 +17,14 @@ HTTP 401 on a RelayAuth request starts bounded authentication recovery. By defau
 
 Retry counts must be nonnegative integers, at most 2147483647. Library settings are available in `RelayClientSecurityOptions`, and on worker, requester and MCP options when they construct a client from a relay URL. Configure an explicitly supplied HTTP/SSE client at construction. Recovery covers polling, peek, SSE handshakes, delivery-status reads, wake registration and acknowledgements. It does not republish agent cards, change identity, renew invites, or restart task execution. Exhaustion reports `RELAY_AUTH_RECOVERY_EXHAUSTED`, including the local clock difference from relay Date when available; matching clocks also permit nonce replay or key/DID mismatch. On authentication recovery exhaustion, continuous workers close all in-flight tasks as interrupted without rerunning them, and remain unavailable while reconnecting every 60 seconds. One-shot workers and requesters fail on exhaustion. Diagnostics contain no credentials or response bodies.
 
+## Proxy failure diagnostics
+
+Proxy errors retain a sanitized `relayProxyFailure: { stage, code }` property. Their existing error messages and transient/permanent classification are unchanged. Retry lines (worker and requester), authentication recovery retries, and doctor failures render `RELAY_PROXY_UNAVAILABLE:<stage>/<code>`, for example `RELAY_PROXY_UNAVAILABLE:response/ECONNRESET`. The prefix identifies the proxy diagnostic family; it does not make CONNECT rejection or TLS verification errors retryable.
+
+Stages are `proxy_connect` (TCP/DNS connection to the proxy), `connect_response` (waiting for or rejecting CONNECT), `tls` (TLS inside the tunnel), `request` (relay request before response headers), and `response` (body after headers). Codes are allowlisted errno/TLS codes or numeric HTTP status 100-599; unrecognized codes become `OTHER`. Raw errors, messages, response bodies, proxy URLs, hosts and credentials are never retained in this property or printed in these diagnostics. Legacy errors without stage metadata keep their existing short code.
+
+`sealbridge doctor [--relay <url>] [--allow-private-relay]` probes `/health` through the same transport and reports `via proxy` without the proxy address. Private relay policy still applies; `--offline` makes no request. A successful health check only establishes that short request, not successful authenticated leased polling or SSE body delivery.
+
 ## Retention and admission
 
 Retention starts at first admission and expires at `expiresAt <= now`. Leasing,

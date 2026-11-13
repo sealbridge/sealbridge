@@ -8,7 +8,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { readFileSync } from 'node:fs';
 import { WebSocketServer } from 'ws';
 import { HttpRelayClient, SseRelayClient, WebSocketRelayClient, createPinnedRelayFetch,
-  resolveAndValidateRelayEndpoint, relayProxyFor, relayProxyLabel, relayDiagnostic } from '../packages/relay/src/index.js';
+  resolveAndValidateRelayEndpoint, relayProxyFor, relayProxyLabel, relayDiagnostic, relayRetryCode, relayProxyError, isTransientRelayError } from '../packages/relay/src/index.js';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { formatCliError } from '../cli/src/error-messages.js';
@@ -125,6 +125,131 @@ describe('relay environment HTTP proxy conformance', () => {
     expect(f.authorizations.every(value => auth ? value?.startsWith('Basic ') : value === undefined)).toBe(true);
   });
 
+  it.each(['proxy_connect', 'connect_response', 'tls', 'request', 'response'] as const)(
+    'bounds %s diagnostic values and excludes arbitrary transport data', stage => {
+      const secret = 'http://test-user:secret-pass@private-proxy.example:3128/body';
+      for (const code of ['ECONNRESET', secret, 'ENO_SUCH_ERRNO']) {
+        const original = Object.assign(new Error(secret), { code, hostname: secret, response: secret });
+        const error = relayProxyError('RELAY_PROXY_UNAVAILABLE', stage, original);
+        const expected = `RELAY_PROXY_UNAVAILABLE:${stage}/${code === 'ECONNRESET' ? code : 'OTHER'}`;
+        expect(error.message).toBe('RELAY_PROXY_UNAVAILABLE');
+        expect(isTransientRelayError(error)).toBe(true);
+        expect(relayRetryCode(error)).toBe(expected);
+        expect(relayDiagnostic(error).message).toBe(expected);
+        expect(relayDiagnostic(relayDiagnostic(error)).message).toBe(expected);
+        const output = [String(error), JSON.stringify(error), relayRetryCode(error), relayDiagnostic(error).message, formatCliError(error)].join('\n');
+        expect(output).not.toMatch(/test-user|secret-pass|private-proxy\.example|3128|\/body/);
+        expect(output).not.toContain(Buffer.from('test-user:secret-pass').toString('base64'));
+      }
+      expect(relayRetryCode(Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), {
+        relayProxyFailure: { stage: secret, code: secret },
+      }))).toBe('RELAY_PROXY_UNAVAILABLE');
+      expect(relayRetryCode(Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), { relayProxyFailure: { stage, code: secret } })))
+        .toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/OTHER`);
+      expect(relayRetryCode(new Error(secret))).toBe('RELAY_UNAVAILABLE');
+      expect(relayRetryCode(new Error(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`))).toBe('RELAY_UNAVAILABLE');
+      const nested = new TypeError('fetch failed', { cause: relayProxyError('RELAY_PROXY_UNAVAILABLE', stage, Object.assign(new Error(secret), { code: 'EPIPE' })) });
+      expect(relayDiagnostic(nested).message).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/EPIPE`);
+    });
+
+  it('identifies TCP refusal without retaining the proxy address', async () => {
+    const server = http.createServer();
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    vi.stubEnv('HTTPS_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
+    const error = await new HttpRelayClient('https://relay.example').discover().catch(error => error);
+    expect(relayRetryCode(error)).toBe('RELAY_PROXY_UNAVAILABLE:proxy_connect/ECONNREFUSED');
+    expect(JSON.stringify(error)).not.toMatch(/127\.0\.0\.1|test-user|secret-pass/);
+  });
+
+  it.each(['connect_response', 'tls', 'request', 'response'] as const)(
+    'identifies a local proxy disconnect during %s', async stage => {
+      const server = http.createServer();
+      server.on('connect', (_req, socket) => {
+        if (stage === 'connect_response') { socket.destroy(); return; }
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (stage === 'tls') { socket.destroy(); return; }
+        socket.once('data', () => {
+          if (stage === 'request') socket.destroy();
+          else {
+            socket.write('HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n[');
+            setTimeout(() => socket.destroy(), 30);
+          }
+        });
+      });
+      const port = await listen(server);
+      vi.stubEnv(stage === 'tls' ? 'HTTPS_PROXY' : 'HTTP_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
+      const url = `${stage === 'tls' ? 'https' : 'http'}://relay.example`;
+      const error = await new HttpRelayClient(url, { requestTimeoutMs: 1000 }).discover().catch(error => error);
+      expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`);
+      if (stage !== 'response') {
+        const checks = await diagnose({ relay: url, identityOptions: { keyStore: 'file' } });
+        expect(checks.at(-1)?.message).toContain(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`);
+      }
+      expect(error.message).toBe(stage === 'tls' ? 'RELAY_PROXY_TLS_FAILED' : 'RELAY_PROXY_UNAVAILABLE');
+      expect(JSON.stringify(error)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1|relay\.example/);
+    });
+
+  it.each([false, true])('sanitizes WebSocket upgrade failures (HTTP response %s)', async response => {
+    const proxy = http.createServer();
+    proxy.on('connect', (_req, socket) => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      socket.once('data', () => {
+        if (response) socket.end('HTTP/1.1 403 secret-pass\r\nContent-Length: 9\r\n\r\ntest-user');
+        else socket.destroy();
+      });
+    });
+    const port = await listen(proxy);
+    vi.stubEnv('HTTP_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
+    const ws = new WebSocketRelayClient('ws://relay.example/ws');
+    cleanups.push(() => ws.close());
+    const error = await ws.ready().catch(error => error);
+    expect(relayRetryCode(error)).toBe(response ? 'RELAY_PROXY_UNAVAILABLE:response/403' : 'RELAY_PROXY_UNAVAILABLE:request/ECONNRESET');
+    expect(JSON.stringify(error)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1|relay\.example/);
+  });
+
+  it.each(['tls', 'request', 'response'] as const)('retains %s timeout metadata', async stage => {
+    const proxy = http.createServer();
+    proxy.on('connect', (_req, socket) => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (stage === 'response') socket.once('data', () =>
+        socket.write('HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n['));
+    });
+    const port = await listen(proxy);
+    vi.stubEnv(stage === 'tls' ? 'HTTPS_PROXY' : 'HTTP_PROXY', `http://127.0.0.1:${port}`);
+    const url = `${stage === 'tls' ? 'https' : 'http'}://relay.example`;
+    const fetcher = createPinnedRelayFetch(url, { requestTimeoutMs: 60 });
+    const error = await fetcher(url).then(r => r.text()).catch(error => error);
+    expect(error.message).toBe('RELAY_REQUEST_TIMEOUT');
+    expect(isTransientRelayError(error)).toBe(true);
+    expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/ETIMEDOUT`);
+  });
+
+  it('uses leased HTTP polling and a separate DELETE acknowledgement through the proxy', async () => {
+    const f = await fixture(true);
+    const client = new HttpRelayClient(f.url, recipient);
+    expect(await client.receive(recipient.did, 1000, undefined, { role: 'requester', taskId: 'proxy-test', lease: true })).toEqual(envelope);
+    await client.acknowledgeDelivery(recipient.did, envelope.payload.envelopeId);
+    expect(f.requests).toHaveLength(2);
+    const poll = new URL(f.requests[0].path!, f.url);
+    expect(poll.pathname).toBe('/envelopes');
+    expect(Object.fromEntries(poll.searchParams)).toEqual({ recipient: recipient.did, waitMs: '1000', role: 'requester', taskId: 'proxy-test', lease: 'true' });
+    expect(f.requests[1].method).toBe('DELETE');
+    expect(f.requests[1].path).toContain('/envelopes/' + envelope.payload.envelopeId + '?recipient=');
+    expect(f.requests.some(r => r.path?.startsWith('/stream'))).toBe(false);
+    expect(f.connects).toHaveLength(2);
+  });
+
+  it('doctor applies private relay policy to the selected health target', async () => {
+    const server = http.createServer((_req, res) => res.end('{}'));
+    const port = await listen(server);
+    const relay = `http://127.0.0.1:${port}`;
+    const options = { relay, identityOptions: { keyStore: 'file' as const } };
+    expect((await diagnose(options)).at(-1)?.ok).toBe(false);
+    expect((await diagnose({ ...options, allowPrivateRelay: true })).at(-1)).toMatchObject({ ok: true, message: 'Reachable' });
+  });
+
   it('retains TLS trust and hostname verification', async () => {
     const f = await fixture();
     vi.mocked(tls.connect).mockImplementation(((options: tls.ConnectionOptions) => actualConnect(options)) as typeof tls.connect);
@@ -181,6 +306,7 @@ describe('relay environment HTTP proxy conformance', () => {
         ? client.stream(recipient.did).next() : client.discover();
       const error = await action.catch(error => error);
       expect(error).toBeInstanceOf(Error); expect(error.message).toBe(expected);
+      expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:connect_response/${status}`);
       const output = [String(error), JSON.stringify(error), formatCliError(error), relayDiagnostic(error).message].join('\n');
       for (const secret of ['test-user', 'secret-pass', Buffer.from('test-user:secret-pass').toString('base64')]) expect(output).not.toContain(secret);
     }
@@ -190,10 +316,10 @@ describe('relay environment HTTP proxy conformance', () => {
     expect(JSON.stringify(logs)).not.toMatch(/test-user|secret-pass/);
   });
 
-  it('doctor uses the same tunnel, with only the proxy host and port in its output', async () => {
+  it('doctor uses the same tunnel without exposing the proxy host or port', async () => {
     const f = await fixture(true);
     const checks = await diagnose({ home: process.env.HOME, identityOptions: { keyStore: 'file' } });
-    expect(checks.at(-1)).toMatchObject({ ok: true, message: `Reachable; via proxy (127.0.0.1:${f.proxyPort})` });
+    expect(checks.at(-1)).toMatchObject({ ok: true, message: 'Reachable; via proxy' });
     expect(f.connects).toContain('relay.sealbridge.dev:443');
     expect(JSON.stringify(checks)).not.toMatch(/test-user|secret-pass/);
   });
@@ -226,7 +352,10 @@ describe('relay environment HTTP proxy conformance', () => {
     server.on('connect', () => {});
     const port = await listen(server);
     vi.stubEnv('HTTPS_PROXY', `http://127.0.0.1:${port}`);
-    await expect(new HttpRelayClient('https://relay.example', { requestTimeoutMs: 30 }).discover()).rejects.toThrow('RELAY_REQUEST_TIMEOUT');
+    const error = await new HttpRelayClient('https://relay.example', { requestTimeoutMs: 30 }).discover().catch(error => error);
+    expect(error.message).toBe('RELAY_REQUEST_TIMEOUT');
+    expect(isTransientRelayError(error)).toBe(true);
+    expect(relayRetryCode(error)).toBe('RELAY_PROXY_UNAVAILABLE:connect_response/ETIMEDOUT');
     await expect(createPinnedRelayFetch('https://relay.example')('https://relay.example', {
       signal: AbortSignal.timeout(30) })).rejects.toThrow('ABORT');
   });

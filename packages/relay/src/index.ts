@@ -28,7 +28,7 @@ import { connectRelayProxy } from './proxy.js';
 import type { RelayClientSecurityOptions } from './ssrf.js';
 export * from './fetch.js';
 export * from './retry.js';
-import { isTransientRelayError, relayRetryDelay, waitForRelayRetry, relayDeadline, relayDiagnostic,
+import { isTransientRelayError, relayRetryDelay, waitForRelayRetry, relayDeadline, relayDiagnostic, relayProxyError, relayRetryCode,
   RelayHttpError, RelayAuthRecoveryExhaustedError, validateRelayAuthRecoveryOptions } from './retry.js';
 import type { RelayConnectionStatus, RelayAuthOperation } from './retry.js';
 export { createPinnedRelayFetch, resolveAndValidateRelayEndpoint } from './ssrf.js';
@@ -419,6 +419,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     const windowMs = this.security.authRecoveryTimeoutMs ?? 120_000;
     const key = did + '\0' + operation;
     let clockOffsetMs: number | undefined;
+    let retryCode = 'HTTP_401';
     let episode: { started: number; attempts: number; users: number } | undefined;
     const exhausted = () => new RelayAuthRecoveryExhaustedError(operation, episode!.attempts,
       Math.round(performance.now() - episode!.started), clockOffsetMs);
@@ -430,7 +431,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           if (episode.attempts >= maxAttempts || remaining <= 0) throw exhausted();
           this.connectionStatus = 'reconnecting';
           console.warn('Relay authentication retry ' + (episode.attempts + 1) +
-            (this.security.maxAuthRecoveryAttempts === undefined ? '' : '/' + maxAttempts));
+            (this.security.maxAuthRecoveryAttempts === undefined ? '' : '/' + maxAttempts) + ' (' + retryCode + ')');
           await waitForRelayRetry(Math.min(this.security.maxAuthRecoveryAttempts === undefined
             ? [2000, 10000, 30000, 60000][Math.min(episode.attempts, 3)]!
             : relayRetryDelay(episode.attempts), remaining), signal);
@@ -467,6 +468,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           this.connectionStatus = 'connected';
           return value;
         } catch (error) {
+          retryCode = relayRetryCode(error);
           controller.abort(error);
           signal?.throwIfAborted();
           if (error instanceof RelayHttpError && error.status === 401) {
@@ -519,7 +521,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           }, signal);
       } catch (error) {
         if (attempt >= 4 || !isTransientRelayError(error)) throw error;
-        console.warn('Relay wake registration retry ' + (attempt + 1));
+        console.warn('Relay wake registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
         await waitForRelayRetry(relayRetryDelay(attempt), signal);
       }
     }
@@ -564,7 +566,7 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
         return;
       } catch (error) {
         if (attempt >= 4 || !isTransientRelayError(error)) throw error;
-        console.warn('Relay registration retry ' + (attempt + 1));
+        console.warn('Relay registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
         await waitForRelayRetry(relayRetryDelay(attempt));
       }
     }
@@ -845,12 +847,17 @@ export class WebSocketRelayClient extends RelayCredentials {
     }
     if (socket.readyState === WebSocket.OPEN) return;
     await new Promise<void>((resolve, reject) => {
-      const fail = (error: Error) => reject(resolved.proxy ? new Error('RELAY_PROXY_UNAVAILABLE') : error);
+      const fail = (error: Error) => reject(resolved.proxy ? relayProxyError('RELAY_PROXY_UNAVAILABLE', 'request', error) : error);
       socket.once('open', () => {
         socket.off('error', fail);
         resolve();
       });
       socket.once('error', fail);
+      if (resolved.proxy) socket.once('unexpected-response', (_request, response) => {
+        reject(relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', response.statusCode));
+        response.destroy();
+        socket.terminate();
+      });
     });
   }
   async ready(): Promise<void> {

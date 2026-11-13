@@ -5,7 +5,7 @@ import https from 'node:https';
 import { Readable } from 'node:stream';
 import type { LookupFunction } from 'node:net';
 import { validateIpAddress, validateRelayEndpointUrl } from '@acp/core';
-import { RelayTimeoutError, relayDeadline, isTransientRelayError } from './retry.js';
+import { RelayTimeoutError, relayDeadline, isTransientRelayError, relayProxyError } from './retry.js';
 import type { RelayEndpointPolicy } from '@acp/core';
 import type { RelayAuthRecoveryOptions } from './retry.js';
 import { connectRelayProxy, relayProxyFor, type RelayProxy } from './proxy.js';
@@ -192,9 +192,23 @@ async function pinnedRequest(
         // 204/205/304 cannot carry a body. A stream argument makes Response throw.
         const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
         if (nullBody) incoming.resume();
-        const body = nullBody
+        const rawBody = nullBody
           ? null
           : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>);
+        const reader = pin.proxy ? rawBody?.getReader() : undefined;
+        const body = reader ? new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) controller.close();
+              else controller.enqueue(chunk.value);
+            } catch (error) {
+              controller.error(signal?.aborted ? abortError(signal) :
+                error instanceof RelayTimeoutError ? error : relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', error));
+            }
+          },
+          cancel: reason => reader.cancel(reason),
+        }) : rawBody;
         try {
           resolve(
             new Response(body, {
@@ -211,11 +225,13 @@ async function pinnedRequest(
     );
     const fail = (error: Error) => {
       if (signal?.aborted) reject(abortError(signal));
-      else reject(pin.proxy && !(error instanceof RelayTimeoutError) ? new Error('RELAY_PROXY_UNAVAILABLE') : error);
+      else reject(pin.proxy && !(error instanceof RelayTimeoutError) ? relayProxyError('RELAY_PROXY_UNAVAILABLE', response ? 'response' : 'request', error) : error);
     };
     req.on('error', fail);
     const timeout = () => {
-      const error = new RelayTimeoutError();
+      const error = pin.proxy
+        ? new RelayTimeoutError(response ? 'response' : 'request')
+        : new RelayTimeoutError();
       response?.destroy(error);
       req.destroy(error);
     };
