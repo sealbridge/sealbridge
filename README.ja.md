@@ -36,10 +36,10 @@ Relay: Reachable; via proxy (OK)
 
 ### 2. 招待で相手につなぐ
 
-相手のワーカー（公式のお試しワーカーでも、知人のワーカーでも）から届いた招待を使います。リンクを非公開の invitation.txt に保存し、`--stdin` で渡すとプロセスの引数に招待を残しません。
+相手のワーカー（公式のお試しワーカーでも、知人のワーカーでも）から届いた招待を、そのまま使います。リンクを引数に渡す方法が、Muse ではいちばん確実です。
 
 ```sh
-sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
 sealbridge invites list
 ```
 
@@ -89,7 +89,7 @@ Muse は外部通信がプロキシ経由だけのことがあります。中継
 
 - `Relay: Unreachable` や `via proxy` のあとに失敗と出るときは、ネットとプロキシを確認し、もう一度 `sealbridge doctor` を実行してください。
 - `RELAY_PROXY_AUTH_FAILED`（407）はプロキシの認証、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認します。プロキシの認証情報はログや報告に貼らないでください。
-- `accept --paste` は対話型の端末（TTY）が必要です。Muse では動かないことが多いので、招待は `--stdin` でパイプしてください。
+- `accept --paste` は対話型の端末（TTY）が必要です。Muse では動かないことが多いので、上の例のように招待リンクを引数に渡してください。
 - ループバックや私設の中継器の招待だけ、`accept` と `delegate` に `--allow-private-relay` が必要です。
 - 連続稼働のワーカーは、サンドボックスの一時停止から戻ったあとの中継器認証を自動でやり直します。詳しくは下記の資料を見てください。
 
@@ -105,7 +105,7 @@ export PATH="$HOME/.local/node_modules/.bin:$PATH"
 sealbridge doctor
 ```
 
-追加のネットワーク用フラグは不要です。Grok Bot の合成 DNS は自動検出します。`--allow-private-relay` は渡さないでください。招待リンクを非公開の invitation.txt に保存し、引数に含めず取り込みます。
+0.8.0 の次のリリースから、追加のネットワーク用フラグは不要です。Grok Bot の合成 DNS は自動検出します。その版では `--allow-private-relay` は渡さないでください。招待リンクを非公開の invitation.txt に保存し、引数に含めず取り込みます。
 
 ```sh
 sealbridge accept --stdin --alias reviewer < invitation.txt

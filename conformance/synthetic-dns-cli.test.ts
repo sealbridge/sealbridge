@@ -1,7 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import https from 'node:https';
 import tls from 'node:tls';
-import { lookup as nodeLookup } from 'node:dns';
 import { readFileSync } from 'node:fs';
 import { createRelayFetchHandler } from '../packages/relay/src/index.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
@@ -68,7 +67,12 @@ it('doctor, CLI worker start and delegate use the default TLS hostname route wit
     expect(await workerResult).toBeUndefined();
     expect(OpenAICompatibleAdapter.prototype.executeTask).not.toHaveBeenCalled();
     expect(routes.length).toBeGreaterThan(2);
-    expect(routes.every(route => route.servername === 'relay.sealbridge.dev' && route.lookup === nodeLookup && route.rejectUnauthorized !== false)).toBe(true);
+    expect(routes.every(route => route.servername === 'relay.sealbridge.dev' && typeof route.lookup === 'function' && route.rejectUnauthorized !== false)).toBe(true);
+    for (const route of routes) {
+      const callback = vi.fn();
+      route.lookup!('relay.sealbridge.dev', { all: true }, callback);
+      expect(callback).toHaveBeenCalledWith(null, [{ address: '198.18.0.1', family: 4 }]);
+    }
   } finally {
     if (worker) { process.emit('SIGINT'); await worker.catch(() => {}); }
     server.closeAllConnections();

@@ -4,6 +4,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Preserve an in-flight leased task response when the delivery-status reader initializes or refreshes, fixing first-invite delegation sequence gaps and incomplete bilateral audits without retries or weaker replay checks.
+- Restore Muse's argument-based invitation import instructions, retain Grok Bot's stdin import, and clarify that automatic synthetic DNS support requires the next release after 0.8.0.
+- Pin detected synthetic TLS egress to the validated 198.18/15 DNS answers instead of resolving again at connection time.
 - Detect Grok Bot synthetic DNS for TLS relay connections while retaining URL guards and SSRF diagnostics in doctor.
 - Refuse noninteractive delegation before sending unless automatic approval is explicit; explain private directory permissions and share contacts data-root selection.
 - Document Grok Bot installation and stdin invitation import in English and Japanese.
