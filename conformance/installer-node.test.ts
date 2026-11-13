@@ -7,6 +7,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 const windows = process.platform === 'win32';
+// Windows can briefly retain an executable handle after process close (for
+// example while antivirus scans it). Bound fixture cleanup retries rather than
+// failing an already completed installer assertion on a transient EBUSY.
+const cleanupOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
 const installerPs = resolve('sites/install.ps1');
 const installerSh = resolve('sites/install.sh');
 const quoteSh = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -23,7 +27,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await Promise.all(runningProcesses);
-  if (stagedDir) await rm(stagedDir, { recursive: true, force: true });
+  if (stagedDir) await rm(stagedDir, cleanupOptions);
 });
 
 async function linkNode(destination: string) {
@@ -187,11 +191,11 @@ $runtime = Get-SealbridgeNode -Prefix $env:SEALBRIDGE_TEST_PREFIX
   });
   afterEach(async () => {
     await Promise.all(runningProcesses);
-    if (caseDir) await rm(caseDir, { recursive: true, force: true });
+    if (caseDir) await rm(caseDir, cleanupOptions);
   });
   afterAll(async () => {
     await Promise.all(runningProcesses);
-    if (dir) await rm(dir, { recursive: true, force: true });
+    if (dir) await rm(dir, cleanupOptions);
   });
 
   async function check(shell: string, paths: string[], signal: AbortSignal, useFakeVersion = true, usePrefix = false) {
