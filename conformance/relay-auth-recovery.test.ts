@@ -4,7 +4,8 @@ import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient,
   isTransientRelayError, relayDiagnostic, RelayAuthRecoveryExhaustedError } from '../packages/relay/src/index.js';
 import type { RelayClientSecurityOptions } from '../packages/relay/src/index.js';
-import { receiveRelay } from '../packages/runtime/src/session-audit.js';
+import { receiveRelay, SessionWire } from '../packages/runtime/src/session-audit.js';
+import { relayRetryCode, RelayHttpError } from '../packages/relay/src/index.js';
 
 const origin = 'https://relay.example';
 const owner = generateKeyPair();
@@ -35,6 +36,67 @@ function envelope(taskId = 'auth-recovery') {
 }
 
 describe('bounded relay authentication recovery', () => {
+  it('logs only recognized retry codes through nested proxy failures', async () => {
+    const secret = 'http://username:password@proxy.example';
+    const proxy = new TypeError('fetch failed', { cause: new Error('RELAY_PROXY_UNAVAILABLE') });
+    const relay = { send() {}, receive: vi.fn().mockRejectedValueOnce(proxy).mockResolvedValue(envelope()) };
+    const result = receiveRelay(relay, owner.did);
+    await vi.advanceTimersByTimeAsync(125);
+    await result;
+    expect(console.warn).toHaveBeenCalledWith('Relay poll retry 1 (RELAY_PROXY_UNAVAILABLE)');
+    expect(relayRetryCode(new RelayHttpError(401, 'receive'))).toBe('HTTP_401');
+    expect(relayRetryCode(new Error('RELAY_PROXY_REFUSED'))).toBe('RELAY_PROXY_REFUSED');
+    expect(relayRetryCode(Object.assign(new Error(secret), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' })))
+      .toBe('ERR_TLS_CERT_ALTNAME_INVALID');
+    expect(relayRetryCode(Object.assign(new Error(secret), { code: secret }))).toBe('RELAY_UNAVAILABLE');
+    expect(JSON.stringify((console.warn as ReturnType<typeof vi.fn>).mock.calls)).not.toContain('password');
+  });
+
+  it('immediately rejects a signed TASK_INTERRUPTED with a restarted sequence', async () => {
+    const peer = generateKeyPair(), relay = new InMemoryRelay();
+    const wire = new SessionWire(relay, owner, peer.did, 'interrupted', [owner.did, peer.did], new AbortController().signal);
+    const checked = expect(wire.receiveEvent('ACCEPT')).rejects.toMatchObject({ code: 'TASK_INTERRUPTED' });
+    try {
+      // A nonzero sequence on ERROR must not postpone the terminal peer reason.
+      await relay.send(signEnvelope({ taskId: 'interrupted', recipientDid: owner.did, seq: 42,
+        eventType: 'ERROR', payload: { code: 'TASK_INTERRUPTED' } }, peer, { encrypt: true }));
+      await vi.advanceTimersByTimeAsync(20);
+      await checked;
+    } finally { wire.close(); }
+  });
+
+  it('uses the full default window with increasing waits and fresh credentials', async () => {
+    const proofs: ReturnType<typeof credential>[] = [];
+    const fetcher = vi.fn(async (_input, init) => {
+      proofs.push(credential(init));
+      return proofs.length <= 4 ? new Response(null, { status: 401 }) : Response.json(envelope());
+    });
+    const result = new HttpRelayClient(origin, fetcher, owner).receive(owner.did);
+    await vi.advanceTimersByTimeAsync(0);
+    for (const delay of [2000, 10000, 30000, 60000]) {
+      const calls = fetcher.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(fetcher).toHaveBeenCalledTimes(calls);
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    await expect(result).resolves.toBeDefined();
+    expect(new Set(proofs.map(p => p.nonce)).size).toBe(5);
+    expect(new Set(proofs.map(p => p.timestamp)).size).toBe(5);
+  });
+
+  it.each([0, 480_000, -480_000])('reports relay clock difference %s without response secrets', async offset => {
+    const fetcher = vi.fn(async () => new Response('secret', { status: 401,
+      headers: { date: new Date(Date.now() + offset).toUTCString() } }));
+    const result = new HttpRelayClient(origin, fetcher, owner, { authRecoveryTimeoutMs: 100 }).receive(owner.did);
+    const checked = expect(result).rejects.toMatchObject({ clockOffsetMs: offset,
+      message: expect.stringContaining(offset === 0 ? 'clock matches' : offset > 0 ? 'behind' : 'ahead of') });
+    await vi.advanceTimersByTimeAsync(100);
+    await checked;
+    const error = await result.catch(e => e);
+    expect(relayDiagnostic(error).message).toBe(error.message);
+    expect(error.message).not.toContain('secret');
+  });
+
   it.each([1, 2, 3])('recovers after %s rejection(s), signing only after each jittered wait', async failures => {
     const proofs: ReturnType<typeof credential>[] = [];
     const requests: string[] = [];
@@ -44,7 +106,7 @@ describe('bounded relay authentication recovery', () => {
       requests.push(String(input));
       return proofs.length <= failures ? new Response('ignored response', { status: 401 }) : base(input, init);
     });
-    const client = new HttpRelayClient(origin, fetcher, owner);
+    const client = new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     const result = client.pollInbox(owner.did, { role: 'worker', taskId: 'task-a', lease: true });
     await vi.advanceTimersByTimeAsync(0);
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -65,10 +127,10 @@ describe('bounded relay authentication recovery', () => {
 
   it('exhausts initial + three attempts and preserves actionable sanitized diagnostics', async () => {
     const fetcher = vi.fn(async () => new Response('private response text', { status: 401 }));
-    const client = new HttpRelayClient(origin, fetcher, owner);
+    const client = new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     const checked = expect(client.receive(owner.did)).rejects.toMatchObject({
       code: 'RELAY_AUTH_RECOVERY_EXHAUSTED', status: 401, attempts: 3, elapsedMs: 875,
-      message: expect.stringContaining('system clock'),
+      message: expect.stringContaining('clock'),
     });
     await vi.advanceTimersByTimeAsync(875);
     await checked;
@@ -91,7 +153,7 @@ describe('bounded relay authentication recovery', () => {
 
   it('never retries a 403 with the default policy', async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 403 }));
-    await expect(new HttpRelayClient(origin, fetcher, owner).receive(owner.did)).rejects.toMatchObject({ status: 403 });
+    await expect(new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }).receive(owner.did)).rejects.toMatchObject({ status: 403 });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +165,7 @@ describe('bounded relay authentication recovery', () => {
       if (next === 'reset') throw Object.assign(new Error('reset'), { code: 'ECONNRESET' });
       return next === 200 ? Response.json(frame) : new Response(null, { status: next as number });
     });
-    const client = new HttpRelayClient(origin, fetcher, owner);
+    const client = new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     const first = receiveRelay(client, owner.did);
     await vi.advanceTimersByTimeAsync(3000);
     expect(await first).toEqual(frame);
@@ -117,7 +179,7 @@ describe('bounded relay authentication recovery', () => {
   it('does not let transient errors start a new episode after the auth budget is spent', async () => {
     let calls = 0;
     const fetcher = vi.fn(async () => new Response(null, { status: ++calls % 2 ? 401 : 503 }));
-    const checked = expect(receiveRelay(new HttpRelayClient(origin, fetcher, owner), owner.did))
+    const checked = expect(receiveRelay(new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }), owner.did))
       .rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED', attempts: 3 });
     await vi.advanceTimersByTimeAsync(10_000);
     await checked;
@@ -127,7 +189,7 @@ describe('bounded relay authentication recovery', () => {
   it('clamps hung attempts to the remaining monotonic window despite a wall-clock jump', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockImplementation(() => new Promise(() => {}));
-    const client = new HttpRelayClient(origin, fetcher as typeof fetch, owner, { authRecoveryTimeoutMs: 200 });
+    const client = new HttpRelayClient(origin, fetcher as typeof fetch, owner, { maxAuthRecoveryAttempts: 3, authRecoveryTimeoutMs: 200 });
     const checked = expect(client.receive(owner.did)).rejects.toMatchObject({
       code: 'RELAY_AUTH_RECOVERY_EXHAUSTED', elapsedMs: 200, attempts: 1,
     });
@@ -151,7 +213,7 @@ describe('bounded relay authentication recovery', () => {
   it('aborts an auth wait without a late request', async () => {
     const stop = new AbortController();
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const checked = expect(new HttpRelayClient(origin, fetcher, owner).receive(owner.did, 0, stop.signal))
+    const checked = expect(new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }).receive(owner.did, 0, stop.signal))
       .rejects.toThrow('owner stopped');
     await vi.advanceTimersByTimeAsync(0);
     stop.abort(new Error('owner stopped'));
@@ -163,7 +225,7 @@ describe('bounded relay authentication recovery', () => {
 
   it('shares the recovery attempt bound across concurrent failed reads without sharing responses', async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const client = new HttpRelayClient(origin, fetcher, owner);
+    const client = new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     const results = Promise.allSettled([
       client.receive(owner.did, 0, undefined, { taskId: 'one' }),
       client.receive(owner.did, 0, undefined, { taskId: 'two' }),
@@ -215,7 +277,7 @@ describe('bounded relay authentication recovery', () => {
         if (operation === 'acknowledge') return new Response(null, { status: 404 });
       }
       return base(input, init);
-    }, owner);
+    }, owner, { maxAuthRecoveryAttempts: 3 });
     await client.send(frame);
     if (operation === 'acknowledge') await client.receive(owner.did, 0, undefined, { lease: true });
     target = true;
@@ -237,7 +299,7 @@ describe('bounded relay authentication recovery', () => {
     let recovering = false;
     const rejected = vi.fn(async () => new Response(null, { status: 401 }));
     const client = new HttpRelayClient(origin, async (input, init) => recovering
-      ? rejected() : Response.json(frame), owner);
+      ? rejected() : Response.json(frame), owner, { maxAuthRecoveryAttempts: 3 });
     await client.receive(owner.did, 0, undefined, { lease: true });
     recovering = true;
     const result = operation === 'acknowledge'
@@ -254,7 +316,7 @@ describe('bounded relay authentication recovery', () => {
   it('cancels rejected response bodies without reading or logging them', async () => {
     const pull = vi.fn(), cancel = vi.fn();
     const fetcher = vi.fn(async () => new Response(new ReadableStream({ pull, cancel }, { highWaterMark: 0 }), { status: 401 }));
-    const checked = expect(new HttpRelayClient(origin, fetcher, owner).receive(owner.did))
+    const checked = expect(new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }).receive(owner.did))
       .rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
     await vi.advanceTimersByTimeAsync(875);
     await checked;
@@ -267,7 +329,7 @@ describe('bounded relay authentication recovery', () => {
     tampered.payload.seq++;
     const fetcher = vi.fn().mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(Response.json(tampered));
-    const checked = expect(new HttpRelayClient(origin, fetcher as typeof fetch, owner).receive(owner.did))
+    const checked = expect(new HttpRelayClient(origin, fetcher as typeof fetch, owner, { maxAuthRecoveryAttempts: 3 }).receive(owner.did))
       .rejects.toThrow('RELAY_TAMPERING_DETECTED');
     await vi.advanceTimersByTimeAsync(125);
     await checked;
@@ -276,14 +338,14 @@ describe('bounded relay authentication recovery', () => {
 
   it('does not resend an envelope POST rejected with 401', async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    await expect(new HttpRelayClient(origin, fetcher, owner).send(envelope())).rejects.toThrow('RELAY_REJECTED: 401');
+    await expect(new HttpRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 }).send(envelope())).rejects.toThrow('RELAY_REJECTED: 401');
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('calls a legacy auth provider again, bounding a provider that keeps returning rejected credentials', async () => {
     const provider = vi.fn(() => 'not-a-credential');
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const checked = expect(new HttpRelayClient(origin, fetcher, provider).receive(owner.did))
+    const checked = expect(new HttpRelayClient(origin, fetcher, provider, { maxAuthRecoveryAttempts: 3 }).receive(owner.did))
       .rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED' });
     await vi.advanceTimersByTimeAsync(875);
     await checked;
@@ -317,7 +379,7 @@ describe('SSE authentication recovery in the receive pump', () => {
         controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(calls === 2 ? first : second) + '\n\n'));
         if (calls === 2) controller.close();
       } }));
-    }, owner);
+    }, owner, { maxAuthRecoveryAttempts: 3 });
     cleanup.push(() => client.close());
     const filter = { role: 'worker' as const, taskId: ['first', 'second'] };
     const receivedFirst = client.receive(owner.did, 30_000, undefined, filter);
@@ -334,7 +396,7 @@ describe('SSE authentication recovery in the receive pump', () => {
 
   it('makes exhaustion sticky without a second pump or another auth budget', async () => {
     const fetcher = vi.fn(async () => new Response('ignored response', { status: 401 }));
-    const client = new SseRelayClient(origin, fetcher, owner);
+    const client = new SseRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     cleanup.push(() => client.close());
     const checked = expect(client.receive(owner.did)).rejects.toMatchObject({ code: 'RELAY_AUTH_RECOVERY_EXHAUSTED' });
     await vi.advanceTimersByTimeAsync(875);
@@ -348,7 +410,7 @@ describe('SSE authentication recovery in the receive pump', () => {
   it('stops during authentication backoff without a late SSE connection', async () => {
     const stop = new AbortController();
     const fetcher = vi.fn(async () => new Response(null, { status: 401 }));
-    const client = new SseRelayClient(origin, fetcher, owner);
+    const client = new SseRelayClient(origin, fetcher, owner, { maxAuthRecoveryAttempts: 3 });
     cleanup.push(() => client.close());
     const checked = expect(client.receive(owner.did, 30_000, stop.signal)).rejects.toThrow('owner stopped');
     await vi.advanceTimersByTimeAsync(0);

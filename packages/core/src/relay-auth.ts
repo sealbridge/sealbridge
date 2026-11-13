@@ -68,7 +68,7 @@ export function createRelayAuthToken(
     recipientDid: recipient.did,
     action: options.action ?? 'receive',
     timestamp: options.now ?? new Date().toISOString(),
-    nonce: options.nonce ?? randomUUID(),
+    nonce: options.nonce ?? randomUUID({ disableEntropyCache: true }),
     ...(rawOrigin !== undefined ? { origin: normalizeRelayOrigin(rawOrigin) } : {}),
   };
   return Buffer.from(JSON.stringify(signPayload(payload, recipient))).toString('base64url');

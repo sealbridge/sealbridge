@@ -5,7 +5,7 @@ export class RelayTimeoutError extends Error {
 }
 
 export interface RelayAuthRecoveryOptions {
-  /** Additional authenticated attempts after a 401. Zero restores fail-fast behavior. */
+  /** Optional additional-attempt cap after a 401. Default: use the full timeout; zero fails fast. */
   maxAuthRecoveryAttempts?: number;
   /** Monotonic elapsed time allowed after the first 401. */
   authRecoveryTimeoutMs?: number;
@@ -33,8 +33,12 @@ export class RelayHttpError extends Error {
 export class RelayAuthRecoveryExhaustedError extends Error {
   readonly code = 'RELAY_AUTH_RECOVERY_EXHAUSTED';
   readonly status = 401;
-  constructor(readonly operation: RelayAuthOperation, readonly attempts: number, readonly elapsedMs: number) {
-    super('RELAY_AUTH_RECOVERY_EXHAUSTED: Check that the system clock is synchronized and the key matches the registered DID.');
+  constructor(readonly operation: RelayAuthOperation, readonly attempts: number, readonly elapsedMs: number, readonly clockOffsetMs?: number) {
+    const clock = clockOffsetMs === undefined ? 'Relay Date unavailable; system clock difference unknown.'
+      : Math.abs(clockOffsetMs) <= 5000 ? 'System clock matches relay Date (within 5 seconds); clock skew is not indicated.'
+      : 'System clock is approximately ' + Math.round(Math.abs(clockOffsetMs) / 1000) +
+        ' seconds ' + (clockOffsetMs > 0 ? 'behind' : 'ahead of') + ' relay Date.';
+    super('RELAY_AUTH_RECOVERY_EXHAUSTED: ' + clock + ' Authentication may also fail due to nonce replay or key/DID mismatch.');
   }
 }
 
@@ -65,7 +69,8 @@ export function relayDiagnostic(error: unknown): Error {
         ? detail.operation : 'receive';
       return new RelayAuthRecoveryExhaustedError(operation,
         Number.isSafeInteger(detail.attempts) && detail.attempts >= 0 ? detail.attempts : 0,
-        Number.isSafeInteger(detail.elapsedMs) && detail.elapsedMs >= 0 ? detail.elapsedMs : 0);
+        Number.isSafeInteger(detail.elapsedMs) && detail.elapsedMs >= 0 ? detail.elapsedMs : 0,
+        Number.isSafeInteger(detail.clockOffsetMs) ? detail.clockOffsetMs : undefined);
     }
   }
   const message = error instanceof Error ? error.message : '';
@@ -104,4 +109,19 @@ export async function relayDeadline<T>(work: Promise<T>, ms: number, signal?: Ab
     clearTimeout(timer);
     if (abort) signal?.removeEventListener('abort', abort);
   }
+}
+
+/** Return only recognized codes, never arbitrary transport messages or proxy URLs. */
+export function relayRetryCode(error: unknown): string {
+  const seen = new Set<Error>();
+  for (let current = error; current instanceof Error && !seen.has(current) && seen.size < 16; current = current.cause) {
+    seen.add(current);
+    if (current instanceof RelayHttpError) return 'HTTP_' + current.status;
+    const status = /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(\d{3})\b/.exec(current.message)?.[1];
+    if (status) return 'HTTP_' + status;
+    const code = (current as NodeJS.ErrnoException).code;
+    if (code && /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|CERT_HAS_EXPIRED|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(code)) return code;
+    if (/^(?:RELAY_PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNAVAILABLE|UNSUPPORTED)|SSE_CLOSED|RELAY_IDLE_TIMEOUT|RELAY_AUTH_RECOVERY_EXHAUSTED)$/.test(current.message)) return current.message;
+  }
+  return 'RELAY_UNAVAILABLE';
 }

@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Fixed / 修正
+
+- Recover relay authentication across sandbox suspension using the full default recovery window and uncached nonces. Continuous workers stay unavailable and reconnect after exhaustion while preserving interrupted-session audit safety. Reject and acknowledge invalid proposals without occupying execution capacity; report clock-aware authentication diagnostics and sanitized requester poll retry codes, and propagate peer TASK_INTERRUPTED immediately. (#266)
+- サンドボックスの停止・再開に対し、既定の認証回復時間枠全体とキャッシュしない nonce を使用します。常駐ワーカーは回復失敗後も unavailable のまま再接続し、中断セッションの監査と再実行禁止を維持します。不正な提案は実行枠を使わず拒否して ack し、時計の差を考慮した認証診断と秘密を含まない依頼側ポーリング理由コードを表示します。相手の TASK_INTERRUPTED は直ちに伝播します。(#266)
+
 ### Breaking / 破壊的変更
 
 - **Breaking:** Existing `codex`, `claude`, and `command` configurations that automatically executed work from peers trusted through contacts or legacy grants now reject work outside the owner-configured rule with `APPROVAL_CHANNEL_UNAVAILABLE`. This change is not triggered by `--allow-requester`. Contact trust and legacy grants do not necessarily establish a connection: to continue automatic execution, explicitly enable writes with `sealbridge config auto-accept connected write` for connected peers, or `sealbridge config auto-accept anyone write` when those peers are not connected, then restart the worker. `anyone` broadens the automatic audience; retain an explicit requester allowlist when needed. (#254)

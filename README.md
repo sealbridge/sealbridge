@@ -1105,6 +1105,25 @@ Installers default to mainline; choose local with `sh install.sh --package sealb
 
 Input-size caps default to **unlimited**. Owners can opt into the official-worker preset with `sealbridge config auto-accept diff-size trial-reviewer` (400 lines, 48 KiB of serialized JSON, 10 files), or set `max-diff-lines N`, `max-diff-bytes N`, and `max-diff-files N` individually. `diff-size off` removes all size caps; each individual setting also accepts `off`. Restart after changes. Configured caps apply before execution and daily/monthly counters, including manually approved work. The HTTP adapter always validates the complete outgoing prompt against `maxInputTokens`, even without size caps. Generic fixed rejection text is the default; `monthly-limit-message trial-reviewer` explicitly selects trial wording. Successful requests write no size-audit files. See [counting and audit details](docs/auto-accept.md#pre-call-input-size).
 
+## Troubleshooting suspended sandboxes and relay authentication
+
+Continuous `worker start` automatically recovers after sandbox suspension/resume
+(including Muse): HTTP 401 recovery uses fresh credentials and uncached nonces
+over a 120-second window, with waits of 2, 10, 30, then 60 seconds (bounded by
+the remaining window). An explicit `--relay-auth-retries` caps attempts;
+`--relay-auth-recovery-timeout-ms` changes the window. After exhaustion, the
+worker reports `unavailable` and retries every 60 seconds. Interrupted sessions
+remain interrupted; an unsealed audit is evidence, never permission to rerun.
+`--once` workers and requesters still fail on exhaustion.
+
+For `RELAY_AUTH_RECOVERY_EXHAUSTED`, read the relay `Date` comparison: a positive
+offset means the local clock is behind; a matching clock does not rule out nonce
+replay or a key/DID mismatch. Without a Date header the difference is unknown.
+This is a diagnostic observation, not authenticated time or a reason to change
+the clock automatically. Requester `Relay poll retry N (CODE)` lines distinguish
+HTTP status, proxy connection, TLS, and network failures without printing credentials.
+`TASK_INTERRUPTED` from the peer ends the request immediately.
+
 ## Troubleshooting HTTP proxy environments
 
 In proxy-only environments such as Muse, relay clients automatically use `HTTPS_PROXY` / `https_proxy` for HTTPS and WSS (falling back to `ALL_PROXY` / `all_proxy`), and `HTTP_PROXY` / `http_proxy` for HTTP and WS. Uppercase takes precedence. Only `http://` proxy URLs are supported; URL Basic credentials are sent only to the proxy. HTTP requests, inbox polling, SSE and WebSocket all use CONNECT with the relay hostname and normal TLS certificate verification. `--allow-private-relay` is not needed for a public relay through the proxy, even with synthetic local DNS. URL, IP-literal and metadata restrictions still apply; the proxy is responsible for destination DNS and network admission. `NO_PROXY` / `no_proxy` supports exact hosts/IPs, `.example.com` suffixes, `*` and optional ports; matching destinations use the existing direct DNS validation and pinning. Doctor uses the same route and displays only the proxy host and port. For `RELAY_PROXY_AUTH_FAILED` (407) check proxy credentials; for `RELAY_PROXY_REFUSED` check CONNECT permissions. Never paste proxy credentials into logs or reports.

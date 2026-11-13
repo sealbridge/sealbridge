@@ -2,6 +2,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { startLocalRelay } from '../packages/relay/src/index.js';
 import { join } from 'node:path';
 import { createInviteToken, createSignedAgentCard, generateKeyPair } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
@@ -61,7 +63,7 @@ it.each(['worker', 'delegate'])('forwards auth settings on %s before creating a 
   const card = createSignedAgentCard({ name: 'local', agentDid: target.did, relayEndpoint: 'https://relay.example', skills: [] }, target);
   const invite = createInviteToken({ agentCard: card }, target);
   const result = command === 'worker'
-    ? networkCommand('worker', ['start', '--allow-local-pc', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
+    ? networkCommand('worker', ['start', '--once', '--allow-local-pc', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
     : networkCommand('delegate', [...flags, '--to', invite, '--title', 'local',
       '--description', 'local task', '--input', '{}']);
   const checked = expect(result).rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
@@ -102,30 +104,41 @@ it.each(['worker', 'delegate', 'mcp-server'])('documents auth defaults and attem
   else await networkCommand(command, command === 'worker' ? ['start', '--help'] : ['--help']);
   const help = String(log.mock.calls[0][0]);
   expect(help).toContain('--relay-auth-retries');
-  expect(help).toContain('Additional attempts');
-  expect(help).toContain('default: 3');
+  expect(help).toContain('Optional attempt cap');
+  expect(help).toContain('default: full recovery window');
   expect(help).toContain('--relay-auth-recovery-timeout-ms');
   expect(help).toContain('120000');
 });
 
-it('sets a non-zero worker start exit code on exhausted authentication recovery', async () => {
-  vi.useFakeTimers();
-  vi.spyOn(Math, 'random').mockReturnValue(0);
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+it('sets a non-zero one-shot worker exit code on exhausted authentication recovery', async () => {
   const { key, contacts } = identity();
-  const fetcher = vi.fn(async () => new Response('private response text', { status: 401 }));
-  state.fetcher = fetcher;
-  process.exitCode = undefined;
-  process.argv = [originalArgv[0], 'sealbridge', 'worker', 'start', '--allow-local-pc', '--key', key,
-    '--relay', 'https://relay.example', '--contacts', contacts];
-  await import('../cli/src/index.js');
-  await vi.advanceTimersByTimeAsync(875);
-  expect(process.exitCode).toBe(1);
-  expect(fetcher).toHaveBeenCalledTimes(4);
-  const text = JSON.stringify(errors.mock.calls);
-  expect(text).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
-  expect(text).toContain('system clock');
-  expect(text).not.toContain('private response text');
+  const server = await startLocalRelay();
+  server.relay.openInbox = () => { throw new Error('RELAY_UNAUTHORIZED'); };
+  // Exercise the real entry point in its own process. Setting process.exitCode
+  // inside Vitest can mark the test worker failed even after restoring it.
+  const child = spawn(process.execPath, ['cli/dist/index.js', 'worker', 'start', '--once',
+    '--relay-auth-retries', '1', '--relay-auth-recovery-timeout-ms', '2000',
+    '--allow-local-pc', '--allow-private-relay', '--key', key, '--relay', server.url, '--contacts', contacts], {
+    env: { ...process.env, SEALBRIDGE_DATA_DIR: join(key, '..', 'child-data'),
+      HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let errors = '';
+  child.stdout.resume();
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', chunk => { errors += chunk; });
+  const timeout = setTimeout(() => child.kill(), 10_000);
+  try {
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    });
+    expect(code).toBe(1);
+    expect(errors).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
+    expect(errors).toContain('clock');
+  } finally {
+    clearTimeout(timeout);
+    child.kill();
+    await server.close();
+  }
 });

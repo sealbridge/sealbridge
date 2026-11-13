@@ -3,7 +3,7 @@ import { validateRelayAuthRecoveryOptions } from '@acp/relay';
 import type { RelayAuthRecoveryOptions } from '@acp/relay';
 
 export const RELAY_AUTH_HELP = `Relay authentication recovery:
-  --relay-auth-retries <n>                 Additional attempts after HTTP 401 (default: 3; 0: fail immediately).
+  --relay-auth-retries <n>                 Optional attempt cap after HTTP 401 (default: full recovery window; 0: fail immediately).
   --relay-auth-recovery-timeout-ms <ms>    Overall recovery window in milliseconds (default: 120000).
 HTTP 403 and other permanent rejections remain terminal.`;
 
