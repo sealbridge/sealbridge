@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import type { Json } from '../packages/core/src/index.js';
-import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient, isTransientRelayError, RelayAuthRecoveryExhaustedError } from '../packages/relay/src/index.js';
+import { createRelayFetchHandler, HttpRelayClient, InMemoryRelay, SseRelayClient, isTransientRelayError, RelayAuthRecoveryExhaustedError, RelayDuplicateEnvelopeError } from '../packages/relay/src/index.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
 import { AcpMcpServer, PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
 import type { AgentAdapter, DelegateOptions, WorkerNodeOptions } from '../packages/runtime/src/index.js';
+import { TaskJournal } from '../packages/runtime/src/task-journal.js';
+import { workerJson } from '../cli/src/worker-json.js';
 import { SessionTimeouts } from '../packages/runtime/src/session-timeouts.js';
 
 const origin = 'https://relay.example';
@@ -111,6 +113,176 @@ describe('session liveness and recovery', () => {
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(5000);
     await expect(result).resolves.toMatchObject({ state: 'SETTLED' });
+    f.worker.stop();
+    await running;
+  });
+
+  it('survives real 401 exhaustion then duplicate recovery notification admission and accepts a later task', async () => {
+    vi.useFakeTimers();
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), 'worker-duplicate-'));
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+    const inboxPath = join(directory, 'inbox.jsonl');
+    let fail = true, duplicates = 0, ended = false, seeded = false;
+    const diagnostics: string[] = [], credentials: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) => {
+      const url = new URL(String(input));
+      const auth = new Headers(init?.headers).get('authorization');
+      if (auth) credentials.push(auth);
+      if (fail && url.searchParams.get('recipient') === f.workerKey.did)
+        return new Response('secret response body', { status: 401, headers: { date: new Date().toUTCString() } });
+      if (init?.method === 'POST' && JSON.parse(String(init.body)).payload.eventType === 'ERROR') {
+        await base(input, init); // Prior admission whose acknowledgement was lost.
+        duplicates++;
+        return base(input, init); // Real handler returns strict REPLAYED_ENVELOPE/400.
+      }
+      return base(input, init);
+    }, worker: { inboxPath, onStatus: (status, error) => {
+      diagnostics.push(workerJson({ status, ...(error ? { error } : {}) }));
+      if (error && 'code' in error && error.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' && !seeded) {
+        seeded = true;
+        const journal = (f.worker as unknown as { taskJournal: TaskJournal }).taskJournal;
+        journal.save({ version: 1, taskId: 'previous-task', requesterDid: f.requesterKey.did,
+          envelopeId: 'previous-envelope', proposalDigest: 'sha256:' + 'a'.repeat(64), phase: 'terminal',
+          invocations: [], outcome: { code: 'TASK_INTERRUPTED' }, notificationPending: true });
+        journal.close();
+      }
+    } } });
+    const running = f.worker.start().finally(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(seeded).toBe(true);
+    expect(ended).toBe(false);
+    fail = false;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(duplicates).toBe(1);
+    expect(ended).toBe(false);
+    const task = f.task();
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+    const journal = new TaskJournal(inboxPath + '.tasks.jsonl', f.workerKey);
+    journal.load();
+    expect(journal.tasks.get('previous-task')?.notificationPending).toBe(false);
+    journal.close();
+    const output = JSON.stringify([diagnostics, warnings.mock.calls]);
+    expect(output).toContain('clock matches');
+    expect(output).not.toContain('secret response body');
+    for (const credential of credentials) expect(output).not.toContain(credential);
+    expect(output).not.toContain(f.workerKey.privateKey);
+    expect(output).not.toContain(f.requesterKey.privateKey);
+    f.worker.stop();
+    await running;
+  });
+
+  it.each([false, true])('preserves duplicate failure outside persistent start (once=%s)', async once => {
+    const owner = generateKeyPair();
+    const worker = new WorkerNode({ owner, adapter: adapter(), relay: {
+      send: async () => { throw new RelayDuplicateEnvelopeError(); }, receive: () => undefined,
+    } });
+    cleanup.push(() => worker.stop());
+    const envelope = signEnvelope({ taskId: 'same', recipientDid: generateKeyPair().did,
+      seq: 0, eventType: 'ERROR', payload: {} }, owner);
+    if (once) {
+      const starting = worker.start({ once: true });
+      await expect(worker.relay.send(envelope)).rejects.toBeInstanceOf(RelayDuplicateEnvelopeError);
+      worker.stop();
+      await starting;
+    } else await expect(worker.relay.send(envelope)).rejects.toBeInstanceOf(RelayDuplicateEnvelopeError);
+  });
+
+  it('retries initial publication after exhausted registration transport retries', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let fail = true, ended = false;
+    const statuses: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) =>
+      fail && new URL(String(input)).pathname === '/agents'
+        ? new Response('secret registration body', { status: 503 }) : base(input, init),
+      worker: { publishToRegistry: true, onStatus: (status, error) => statuses.push(workerJson({ status, error })) } });
+    const running = f.worker.start().finally(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(statuses.join()).toContain('unavailable');
+    expect(ended).toBe(false);
+    fail = false;
+    const task = f.task();
+    await vi.advanceTimersByTimeAsync(65_000);
+    await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+    expect(statuses.join()).not.toContain('secret registration body');
+    f.worker.stop();
+    await running;
+  });
+
+  it('retries a pending notification when initial checkpoint reconciliation cannot send', async () => {
+    vi.useFakeTimers();
+    const directory = mkdtempSync(join(tmpdir(), 'worker-initial-reconcile-'));
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+    const inboxPath = join(directory, 'inbox.jsonl');
+    let fail = true, ended = false, notifications = 0;
+    const statuses: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) => {
+      if (init?.method === 'POST' && JSON.parse(String(init.body)).payload.eventType === 'ERROR') {
+        notifications++;
+        if (fail) return new Response('secret notify body', { status: 503 });
+      }
+      return base(input, init);
+    }, worker: { inboxPath, onStatus: (status, error) => statuses.push(workerJson({ status, error })) } });
+    const journal = new TaskJournal(inboxPath + '.tasks.jsonl', f.workerKey);
+    journal.load();
+    journal.save({ version: 1, taskId: 'previous-task', requesterDid: f.requesterKey.did,
+      envelopeId: 'previous-envelope', proposalDigest: 'sha256:' + 'a'.repeat(64), phase: 'terminal',
+      invocations: [], outcome: { code: 'TASK_INTERRUPTED' }, notificationPending: true });
+    journal.close();
+    const running = f.worker.start().finally(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(statuses.join()).toContain('unavailable');
+    expect(ended).toBe(false);
+    fail = false;
+    const task = f.task();
+    await vi.advanceTimersByTimeAsync(65_000);
+    await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+    expect(notifications).toBe(2);
+    expect(statuses.join()).not.toContain('secret notify body');
+    f.worker.stop();
+    await running;
+  });
+
+  it('retains a recovered proposal across an ack failure outside the listener loop', async () => {
+    vi.useFakeTimers();
+    let original: Parameters<RelayTransport['send']>[0] | undefined;
+    let failAck = false, failedAcks = 0, executions = 0;
+    const directory = mkdtempSync(join(tmpdir(), 'worker-recovery-ack-'));
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+    const statuses: string[] = [];
+    const f = fixture({ fetcher: base => async (input, init) => {
+      if (init?.method === 'POST' && new URL(String(input)).pathname === '/envelopes') {
+        const envelope = JSON.parse(String(init.body));
+        if (envelope.payload.eventType === 'PROPOSE') original = envelope;
+      }
+      if (failAck && init?.method === 'DELETE' && new URL(String(input)).searchParams.get('recipient') === f.workerKey.did) {
+        failedAcks++;
+        return new Response('secret ack body', { status: 500 });
+      }
+      return base(input, init);
+    }, execute: async () => { executions++; return { ok: true }; },
+      worker: { inboxPath: join(directory, 'inbox.jsonl'), onStatus: (status, error) => statuses.push(workerJson({ status, error })) } });
+    await Promise.all([f.task(), f.worker.start({ once: true })]);
+    expect(executions).toBe(1);
+    const repeated = signEnvelope(original!.payload, f.requesterKey);
+    f.relay.send(repeated);
+    failAck = true;
+    let ended = false;
+    const running = f.worker.start().finally(() => { ended = true; });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(failedAcks).toBe(1);
+    expect(statuses.join()).toContain('unavailable');
+    expect(ended).toBe(false);
+    failAck = false;
+    const task = f.task();
+    await vi.advanceTimersByTimeAsync(65_000);
+    await expect(task).resolves.toMatchObject({ state: 'SETTLED' });
+    expect(executions).toBe(2); // Replayed proposal never executes again.
+    expect(f.relay.snapshot().queues.flatMap(([, q]) => q).some(e =>
+      e.payload.envelopeId === repeated.payload.envelopeId)).toBe(false);
+    expect(statuses.join()).not.toContain('secret ack body');
     f.worker.stop();
     await running;
   });

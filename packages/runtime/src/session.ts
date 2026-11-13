@@ -837,6 +837,13 @@ export class WorkerNode {
       return undefined;
     }
   }
+  private continuous = false;
+  private retryableWorkerRelayError(error: unknown): boolean {
+    return isTransientRelayError(error) || error instanceof Error && (
+      'code' in error && error.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' ||
+      /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(?:408|429|5\d\d)\b/.test(error.message) ||
+      error.message === 'RELAY_DEDUPE_CAPACITY');
+  }
   private status?: RelayConnectionStatus;
   private listenerStatus(status: RelayConnectionStatus, error?: Error): void {
     if (this.status === status && !error) return;
@@ -846,83 +853,87 @@ export class WorkerNode {
   private listen(signal: AbortSignal): Promise<SignedEnvelope> {
     return receiveRelay(this.relay, this.options.owner.did, signal, { role: 'worker' },
       (status) => this.listenerStatus(status === 'connected' ? this.relay.connectionStatus ?? status : status))
-      .catch((error: unknown) => { if (signal.aborted) throw error; throw relayDiagnostic(error); });
+      .catch((error: unknown) => {
+        if (signal.aborted || this.continuous) throw error;
+        throw relayDiagnostic(error);
+      });
   }
   async start(
     options: { once?: boolean; signal?: AbortSignal } = {},
   ): Promise<SessionResult | undefined> {
     // Register first so immediate discovery can resolve owner and agent aliases.
     this.refreshMonthlyCard(); // Also settles orphaned accounting on unpublished workers.
-    if (this.publishes()) await this.register();
-    await this.reconcileTasks();
+    if (options.once) {
+      // Preserve the one-shot startup/failure contract, including raw send errors.
+      if (this.publishes()) await this.register();
+      await this.reconcileTasks();
+    }
     const idleSignal = AbortSignal.any([
       this.controller.signal,
       ...(options.signal ? [options.signal] : []),
     ]);
     const jobs = new Set<Promise<void>>();
     let generation = new AbortController();
+    let pendingEnvelope: SignedEnvelope | undefined;
     const unregister = registerWorkerListener(this.options.owner.did, (env) => {
       this.forwardedQueue.push(env);
       this.forwardedWaiters.shift()?.();
       return true;
     });
+    this.continuous = !options.once;
     try {
       while (!idleSignal.aborted) {
-        // revocationAwareRelay ingests a leading REVOKE before this read returns.
-        let envelope: SignedEnvelope;
-        try { envelope = await this.listen(idleSignal); }
-        catch (error) {
-          if (options.once || idleSignal.aborted || !(error instanceof Error) ||
-              !('code' in error) || error.code !== 'RELAY_AUTH_RECOVERY_EXHAUSTED') throw error;
-          this.listenerStatus('unavailable', error);
-          // End this generation without granting permission to replay execution.
-          generation.abort(error);
-          for (const mailbox of this.mailboxes.values()) mailbox.close(error);
-          await Promise.allSettled([...jobs]);
-          for (;;) {
-            await waitForRelayRetry(60_000, idleSignal);
-            try {
-              this.reconciled = false;
-              await this.reconcileTasks();
-              break;
-            } catch (recoveryError) {
-              if (idleSignal.aborted || !(isTransientRelayError(recoveryError) ||
-                  recoveryError instanceof Error && /^(?:RELAY_REJECTED:\s*401\b|RELAY_AUTH_RECOVERY_EXHAUSTED\b)/.test(recoveryError.message)))
-                throw recoveryError;
-              // An interrupted-task notification can fail while the relay is still
-              // unavailable. Retain its journal outcome and retry without execution.
-              this.listenerStatus('unavailable', relayDiagnostic(recoveryError));
-            }
+        try {
+          if (this.publishes() && !this.registered) await this.register();
+          await this.reconcileTasks();
+          // revocationAwareRelay ingests a leading REVOKE before this read returns.
+          const envelope = pendingEnvelope ?? await this.listen(idleSignal);
+          pendingEnvelope = envelope;
+          if (await this.recoverProposal(envelope)) {
+            pendingEnvelope = undefined;
+            if (options.once) return this.lastResult;
+            continue;
           }
+          if (this.deliver(envelope)) { pendingEnvelope = undefined; continue; }
+          const job = this.beginTask(envelope, AbortSignal.any([idleSignal, generation.signal]), options.once === true);
+          pendingEnvelope = undefined;
+          if (!job) continue;
+          jobs.add(job);
+          void job.finally(() => jobs.delete(job)).catch(() => undefined);
+          if (options.once) {
+            await this.pumpUntil(job, idleSignal);
+            return this.lastResult;
+          }
+        } catch (error) {
+          if (options.once || idleSignal.aborted || !this.retryableWorkerRelayError(error)) throw error;
+          const diagnostic = relayDiagnostic(error);
+          this.listenerStatus('unavailable', diagnostic);
+          // Quiesce the failed generation before reconciling durable outcomes.
+          generation.abort(diagnostic);
+          for (const mailbox of this.mailboxes.values()) mailbox.close(diagnostic);
+          await Promise.allSettled([...jobs]);
+          await waitForRelayRetry(60_000, idleSignal);
+          this.reconciled = false;
           generation = new AbortController();
-          continue;
-        }
-        if (await this.recoverProposal(envelope)) {
-          if (options.once) return this.lastResult;
-          continue;
-        }
-        if (this.deliver(envelope)) continue;
-        const job = this.beginTask(envelope, AbortSignal.any([idleSignal, generation.signal]), options.once === true);
-        if (!job) continue;
-        jobs.add(job);
-        void job.finally(() => jobs.delete(job)).catch(() => undefined);
-        if (options.once) {
-          await this.pumpUntil(job, idleSignal);
-          return this.lastResult;
         }
       }
     } catch (error) {
       if (!idleSignal.aborted) {
         // A rejected one-shot task may be followed by another start on this node.
         // Only a terminal listener failure shuts down the worker and all of its tasks.
-        if (error instanceof Error && 'code' in error && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code))) {
-          this.listenerStatus('unavailable', error);
-          for (const mailbox of this.mailboxes.values()) mailbox.close(error);
-          this.controller.abort(error);
+        if (error instanceof Error && ((!options.once &&
+            (/^RELAY_|^SSE_|^SSRF_BLOCKED_RELAY_URL/.test(error.message) || isTransientRelayError(error))) ||
+            'code' in error && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code)))) {
+          const diagnostic = relayDiagnostic(error);
+          this.listenerStatus('unavailable', diagnostic);
+          for (const mailbox of this.mailboxes.values()) mailbox.close(diagnostic);
+          this.controller.abort(diagnostic);
+          throw diagnostic;
         }
         throw error;
       }
     } finally {
+      this.continuous = false;
       if (this.status !== 'unavailable') this.listenerStatus('stopped');
       unregister();
       await Promise.allSettled([...jobs]);
@@ -2301,9 +2312,16 @@ export class WorkerNode {
     return {
       ...deliveryPins(relay),
       get connectionStatus() { return relay.connectionStatus; },
-      send: (envelope) => {
+      send: async (envelope) => {
         this.assertPeer(envelope.payload.recipientDid, envelope.payload.taskId);
-        return relay.send(envelope);
+        try { await relay.send(envelope); }
+        catch (error) {
+          // Exact, decoded prior admission is success, never arbitrary HTTP 400.
+          // Scope this to a running persistent worker; once/runOnce stay fail-fast.
+          if (!this.continuous || !(error instanceof Error) || error.name !== 'RelayDuplicateEnvelopeError' ||
+              !('code' in error) || error.code !== 'REPLAYED_ENVELOPE' ||
+              !('status' in error) || error.status !== 400) throw error;
+        }
       },
       ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])])) } : {}),
       receive,

@@ -475,6 +475,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     try {
       await worker.startDelivery();
       await worker.start({ once: f.has('--once') });
+    } catch (error) {
+      if (!f.has('--once')) emitWorkerJson({ event: 'WORKER_EXIT', status: 'unavailable',
+        code: 'WORKER_TERMINAL', error });
+      throw error;
     } finally {
       worker.stopDelivery();
       process.removeListener('SIGINT', stop);

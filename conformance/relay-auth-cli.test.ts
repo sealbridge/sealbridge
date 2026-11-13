@@ -110,14 +110,14 @@ it.each(['worker', 'delegate', 'mcp-server'])('documents auth defaults and attem
   expect(help).toContain('120000');
 });
 
-it('sets a non-zero one-shot worker exit code on exhausted authentication recovery', async () => {
+it.each([true, false])('reports a non-zero worker exit and safe diagnostics on fatal auth (once=%s)', async once => {
   const { key, contacts } = identity();
   const server = await startLocalRelay();
   server.relay.openInbox = () => { throw new Error('RELAY_UNAUTHORIZED'); };
   // Exercise the real entry point in its own process. Setting process.exitCode
   // inside Vitest can mark the test worker failed even after restoring it.
-  const child = spawn(process.execPath, ['cli/dist/index.js', 'worker', 'start', '--once',
-    '--relay-auth-retries', '1', '--relay-auth-recovery-timeout-ms', '2000',
+  const child = spawn(process.execPath, ['cli/dist/index.js', 'worker', 'start', ...(once ? ['--once'] : []),
+    '--relay-auth-retries', once ? '1' : '0', '--relay-auth-recovery-timeout-ms', '2000',
     '--allow-local-pc', '--allow-private-relay', '--key', key, '--relay', server.url, '--contacts', contacts], {
     env: { ...process.env, SEALBRIDGE_DATA_DIR: join(key, '..', 'child-data'),
       HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '' },
@@ -134,8 +134,16 @@ it('sets a non-zero one-shot worker exit code on exhausted authentication recove
       child.once('close', resolve);
     });
     expect(code).toBe(1);
-    expect(errors).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
-    expect(errors).toContain('clock');
+    if (once) {
+      expect(errors).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
+      expect(errors).toContain('clock');
+    } else {
+      expect(errors).toContain('WORKER_EXIT');
+      expect(errors).toContain('WORKER_TERMINAL');
+      expect(errors).toContain('常駐ワーカーを終了します');
+      expect(errors).toContain('RELAY_REJECTED: 401');
+    }
+    expect(errors).not.toContain('Bearer ');
   } finally {
     clearTimeout(timeout);
     child.kill();
