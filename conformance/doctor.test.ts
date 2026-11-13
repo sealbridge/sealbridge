@@ -93,7 +93,11 @@ describe('doctor', () => {
     process.exitCode = 0;
     await doctorCommand({ ...config, offline: true, version: '22.22.0', path: '/bin', exists: () => true,
       identityOptions: { ...config.identityOptions, env: { ...config.identityOptions.env, SEALBRIDGE_KEY_STORE: 'file' } } });
-    expect(log.mock.calls[2][0]).toContain('Keys: IDENTITY_INVALID; selection: file (env) (WARN)');
+    if (issue === 'directory-mode') {
+      expect(log.mock.calls[2][0]).toContain('Keys: DATA_DIR_PERMISSIONS:');
+      expect(log.mock.calls[2][0]).toContain('chmod 700');
+      expect(log.mock.calls[2][0]).toContain('; selection: file (env) (WARN)');
+    } else expect(log.mock.calls[2][0]).toContain('Keys: IDENTITY_INVALID; selection: file (env) (WARN)');
     expect(process.exitCode).toBe(1);
     expect(readFileSync(path, 'utf8')).toBe(raw);
   });
