@@ -45,3 +45,9 @@ export class WorkerAutoApprovalProvider implements ApprovalProvider {
     } }, this.owner);
   }
 }
+
+/** Peer opt-in replaces the audience/work defaults, retaining every folder limit. */
+export function connectionAutoAccept(policy: AutoAcceptPolicy, acceptance?: 'off' | 'read-only' | 'write'): AutoAcceptPolicy {
+  return acceptance === undefined ? policy : { ...policy, enabled: acceptance !== 'off',
+    from: 'connected', work: acceptance === 'off' ? 'read-only' : acceptance };
+}

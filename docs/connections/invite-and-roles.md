@@ -8,7 +8,7 @@ or previewing an invite alone grants neither connection consent nor task approva
 
 Whether a side accepts work depends on local configuration: a worker must be
 running with the addressed identity, and `config auto-accept` controls which work
-can open automatically. A local alias selects a peer; it does not start a worker
+can open automatically, subject to the per-peer admission choice below. A local alias selects a peer; it does not start a worker
 or grant permission. DIDs identify parties. Display names are informational and
 can be duplicated. Aliases are chosen and stored locally, not assigned remotely.
 
@@ -152,8 +152,8 @@ execution; offers without a redeemable invite still require owner consent.
 Once that exchange is accepted, both sides have their own connection record.
 Either side can send work, including the original invite creator, if the other
 side runs a worker for the addressed identity and accepts that work. Connection
-consent does not start a worker or grant task execution permission. Task review,
-auto-accept configuration and defaults are unchanged.
+consent does not start a worker or grant task execution permission. Task review
+and creator auto-accept behavior are unchanged; new importer connections require per-peer opt-in.
 
 Records stay in the existing owner-signed **per-key connection store**, under the
 DID that participated in the exchange. With separate unmigrated keys, a creator's
@@ -162,8 +162,9 @@ requester key. Default unmigrated `worker start` listens only on its worker key,
 as before. To explicitly receive return work on an existing separate requester key,
 start it with `--also-requester`. Automatic acceptance on that additional listener
 is **off**: it inherits neither `--auto-accept` nor the folder's auto-accept config.
-The owner can separately opt in with `--requester-auto-accept read-only|write`,
-which accepts that work only from connected peers. No requester key is created.
+The owner can separately opt in with `--requester-auto-accept read-only|write`
+for connections without a per-peer override, or with `connections allow` for a
+selected connected peer. No requester key is created.
 `--also-requester` is incompatible with `--key` and migrated owner setups (the
 migrated gateway already receives owner-addressed work). Explicit audit/inbox paths use
 `*.requester.jsonl`; original worker paths remain unchanged. `--key FILE` selects
@@ -215,7 +216,7 @@ does not delete a possibly active writer's lock automatically.
 3. Only connected aliases participate in conflicts with saved invite aliases;
    pending/blocked aliases do not shadow a saved invitation. If the saved alias
    and connected aliases all identify the **same peer DID**, keep the original
-   invite-store resolution, including expiry and confirmation checks. A connected
+   invite-store resolution and confirmation checks while current. Once the saved invite expires, a unique connected match for that same DID is used instead. Explicit saved references still fail on expiry. A connected
    alias identifying a **different peer DID** fails `CONNECTION_TARGET_CONFLICT`.
    Without a saved alias, multiple connected matches fail `CONNECTION_ALIAS_AMBIGUOUS`.
    Rename the connection or use an explicit DID / `saved:...` reference to disambiguate.
@@ -229,9 +230,65 @@ reference value. Existing MCP arguments and TypeScript options are unchanged.
 expiry checks. Combined selectors must still contain exactly equal values;
 unequal values fail before sending. `--to <workerRef>` remains supported.
 
+## Per-peer acceptance (Q2)
+
+A connection newly established on the **importer** side through verified invitation
+acceptance now records local `acceptance: "off"`. `accept` itself still only saves
+an invitation. The creator keeps its current policy and Muse needs no extra step:
+Grok Bot can import and delegate to Muse exactly as before.
+
+```sh
+sealbridge connections allow reviewer             # read-only
+sealbridge connections allow reviewer write       # explicit writes
+sealbridge connections disallow reviewer          # owner approval again
+sealbridge connections list
+```
+
+These commands change only the selected local connected peer's signed record.
+They send no message and change no DID. Unknown names fail `CONNECTION_NOT_FOUND`;
+ambiguous names fail `CONNECTION_ALIAS_AMBIGUOUS`. Select the peer DID and
+`--role requester|worker` or `--key FILE` to disambiguate. A blocked/pending peer
+cannot be allowed. Names and display names never establish identity.
+
+`connections list` adds `acceptance`: `off`, `read-only`, `write`, or
+`folder-policy` (no per-peer override); existing output fields remain available.
+The override is checked afresh on each task. Its composition is:
+
+- Existing records without the optional field retain exactly their previous
+  `config auto-accept` invited/connected/anyone and read-only/write behavior,
+  including explicit off. Reading never migrates or rewrites them.
+- For new importer connections, `off` takes precedence over every folder audience
+  and work setting, `--auto-accept`, `--requester-auto-accept`, and legacy trust
+  grants. Such tasks need inspection and live owner approval; otherwise they end
+  with `PENDING_OWNER_APPROVAL`. Connection consent does not approve execution.
+- `allow` is an explicit peer-specific opt-in. It replaces enabled/audience/work
+  with enabled/connected/read-only (or explicit write), including when the folder
+  policy is off. All folder budget, rate, size and other admission limits remain.
+  Read-only still requires the existing host/adapter read-only checks. Other peers
+  are unaffected. `disallow` restores owner approval even with a broad folder rule.
+- A listener must still be running for the addressed identity. In unmigrated
+  folders `--also-requester` remains required for a separate requester listener;
+  that listener does not inherit the main worker's policy. Its explicit
+  `--requester-auto-accept` applies to peers without an override, while `allow`
+  opts in just the selected peer. Migrated gateways already receive owner input.
+
+No protocol status or field is advertised. Old records need no migration. The
+optional local field is validated by the updated store reader; do not run older
+strict writers concurrently against a store using the new field.
+
+## Before sending (Q3)
+
+`delegate --to <connection-name>` prints to stderr that the work **may** wait for
+the peer owner's approval. The connection record establishes identity/routing,
+not the peer's current admission policy. Even an inviter cannot know whether the
+importer later ran `allow` or `disallow`; no remote acceptance certainty is claimed.
+The warning does not block sending. `--quiet-approval-warning` suppresses stderr
+for scripts. Result JSON retains its existing fields and adds `acceptanceWarning`
+with code `PEER_APPROVAL_MAY_BE_REQUIRED` and a message, even when suppressed.
+Explicit invite/saved selectors keep their existing behavior and no new warning.
+
 ## Later work
 
-Accepter defaults (Q2), warnings before sending to a peer that will not accept
-(Q3), `connections allow`, MCP connected-peer listing/name targeting (PR5),
-Desktop and the Muse-first README guide remain separate changes. This PR changes
-neither automatic acceptance defaults nor the protocol version or invite payload.
+MCP connected-peer listing and name targeting (PR5), end-to-end Muse ↔ Grok Bot
+tests and the README guide (PR6), and Desktop remain later work. This change does
+not bump the protocol version or change the invitation payload.
