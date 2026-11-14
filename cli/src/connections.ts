@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cliName } from './distribution.js';
+import { localConnectionKeys, localConnections } from './connection-target.js';
+import { ConnectionAliases } from '@acp/runtime';
 import { attachHeldDeliveryStatus } from '@acp/runtime';
 import { createInterface } from 'node:readline/promises';
 import { createSignedAgentCard } from '@acp/core';
@@ -30,7 +32,7 @@ export interface ConnectionsCommandOptions {
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   output?: (value: string) => void;
 }
-const USAGE = 'Usage: ' + cliName + ' connections list | status peerRef-or-workerRef-or-DID | review list|approve ID|reject ID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite peerRef-or-workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Review uses built-in inspection of signed connection offer metadata only. A plain task creates only a pending task-derived item, not a reviewable connection offer. On CONNECTION_NOT_PENDING, check connections review list with the same role/key and use a listed ID; if empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Use tasks list/show/approve/reject for individual held-task review and an interactive worker for live task approval. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / review の組み込み検査は署名付き接続申し込みの情報だけが対象です。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。CONNECTION_NOT_PENDING なら同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。単体 CLI の tasks list/show/approve/reject で個別タスクを確認し、対話式ワーカーで実行を承認します。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
+const USAGE = 'Usage: ' + cliName + ' connections list [--role worker|requester] | alias <name-or-peer-DID> <new-alias> [--role worker|requester] | status peerRef-or-workerRef-or-DID | review list|approve ID|reject ID | request --to DID --relay URL [--message TEXT] | approve ID | reject ID | withdraw ID | disconnect DID | block DID | unblock DID | confirm-invite peerRef-or-workerRef | prior-approved | connect-prior DID --relay URL | sync [--once] [--role worker|requester] [--key FILE]. Review uses built-in inspection of signed connection offer metadata only. A plain task creates only a pending task-derived item, not a reviewable connection offer. On CONNECTION_NOT_PENDING, check connections review list with the same role/key and use a listed ID; if empty, use the invitation/connect flow (connections confirm-invite) to exchange a signed offer. Use tasks list/show/approve/reject for individual held-task review and an interactive worker for live task approval. Connection review does not inspect or open tasks. Human confirmation requires an interactive TTY; --auto-accept does not provide inspection or connection consent. / review の組み込み検査は署名付き接続申し込みの情報だけが対象です。通常のタスクが作るのはタスク由来の保留項目だけで、審査可能な接続申し込みではありません。CONNECTION_NOT_PENDING なら同じ役割・鍵で connections review list を確認し、一覧の ID を使ってください。空なら招待・接続フロー（connections confirm-invite）で署名付き申し込みを交換してください。単体 CLI の tasks list/show/approve/reject で個別タスクを確認し、対話式ワーカーで実行を承認します。接続審査だけではタスクを検査・開封しません。所有者の確認には対話式 TTY が必要です。--auto-accept は検査や接続同意を代替しません。';
 export async function connectionsCommand(args: string[], options: ConnectionsCommandOptions = {}): Promise<void> {
   const output = options.output ?? console.log;
   if (args.includes('--help') || args.includes('-h')) { output(USAGE); return; }
@@ -47,12 +49,24 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
     flags.set(flag, rest[++i]);
   }
   const readOnly = ['list', 'prior-approved', 'status', 'review-list'].includes(action);
-  if (!['list','prior-approved','status','review-list','review-approve','review-reject','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
-      ids.length !== (['list','prior-approved','review-list','request','sync'].includes(action) ? 0 : 1)) throw new Error(USAGE);
+  if (!['alias','list','prior-approved','status','review-list','review-approve','review-reject','request','approve','reject','withdraw','disconnect','block','unblock','confirm-invite','connect-prior','sync'].includes(action) ||
+      ids.length !== (action === 'alias' ? 2 : ['list','prior-approved','review-list','request','sync'].includes(action) ? 0 : 1)) throw new Error(USAGE);
   const role = flags.get('--role') ?? (['confirm-invite', 'status'].includes(action) ? 'requester' : 'worker');
   if (role !== 'worker' && role !== 'requester') throw new Error('INVALID_IDENTITY_ROLE');
   if (action === 'request' && (!flags.has('--to') || !flags.has('--relay'))) throw new Error('RELAY_REQUIRED');
   const identityOptions = { ...options.identityOptions, explicitKeyPath: flags.get('--key') };
+  if (action === 'list' || action === 'alias') {
+    const keys = await localConnectionKeys(identityOptions, flags.has('--role') ? role : undefined);
+    const connections = keys.flatMap(key => localConnections(key, { ...identityOptions, now: options.now }));
+    if (action === 'list') { output(JSON.stringify({ role: flags.get('--role') ?? 'all', connections })); return; }
+    const matches = connections.filter(c => c.peerOwnerDid === ids[0] || c.alias === ids[0]);
+    if (!matches.length) throw new Error('CONNECTION_NOT_FOUND');
+    if (matches.length > 1) throw new Error('CONNECTION_ALIAS_AMBIGUOUS: select peer DID and --role or --key');
+    const selected = matches[0], key = keys.find(k => k.did === selected.localOwnerDid)!;
+    if (connections.some(c => c !== selected && c.alias === ids[1])) throw new Error('CONNECTION_ALIAS_EXISTS');
+    new ConnectionAliases(key, identityOptions).rename(selected.peerOwnerDid, ids[1], connections.filter(c => c.localOwnerDid === key.did));
+    output(JSON.stringify({ localOwnerDid: key.did, peerOwnerDid: selected.peerOwnerDid, alias: ids[1] })); return;
+  }
   const needsSavedRelay = ['approve', 'connect-prior', 'sync'].includes(action) && !flags.has('--relay');
   const key = readOnly || needsSavedRelay ? (await inspectStoredIdentity(role, identityOptions)).key : await resolveStoredIdentity(role, identityOptions);
   if (!key && needsSavedRelay) throw new Error('RELAY_REQUIRED');
@@ -71,7 +85,6 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   }
   const review = new HeldRequestReview(key, { ...identityOptions, provider: options.inspectionProvider, now: options.now });
   const delivery = attachHeldDeliveryStatus(key, review, identityOptions, store, options.now);
-  if (action === 'list') { output(JSON.stringify({ localOwnerDid: key.did, role, connections: store.listConnections() })); return; }
   if (action === 'prior-approved') { output(JSON.stringify({ localOwnerDid: key.did, role, priorApprovedPeers: store.listPriorApprovedPeers() })); return; }
   if (reviewAction) {
     // Listing and rejection use no transport. Approval selects the retained offer's relay.

@@ -3089,6 +3089,14 @@ export class RequesterClient {
           ...(options.to ? { did: options.to } : {}) })[0]
       : findDiscoveredAgentCard(rawCards, options.to);
     if (options.discover && !card) throw new Error('WORKER_NOT_FOUND');
+    const connectionStore = this.options.connectionStore ?? new WorkerTrustStore(this.options.owner, {
+      path: this.options.identityOptions ? workerIntakePath(this.options.owner.did, this.options.identityOptions) : undefined,
+      fs: this.options.identityOptions?.fs, platform: this.options.identityOptions?.platform, now: this.options.now });
+    if (connectionStore.ownerDid !== this.options.owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
+    const connected = !invite && !card ? connectionStore.listConnections().find(c =>
+      c.peerOwnerDid === options.to && c.state === 'connected') : undefined;
+    const connectedAgent = connected && 'peerAgentDid' in connected && typeof connected.peerAgentDid === 'string' ? connected.peerAgentDid : undefined;
+    if (connected) this.protocol.observeConnection(connected.peerOwnerDid, connectedAgent ?? connected.peerOwnerDid);
     const advertisedPolicy = (invite?.agentCard ?? card)?.payload.autoAccept;
     const automationNotice = 'This worker responds automatically, not through a human. この相手は人ではなく自動で応じます。';
     const workerAutomation = advertisedPolicy?.enabled ? {
@@ -3098,7 +3106,7 @@ export class RequesterClient {
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
     const protocolVersion = this.protocol.outbound(invite?.agentCard ?? card,
       options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
-      invite?.agentDid ?? card?.payload.agentDid ?? peer);
+      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer);
     if (options.manifest && options.renegotiateProtocol) options = { ...options, manifest: { ...options.manifest, protocolVersion } };
     const manifest =
       options.manifest ??
@@ -3110,7 +3118,7 @@ export class RequesterClient {
           ? { maxWallClockSeconds: options.budget?.maxWallClockSeconds ?? Math.floor(timeoutOptions.executionTimeoutMs / 1000) } : {}) },
         ownerDid: owner.did,
         workerDid: peer,
-        agentDid: invite?.agentDid ?? card?.payload.agentDid ?? peer,
+        agentDid: invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer,
         skillId: options.discover?.skillId,
         taskType: options.discover?.taskType ?? (card?.payload.skills.length === 1 &&
           card.payload.skills[0].taskTypes?.length === 1 ? card.payload.skills[0].taskTypes[0] : undefined),

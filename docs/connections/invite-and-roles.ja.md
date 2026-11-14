@@ -102,17 +102,83 @@ owner 宛ての既存招待は引き続き届きますが、失効した delegat
 `invite open` の返信招待は引き続き requester-as-agent です。移行済み gateway は owner-as-agent も受け付けるため、
 旧 MCP 招待と返信招待の宛先を維持します。open だけで受信処理や双方向の依頼を有効化しません。
 
-現在の Muse の流れは、Muse が招待を作り、Grok Bot がローカルに保存して、起動中の Muse worker に委任するものです。
-現在の接続記録は worker 側です。**一度の招待で双方から依頼できる機能はまだありません。**
+## 双方向接続とローカルの名前
+
+Muse が招待を作り、Grok Bot がローカルに保存して、起動中の Muse worker に委任する
+従来の手順は維持します。`accept` は引き続きローカル保存です（既存の短縮リンクの解決を除く）。
+接続交換を送信せず、保存だけでは接続同意やタスク承認を与えません。
+
+接続記録を作るタイミングは、既存の署名付き接続交換に従います。
+
+- `connections confirm-invite <peerRef-or-workerRef>` はローカル所有者に接続への同意を別途確認し、
+  送信前に outgoing の保留記録を保存します。作成側の起動中の受信処理が申し込みを
+  検証・検査して招待を受理すると、作成側に接続済み記録ができます。
+  保存側は署名付き受諾を受信・検証した時点で接続済みとなり、最後の ACK で配送を確認します。
+  遅れて届く受諾には保存側で受信処理または
+  `connections sync --role requester --relay <URL>` を動かしてください。
+- 招待を使う初回 delegate も、既存の独立した接続同意の確認後に同じ申し込みを添付できます。
+  作成側は検証済みタスクが招待を使用した時点で接続記録を作り、依頼側は署名付き接続受諾を
+  受信した時点で逆方向の接続記録を作ります。同意を断った場合や接続確認チャネルがない場合も
+  従来の招待タスクの経路は維持しますが、依頼側の接続同意を勝手に作りません。
+  `--auto-approve`・`--auto-accept` は接続同意の確認に回答しません。
+
+交換が受諾されれば双方にそれぞれの接続記録があり、元の招待作成者からも仕事を送れます。
+受信側では宛先の identity で worker が起動し、その仕事を受け付ける必要があります。
+接続同意で worker が起動したり、タスク実行が承認されたりはしません。
+タスク審査、自動受付の設定・既定値は変更しません。
+
+接続は交換に参加した DID の既存の署名付き**鍵ごとの接続ストア**に保存します。
+未移行で鍵が別の場合、作成側の記録は worker 鍵、保存側の記録は requester 鍵に属します。
+既定の `worker start` は、すでに存在する別の requester identity も同じ受付設定で受信します。
+requester 鍵は新規作成しません。返信を受けるには requester identity の作成後に worker を
+起動・再起動してください。その明示的な監査・inbox パスは `*.requester.jsonl` となり、
+元の worker パスは維持します。`--key FILE` はその identity だけを選びます。
+移行済み owner/delegate は owner のストアを使い、旧 listener と `*.legacy.jsonl` を維持します。
+記録のコピー・移動・読み取り時の書き換えはなく、移行操作も不要です。
+
+```sh
+sealbridge connections list
+sealbridge connections list --role requester
+sealbridge connections alias <peer-DID-or-current-alias> reviewer
+sealbridge delegate --to reviewer --title "Review" --description "Review input" --input-file input.json
+```
+
+`connections list` は既存の両ローカル identity について、ローカル別名、`peerOwnerDid`、
+`localOwnerDid`、接続状態を表示します。`--role worker`・`--role requester`・`--key FILE` で
+絞れます。別名変更はローカルだけで完結し、通信せず、相手の DID や接続同意を変更しません。
+名前が曖昧な場合は相手 DID と role/key を指定してください。
+
+既定別名は保持済みの相手表示名を小文字にし、ASCII 英数字以外の連続を `-` に置換し、
+両端のハイフンを除いて最大64文字とします。空なら `peer` です。
+変更後の別名は小文字 ASCII 英数字・`_`・`-` の1〜64文字で、先頭は英数字です。
+同じ表示名から同じ既定別名ができた場合は**曖昧エラー**とし、勝手な採番・選択はしません。
+表示名と別名は識別子ではなく、識別には DID を使います。変更した別名は owner 署名付きの
+`<data-root>/connection-aliases/<sha256-local-owner-DID>.json` に保存します。
+接続記録と別ファイルにすることで、未知フィールドを拒否する旧ストアリーダーとの共有を維持します。
+
+### `--to` の解決と互換性
+
+1. 招待リンク・トークンと `did:...` は従来どおり解釈します。
+   `saved:...` は必ず招待ストアで期限を検査して解決します。
+2. 通常の `--to <name>` は既存 requester/worker の接続別名を検索します
+   （`--key FILE` ならその鍵だけ）。一意な接続済み候補から相手 DID、記録済みの relay/agent DID、
+   その接続を持つローカル署名 identity を選びます。公開ディレクトリへの登録は不要です。
+3. 接続候補が複数なら `CONNECTION_ALIAS_AMBIGUOUS` です。接続別名と保存済み招待別名の
+   両方に一致した場合は同じ相手でも `CONNECTION_TARGET_CONFLICT` とし、期限切れ招待を
+   接続宛先に勝手に置き換えません。接続別名を変更するか DID / `saved:...` を指定してください。
+4. 接続候補がなければ従来の招待別名・参照の解決をそのまま実行します。
+   不明な名前は `INVITE_NOT_FOUND`、保留・ブロック状態の接続別名は `CONNECTION_NOT_CONNECTED` です。
 
 `peerRef` は `workerRef` と同じ保存済み参照値を持つ、役割を限定しない別名です。
 MCP の委任・削除はどちらも受け付け、両方指定する場合は同じ値が必要です。
 TypeScript の `DelegateOptions` でも両方使えます（アプリ側で保存済み招待を `to` に解決する点は従来どおりです）。
 CLI の委任には `--peer-ref <peerRef>` を追加し、従来の `--to <workerRef>` と `--invite` も維持します。
 併用時の値は一致させてください。InviteStore メソッドと CLI の位置引数には、どちらの変数名でも同じ参照値を渡せます。
-解決先は引き続き保存済み招待で、期限も確認します。接続一覧からの解決には変えていません。
+`--peer-ref`・`--invite` は期限検査を含む従来の招待ストア解決を維持します。
+`--to <name>` のみ、上記の接続別名の解決を追加します。
 
 ## 後続の変更
 
-双方向接続、受け手の既定設定、受け付けない相手への送信前警告、MCP 一覧の追加変更、
-Desktop 対応は別の段階で扱います。この準備では有効化せず、自動受付やプロトコル版も変更しません。
+受け手の既定設定（Q2）、受け付けない相手への送信前警告（Q3）、`connections allow`、
+MCP の接続相手一覧・名前指定（PR5）、Desktop、Muse を先に説明する README ガイドは後続です。
+この PR は自動受付の既定値、プロトコル版、招待 payload を変更しません。
