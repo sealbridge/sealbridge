@@ -9,6 +9,7 @@ import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 import { PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
 import { WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/worker-trust-store.js';
+import { ProtocolPeerStore } from '../packages/runtime/src/protocol-peer-store.js';
 import { DeliveryStore } from '../packages/runtime/src/delivery-store.js';
 import { retryDeliveryBusy } from '../packages/runtime/src/delivery-retry.js';
 import { outboxFixture } from './outbox-fixture.js';
@@ -233,4 +234,35 @@ it.each(['open', 'rename'])('retries a Windows %s sharing refusal in the intake 
   expect(store.connectionState(f.peer.did)).toBe('blocked');
   expect(store.listConnections()).toEqual([{ peerOwnerDid: f.peer.did, state: 'blocked' }]);
   expect(fs.existsSync(path + '.lock')).toBe(false);
+});
+
+it('keeps unchanged protocol observations serialized without rewriting or flushing coordination locks', () => {
+  const f = fixture(), fsync = vi.fn(fs.fsyncSync), rename = vi.fn(fs.renameSync);
+  const store = new ProtocolPeerStore(f.owner, { ...f.identityOptions, now: f.now, fs: { ...fs, fsyncSync: fsync, renameSync: rename } });
+  const policy = { releasedAt: '2026-11-03T12:22:18Z', sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 } as const;
+  const initial = store.observePolicy(policy), before = fs.readFileSync(store.path, 'utf8');
+  // Actual state still receives its original flushed atomic publication.
+  expect(fsync).toHaveBeenCalledTimes(1); expect(rename).toHaveBeenCalledTimes(1);
+  fsync.mockClear(); rename.mockClear();
+  expect(store.observePolicy(policy)).toEqual(initial);
+  expect(fs.readFileSync(store.path, 'utf8')).toBe(before);
+  expect(fsync).not.toHaveBeenCalled(); expect(rename).not.toHaveBeenCalled();
+  // A held lock still excludes even a no-op; no unlocked floor/policy bypass.
+  fs.writeFileSync(store.path + '.lock', '', { mode: 0o600 });
+  try { expect(() => store.observePolicy(policy)).toThrow('PROTOCOL_STORE_BUSY'); }
+  finally { fs.unlinkSync(store.path + '.lock'); }
+});
+
+it('yields and retries a contended protocol observation without sending or losing the committed floor', async () => {
+  const f = fixture(), store = new ProtocolPeerStore(f.owner, { ...f.identityOptions, now: f.now });
+  const policy = { releasedAt: '2026-11-03T12:22:18Z', sendLegacyUntilDays: 90, receiveLegacyUntilDays: 180 } as const;
+  const expected = store.observePolicy(policy), bytes = fs.readFileSync(store.path, 'utf8');
+  fs.writeFileSync(store.path + '.lock', '', { mode: 0o600 });
+  const pending = retryDeliveryBusy(() => store.observePolicy(policy), undefined, 'PROTOCOL_STORE_BUSY');
+  const timer = setTimeout(() => fs.unlinkSync(store.path + '.lock'), 150);
+  try {
+    expect(await pending).toEqual(expected);
+    expect(fs.readFileSync(store.path, 'utf8')).toBe(bytes);
+    expect(f.posted).toEqual([]);
+  } finally { clearTimeout(timer); if (fs.existsSync(store.path + '.lock')) fs.unlinkSync(store.path + '.lock'); }
 });

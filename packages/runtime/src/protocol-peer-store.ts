@@ -13,7 +13,7 @@ import type {
   ProtocolCompatibilityPolicy, Signed, SignedAgentCard,
 } from '@acp/core';
 import {
-  checkPath, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot, writePrivateFile,
+  checkPath, checkStat, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot, writePrivateFile,
 } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
 
@@ -99,9 +99,19 @@ export class ProtocolPeerStore {
       try {
         const until = performance.now() + 50, sleeper = new Int32Array(new SharedArrayBuffer(4));
         for (let attempt = 0; ; attempt++) {
-          try { writePrivateFile(this.path + '.lock', Buffer.alloc(0), this.io, this.options.platform); locked = true; break; }
+          try {
+            // Coordination only: this empty lock has no recovery payload to flush.
+            const fd = this.io.openSync(this.path + '.lock', fs.constants.O_WRONLY | fs.constants.O_CREAT |
+              fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+            locked = true;
+            try { checkStat(this.io.fstatSync(fd)); } finally { this.io.closeSync(fd); }
+            break;
+          }
           catch (error) {
-            if (code(error) !== 'EEXIST' || performance.now() >= until) throw error;
+            const busy = code(error) === 'EEXIST' || (this.options.platform ?? process.platform) === 'win32' &&
+              (error as NodeJS.ErrnoException).syscall === 'open' && ['EPERM', 'EACCES', 'EBUSY'].includes(code(error) ?? '');
+            if (!busy) throw error;
+            if (performance.now() >= until) throw new Error('PROTOCOL_STORE_BUSY');
             Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
           }
         }
@@ -109,7 +119,12 @@ export class ProtocolPeerStore {
       catch (error) { if (code(error) === 'EEXIST') throw new Error('PROTOCOL_STORE_BUSY'); throw error; }
       const state = this.read(), now = this.now();
       if (!Number.isFinite(now)) throw new Error('PROTOCOL_STORE_INVALID');
+      const before = JSON.stringify(state);
       const result = change(state, now);
+      // Repeated policy checks and already-known cards are read-only. Keep the
+      // comparison under the lock so another writer cannot advance a floor or
+      // phase between an unlocked preflight and this decision.
+      if (JSON.stringify(state) === before) return structuredClone(result);
       const bytes = Buffer.from(JSON.stringify(signPayload(state, this.owner, new Date(now).toISOString())) + '\n');
       if (state.observations.length > MAX_OBSERVATIONS || bytes.length > MAX_BYTES)
         throw new Error('PROTOCOL_STORE_UNWRITABLE');

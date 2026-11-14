@@ -13,6 +13,7 @@ import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validate
 import type { IdempotencyOperation, IdempotencyStoreOptions } from './idempotency-store.js';
 import type { IdempotencyAuthorization } from './delivery-records.js';
 import { RecipientDeliveryCoordinator } from './delivery-status.js';
+import { retryDeliveryBusy } from './delivery-retry.js';
 import { setDeliveryStatusReaderFactory } from './delivery-status-router.js';
 import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
 import type { RequesterPendingStore } from './requester-pending-store.js';
@@ -1523,10 +1524,11 @@ export class WorkerNode {
         const cards = await this.relay.discover();
         const sender = findDiscoveredAgentCard(cards, m.requester.agentDid, this.protocol.now());
         if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint) {
-          this.protocol.observe(sender, cards); peerDisplayName = sender.payload.name;
+          await retryDeliveryBusy(() => this.protocol.observe(sender, cards), activeSignal, 'PROTOCOL_STORE_BUSY');
+          peerDisplayName = sender.payload.name;
         }
       }
-      this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid);
+      await retryDeliveryBusy(() => this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid), activeSignal, 'PROTOCOL_STORE_BUSY');
       const skills = this.agentCard.payload.skills;
       const selected = m.task.skillId ? skills.filter(skill => skill.id === m.task.skillId) : skills;
       if ((m.task.skillId && selected.length === 0) ||
@@ -3114,9 +3116,9 @@ export class RequesterClient {
       policy: advertisedPolicy,
     } : undefined;
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
-    const protocolVersion = this.protocol.outbound(invite?.agentCard ?? card,
+    const protocolVersion = await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card,
       options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
-      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer);
+      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer), options.signal, 'PROTOCOL_STORE_BUSY');
     if (options.manifest && options.renegotiateProtocol) options = { ...options, manifest: { ...options.manifest, protocolVersion } };
     const manifest =
       options.manifest ??
@@ -3325,7 +3327,7 @@ export class RequesterClient {
         if (store.connectionState(peer) !== 'connected') {
           connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store,
             agentCard: createSignedAgentCard({ name: 'Sealbridge requester', agentDid: owner.did,
-              relayEndpoint: relayUrl, skills: [], protocolVersions: this.protocol.receiveVersions() }, owner),
+              relayEndpoint: relayUrl, skills: [], protocolVersions: await retryDeliveryBusy(() => this.protocol.receiveVersions(), signal, 'PROTOCOL_STORE_BUSY') }, owner),
             review: new HeldRequestReview(owner, { ...this.options.identityOptions, now: this.options.now }),
             humanReview: this.options.connectionReview, now: this.options.now, allowPrivateRelay: this.options.allowPrivateRelay,
             onConnectionEvent: this.options.onConnectionEvent });
@@ -3338,7 +3340,7 @@ export class RequesterClient {
       }
       if (connectionRouter) inbox.setConnections(connectionRouter);
       // Recheck the live phase immediately before transmission; owner review may cross a boundary.
-      this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid);
+      await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid), signal, 'PROTOCOL_STORE_BUSY');
       options.beforeTransmit?.();
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       if (approvalMode && !verifyApproval(contextProposalApproval!, owner.did, manifest.taskId, 'contract_acceptance', proposalTarget()))
