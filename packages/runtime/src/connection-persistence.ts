@@ -65,11 +65,13 @@ export class StoredConnectionExchange implements ConnectionPersistencePort {
       expiresAt: Date.parse(o.expiresAt), ownerConsentDigest: r.consentDigest! };
   }
   private commit(s: ConnectionTrustState, r: StoredControlRecord, accepted: Signed<ConnectionAccepted>, now: number, source: 'request' | 'invite'): void {
+    const wasConnected = s.connections.some(c => c.peerOwnerDid === this.peer(r.offer) && c.state === 'connected');
     this.pending(s, r, now);
     const c = s.connections.find(c => c.peerOwnerDid === this.peer(r.offer))!;
     Object.assign(c, { state: 'connected', connectionId: accepted.payload.connectionId, connectedAt: now,
       source, localConsentDigest: r.consentDigest!,
       ...(r.direction === 'outgoing' ? { remoteAcceptanceDigest: digest(accepted) } : {}) });
+    if (!wasConnected && r.direction === 'outgoing' && r.offer.inviteDigest) c.acceptance ??= 'off';
     r.accepted = structuredClone(accepted);
   }
   private async lookup(id: string, direction: StoredControlRecord['direction']): Promise<ConnectionOffer | undefined> {

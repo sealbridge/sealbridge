@@ -72,7 +72,7 @@ const delegateArgs = (target: string, audit: string) => ['delegate', '--to', tar
   '--title', 'Echo', '--description', 'Echo JSON', '--input', '{"ok":true}', '--auto-approve', '--audit', audit,
   '--wait-timeout-ms', '5000'];
 
-it.each([false, true])('real CLI processes: bilateral aliases and VALID audits, migrated=%s; SIGTERM exits after prior requester history', async migrated => {
+it.each([false, true])('real CLI processes: importer off/allow/disallow despite anyone-write, creator settles, warning/quiet JSON and VALID audits; migrated=%s; SIGTERM exits', async migrated => {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'two-way-cli-')); roots.push(root);
   const a = join(root, 'a'), b = join(root, 'b');
   const aOptions = await folder(a), bOptions = await folder(b);
@@ -103,9 +103,36 @@ it.each([false, true])('real CLI processes: bilateral aliases and VALID audits, 
     const bWorker = actor(b, [...workerArgs(relay.url, join(root, 'b-worker.jsonl')),
       ...(!migrated ? ['--also-requester', '--requester-auto-accept', 'write'] : [])]);
     await bWorker.waitFor(() => bWorker.stderr.includes('invite_ready'));
-    await actor(a, delegateArgs(connection.alias, join(root, 'a-requester.jsonl')), true).success();
+    const held = actor(a, delegateArgs(connection.alias, join(root, 'a-held.jsonl')));
+    await held.waitFor(() => held.exited);
+    expect(await held.closed).not.toBe(0);
+    expect(held.stderr).toContain('PENDING_OWNER_APPROVAL');
+    expect(held.stderr).toContain('may wait for the peer owner approval');
+    expect(listB.connections[0].acceptance).toBe('off');
+    await actor(b, ['connections', 'allow', 'alpha-connected']).success();
+    const readOnly = actor(a, delegateArgs(connection.alias, join(root, 'a-readonly.jsonl')));
+    await readOnly.waitFor(() => readOnly.exited);
+    expect(await readOnly.closed).not.toBe(0);
+    expect(readOnly.stderr).toContain('PENDING_OWNER_APPROVAL'); // sandbox adapter declares write access
+    await actor(b, ['connections', 'allow', 'alpha-connected', 'write']).success();
+    const allowed = actor(a, delegateArgs(connection.alias, join(root, 'a-requester.jsonl')), true);
+    const result = JSON.parse((await allowed.success()).trim().split(/\r?\n/).at(-1)!);
+    expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID', acceptanceWarning: { code: 'PEER_APPROVAL_MAY_BE_REQUIRED' } });
+    expect(allowed.stderr).toContain('may wait for the peer owner approval');
+    const quiet = actor(a, [...delegateArgs(connection.alias, join(root, 'a-quiet.jsonl')), '--quiet-approval-warning'], true);
+    const quietResult = JSON.parse((await quiet.success()).trim().split(/\r?\n/).at(-1)!);
+    expect(quiet.stderr).not.toContain('may wait for the peer owner approval');
+    expect(quietResult.acceptanceWarning.code).toBe('PEER_APPROVAL_MAY_BE_REQUIRED');
+    await actor(b, ['connections', 'disallow', 'alpha-connected']).success();
+    const denied = actor(a, [...delegateArgs(connection.alias, join(root, 'a-disallowed.jsonl')), '--quiet-approval-warning']);
+    await denied.waitFor(() => denied.exited);
+    expect(await denied.closed).not.toBe(0);
+    expect(denied.stderr).toContain('PENDING_OWNER_APPROVAL');
+    // Creator admission remains unchanged after importer permission is revoked.
+    await actor(b, delegateArgs('alpha-connected', join(root, 'b-final.jsonl')), true).success();
     await bWorker.stop(); await aWorker.stop();
-    for (const path of ['a-worker.jsonl', 'b-requester.jsonl', 'a-requester.jsonl', migrated ? 'b-worker.jsonl' : 'b-worker.requester.jsonl'])
+    const bAudit = (migrated ? 'b-worker' : 'b-worker.requester') + '.' + result.taskId + '.jsonl';
+    for (const path of ['a-worker.jsonl', 'b-requester.jsonl', 'a-requester.jsonl', bAudit, 'a-quiet.jsonl', 'b-final.jsonl'])
       expect(verifyAudit(parseJsonl(readFileSync(join(root, path), 'utf8'))).valid, path).toBe(true);
   } finally { for (const a of actors) if (!a.exited) a.child.kill('SIGKILL'); await Promise.all(actors.map(a => a.closed)); await relay.close(); }
 }, 60000);
