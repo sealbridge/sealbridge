@@ -13,6 +13,7 @@ import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validate
 import type { IdempotencyOperation, IdempotencyStoreOptions } from './idempotency-store.js';
 import type { IdempotencyAuthorization } from './delivery-records.js';
 import { RecipientDeliveryCoordinator } from './delivery-status.js';
+import { retryDeliveryBusy } from './delivery-retry.js';
 import { setDeliveryStatusReaderFactory } from './delivery-status-router.js';
 import { PENDING_NEXT_STEP, pendingErrorCode } from './requester-pending-store.js';
 import type { RequesterPendingStore } from './requester-pending-store.js';
@@ -1030,17 +1031,9 @@ export class WorkerNode {
   private async withDelivery<T>(operation: () => T, signal?: AbortSignal): Promise<T> {
     const service = this.deliveryService;
     if (!service) return operation();
-    let last: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await service.prepare(signal);
-      try { return operation(); }
-      catch (error) {
-        last = error;
-        if (attempt === 2 || !(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY') throw error;
-      }
-    }
-    throw last;
+    return service.withStore(operation, signal);
   }
+
   private saveTaskCheckpoint(record: TaskCheckpoint): void {
     if (!this.taskJournal) return;
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) {
@@ -1377,7 +1370,7 @@ export class WorkerNode {
       watchHeldAttempt();
     };
     const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
-      this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
+      await this.withDelivery(() => { this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed'); }, signal);
       await acknowledgeRelay(relay, first, signal);
     };
     let invalidProposal = false;
@@ -1531,10 +1524,11 @@ export class WorkerNode {
         const cards = await this.relay.discover();
         const sender = findDiscoveredAgentCard(cards, m.requester.agentDid, this.protocol.now());
         if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint) {
-          this.protocol.observe(sender, cards); peerDisplayName = sender.payload.name;
+          await retryDeliveryBusy(() => this.protocol.observe(sender, cards), activeSignal, 'PROTOCOL_STORE_BUSY');
+          peerDisplayName = sender.payload.name;
         }
       }
-      this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid);
+      await retryDeliveryBusy(() => this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid), activeSignal, 'PROTOCOL_STORE_BUSY');
       const skills = this.agentCard.payload.skills;
       const selected = m.task.skillId ? skills.filter(skill => skill.id === m.task.skillId) : skills;
       if ((m.task.skillId && selected.length === 0) ||
@@ -3122,9 +3116,9 @@ export class RequesterClient {
       policy: advertisedPolicy,
     } : undefined;
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
-    const protocolVersion = this.protocol.outbound(invite?.agentCard ?? card,
+    const protocolVersion = await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card,
       options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
-      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer);
+      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer), options.signal, 'PROTOCOL_STORE_BUSY');
     if (options.manifest && options.renegotiateProtocol) options = { ...options, manifest: { ...options.manifest, protocolVersion } };
     const manifest =
       options.manifest ??
@@ -3169,8 +3163,7 @@ export class RequesterClient {
       this.deliveryService = this.createDelivery();
       if (this.deliveryStarted) await this.deliveryService.start();
     }
-    await this.deliveryService?.prepare(options.signal);
-    this.deliveryService?.store.checkAvailable();
+    await this.deliveryService?.withStore(() => this.deliveryService!.store.checkAvailable(), options.signal);
     const operation = options.idempotencyOperation, childIndex = options.idempotencyChildIndex ?? 0;
     const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
     const approvalRelay = typeof relayOption === 'string' ? relayOption
@@ -3286,7 +3279,9 @@ export class RequesterClient {
         .catch(() => undefined);
     };
     const onUserAbort = () => {
-      if (wireDelivery) wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED');
+      if (wireDelivery) void wireDelivery.service.withStore(() =>
+        wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED'))
+        .catch(error => { if (wireDelivery.service.options.onError) wireDelivery.service.options.onError(error); else console.warn(error.message); });
       const state = gateway?.machine.state;
       if (state === 'IN_PROGRESS') startCancel();
       else if (state === 'ACCEPTED') deferredCancel = true;
@@ -3332,7 +3327,7 @@ export class RequesterClient {
         if (store.connectionState(peer) !== 'connected') {
           connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store,
             agentCard: createSignedAgentCard({ name: 'Sealbridge requester', agentDid: owner.did,
-              relayEndpoint: relayUrl, skills: [], protocolVersions: this.protocol.receiveVersions() }, owner),
+              relayEndpoint: relayUrl, skills: [], protocolVersions: await retryDeliveryBusy(() => this.protocol.receiveVersions(), signal, 'PROTOCOL_STORE_BUSY') }, owner),
             review: new HeldRequestReview(owner, { ...this.options.identityOptions, now: this.options.now }),
             humanReview: this.options.connectionReview, now: this.options.now, allowPrivateRelay: this.options.allowPrivateRelay,
             onConnectionEvent: this.options.onConnectionEvent });
@@ -3345,7 +3340,7 @@ export class RequesterClient {
       }
       if (connectionRouter) inbox.setConnections(connectionRouter);
       // Recheck the live phase immediately before transmission; owner review may cross a boundary.
-      this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid);
+      await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid), signal, 'PROTOCOL_STORE_BUSY');
       options.beforeTransmit?.();
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       if (approvalMode && !verifyApproval(contextProposalApproval!, owner.did, manifest.taskId, 'contract_acceptance', proposalTarget()))
@@ -3429,10 +3424,10 @@ export class RequesterClient {
         wire.sealed(envelope),
         this.options.verificationEngine ?? new VerificationEngine(),
         approval,
-        { ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}), allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: () => {
+        { ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}), allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: async () => {
           if (!wireDelivery) return;
-          wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
-            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) });
+          await wireDelivery.service.withStore(() => wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
+            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) }), signal);
         } },
       ), signal);
       if (!result.accepted || !settlement) {
@@ -3460,9 +3455,11 @@ export class RequesterClient {
       };
     } catch (e) {
       if (e instanceof PeerRejectedError && wireDelivery) {
-        if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
-          { status: 'received_held', envelopeId: wireDelivery.context.messageId });
-        wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+        await wireDelivery.service.withStore(() => {
+          if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
+            { status: 'received_held', envelopeId: wireDelivery.context.messageId });
+          wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+        }, signal);
       }
       if (e instanceof PeerRejectedError && e.code === 'PENDING_OWNER_APPROVAL' && this.options.pendingStore) {
         let pendingId = options.pendingId, pendingStoreError: string | undefined;
@@ -3508,6 +3505,17 @@ export class RequesterClient {
                   throw new Error('INVALID_RECOVERY_OUTCOME');
               }
               hooks?.onDelivered?.();
+            }
+            if (auditPath) {
+              // The peer may seal before its CHECKPOINT_ACK fails. Recovery
+              // returns a verified bundle, but the live local file can still
+              // contain only its acknowledged prefix. Preserve and finish it.
+              await wire.quiesceAudit();
+              const store = new JsonlStore(auditPath), prefix = store.read();
+              if (digest(prefix) !== digest(cached.bundle.entries.slice(0, prefix.length)))
+                throw new Error('AUDIT_PREFIX_MISMATCH');
+              for (const entry of cached.bundle.entries.slice(prefix.length)) store.append(entry);
+              store.seal(cached.bundle.checkpoint);
             }
             return cached;
           }
