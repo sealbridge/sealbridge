@@ -117,7 +117,7 @@ function sessionTimeouts(parsed: Map<string, string | true>): SessionTimeoutOpti
   };
 }
 const DELEGATE_USAGE = 'Usage: ' + cliName + ' delegate ' +
-  '(--to <invite|link|did|alias|workerRef|peerRef> | --invite <invite|link|did|alias|workerRef|peerRef> | --discover <skill> | --task-type <type>) ' +
+  '(--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef> | --peer-ref <peerRef> | --discover <skill> | --task-type <type>) ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
@@ -172,8 +172,8 @@ Worker execution limit defaults to the agreed budget. Heartbeats do not renew ta
 const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
-  --to <invite|link|did|alias|workerRef|peerRef>  Delegate: accepts invitation links and saved invitation references.
-  --invite <invite|link|did|alias|workerRef|peerRef>  Delegate: alias of --to; if both are given, values must match.
+  --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
+  --invite <invite|link|did|alias|workerRef>  Delegate: alias of --to; if both are given, values must match.
   --peer-ref <peerRef>          Delegate: role-neutral alias of --to; values must match if combined.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.

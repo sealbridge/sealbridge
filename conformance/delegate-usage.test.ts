@@ -66,6 +66,7 @@ it('prints the same delegate synopsis for --help and an empty invocation', async
   const usage = help.split('\n')[0];
   expect(usage).toMatch(/^Usage: sealbridge delegate /);
   expect(usage).toContain('--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef>');
+  expect(usage).toContain('--peer-ref <peerRef>');
   expect(usage).toContain('--discover <skill> | --task-type <type>');
   expect(usage).toContain('--title <text> --description <text>');
   expect(usage).toContain('(--input <json> | --input-file <path>)');
