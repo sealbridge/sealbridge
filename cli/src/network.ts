@@ -136,7 +136,7 @@ const INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--key <file>] [--rel
 const DISCOVER_USAGE = 'Usage: ' + cliName + ' discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
-  const boolean = new Set(['--also-requester', '--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
+  const boolean = new Set(['--quiet-approval-warning', '--also-requester', '--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
     '--once', '--publish', '--preview', '--verbose', '--allow-local-pc']);
   const timeouts = ['--execution-timeout-ms', '--task-timeout-ms', '--wait-timeout-ms',
     '--connect-timeout-ms', '--transport-idle-timeout-ms', '--heartbeat-interval-ms'];
@@ -151,7 +151,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
       '--audit', '--audit-interruption-format', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
-    delegate: [...timeouts, '--to', '--invite', '--peer-ref', '--discover', '--task-type', '--title', '--description',
+    delegate: ['--quiet-approval-warning', ...timeouts, '--to', '--invite', '--peer-ref', '--discover', '--task-type', '--title', '--description',
       '--input', '--input-file', '--output-schema', '--save-contact', '--contacts', '--audit', '--out',
       '--yes', '--auto-accept', '--auto-approve', '--verbose'],
   };
@@ -265,7 +265,8 @@ export async function networkCommand(command: string, args: string[], applicatio
   --requester-auto-accept read-only|write  With --also-requester, explicitly accept that work from connected peers only.
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
-  connections list|alias|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
+  --quiet-approval-warning      Delegate: suppress advisory peer-approval stderr; result JSON retains the warning.
+  connections list|alias|allow|disallow|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
                                  Separate human connection consent; tasks use their own inspection and live approval.
   --allow-task-type <type>       Repeatable/comma-separated advertised task types.
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
@@ -563,6 +564,9 @@ export async function networkCommand(command: string, args: string[], applicatio
     const connection = !f.has('--peer-ref') && !f.has('--invite') && !application.pendingRequest
       ? await connectionTarget(target, { ...application.identityOptions,
         explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined }) : undefined;
+    const acceptanceWarning = connection ? { code: 'PEER_APPROVAL_MAY_BE_REQUIRED',
+      message: 'This work may wait for the peer owner approval; current peer acceptance settings are not known locally.' } : undefined;
+    if (acceptanceWarning && !f.has('--quiet-approval-warning')) console.error(acceptanceWarning.message);
     const key = connection?.key ?? await getKey();
     const workerRef = application.pendingRequest?.workerRef ??
       (!connection && target && !isInviteTarget(target) && !target.startsWith('did:') ? target : undefined);
@@ -625,6 +629,7 @@ export async function networkCommand(command: string, args: string[], applicatio
         state: result.state,
         deliverable: result.deliverable,
         audit: 'VALID',
+        ...(acceptanceWarning ? { acceptanceWarning } : {}),
       }),
     );
     return;

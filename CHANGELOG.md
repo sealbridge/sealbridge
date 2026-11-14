@@ -4,6 +4,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Default new importer connections to owner approval; add local `connections allow` / `disallow`, advisory send warnings with script suppression, and expired same-DID invite alias fallback. Creator and legacy connection policies stay unchanged.
+
 - Enable return delegation over confirmed connections with local, renamable aliases (`connections list`, `connections alias`, `delegate --to <name>`), retaining invite-store references and per-key consent without migration or protocol changes.
 - Keep separate requester receiving opt-in (`worker start --also-requester`, automatic acceptance off unless separately requested); inspect CLI connection metadata independently, cancel stopped status readers, and preserve same-peer saved-alias expiry behavior.
 

@@ -256,6 +256,14 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
     return [...data.connections.filter(c => !state.denials.includes(c.peerOwnerDid)),
       ...state.denials.map(peerOwnerDid => ({ peerOwnerDid, state: 'blocked' as const }))];
   }
+  setConnectionAcceptance(peerOwnerDid: string, acceptance: 'off' | 'read-only' | 'write'): void {
+    if (!['off', 'read-only', 'write'].includes(acceptance)) throw new Error('INVALID_CONNECTION_ACCEPTANCE');
+    this.mutateConnections(s => {
+      const c = s.connections.find(c => c.peerOwnerDid === peerOwnerDid && c.state === 'connected');
+      if (!c || s.denials.includes(peerOwnerDid)) throw new Error('CONNECTION_NOT_CONNECTED');
+      c.acceptance = acceptance;
+    });
+  }
   listPriorApprovedPeers(): PriorApprovedPeer[] { return priorApprovedPeers(this.read()); }
   private mutateConnections<T>(change: (state: ConnectionTrustState) => T, reserveRoom = false): T {
     return this.mutate(s => change(s as ConnectionTrustState), true, reserveRoom);

@@ -129,14 +129,14 @@ CLI は署名付き接続申し込みの metadata をタスク本文と別に検
 交換が受諾されれば双方にそれぞれの接続記録があり、元の招待作成者からも仕事を送れます。
 受信側では宛先の identity で worker が起動し、その仕事を受け付ける必要があります。
 接続同意で worker が起動したり、タスク実行が承認されたりはしません。
-タスク審査、自動受付の設定・既定値は変更しません。
+作成側の自動受付は維持し、新しい保存側接続には相手別の許可が必要です。
 
 接続は交換に参加した DID の既存の署名付き**鍵ごとの接続ストア**に保存します。
 未移行で鍵が別の場合、作成側の記録は worker 鍵、保存側の記録は requester 鍵に属します。
 未移行の既定 `worker start` は従来どおり worker 鍵だけで受信します。
 既存の別 requester 鍵でも返信を受ける場合だけ `--also-requester` を明示してください。
 追加 listener の自動受付は**オフ**で、`--auto-accept` やフォルダの設定を継承しません。
-所有者が別途 `--requester-auto-accept read-only|write` を指定した場合だけ、接続済みの相手から
+所有者が別途 `--requester-auto-accept read-only|write` または相手別の `allow` を指定すると、接続済みの相手から
 その種類の仕事を自動受付します。requester 鍵は新規作成しません。
 `--also-requester` と `--key` は併用できず、owner 宛てをすでに受信する移行済み環境でも不要なため拒否します。
 追加 listener の明示的な監査・inbox パスは `*.requester.jsonl` となり、
@@ -179,7 +179,8 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
    （`--key FILE` ならその鍵だけ）。一意な接続済み候補から相手 DID、記録済みの relay/agent DID、
    その接続を持つローカル署名 identity を選びます。公開ディレクトリへの登録は不要です。
 3. 保存済み招待別名との衝突判定には接続済み別名だけを使い、保留・ブロックの別名で招待を隠しません。
-   保存済み招待と接続候補が**同じ相手 DID**なら、期限・確認待ち検査を含む従来の招待解決を優先します。
+   保存済み招待と接続候補が**同じ相手 DID**なら、有効な間は確認待ち検査を含む招待解決を優先します。
+   期限切れなら同じ DID の一意な接続済み候補に切り替えます。明示的な保存参照は期限検査を維持します。
    **異なる相手 DID**の接続候補があれば `CONNECTION_TARGET_CONFLICT` です。
    保存済み招待がなく接続済み候補が複数なら `CONNECTION_ALIAS_AMBIGUOUS` とします。
    接続別名を変更するか DID / `saved:...` を指定して区別してください。
@@ -194,8 +195,54 @@ CLI の委任には `--peer-ref <peerRef>` を追加し、従来の `--to <worke
 `--peer-ref`・`--invite` は期限検査を含む従来の招待ストア解決を維持します。
 `--to <name>` のみ、上記の接続別名の解決を追加します。
 
+## 相手別の自動受付（Q2）
+
+この変更以降、招待の署名付き受諾を検証して新たに成立する**保存側**の接続は、
+ローカルに `acceptance: "off"` を記録します。`accept` 自体は招待保存だけです。
+招待作成側の自動受付は変わらず、Muse が招待を作り Grok Bot が保存して依頼する手順に追加操作はありません。
+
+```sh
+sealbridge connections allow reviewer             # 読み取り専用
+sealbridge connections allow reviewer write       # 書き込みを明示許可
+sealbridge connections disallow reviewer          # 所有者の承認へ戻す
+sealbridge connections list
+```
+
+変更は選択したローカル接続の署名付き記録だけです。通信せず DID も変えません。
+不明な名前は `CONNECTION_NOT_FOUND`、曖昧な名前は `CONNECTION_ALIAS_AMBIGUOUS` です。
+相手 DID と `--role requester|worker` または `--key FILE` で選択してください。
+保留・ブロック中の相手は許可できません。表示名・別名は識別子ではありません。
+一覧は従来の項目を維持し、`acceptance` に `off`・`read-only`・`write`・
+`folder-policy`（相手別設定なし）を追加します。
+
+- 既存記録で任意フィールドがないものは、従来の `config auto-accept` の
+  invited/connected/anyone、read-only/write、明示的な off をそのまま使います。
+  読み取りで移行・書き換えはしません。
+- 新しい保存側接続の `off` はフォルダの全 audience/work 設定、`--auto-accept`、
+  `--requester-auto-accept`、旧 trusted 許可より優先します。タスクには検査と所有者の
+  ライブ承認が必要で、できなければ `PENDING_OWNER_APPROVAL` で終わります。
+- `allow` はその相手だけの明示的な許可です。enabled/audience/work を
+  enabled/connected/read-only（明示時は write）に置き換え、フォルダが off でも有効です。
+  予算・回数・サイズなど既存の制限は維持し、読み取り専用の host/adapter 検査も必要です。
+  他の相手には影響しません。`disallow` は広いフォルダ設定でも所有者承認へ戻します。
+- 宛先 identity の listener は引き続き必要です。未移行の別 requester 鍵には
+  `--also-requester` を使い、追加 listener は主 worker の設定を継承しません。
+  `--requester-auto-accept` は相手別設定がない接続に適用し、`allow` は指定相手だけを許可します。
+  移行済み gateway は既に owner 宛てを受信します。相手別設定は各タスクで再読込します。
+
+通信上の状態通知は追加しません。旧記録は移行不要ですが、新しい任意フィールドは
+更新済みリーダーで検証します。新フィールドを使うストアに旧版 writer を同時起動しないでください。
+
+## 送信前の警告（Q3）
+
+`delegate --to <接続別名>` は、相手所有者の承認待ちになる**可能性**を stderr に表示し、
+そのまま送信します。ローカル接続は識別と経路の根拠であり、相手の最新受付設定は不明です。
+相手が後から `allow` / `disallow` したかは分からないため断定しません。
+`--quiet-approval-warning` で stderr の警告を抑制できます。結果 JSON は従来項目を維持し、
+抑制時も code `PEER_APPROVAL_MAY_BE_REQUIRED` と message を持つ `acceptanceWarning` を追加します。
+明示的な招待・保存参照は従来の動作を維持し、新警告は出しません。
+
 ## 後続の変更
 
-受け手の既定設定（Q2）、受け付けない相手への送信前警告（Q3）、`connections allow`、
-MCP の接続相手一覧・名前指定（PR5）、Desktop、Muse を先に説明する README ガイドは後続です。
-この PR は自動受付の既定値、プロトコル版、招待 payload を変更しません。
+MCP の接続相手一覧・名前指定（PR5）、実際の Muse ↔ Grok Bot の end-to-end テストと
+README ガイド（PR6）、Desktop は後続です。プロトコル版・招待 payload は変更しません。

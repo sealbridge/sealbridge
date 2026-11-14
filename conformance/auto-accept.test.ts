@@ -2,7 +2,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { autoAcceptPolicy, createInviteToken, digest, signPayload, verifySigned, verifySignedAgentCard } from '../packages/core/src/index.js';
+import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import { autoAcceptPolicy, createInviteToken, digest, parseAndVerifyInviteToken, signPayload, verifySigned, verifySignedAgentCard } from '../packages/core/src/index.js';
 import type { ApprovalReceipt, AutoAcceptPolicy } from '../packages/core/src/index.js';
 import { matchesAutoAccept, readOnlyTask } from '../packages/runtime/src/auto-accept.js';
 import { workerIntakePath } from '../packages/runtime/src/index.js';
@@ -99,6 +100,32 @@ it('does not let a legacy policy provider bypass a failed rule or counting check
   await f.worker.register();
   expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'APPROVAL_CHANNEL_UNAVAILABLE' } });
   expect(f.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
+});
+it('keeps a per-peer disallow pending even with a legacy trusted peer and anyone-write rule', async () => {
+  const f = fixture(policy({ from: 'anyone', work: 'write' }));
+  expect((await f.attempt(f.worker.invite()))[0].status).toBe('fulfilled');
+  f.store.setConnectionAcceptance(f.requester.did, 'off');
+  f.worker.options.checkPeer = () => 'trusted';
+  f.execute.mockClear();
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.human.approve).not.toHaveBeenCalled();
+});
+it('provisions automatic audit for explicit peer allow even when the folder policy is off', async () => {
+  const f = fixture(policy({ enabled: false }));
+  f.store.redeemTaskInvite(parseAndVerifyInviteToken(f.worker.invite()), {
+    peerOwnerDid: f.requester.did, peerAgentDid: f.requester.did, relayUrl: 'https://relay.example',
+  }, 'peer-allow-off-folder');
+  f.store.setConnectionAcceptance(f.requester.did, 'read-only');
+  const result = (await f.attempt(f.worker.invite()))[0];
+  if (result.status === 'rejected') throw result.reason;
+  expect(result.value.state).toBe('SETTLED');
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.human.approve).not.toHaveBeenCalled();
+  const directory = join(dirname(workerIntakePath(f.owner.did, f.identityOptions)), 'auto-accept-audit');
+  const files = readdirSync(directory).filter(file => file.endsWith('.jsonl'));
+  expect(files).toHaveLength(1);
+  expect(verifyAudit(parseJsonl(readFileSync(join(directory, files[0]), 'utf8'))).valid).toBe(true);
 });
 it('retains signed automatic provenance in privacy-preserving context audit', async () => {
   const f = fixture(policy({ from: 'anyone' }));

@@ -9,6 +9,7 @@ import { createRelayFetchHandler, HttpRelayClient } from '../packages/relay/src/
 import { delegatedWorkerIdentity, HeldRequestReview, InviteStore, migrateWorkerIdentity, PolicyAutoApprovalProvider,
   resolveStoredIdentity, setApplicationAutoAccept, WorkerNode, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { networkCommand } from '../cli/src/network.js';
+import { connectionsCommand } from '../cli/src/connections.js';
 import { connectionTarget, localConnections } from '../cli/src/connection-target.js';
 import { completeInspection } from './connections-fixture.js';
 import { protocolTestNow } from './protocol-test-clock.js';
@@ -75,7 +76,10 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
       expect((await connectionTarget(alias, aOptions))?.key.did).toBe(aOwner.did);
       // Return routing uses the connection, independently of the original bearer invite's lifetime.
       vi.setSystemTime(Date.now() + 2 * 86400000);
-      // Explicit test acceptance exercises routing; production defaults are unchanged.
+      // Folder rules cannot opt in an importer; explicit per-peer owner permission is required.
+      const bStore = new WorkerTrustStore(bOwner, { path: workerIntakePath(bOwner.did, bOptions) });
+      expect(bStore.listConnections().find(c => c.peerOwnerDid === aOwner.did)).toMatchObject({ acceptance: 'off' });
+      await connectionsCommand(['allow', aOwner.did, 'write'], { identityOptions: bOptions, output: () => {} });
       setApplicationAutoAccept({ version: 1, enabled: true, from: 'connected', work: 'write', limits: {} }, bOptions);
       let ready!: () => void;
       const started = new Promise<void>(resolve => { ready = resolve; });

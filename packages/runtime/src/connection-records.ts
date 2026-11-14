@@ -37,6 +37,8 @@ export interface ConnectionRecord {
   incoming?: ConnectionIncomingOffer; outgoing?: ConnectionOutgoingOffer;
   connectionId?: string; connectedAt?: number; source?: 'request' | 'invite' | 'prior-approval';
   localConsentDigest?: string; remoteAcceptanceDigest?: string;
+  /** Local admission override; absent preserves legacy folder policy. */
+  acceptance?: 'off' | 'read-only' | 'write';
 }
 export interface InviteBindingRecord {
   inviteDigest: string; requesterOwnerDid: string; boundAt: number; tokenExpiresAt: number; connectionId: string;
@@ -174,7 +176,8 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
     .every(k => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k])) return false;
   const unique = <T>(rows: T[], key: (r: T) => string) => new Set(rows.map(key)).size === rows.length;
   if (d.connections.some(c => !validConnectionPeer(c) ||
-    !keys(c, ['peerOwnerDid', 'peerAgentDid', 'peerDisplayName', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest']) ||
+    !keys(c, ['peerOwnerDid', 'peerAgentDid', 'peerDisplayName', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest', 'acceptance']) ||
+    (c.acceptance !== undefined && !['off', 'read-only', 'write'].includes(c.acceptance)) ||
     (c.incoming !== undefined && !validConnectionOffer(c.incoming, false)) ||
     (c.outgoing !== undefined && !validConnectionOffer(c.outgoing, true)) ||
     (c.state === 'pending' ? !(c.incoming || c.outgoing) ||
