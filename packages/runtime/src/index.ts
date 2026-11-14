@@ -52,3 +52,5 @@ export * from './rule-content-review.js';
 export * from './execution-backend.js';
 
 export * from './auto-accept.js';
+
+export * from './worker-identity.js';
