@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
 import { ConnectionAliases, defaultConnectionAlias, InviteStore, resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionTarget, localConnections } from '../cli/src/connection-target.js';
 import { connectionsCommand } from '../cli/src/connections.js';
@@ -70,6 +70,49 @@ it('rejects connection/invite alias conflicts and never bypasses saved invite ex
     await expect(networkCommand('delegate', [flag, value, '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
       { identityOptions: options })).rejects.toThrow('INVITE_EXPIRED');
   }
+});
+it.each(['pending', 'connected'] as const)('preserves saved alias resolution and expiry for the same peer with a %s connection', async state => {
+  const f = await connect('requester', 'Muse');
+  const invites = await InviteStore.open(f.key, options);
+  invites.import(f.token, 'muse');
+  if (state === 'pending') {
+    f.store.disconnect(f.peer.did);
+    f.store.recordOutgoing({ peerOwnerDid: f.peer.did, peerDisplayName: 'Muse', relayUrl: 'https://relay.example',
+      outgoing: { requestId: 'pending', requestDigest: digest('offer'), createdAt: Date.now(),
+        expiresAt: Date.now() + 60000, ownerConsentDigest: digest('consent') } });
+  }
+  expect(await connectionTarget('muse', options)).toBeUndefined();
+  expect(invites.resolve('muse').invite.ownerDid).toBe(f.peer.did);
+  vi.setSystemTime(Date.now() + 2 * 86400000);
+  expect(await connectionTarget('muse', options)).toBeUndefined();
+  await expect(networkCommand('delegate', ['--to', 'muse', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
+    { identityOptions: options })).rejects.toThrow('INVITE_EXPIRED');
+});
+it('does not let a pending different-peer connection alias shadow a saved invite', async () => {
+  const f = await connect('requester', 'Muse'), other = await connect('worker', 'Other');
+  f.store.disconnect(f.peer.did);
+  f.store.recordOutgoing({ peerOwnerDid: f.peer.did, peerDisplayName: 'Muse', relayUrl: 'https://relay.example',
+    outgoing: { requestId: 'pending', requestDigest: digest('offer'), createdAt: Date.now(),
+      expiresAt: Date.now() + 60000, ownerConsentDigest: digest('consent') } });
+  const invites = await InviteStore.open(f.key, options);
+  invites.import(other.token, 'muse');
+  expect(await connectionTarget('muse', options)).toBeUndefined();
+  expect(invites.resolve('muse').invite.ownerDid).toBe(other.peer.did);
+});
+it('keeps historical top-level list identity fields while identifying aggregate rows separately', async () => {
+  const f = await connect('worker', 'One'); await connect('requester', 'Two');
+  const output = vi.fn();
+  await connectionsCommand(['list'], { identityOptions: options, output });
+  expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({ localOwnerDid: f.key.did, role: 'worker', scope: 'all',
+    connections: [expect.objectContaining({ localOwnerDid: expect.any(String) }), expect.objectContaining({ localOwnerDid: expect.any(String) })] });
+});
+it('explains safe manual recovery from an alias lock without deleting a possibly active writer lock', async () => {
+  const f = await connect('worker', 'One');
+  const aliases = new ConnectionAliases(f.key, options);
+  aliases.rename(f.peer.did, 'one', f.store.listConnections());
+  writeFileSync(aliases.path + '.lock', '999999999', { mode: 0o600 });
+  expect(() => aliases.rename(f.peer.did, 'new', f.store.listConnections())).toThrow('check that no alias writer is alive');
+  expect(readFileSync(aliases.path + '.lock', 'utf8')).toBe('999999999');
 });
 it('rejects blocked aliases before transmitting and retains a user rename across blocking', async () => {
   const f = await connect('worker', 'Reviewer');

@@ -144,6 +144,11 @@ Connection records are created during the existing signed connection exchange:
   invite task path but does not invent requester-side connection consent.
   `--auto-approve` and `--auto-accept` do not answer the connection prompt.
 
+The CLI inspects signed connection-request metadata separately from task content,
+including in a headless worker. This lets an issuer redeem its own invitation and
+send the signed acceptance. It neither completes task inspection nor grants task
+execution; offers without a redeemable invite still require owner consent.
+
 Once that exchange is accepted, both sides have their own connection record.
 Either side can send work, including the original invite creator, if the other
 side runs a worker for the addressed identity and accepts that work. Connection
@@ -153,10 +158,14 @@ auto-accept configuration and defaults are unchanged.
 Records stay in the existing owner-signed **per-key connection store**, under the
 DID that participated in the exchange. With separate unmigrated keys, a creator's
 record belongs to its worker key, and the importer's record belongs to its
-requester key. A default `worker start` also listens on an already-existing,
-different requester identity, with the same configured acceptance rules; it
-creates no requester key. Start/restart the worker after that requester identity
-exists to receive return work. Its explicit audit/inbox paths use
+requester key. Default unmigrated `worker start` listens only on its worker key,
+as before. To explicitly receive return work on an existing separate requester key,
+start it with `--also-requester`. Automatic acceptance on that additional listener
+is **off**: it inherits neither `--auto-accept` nor the folder's auto-accept config.
+The owner can separately opt in with `--requester-auto-accept read-only|write`,
+which accepts that work only from connected peers. No requester key is created.
+`--also-requester` is incompatible with `--key` and migrated owner setups (the
+migrated gateway already receives owner-addressed work). Explicit audit/inbox paths use
 `*.requester.jsonl`; original worker paths remain unchanged. `--key FILE` selects
 only that identity. Migrated owner/delegate setups use the owner store and retain
 the legacy listener and `*.legacy.jsonl` paths. No records are copied, moved or
@@ -171,7 +180,10 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
 
 `connections list` includes the local alias, `peerOwnerDid`, `localOwnerDid` and
 connection state for both existing local identities. Use `--role worker`,
-`--role requester` or `--key FILE` to narrow the store. Renaming is local only;
+`--role requester` or `--key FILE` to narrow the store. The historical top-level
+`role` and `localOwnerDid` describe the selected/default identity (worker by default);
+`scope: "all"` marks the aggregate listing, whose rows each identify their local owner.
+Renaming is local only;
 use the peer DID plus a role/key if a name is ambiguous. It sends no protocol
 message and changes no peer DID or connection consent.
 
@@ -186,6 +198,12 @@ peers. Explicit renames are owner-signed in a separate
 aliases outside connection records lets older strict store readers continue to
 share the original format.
 
+Display names are peer-controlled. Confirm the intended peer DID before using a
+derived alias, and rename it locally if helpful; ambiguity always fails closed.
+If an alias-store lock survives a crash, the error identifies its exact path.
+Check that no alias writer is alive before manually removing that lock; the CLI
+does not delete a possibly active writer's lock automatically.
+
 ### `--to` resolution and compatibility
 
 1. Invite links/tokens and literal `did:...` values keep their existing meaning.
@@ -194,11 +212,13 @@ share the original format.
    requester/worker stores (or just `--key FILE`). A unique connected match selects
    the peer DID, its recorded relay/agent DID, and the local signing identity
    owning that connection. It works without publishing to the relay directory.
-3. Multiple connection matches fail with `CONNECTION_ALIAS_AMBIGUOUS`. A name
-   matching both a connection alias and a saved invite alias fails with
-   `CONNECTION_TARGET_CONFLICT`, even for the same peer, so an expired invite is
-   never silently replaced with a connection target. Rename the connection or
-   use an explicit DID / `saved:...` reference.
+3. Only connected aliases participate in conflicts with saved invite aliases;
+   pending/blocked aliases do not shadow a saved invitation. If the saved alias
+   and connected aliases all identify the **same peer DID**, keep the original
+   invite-store resolution, including expiry and confirmation checks. A connected
+   alias identifying a **different peer DID** fails `CONNECTION_TARGET_CONFLICT`.
+   Without a saved alias, multiple connected matches fail `CONNECTION_ALIAS_AMBIGUOUS`.
+   Rename the connection or use an explicit DID / `saved:...` reference to disambiguate.
 4. With no connection match, the existing invite-store alias/reference resolution
    runs unchanged. An unknown name fails with `INVITE_NOT_FOUND`; a pending or
    blocked connection alias fails with `CONNECTION_NOT_CONNECTED`.

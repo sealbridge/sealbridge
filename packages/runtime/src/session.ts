@@ -349,6 +349,9 @@ class RecipientInbox {
     // Cancelling that response discards the frame and exposes the next sequence.
     // The bounded poll picks up status IDs on its next iteration; wake idle readers.
     this.wake?.(); this.wake = undefined;
+    // A status-only reader may be inside receiveRelay's polling loop. Disabling
+    // its service must cancel that read, or historical status IDs keep Node alive.
+    if (!active && this.mailboxes.size === 0) this.readAbort?.abort();
     if (active && !this.started) { this.started = true; registerRequesterInbox(this.did, this); void this.pump(); }
   }
   private statusIds(): string[] {

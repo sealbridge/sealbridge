@@ -122,6 +122,10 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
   従来の招待タスクの経路は維持しますが、依頼側の接続同意を勝手に作りません。
   `--auto-approve`・`--auto-accept` は接続同意の確認に回答しません。
 
+CLI は署名付き接続申し込みの metadata をタスク本文と別に検査し、非対話 worker でも
+発行者自身の招待を受理して署名付き受諾を送れます。タスク検査の完了や実行承認にはならず、
+受理可能な招待のない申し込みには引き続き所有者の同意が必要です。
+
 交換が受諾されれば双方にそれぞれの接続記録があり、元の招待作成者からも仕事を送れます。
 受信側では宛先の identity で worker が起動し、その仕事を受け付ける必要があります。
 接続同意で worker が起動したり、タスク実行が承認されたりはしません。
@@ -129,9 +133,13 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
 
 接続は交換に参加した DID の既存の署名付き**鍵ごとの接続ストア**に保存します。
 未移行で鍵が別の場合、作成側の記録は worker 鍵、保存側の記録は requester 鍵に属します。
-既定の `worker start` は、すでに存在する別の requester identity も同じ受付設定で受信します。
-requester 鍵は新規作成しません。返信を受けるには requester identity の作成後に worker を
-起動・再起動してください。その明示的な監査・inbox パスは `*.requester.jsonl` となり、
+未移行の既定 `worker start` は従来どおり worker 鍵だけで受信します。
+既存の別 requester 鍵でも返信を受ける場合だけ `--also-requester` を明示してください。
+追加 listener の自動受付は**オフ**で、`--auto-accept` やフォルダの設定を継承しません。
+所有者が別途 `--requester-auto-accept read-only|write` を指定した場合だけ、接続済みの相手から
+その種類の仕事を自動受付します。requester 鍵は新規作成しません。
+`--also-requester` と `--key` は併用できず、owner 宛てをすでに受信する移行済み環境でも不要なため拒否します。
+追加 listener の明示的な監査・inbox パスは `*.requester.jsonl` となり、
 元の worker パスは維持します。`--key FILE` はその identity だけを選びます。
 移行済み owner/delegate は owner のストアを使い、旧 listener と `*.legacy.jsonl` を維持します。
 記録のコピー・移動・読み取り時の書き換えはなく、移行操作も不要です。
@@ -145,7 +153,9 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
 
 `connections list` は既存の両ローカル identity について、ローカル別名、`peerOwnerDid`、
 `localOwnerDid`、接続状態を表示します。`--role worker`・`--role requester`・`--key FILE` で
-絞れます。別名変更はローカルだけで完結し、通信せず、相手の DID や接続同意を変更しません。
+絞れます。従来のトップレベル `role`・`localOwnerDid` は選択・既定 identity（既定 worker）を示し、
+`scope: "all"` が全体一覧を表します。各行の `localOwnerDid` でその接続の所属を判断してください。
+別名変更はローカルだけで完結し、通信せず、相手の DID や接続同意を変更しません。
 名前が曖昧な場合は相手 DID と role/key を指定してください。
 
 既定別名は保持済みの相手表示名を小文字にし、ASCII 英数字以外の連続を `-` に置換し、
@@ -156,6 +166,11 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
 `<data-root>/connection-aliases/<sha256-local-owner-DID>.json` に保存します。
 接続記録と別ファイルにすることで、未知フィールドを拒否する旧ストアリーダーとの共有を維持します。
 
+表示名は相手が設定できます。既定別名を使う前に相手 DID を確認し、必要ならローカルで変更してください。
+曖昧な場合は常に拒否します。クラッシュ後に別名ストアのロックが残ると、エラーが正確なパスを表示します。
+書き込みプロセスが存在しないことを確認してから手動でそのロックだけを削除してください。
+動作中の書き込みロックを自動削除することはありません。
+
 ### `--to` の解決と互換性
 
 1. 招待リンク・トークンと `did:...` は従来どおり解釈します。
@@ -163,9 +178,11 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
 2. 通常の `--to <name>` は既存 requester/worker の接続別名を検索します
    （`--key FILE` ならその鍵だけ）。一意な接続済み候補から相手 DID、記録済みの relay/agent DID、
    その接続を持つローカル署名 identity を選びます。公開ディレクトリへの登録は不要です。
-3. 接続候補が複数なら `CONNECTION_ALIAS_AMBIGUOUS` です。接続別名と保存済み招待別名の
-   両方に一致した場合は同じ相手でも `CONNECTION_TARGET_CONFLICT` とし、期限切れ招待を
-   接続宛先に勝手に置き換えません。接続別名を変更するか DID / `saved:...` を指定してください。
+3. 保存済み招待別名との衝突判定には接続済み別名だけを使い、保留・ブロックの別名で招待を隠しません。
+   保存済み招待と接続候補が**同じ相手 DID**なら、期限・確認待ち検査を含む従来の招待解決を優先します。
+   **異なる相手 DID**の接続候補があれば `CONNECTION_TARGET_CONFLICT` です。
+   保存済み招待がなく接続済み候補が複数なら `CONNECTION_ALIAS_AMBIGUOUS` とします。
+   接続別名を変更するか DID / `saved:...` を指定して区別してください。
 4. 接続候補がなければ従来の招待別名・参照の解決をそのまま実行します。
    不明な名前は `INVITE_NOT_FOUND`、保留・ブロック状態の接続別名は `CONNECTION_NOT_CONNECTED` です。
 

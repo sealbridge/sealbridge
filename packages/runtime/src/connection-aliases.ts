@@ -50,7 +50,11 @@ export class ConnectionAliases {
     privateDirectory(this.directory, this.io, this.options.platform);
     const lock = this.path + '.lock', temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     try { writePrivateFile(lock, Buffer.from(String(process.pid)), this.io, this.options.platform); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('CONNECTION_ALIAS_STORE_BUSY'); throw error; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(
+        'CONNECTION_ALIAS_STORE_BUSY: check that no alias writer is alive before manually removing the lock file ' + lock);
+      throw error;
+    }
     let written = false;
     try {
       const aliases = this.read();

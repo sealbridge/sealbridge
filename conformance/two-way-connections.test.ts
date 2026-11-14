@@ -20,6 +20,17 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); rmSync(root, { recursive: true, force: true }); });
 
+it.each([
+  ['--requester-auto-accept', 'write'],
+  ['--also-requester', '--requester-auto-accept', 'anyone'],
+  ['--also-requester', 'yes'],
+  ['--also-requester', '--key', 'unused'],
+])('rejects invalid requester-listener options before starting workers: %j', async (...flags) => {
+  await expect(networkCommand('worker', ['start', '--allow-local-pc', ...flags], {
+    identityOptions: { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'invalid') } },
+  })).rejects.toThrow(/INVALID_|CONFLICTING_REQUESTER_LISTENER_OPTIONS/);
+});
+
 it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as const)(
   '%s: one invite supports B to A and A to B with four VALID audits and no directory publishing', async mode => {
     const aOptions = { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'a') } };
@@ -70,7 +81,8 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
       const started = new Promise<void>(resolve => { ready = resolve; });
       output.mockImplementation(value => { if (String(value).startsWith('acp-invite:')) ready(); });
       running = networkCommand('worker', ['start', '--relay', url, '--adapter', 'sandbox', '--allow-local-pc',
-        '--once', '--auto-accept', '--audit', join(root, 'b-worker.jsonl')], { identityOptions: bOptions, fetch: fetcher });
+        '--once', '--auto-accept', ...(mode === 'unmigrated' || mode === 'worker-key-only'
+          ? ['--also-requester', '--requester-auto-accept', 'write'] : []), '--audit', join(root, 'b-worker.jsonl')], { identityOptions: bOptions, fetch: fetcher });
       void running.catch(ready);
       await started;
       await networkCommand('delegate', ['--to', alias, '--title', 'Return', '--description', 'Echo',

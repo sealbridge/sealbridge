@@ -21,15 +21,19 @@ export function localConnections(key: KeyPair, options: InviteStoreOptions = {})
 export async function connectionTarget(name: string, options: InviteStoreOptions = {}) {
   if (!name || isInviteTarget(name) || name.startsWith('did:') || name.startsWith('saved:')) return undefined;
   const keys = await localConnectionKeys(options);
-  const matches = keys.flatMap(key => localConnections(key, options)
+  const named = keys.flatMap(key => localConnections(key, options)
     .filter(c => c.alias === name).map(connection => ({ key, connection })));
-  if (matches.length > 1) throw new Error('CONNECTION_ALIAS_AMBIGUOUS: use connections list and rename by peer DID with --role or --key');
-  if (!matches.length) return undefined;
-  const match = matches[0];
-  // A saved invitation alias must never silently turn into a different target or bypass expiry.
+  const matches = named.filter(m => m.connection.state === 'connected');
+  // Pending aliases cannot shadow saved invitations. Even a connected same-peer
+  // alias preserves the old invite path and its expiry/confirmation checks.
   const requester = keys[0];
   const saved = requester && (await InviteStore.open(requester, options)).list().find(i => i.alias === name);
-  if (saved) throw new Error('CONNECTION_TARGET_CONFLICT: name also matches a saved invite; rename the connection or use its DID / saved: reference');
-  if (match.connection.state !== 'connected') throw new Error('CONNECTION_NOT_CONNECTED');
-  return match;
+  if (saved) {
+    if (matches.some(m => m.connection.peerOwnerDid !== saved.ownerDid))
+      throw new Error('CONNECTION_TARGET_CONFLICT: connected alias and saved invite identify different peers; rename the connection or use a saved: reference');
+    return undefined;
+  }
+  if (matches.length > 1) throw new Error('CONNECTION_ALIAS_AMBIGUOUS: use connections list and rename by peer DID with --role or --key');
+  if (!matches.length && named.length) throw new Error('CONNECTION_NOT_CONNECTED');
+  return matches[0];
 }

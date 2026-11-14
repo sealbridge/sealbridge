@@ -58,7 +58,11 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   if (action === 'list' || action === 'alias') {
     const keys = await localConnectionKeys(identityOptions, flags.has('--role') ? role : undefined);
     const connections = keys.flatMap(key => localConnections(key, { ...identityOptions, now: options.now }));
-    if (action === 'list') { output(JSON.stringify({ role: flags.get('--role') ?? 'all', connections })); return; }
+    if (action === 'list') {
+      const primary = (await inspectStoredIdentity(role, identityOptions)).key;
+      output(JSON.stringify({ ...(primary ? { localOwnerDid: primary.did } : {}), role,
+        scope: flags.has('--role') || flags.has('--key') ? role : 'all', connections })); return;
+    }
     const matches = connections.filter(c => c.peerOwnerDid === ids[0] || c.alias === ids[0]);
     if (!matches.length) throw new Error('CONNECTION_NOT_FOUND');
     if (matches.length > 1) throw new Error('CONNECTION_ALIAS_AMBIGUOUS: select peer DID and --role or --key');
