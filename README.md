@@ -12,9 +12,9 @@ In Muse, ask it to install `sealbridge@0.8.1` from npm. Muse provides Node.js an
 npm i -g sealbridge@0.8.1
 ```
 
-When that finishes, the `sealbridge` command should be available. Version 0.8.0 includes relay support for environments like Muse that can only reach the network through `HTTPS_PROXY`.
+When that finishes, the `sealbridge` command should be available. The published package includes relay support for environments like Muse that can only reach the network through `HTTPS_PROXY`.
 
-> If 0.8.1 is not yet published or you need the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
+> For the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
 
 ## First use
 

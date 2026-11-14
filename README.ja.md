@@ -12,9 +12,9 @@ Muse では、npm から `sealbridge@0.8.1` を入れるように伝えてくだ
 npm i -g sealbridge@0.8.1
 ```
 
-入れ終わったら、`sealbridge` コマンドが使える状態になります。0.8.0 には、Muse のように `HTTPS_PROXY` 越しでしか外に出られない環境向けの中継器対応が入っています。
+入れ終わったら、`sealbridge` コマンドが使える状態になります。公開済みのパッケージには、Muse のように `HTTPS_PROXY` 越しでしか外に出られない環境向けの中継器対応が入っています。
 
-> 0.8.1 がまだ公開されていない場合や GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
+> GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
 
 ## 最初の使い方
 
