@@ -4,6 +4,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Add role-neutral `peerRef` / `--peer-ref` aliases while preserving `workerRef` and `--to`, and explain current invitation identities versus planned local roles in English and Japanese.
+
 ## [0.8.1] - 2026-11-14
 
 - Preserve an in-flight leased task response when the delivery-status reader initializes or refreshes, fixing first-invite delegation sequence gaps and incomplete bilateral audits without retries or weaker replay checks.

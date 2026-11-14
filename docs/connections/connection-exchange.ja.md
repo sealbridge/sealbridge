@@ -1,5 +1,8 @@
 # つながり交換
 
+[Invitations and local roles](invite-and-roles.ja.md)
+
+
 明示的な受信 `approve` でも、署名付き所有者同意とともに招待の初回 DID の結び付けを保存します。
 既に別の所有者や無効になった接続に結び付いている招待では、元の結び付けを変更せず、別の明示的な
 同意で申し込みを承認できます。明示選択の `ConnectionAdmissionReview` は所有者の判断操作中だけ

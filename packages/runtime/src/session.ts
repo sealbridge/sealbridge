@@ -2722,6 +2722,8 @@ export interface DelegateOptions extends SessionTimeoutOptions {
   idempotencyOperation?: IdempotencyOperation;
   /** @internal Stable ordered child index. */
   idempotencyChildIndex?: number;
+  /** Role-neutral alias of workerRef; applications must still resolve it into `to`. */
+  peerRef?: string;
   /** Saved target retained without its token; applications must resolve it into `to` on each attempt. */
   workerRef?: string;
   /** Existing requester-local record when explicitly resubmitting. */
@@ -2998,6 +3000,13 @@ export class RequesterClient {
     },
   ): Promise<SessionResult> {
     const managedChild = managedChildHooks.get(options);
+    if (options.peerRef !== undefined) {
+      if (typeof options.peerRef !== 'string' || !options.peerRef ||
+          (options.workerRef !== undefined && options.workerRef !== options.peerRef))
+        throw new Error('CONFLICTING_WORKER_TARGET');
+      const { peerRef, ...rest } = options;
+      options = { ...rest, workerRef: peerRef };
+    }
     if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
       validateIdempotencyKey(options.idempotencyKey);
       options = { ...options, input: structuredClone(options.input),

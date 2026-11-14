@@ -1,5 +1,8 @@
 # Connection exchange
 
+[Invitations and local roles](invite-and-roles.md)
+
+
 `@acp/core` exports `ConnectionRequest`, `ConnectionAccepted`, `ConnectionAck`
 and their bounded validators and signing/verification helpers. `@acp/runtime`
 exports `ConnectionService` and encrypted control frame helpers. Embedders supply

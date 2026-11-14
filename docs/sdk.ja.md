@@ -242,3 +242,5 @@ runtime は認証できた保留のダイジェストにエラーレポートを
 
 task 以外は `unavailable` です。既定の検査、CLI の表示、trusted の受付、MCP、自動承認の
 動作は変わりません。protocol・schema・manifest 必須欄・通信形式・保存形式を変えません。
+
+`peerRef` は `workerRef` と同じ保存済み参照値を持つ別名です。MCP は両方を受け付けます。CLI の委任でも従来の `--to` に加えて `--peer-ref` を使えます。解決方法と権限は変わりません。
