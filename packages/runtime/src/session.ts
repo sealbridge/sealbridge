@@ -983,9 +983,6 @@ export class WorkerNode {
   }
   private trust(did: string, protocolVersion: string): 'unknown' | 'limited' | 'trusted' {
     const contactTrust = this.assertPeer(did);
-    const connection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === did);
-    if (connection?.state === 'connected' && 'acceptance' in connection && connection.acceptance !== undefined)
-      return protocolVersion === '0.2.0' ? 'limited' : 'unknown';
     if (contactTrust === 'trusted' || this.connectionStore.hasExplicitLegacyGrant(did)) return 'trusted';
     return protocolVersion === '0.2.0' && this.connectionStore.connectionState(did) === 'connected' ? 'limited' : 'unknown';
   }
@@ -1332,6 +1329,7 @@ export class WorkerNode {
     let monthlyAccepted = false;
     let auditPath: string | undefined;
     let automaticAuditEnabled = false;
+    let admissionAcceptance: 'off' | 'read-only' | 'write' | undefined;
     let checkpoint: TaskCheckpoint | undefined;
     let auditStage: TaskCheckpoint['auditStage'];
     const saveCheckpoint = (patch: Partial<TaskCheckpoint>): void => {
@@ -1400,8 +1398,8 @@ export class WorkerNode {
           : this.options.auditPath.replace(/(?:\.jsonl)?$/, '.' + m.taskId + '.jsonl')
         : undefined;
       const admissionConnection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
-      automaticAuditEnabled = this.autoAccept.enabled || !!(admissionConnection && 'acceptance' in admissionConnection &&
-        ['read-only', 'write'].includes(admissionConnection.acceptance ?? 'off'));
+      admissionAcceptance = admissionConnection && 'acceptance' in admissionConnection ? admissionConnection.acceptance : undefined;
+      automaticAuditEnabled = this.autoAccept.enabled || admissionAcceptance === 'read-only' || admissionAcceptance === 'write';
       if (!auditPath && automaticAuditEnabled) {
         const directory = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)), 'auto-accept-audit');
         privateDirectory(directory, autoAcceptFs);
@@ -1598,7 +1596,7 @@ export class WorkerNode {
       let inspection: HeldSummary | undefined;
       this.deliveryService?.recipientStatus.begin(first.payload.envelopeId);
       // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
-      if (this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
+      if (admissionAcceptance !== undefined || this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
         inspection = await this.holdTask(first, m, data.input);
       }
       // All identity, schema, scope, capability and host checks precede durable consent.
@@ -1615,23 +1613,23 @@ export class WorkerNode {
           source: 'invite', connectedAt: this.protocol.now() });
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
-      const peerConnection = () => this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
-      const peerAcceptance = () => { const c = peerConnection(); return c && 'acceptance' in c ? c.acceptance : undefined; };
-      const effectivePolicy = () => connectionAutoAccept(this.autoAccept, peerAcceptance());
-      const peerTrust = inviteIneligible ? 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
-      const automaticContext = () => {
-        // One fresh, validated snapshot keeps the audience facts consistent and
-        // avoids repeating the store's descriptor-based directory/file checks.
+      const automaticAdmission = () => {
+        // Audience, peer override and work policy share one fresh validated snapshot.
         const connection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
-        return { manifest: m, signal: attemptSignal,
+        const acceptance = connection && 'acceptance' in connection ? connection.acceptance : undefined;
+        return { acceptance, policy: connectionAutoAccept(this.autoAccept, acceptance), context: {
+          manifest: m, signal: attemptSignal,
           connected: m.protocolVersion === '0.2.0' && connection?.state === 'connected',
           invited: !inviteIneligible && connection?.state === 'connected' && 'source' in connection && connection.source === 'invite',
           adapter: this.options.adapter,
           tools: this.options.tools ?? (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> }).tools ?? {},
-        };
+        } };
       };
+      const admission = automaticAdmission();
+      const peerTrust = inviteIneligible ? 'unknown' : admission.acceptance !== undefined
+        ? m.protocolVersion === '0.2.0' ? 'limited' : 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
       const automatic = automaticAuditEnabled && !previouslyPending && !inviteIneligible &&
-        await abortable(matchesAutoAccept(effectivePolicy(), automaticContext(), this.options.autoAcceptStateGuard), attemptSignal);
+        await abortable(matchesAutoAccept(admission.policy, admission.context, this.options.autoAcceptStateGuard), attemptSignal);
       // Host-owned preflight precedes counters, owner approval, and provider calls.
       const sizeLimits: PreCallSizeLimits = {};
       for (const key of ['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles'] as const)
@@ -1699,7 +1697,7 @@ export class WorkerNode {
             'Daily counting state is unavailable; task rejected. 日次の件数状態を利用できないため、依頼を拒否しました。', 'AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE');
         }
       }
-      const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, effectivePolicy()) : undefined;
+      const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, admission.policy) : undefined;
       if (this.deliveryService) await this.withDelivery(() => {
         this.deliveryService!.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
       }, activeSignal);
@@ -1755,8 +1753,10 @@ export class WorkerNode {
       }), attemptSignal);
       if (m.contextGrant?.deliveryMode === 'approval_redelegation') assertFreshDecision(approval, openingStarted);
       setAuditStage('OUT_OF_SCOPE');
-      if (automatic && !await matchesAutoAccept(effectivePolicy(), automaticContext()))
-        throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      if (automatic) {
+        const current = automaticAdmission();
+        if (!await matchesAutoAccept(current.policy, current.context)) throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+      }
       if (!automatic && this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);

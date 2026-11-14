@@ -100,6 +100,16 @@ it('does not let a legacy policy provider bypass a failed rule or counting check
   expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'APPROVAL_CHANNEL_UNAVAILABLE' } });
   expect(f.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
 });
+it('keeps a per-peer disallow pending even with a legacy trusted peer and anyone-write rule', async () => {
+  const f = fixture(policy({ from: 'anyone', work: 'write' }));
+  expect((await f.attempt(f.worker.invite()))[0].status).toBe('fulfilled');
+  f.store.setConnectionAcceptance(f.requester.did, 'off');
+  f.worker.options.checkPeer = () => 'trusted';
+  f.execute.mockClear();
+  expect((await f.attempt())[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.human.approve).not.toHaveBeenCalled();
+});
 it('retains signed automatic provenance in privacy-preserving context audit', async () => {
   const f = fixture(policy({ from: 'anyone' }));
   const results = await f.attempt(f.worker.invite(), { contextGrant: {
