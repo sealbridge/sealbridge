@@ -511,6 +511,8 @@ export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeou
   agentDid?: string;
   /** Controls agentDid when it is not owner.did. Required to sign the delegation. */
   agentKey?: KeyPair;
+  /** Owner gateway also receives pre-migration MCP invites addressed to owner-as-agent. */
+  acceptOwnerAgent?: boolean;
   approvalProvider?: ApprovalProvider;
   /** Bilateral audit path; enables adjacent task checkpoints when inboxPath is absent. */
   auditPath?: string;
@@ -807,7 +809,7 @@ export class WorkerNode {
     if (
       !verifySigned(data.proposal, manifest.requester.ownerDid) ||
       manifest.worker?.ownerDid !== this.options.owner.did ||
-      manifest.worker.agentDid !== this.agentCard.payload.agentDid ||
+      !this.acceptsAgent(manifest.worker.agentDid) ||
       Date.parse(manifest.deadline) <= this.protocol.now() ||
       Date.parse(manifest.createdAt) > this.protocol.now() + DEFAULT_CLOCK_SKEW_MS
     )
@@ -2414,13 +2416,17 @@ export class WorkerNode {
       // The caller registry can refuse a notice. The inbox copy still applies.
     }
   }
+  private acceptsAgent(did: string): boolean {
+    return did === this.agentCard.payload.agentDid ||
+      (this.options.acceptOwnerAgent === true && did === this.options.owner.did);
+  }
   private assertInviteActive(data: Proposal): boolean {
     const token = data.inviteToken;
     if (token === undefined) return false;
     if (typeof token !== 'string' || !token) throw new Error('INVALID_OR_EXPIRED_INVITE');
     const invite = parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true, allowExpired: true });
     if (invite.ownerDid !== this.options.owner.did ||
-        invite.agentDid !== this.agentCard.payload.agentDid ||
+        !this.acceptsAgent(invite.agentDid) ||
         invite.relayUrl !== this.agentCard.payload.relayEndpoint)
       throw new Error('INVITE_WORKER_MISMATCH');
     this.revocation.assertNotRevoked('invite', digest(invite));

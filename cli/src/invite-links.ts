@@ -11,7 +11,7 @@ import { createInviteToken, createSignedAgentCard, createRelayAuthToken, generat
   createRevocationNotice, RevocationRegistry } from '@acp/core';
 import type { KeyPair, Signed, RevocationList } from '@acp/core';
 import { HttpRelayClient } from '@acp/relay';
-import { LiveProtocol, readApplicationConfig } from '@acp/runtime';
+import { LiveProtocol, readApplicationConfig, delegatedWorkerIdentity } from '@acp/runtime';
 import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 import { resolveDataRoot, ensurePrivateDirectory, inspectPrivateDirectory, writePrivateFile, readPrivateFile } from '@acp/runtime/local-identity';
 import { commandIdentity } from './command-identity.js';
@@ -123,10 +123,11 @@ export async function createInviteCommand(args: string[], options: LinkCommandOp
   const relayOrigin = normalizeRelayOrigin(relay);
   if (share === 'link' && (new URL(relay).protocol !== 'https:' || new URL(relay).pathname !== '/' || new URL(relay).search || new URL(relay).hash || new URL(relay).username || new URL(relay).password)) throw new Error('INVALID_INVITE_LINK_RELAY');
   const now = Date.now(), expiresAt = new Date(now + tokenTtl * 1000).toISOString();
-  const owner = (await commandIdentity('worker', f.get('--key'), options.identityOptions ?? {}))!;
-  const card = createSignedAgentCard({ name: f.get('--name') ?? 'Sealbridge Worker', agentDid: owner.did,
+  const delegated = !f.has('--key') ? await delegatedWorkerIdentity(options.identityOptions) : undefined;
+  const owner = delegated?.owner ?? (await commandIdentity('worker', f.get('--key'), options.identityOptions ?? {}))!;
+  const card = createSignedAgentCard({ name: f.get('--name') ?? 'Sealbridge Worker', agentDid: delegated?.agentKey.did ?? owner.did,
     relayEndpoint: relay, skills: [{ id: 'json-task', name: 'JSON task' }], protocolVersions: new LiveProtocol().receiveVersions(),
-    now, ...(share === 'link' ? { expiresAt } : {}) }, owner);
+    now, ...(share === 'link' ? { expiresAt } : {}) }, owner, delegated?.agentKey);
   const token = createInviteToken({ agentCard: card, issuedAt: new Date(now).toISOString(), expiresInSeconds: tokenTtl }, owner);
   // Token creation only signs locally; private-relay opt-in applies when dialing.
   // Link creation contacts the relay and must retain the caller's network policy.
@@ -166,12 +167,15 @@ export async function inviteLinksCommand(args: string[], options: LinkCommandOpt
   if (!['list','cancel'].includes(action) || (action === 'cancel' && !/^[A-Za-z0-9_-]{22}$/.test(linkRef ?? ''))) throw new Error(SHORT_INVITE_USAGE);
   const f = flags(rest);
   if ([...f.keys()].some(k => !['--key','--allow-private-relay'].includes(k))) throw new Error('INVALID_INVITE_OPTION');
-  const owner = await commandIdentity('worker', f.get('--key'), options.identityOptions ?? {}, false);
-  if (!owner) { if (action === 'cancel') throw new Error('INVITE_LINK_NOT_FOUND'); console.log(JSON.stringify({ links: [] })); return; }
-  const saved = records(owner, options.identityOptions ?? {});
+  const legacy = await commandIdentity('worker', f.get('--key'), options.identityOptions ?? {}, false);
+  const delegated = !f.has('--key') ? await delegatedWorkerIdentity(options.identityOptions) : undefined;
+  const owners = [legacy, delegated?.owner].filter((key): key is KeyPair => !!key)
+    .filter((key, i, keys) => keys.findIndex(k => k.did === key.did) === i);
+  if (!owners.length) { if (action === 'cancel') throw new Error('INVITE_LINK_NOT_FOUND'); console.log(JSON.stringify({ links: [] })); return; }
+  const saved = owners.flatMap(owner => records(owner, options.identityOptions ?? {}).map(record => ({ owner, record })));
   if (action === 'list') {
     const links = [];
-    for (const r of saved) {
+    for (const { owner, record: r } of saved) {
       const fetcher = transport(r.relayOrigin, options, f.has('--allow-private-relay'));
       let value: Record<string, unknown>;
       try { value = await requestJson(fetcher, r.relayOrigin, '/v1/invites/' + r.id + '/status', 'GET', owner) as Record<string, unknown>; }
@@ -188,7 +192,8 @@ export async function inviteLinksCommand(args: string[], options: LinkCommandOpt
     }
     console.log(JSON.stringify({ links })); return;
   }
-  const r = saved.find(r => r.id === linkRef); if (!r) throw new Error('INVITE_LINK_NOT_FOUND');
+  const selected = saved.find(({ record }) => record.id === linkRef); if (!selected) throw new Error('INVITE_LINK_NOT_FOUND');
+  const { owner, record: r } = selected;
   const path = join(directory(owner, options.identityOptions ?? {}), 'revoked', r.inviteDigest.slice(7) + '.json');
   ensurePrivateDirectory(dirname(path), fs);
   if (!readPrivateFile(path, fs, 16384)) writePrivateFile(path, Buffer.from(JSON.stringify(createRevocationNotice({ targetType: 'invite', targetId: r.inviteDigest, reason: 'Invite link cancelled' }, owner))), fs);

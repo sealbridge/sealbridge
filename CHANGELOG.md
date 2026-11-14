@@ -4,6 +4,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Add explicit, backed-up `worker migrate` and `worker revoke-delegate` commands. Migrated workers receive owner-addressed MCP invites with a separate delegated execution identity while retaining legacy worker invitations; unmigrated defaults remain unchanged.
+
 - Add role-neutral `peerRef` / `--peer-ref` aliases while preserving `workerRef` and `--to`, and explain current invitation identities versus planned local roles in English and Japanese.
 
 ## [0.8.1] - 2026-11-14

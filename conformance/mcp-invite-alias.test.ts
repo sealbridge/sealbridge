@@ -186,7 +186,7 @@ it('locks CLI worker signing and role-free payload independently of the requeste
   expect(invite).not.toHaveProperty('role');
   expect(invite.agentCard.payload).not.toHaveProperty('role');
 });
-it('locks MCP requester signing and routes a later delegate to the same-key worker, not the default worker', async () => {
+it('preserves unmigrated MCP owner-key worker routing; migrated CLI routing is covered in worker-identity', async () => {
   const requester = resolveOrCreateIdentity('requester', identityOptions);
   const defaultWorker = resolveOrCreateIdentity('worker', identityOptions);
   const relay = new InMemoryRelay();

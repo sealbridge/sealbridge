@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
 import { createInviteCommand, inviteLinksCommand, SHORT_INVITE_USAGE, linkRevocations } from './invite-links.js';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -12,6 +13,7 @@ import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
+  delegatedWorkerIdentity,
   HeldRequestReview,
   LiveProtocol,
   ProtocolPeerStore,
@@ -170,6 +172,8 @@ const TIMEOUT_HELP = `Timeout options (positive integer milliseconds):
   --heartbeat-interval-ms <n>      Worker liveness interval (default: 15000).
 Worker execution limit defaults to the agreed budget. Heartbeats do not renew task or execution deadlines.`;
 const REVIEW_HELP = `
+  worker migrate [--dry-run | --apply]  Explicit owner/delegate migration; default is dry-run.
+  worker revoke-delegate [--dry-run | --apply]  Revoke the local delegated execution identity.
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
   --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
@@ -221,6 +225,8 @@ export async function networkCommand(command: string, args: string[], applicatio
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   onDelegated?: () => void;
 } = {}): Promise<void> {
+  if (command === 'worker' && ['migrate', 'revoke-delegate'].includes(args[0]))
+    return workerIdentityCommand(args[0], args.slice(1), application.identityOptions);
   if (args.includes('--help') || args.includes('-h')) {
     if (command === 'invite') {
       if (['open', 'share', 'request-reissue', 'reissue'].includes(args[0]))
@@ -388,74 +394,85 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (allowedTaskTypes)
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
     const relayUrl = selectedRelay();
-    const key = await getKey();
-    const contactFile = f.has('--contacts') ? text(f, 'contacts') : contactsPath();
-    const explicitAcceptance = { ...acceptance };
-    acceptance.allowedRequesterDids = [...new Set([
-      ...(acceptance.allowedRequesterDids ?? []),
-      ...loadContacts(contactFile, key.did).filter(c => c.allow && !c.revoked).map(c => c.ownerDid),
-    ])];
-    const intakeStore = new WorkerTrustStore(key, {
-      path: workerIntakePath(key.did, application.identityOptions),
-      fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
-    });
-    const autoAccept = autoAcceptPolicy(readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true }).autoAccept);
-    if (adapterName === 'claude' || adapterName === 'codex')
-      assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
-    const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
-      requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
-    const worker = new WorkerNode({
-      revocation: linkRevocations(key, application.identityOptions),
-      ...authRecovery,
-      ...(f.has('--max-tasks-per-day') ? { dailyLimit: {
-        path: join(dirname(contactsPath()), 'daily-tasks.json'),
-        maxTasks: optionalCount(f, 'max-tasks-per-day')!,
-      } } : {}),
-      intakeStore,
-      ...(f.has('--allowed-peer') ? { allowedPeerDids: text(f, 'allowed-peer').split(',').map(d => d.trim()).filter(Boolean) } : {}),
-      adapterKind: LLM_ADAPTERS.has(adapterName) ? 'llm' : 'non-llm',
-      automaticApproval: automatic,
-      autoAccept,
-      ownerApprovalProvider: process.stdin.isTTY && process.stderr.isTTY
-        ? contactsApproval(contactFile, key, false, explicitAcceptance, approval(key, false, undefined, f.has('--verbose')))
-        : undefined,
-      checkPeer: (did) => {
-        const contact = loadContacts(contactFile, key.did).find(c => c.ownerDid === did);
-        if (contact?.revoked) throw new Error('CONTACT_REVOKED');
-        if (automatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
-        if (contact?.allow) return 'trusted';
-      },
-      identityOptions: application.identityOptions ?? {},
-      deliveryOptions: { identityOptions: application.identityOptions,
-        resolveTransport: url => {
-          if (normalizeRelayUrl(url) !== normalizeRelayUrl(relayUrl)) throw new Error('RELAY_ENDPOINT_MISMATCH');
-          return workerRelay;
-        } },
-      heldReview: new HeldRequestReview(key, { ...application.identityOptions,
-        ...(process.stdin.isTTY && process.stderr.isTTY ? { provider: cliTaskInspection(text => new Promise<void>((resolve, reject) => {
-          process.stderr.write(text + '\n', error => error ? reject(error) : resolve());
-        })) } : {}) }),
-      protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
-      connectionReview: connectionHumanReview(undefined, 'worker'),
-      onConnectionEvent: event => console.error(JSON.stringify(event)),
-      ...sessionTimeouts(f),
-      owner: key,
-      relay: workerRelay,
-      inviteTtlSeconds: inviteTtl,
-      relayUrl,
-      adapter,
-      name: text(f, 'name', adapter.name),
-      approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
-      auditPath: f.has('--audit') ? text(f, 'audit') : undefined,
-      auditInterruptionFormat: 1,
-      inboxPath: f.has('--inbox') ? text(f, 'inbox') : undefined,
-      onInboxRecord,
-      onStatus: (status, error) => emitWorkerJson({ status, error }),
-      onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,
-        code: error?.code, detail: error?.detail, phase: error?.phase, reason: (error as { reason?: string } | undefined)?.reason }),
-      ...acceptance,
-      allowPrivateRelay,
-    });
+    const delegated = !f.has('--key') ? await delegatedWorkerIdentity(application.identityOptions) : undefined;
+    const makeWorker = (key: KeyPair, agentKey?: KeyPair, legacy = false) => {
+      const contactFile = f.has('--contacts') ? text(f, 'contacts') : contactsPath();
+      const localAcceptance = { ...acceptance };
+      const explicitAcceptance = { ...localAcceptance };
+      localAcceptance.allowedRequesterDids = [...new Set([
+        ...(localAcceptance.allowedRequesterDids ?? []),
+        ...loadContacts(contactFile, key.did).filter(c => c.allow && !c.revoked).map(c => c.ownerDid),
+      ])];
+      const intakeStore = new WorkerTrustStore(key, {
+        path: workerIntakePath(key.did, application.identityOptions),
+        fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
+      });
+      const autoAccept = autoAcceptPolicy(readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true }).autoAccept);
+      if (adapterName === 'claude' || adapterName === 'codex')
+        assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
+      const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
+        requestTimeoutMs: optionalCount(f, 'connect-timeout-ms') });
+      const worker = new WorkerNode({
+        revocation: linkRevocations(key, application.identityOptions),
+        ...authRecovery,
+        ...(f.has('--max-tasks-per-day') ? { dailyLimit: {
+          path: join(dirname(contactsPath()), 'daily-tasks.json'),
+          maxTasks: optionalCount(f, 'max-tasks-per-day')!,
+        } } : {}),
+        intakeStore,
+        ...(f.has('--allowed-peer') ? { allowedPeerDids: text(f, 'allowed-peer').split(',').map(d => d.trim()).filter(Boolean) } : {}),
+        adapterKind: LLM_ADAPTERS.has(adapterName) ? 'llm' : 'non-llm',
+        automaticApproval: automatic,
+        autoAccept,
+        ownerApprovalProvider: process.stdin.isTTY && process.stderr.isTTY
+          ? contactsApproval(contactFile, key, false, explicitAcceptance, approval(key, false, undefined, f.has('--verbose')))
+          : undefined,
+        checkPeer: (did) => {
+          if (agentKey) delegated!.assertActive();
+          const contact = loadContacts(contactFile, key.did).find(c => c.ownerDid === did);
+          if (contact?.revoked) throw new Error('CONTACT_REVOKED');
+          if (automatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
+          if (contact?.allow) return 'trusted';
+        },
+        identityOptions: application.identityOptions ?? {},
+        deliveryOptions: { identityOptions: application.identityOptions,
+          resolveTransport: url => {
+            if (normalizeRelayUrl(url) !== normalizeRelayUrl(relayUrl)) throw new Error('RELAY_ENDPOINT_MISMATCH');
+            return workerRelay;
+          } },
+        heldReview: new HeldRequestReview(key, { ...application.identityOptions,
+          ...(process.stdin.isTTY && process.stderr.isTTY ? { provider: cliTaskInspection(text => new Promise<void>((resolve, reject) => {
+            process.stderr.write(text + '\n', error => error ? reject(error) : resolve());
+          })) } : {}) }),
+        protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
+        connectionReview: connectionHumanReview(undefined, 'worker'),
+        onConnectionEvent: event => console.error(JSON.stringify(event)),
+        ...sessionTimeouts(f),
+        owner: key,
+        agentKey,
+        acceptOwnerAgent: !!agentKey,
+        relay: workerRelay,
+        inviteTtlSeconds: inviteTtl,
+        relayUrl,
+        adapter,
+        name: text(f, 'name', adapter.name),
+        approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
+        auditPath: f.has('--audit') ? text(f, 'audit') + (legacy ? '.legacy' : '') : undefined,
+        auditInterruptionFormat: 1,
+        inboxPath: f.has('--inbox') ? text(f, 'inbox') + (legacy ? '.legacy' : '') : undefined,
+        onInboxRecord,
+        onStatus: (status, error) => emitWorkerJson({ status, error }),
+        onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,
+          code: error?.code, detail: error?.detail, phase: error?.phase, reason: (error as { reason?: string } | undefined)?.reason }),
+        ...localAcceptance,
+        allowPrivateRelay,
+      });
+      return { worker, workerRelay };
+    };
+    const key = delegated?.owner ?? await getKey();
+    const { worker, workerRelay } = makeWorker(key, delegated?.agentKey);
+    const legacyKey = delegated?.legacyKey;
+    const legacy = legacyKey && legacyKey.did !== key.did ? makeWorker(legacyKey, undefined, true) : undefined;
     if (f.has('--preview')) {
       console.log(JSON.stringify(publicProfileSummary(worker.agentCard, acceptance.maxTasksPerRequesterPerMinute,
         optionalCount(f, 'max-tasks-per-day'), automatic, { maxInputTokens: acceptance.maxInputTokens,
@@ -476,18 +493,26 @@ export async function networkCommand(command: string, args: string[], applicatio
     deliverInvite(inviteOutput!, token);
     emitWorkerJson({ event: 'invite_ready', inviteDigest: inviteDigest(token),
       expiresAt: invite.expiresAt, workerDid: invite.agentDid, relay: relayUrl });
-    const stop = () => worker.stop();
+    const stop = () => { worker.stop(); legacy?.worker.stop(); };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     try {
       await worker.startDelivery();
-      await worker.start({ once: f.has('--once') });
+      await legacy?.worker.startDelivery();
+      if (legacy) {
+        const run = (node: WorkerNode) => node.start({ once: f.has('--once') }).finally(stop);
+        const results = await Promise.allSettled([run(worker), run(legacy.worker)]);
+        const failure = results.find(r => r.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+      } else await worker.start({ once: f.has('--once') });
     } catch (error) {
       if (!f.has('--once')) emitWorkerJson({ event: 'WORKER_EXIT', status: 'unavailable',
         code: 'WORKER_TERMINAL', error });
       throw error;
     } finally {
+      if (legacy) stop();
       worker.stopDelivery();
+      legacy?.worker.stopDelivery();
       process.removeListener('SIGINT', stop);
       process.removeListener('SIGTERM', stop);
     }
