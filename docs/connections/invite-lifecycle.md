@@ -1,5 +1,8 @@
 # Invite store lifecycle
 
+[Invitations and local roles](invite-and-roles.md)
+
+
 [日本語](invite-lifecycle.ja.md)
 
 `InviteStore` recovery is local to its signer and data root. Secret values are never

@@ -254,3 +254,5 @@ peers disclose only `received_held`/`closed`. Recipient claims are separate from
 audit; handoff does not prove reading or execution. This read is distinct from a cached
 delegation result and explicit pending resubmission. No relay deployment is required;
 richer observations require C4 peers. See [relay reliability](../relay-reliability.md).
+
+`peerRef` is an alias of `workerRef` with the same saved reference value; MCP accepts either spelling. CLI delegation also accepts `--peer-ref` alongside `--to`. Resolution and permissions are unchanged.

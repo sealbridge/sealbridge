@@ -117,7 +117,7 @@ function sessionTimeouts(parsed: Map<string, string | true>): SessionTimeoutOpti
   };
 }
 const DELEGATE_USAGE = 'Usage: ' + cliName + ' delegate ' +
-  '(--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef> | --discover <skill> | --task-type <type>) ' +
+  '(--to <invite|link|did|alias|workerRef|peerRef> | --invite <invite|link|did|alias|workerRef|peerRef> | --discover <skill> | --task-type <type>) ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
@@ -143,7 +143,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
       '--audit', '--audit-interruption-format', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
-    delegate: [...timeouts, '--to', '--invite', '--discover', '--task-type', '--title', '--description',
+    delegate: [...timeouts, '--to', '--invite', '--peer-ref', '--discover', '--task-type', '--title', '--description',
       '--input', '--input-file', '--output-schema', '--save-contact', '--contacts', '--audit', '--out',
       '--yes', '--auto-accept', '--auto-approve', '--verbose'],
   };
@@ -172,8 +172,9 @@ Worker execution limit defaults to the agreed budget. Heartbeats do not renew ta
 const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
-  --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
-  --invite <invite|link|did|alias|workerRef>  Delegate: alias of --to; if both are given, values must match.
+  --to <invite|link|did|alias|workerRef|peerRef>  Delegate: accepts invitation links and saved invitation references.
+  --invite <invite|link|did|alias|workerRef|peerRef>  Delegate: alias of --to; if both are given, values must match.
+  --peer-ref <peerRef>          Delegate: role-neutral alias of --to; values must match if combined.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
   --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (POSIX only, n > 2).
@@ -283,6 +284,12 @@ export async function networkCommand(command: string, args: string[], applicatio
   const needsLocalPc = (command === 'worker' && (['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')) || f.has('--on-receive'))) ||
       (command === 'relay' && f.has('--wake-command'));
   if (needsLocalPc) await ensureLocalPcOptIn(f.get('--allow-local-pc'), application.identityOptions);
+  if (command === 'delegate' && f.has('--peer-ref')) {
+    const peerRef = text(f, 'peer-ref');
+    if (f.has('--to') && text(f, 'to') !== peerRef)
+      throw new Error('CONFLICTING_TARGET_OPTIONS: --to and --peer-ref must match');
+    f.set('--to', peerRef);
+  }
   if (command === 'delegate' && f.has('--invite')) {
     const invite = text(f, 'invite');
     if (f.has('--to') && text(f, 'to') !== invite)

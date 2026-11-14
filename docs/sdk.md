@@ -263,3 +263,5 @@ admission, MCP and automatic approval behavior are unchanged. No protocol,
 schema, required manifest field, wire or stored-record format changes are made.
 
 Worker event names include `ACCEPT`, `IN_PROGRESS`, `DELIVER`, `SETTLED`, `CANCELLED`, `REJECTED`, and `INTERRUPTED`. `INTERRUPTED` carries `code: TASK_INTERRUPTED` and, for live handshake interruption, optional diagnostic `phase` (`OWNER_APPROVAL` or `ACCEPT_ACK_WAIT`). See [audit interruption](audit-interruption.md).
+
+`peerRef` is an alias of `workerRef` with the same saved reference value; MCP accepts either spelling. CLI delegation also accepts `--peer-ref` alongside `--to`. Resolution and permissions are unchanged.

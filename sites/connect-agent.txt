@@ -96,7 +96,7 @@ For a loopback/private relay invitation, add --allow-private-relay to accept
 (also supported with a link or --stdin). These relays are blocked by default;
 the flag applies only to this import.
 Import is local and does not start a task, approve work, or connect either identity. The agent calls
-acp_list_invites and uses the returned workerRef with acp_delegate_task.
+acp_list_invites and uses the returned peerRef (or compatible workerRef) with acp_delegate_task.
 Use that reference rather than asking the model to handle the raw token.
 Invites expire; request a new invitation from the sender when needed.
 

@@ -34,6 +34,8 @@ interface StoredInvites {
   entries: StoredInvite[];
 }
 export interface SavedInvite {
+  /** Role-neutral alias of workerRef; both contain the same saved reference. */
+  peerRef?: string;
   workerRef: string;
   alias: string;
   displayName: string;
@@ -185,7 +187,7 @@ export class InviteStore {
   }
   private publicEntry(e: StoredInvite): SavedInvite {
     const { alias, displayName, ownerDid, agentDid, relayUrl, importedAt, effectiveExpiresAt } = e;
-    return { workerRef: 'saved:' + e.id, alias, displayName, ownerDid, agentDid, relayUrl,
+    return { peerRef: 'saved:' + e.id, workerRef: 'saved:' + e.id, alias, displayName, ownerDid, agentDid, relayUrl,
       importedAt, effectiveExpiresAt, ...(e.importState ? { importState: e.importState } : {}),
       status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current' };
   }

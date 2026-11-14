@@ -1,5 +1,8 @@
 # Owner-configured automatic acceptance
 
+[Invitations and local roles](connections/invite-and-roles.md)
+
+
 [日本語](auto-accept.ja.md)
 
 All workers support the same rule. A new installation automatically accepts only

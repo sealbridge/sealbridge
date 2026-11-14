@@ -6,9 +6,11 @@ import { join } from 'node:path';
 import { createInviteToken, createRevocationNotice, createSignedAgentCard, digest, generateKeyPair, RevocationRegistry, parseAndVerifyInviteToken, signApproval } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
-import { AcpMcpServer, InviteStore, WorkerNode, resolveOrCreateIdentity } from '../packages/runtime/src/index.js';
+import { AcpMcpServer, InviteStore, RequesterClient, WorkerNode, resolveOrCreateIdentity } from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, ApprovalProvider } from '../packages/runtime/src/index.js';
 import { acceptCommand } from '../cli/src/accept.js';
+import { createInviteCommand } from '../cli/src/invite-links.js';
+import { networkCommand } from '../cli/src/network.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 
 let home: string;
@@ -52,20 +54,40 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   const { verificationNumber, relayContacted, ...imported } = JSON.parse(log.mock.calls.at(-1)![0]);
   expect(verificationNumber).toMatch(/^\d{6}$/);
   expect(relayContacted).toBe(false);
-  expect(Object.keys(imported)).toHaveLength(9);
+  expect(Object.keys(imported)).toHaveLength(10);
+  expect(imported.peerRef).toBe(imported.workerRef);
   const listed = await call(server, 'acp_list_invites');
   expect(listed.value.invites).toEqual([imported]);
   expect(approval.approve).not.toHaveBeenCalled(); expect(workerApproval.approve).not.toHaveBeenCalled();
   const pending = worker.start();
   try {
-    for (const workerRef of [imported.workerRef, 'reviewer']) {
-      const args = { workerRef, title: 'Echo', description: 'Return JSON', input: { echo: 'hello' }, taskTimeoutMs: 5000 };
+    for (const selector of [{ workerRef: imported.workerRef }, { workerRef: 'reviewer' },
+      { peerRef: imported.peerRef }, { peerRef: 'reviewer', workerRef: 'reviewer' }]) {
+      const args = { ...selector, title: 'Echo', description: 'Return JSON', input: { echo: 'hello' }, taskTimeoutMs: 5000 };
       expect(JSON.stringify(args)).not.toContain(token);
       const result = await call(server, 'acp_delegate_task', args);
       expect(result).toMatchObject({ error: false, value: { status: 'SETTLED', deliverable: { echo: 'hello' }, auditBundle: { valid: true } } });
       expect(JSON.stringify(result)).not.toContain(token);
     }
-    expect(execute).toHaveBeenCalledTimes(2);
+    const keyed = { title: 'Echo', input: { echo: 'hello' }, idempotencyKey: 'same-reference', taskTimeoutMs: 5000 };
+    const original = await call(server, 'acp_delegate_task', { ...keyed, workerRef: imported.workerRef });
+    expect(await call(server, 'acp_delegate_task', { ...keyed, peerRef: imported.peerRef })).toEqual(original);
+    expect(original.error).toBe(false);
+    expect(execute).toHaveBeenCalledTimes(5);
+    const client = new RequesterClient({ owner: resolveOrCreateIdentity('requester', identityOptions),
+      relay, identityOptions, approvalProvider: approval });
+    for (const selector of [{ workerRef: imported.workerRef }, { peerRef: imported.peerRef }]) {
+      const result = await client.delegate({ ...selector, to: token, title: 'SDK', description: 'Echo', input: {}, taskTimeoutMs: 5000 });
+      expect(result.state).toBe('SETTLED');
+    }
+    expect(execute).toHaveBeenCalledTimes(7);
+    for (const flag of ['--to', '--invite', '--peer-ref']) {
+      await networkCommand('delegate', [flag, imported.peerRef, '--title', 'CLI', '--description', 'Echo',
+        '--input', '{"echo":"hello"}', '--auto-approve', '--task-timeout-ms', '5000'],
+      { identityOptions, transportFactory: () => relay });
+      expect(JSON.parse(log.mock.calls.at(-1)![0])).toMatchObject({ state: 'SETTLED', deliverable: { echo: 'hello' } });
+    }
+    expect(execute).toHaveBeenCalledTimes(10);
     expect(workerApproval.approve).not.toHaveBeenCalled();
     expect(JSON.stringify((approval.approve as ReturnType<typeof vi.fn>).mock.calls)).not.toContain(token);
     const restart = new AcpMcpServer({ identityOptions, relay, approvalProvider: approval });
@@ -75,9 +97,11 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
     expect(ajv.compile(definitions.result.tools.find((t: any) => t.name === 'acp_list_invites').outputSchema)(listed.value)).toBe(true);
     expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ error: false, value: { removed: true } });
     expect(await call(server, 'acp_remove_invite', { workerRef: imported.workerRef })).toEqual({ error: false, value: { removed: false } });
+    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({ error: false, value: { removed: false } });
     expect((await call(server, 'acp_delegate_task', { workerRef: imported.workerRef, title: 'Echo' })).value.error).toBe('INVITE_NOT_FOUND');
     await acceptCommand('accept', [token, '--alias', 'reviewer'], identityOptions);
     expect((await call(server, 'acp_list_invites')).value.invites[0].workerRef).toBe(imported.workerRef);
+    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({ error: false, value: { removed: true } });
   } finally { worker.stop(); await pending; }
 });
 it('enforces explicit worker/relay policies and conflicting selectors before transport construction', async () => {
@@ -147,4 +171,74 @@ it('retains worker-side invite admission and revocation checks after local impor
     expect((await call(server, 'acp_delegate_task', { workerDid: owner.did, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('PENDING_OWNER_APPROVAL');
     expect(execute).not.toHaveBeenCalled();
   } finally { worker.stop(); await pending; }
+});
+
+it('locks CLI worker signing and role-free payload independently of the requester identity', async () => {
+  const requester = resolveOrCreateIdentity('requester', identityOptions);
+  const worker = resolveOrCreateIdentity('worker', identityOptions);
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await createInviteCommand(['--relay', 'https://relay.example'], { identityOptions });
+  const invite = parseAndVerifyInviteToken(log.mock.calls[0][0]);
+  expect(invite.ownerDid).toBe(worker.did);
+  expect(invite.agentDid).toBe(worker.did);
+  expect(invite.ownerDid).not.toBe(requester.did);
+  expect(invite.agentCard.payload.name).toBe('Sealbridge Worker');
+  expect(invite).not.toHaveProperty('role');
+  expect(invite.agentCard.payload).not.toHaveProperty('role');
+});
+it('locks MCP requester signing and routes a later delegate to the same-key worker, not the default worker', async () => {
+  const requester = resolveOrCreateIdentity('requester', identityOptions);
+  const defaultWorker = resolveOrCreateIdentity('worker', identityOptions);
+  const relay = new InMemoryRelay();
+  const creator = new AcpMcpServer({ identityOptions, relay });
+  const created = await call(creator, 'acp_create_invite', { relayUrl: 'https://relay.example' });
+  expect(created.error).toBe(false);
+  const invite = parseAndVerifyInviteToken(created.value.inviteToken);
+  expect(invite.ownerDid).toBe(requester.did);
+  expect(invite.agentDid).toBe(requester.did);
+  expect(invite.ownerDid).not.toBe(defaultWorker.did);
+  expect(invite.agentCard.payload.name).toBe('Sealbridge Worker');
+  expect(invite).not.toHaveProperty('role');
+  expect(invite.agentCard.payload).not.toHaveProperty('role');
+  const sameKeyExecute = vi.fn(async () => ({ receiver: requester.did }));
+  const otherExecute = vi.fn(async () => ({}));
+  const makeWorker = (owner: KeyPair, executeTask: typeof otherExecute) => new WorkerNode({
+    owner, relay, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask }, approvalProvider: approving(() => owner),
+  });
+  const receiver = makeWorker(requester, sameKeyExecute), other = makeWorker(defaultWorker, otherExecute);
+  const running = [receiver.start(), other.start()];
+  const sender = generateKeyPair();
+  const client = new AcpMcpServer({ owner: sender, relay, identityOptions,
+    approvalProvider: approving(() => sender) });
+  const send = vi.spyOn(relay, 'send');
+  try {
+    const result = await call(client, 'acp_delegate_task', { inviteToken: created.value.inviteToken,
+      title: 'Identity routing', input: {}, taskTimeoutMs: 5000 });
+    expect(result).toMatchObject({ error: false, value: { status: 'SETTLED', deliverable: { receiver: requester.did } } });
+    expect(send.mock.calls.find(([e]) => e.payload.eventType === 'PROPOSE')![0].payload.recipientDid).toBe(requester.did);
+    expect(sameKeyExecute).toHaveBeenCalledTimes(1);
+    expect(otherExecute).not.toHaveBeenCalled();
+  } finally { receiver.stop(); other.stop(); await Promise.all(running); }
+});
+it('accepts old and neutral CLI reference selectors with identical invite-store resolution', async () => {
+  for (const flag of ['--to', '--invite', '--peer-ref']) {
+    await expect(networkCommand('delegate', [flag, 'missing', '--title', 'Test', '--description', 'Test',
+      '--input', '{}', '--auto-approve'], { identityOptions })).rejects.toThrow('INVITE_NOT_FOUND');
+  }
+  await expect(networkCommand('delegate', ['--to', 'one', '--peer-ref', 'two'], { identityOptions }))
+    .rejects.toThrow('CONFLICTING_TARGET_OPTIONS');
+});
+it('validates peerRef schemas and rejects conflicts before transport', async () => {
+  const factory = vi.fn(), server = new AcpMcpServer({ identityOptions, transportFactory: factory });
+  const definitions = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) as any;
+  const ajv = new Ajv2020({ strict: false });
+  for (const tool of ['acp_delegate_task', 'acp_remove_invite']) {
+    const schema = definitions.result.tools.find((t: any) => t.name === tool).inputSchema;
+    for (const selector of [{ workerRef: 'reviewer' }, { peerRef: 'reviewer' }])
+      expect(ajv.compile(schema)({ ...selector, ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}) })).toBe(true);
+    expect((await call(server, tool, { peerRef: 'one', workerRef: 'two', ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}) })).error).toBe(-32602);
+  }
+  expect(factory).not.toHaveBeenCalled();
 });

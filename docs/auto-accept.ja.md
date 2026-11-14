@@ -1,5 +1,8 @@
 # 持ち主が設定する自動受付
 
+[Invitations and local roles](connections/invite-and-roles.ja.md)
+
+
 [English](auto-accept.md)
 
 すべてのワーカーで同じ設定を使います。新規導入時の既定は「つながっている相手から、読むだけの仕事を自動受付」です。未接続の依頼は、持ち主が対象を変更するまで保留します。公開登録や `--allow-local-pc` は受付の許可ではありません。接続への同意と依頼側の承認も別です。
