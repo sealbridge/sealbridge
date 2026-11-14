@@ -237,9 +237,13 @@ async function main(args: string[]) {
       }
       const parsed = parseAuditVerifyArgs(rest);
       const input = readFileSync(parsed.input, 'utf8');
-      const bundle = parsed.input.endsWith('.jsonl')
-        ? parseAuditJsonl(input)
-        : parseAuditJson(input);
+      // Detect evidence by content, including historic *.jsonl.legacy paths.
+      let bundle: unknown;
+      try { bundle = JSON.parse(input); }
+      catch { bundle = parseAuditJsonl(input); }
+      if (bundle && typeof bundle === 'object' && !('entries' in bundle) &&
+          ('entry' in bundle || 'checkpoint' in bundle || 'interruption' in bundle))
+        bundle = parseAuditJsonl(input);
       const options: AuditEvidenceVerificationOptions = {};
       if (parsed.anchorPath) {
         const file = parseAuditJson(readFileSync(parsed.anchorPath, 'utf8')) as AuditEvidenceVerificationOptions;
