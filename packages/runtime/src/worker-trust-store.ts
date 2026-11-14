@@ -128,11 +128,16 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
     } finally { if (fd !== undefined) io.closeSync(fd); }
   }
   private mutate<T>(change: (state: TrustState) => T, connectionMutation = false, reserveRoom = false): T {
-    const until = performance.now() + 50, sleeper = new Int32Array(new SharedArrayBuffer(4));
+    let until: number | undefined;
+    const sleeper = new Int32Array(new SharedArrayBuffer(4));
     for (let attempt = 0; ; attempt++) {
       try { return this.mutateOnce(change, connectionMutation, reserveRoom); }
       catch (error) {
-        if (!(error instanceof Error) || error.message !== 'INTAKE_STORE_BUSY' || performance.now() >= until) throw error;
+        if (!(error instanceof Error) || error.message !== 'INTAKE_STORE_BUSY') throw error;
+        // A cold initial read/flush can be slow without waiting for a writer.
+        // Start the bounded contention window only when BUSY is first observed.
+        until ??= performance.now() + 50;
+        if (performance.now() >= until) throw error;
         // Retry local state derivation after releasing the lock, never admission
         // or execution. This also covers Windows pending-delete/sharing refusals.
         Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));

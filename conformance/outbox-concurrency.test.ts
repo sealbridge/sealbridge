@@ -215,11 +215,17 @@ it.each([false, true])('persists verified recovery after checkpoint ACK failure,
   } finally { controller.abort(); worker.stop(); client.stopDelivery(); await Promise.allSettled([request, running]); }
 });
 
-it.each(['open', 'rename'])('retries a Windows %s sharing refusal in the intake store without changing consent', syscall => {
+it.each(['open', 'rename'])('retries a Windows %s sharing refusal after a slow initial flush without changing consent', syscall => {
   const f = fixture(), path = workerIntakePath(f.owner.did, f.identityOptions);
   let fail = true;
   const violation = () => { fail = false; throw Object.assign(new Error('sharing violation'), { code: 'EPERM', syscall }); };
   const store = new WorkerTrustStore(f.owner, { path, platform: 'win32', fs: { ...fs,
+    fsyncSync: fd => {
+      fs.fsyncSync(fd);
+      // Model the slow first durability flush seen on Windows CI. It must not
+      // consume a contention budget before the injected rename refusal occurs.
+      if (fail && syscall === 'rename') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 75);
+    },
     writeFileSync: ((file, ...args) => {
       if (fail && syscall === 'open' && String(file) === path + '.lock') violation();
       return fs.writeFileSync(file, ...args);
