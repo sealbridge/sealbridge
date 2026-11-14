@@ -977,7 +977,12 @@ export class WorkerNode {
   private assertPeer(did: string, taskId?: string): 'trusted' | void {
     if (this.options.allowedPeerDids !== undefined && !this.options.allowedPeerDids.includes(did))
       throw new Error('PEER_NOT_ALLOWED');
-    if ((this.intakeStore.level(did) === 'denied' || this.connectionStore.connectionState(did) === 'blocked') && (!taskId || this.acceptedPeers.get(taskId) !== did))
+    // A shared WorkerTrustStore projects both denials from the same signed snapshot.
+    // Separate injected stores still need both checks.
+    const denied = this.intakeStore === this.connectionStore
+      ? this.connectionStore.connectionState(did) === 'blocked'
+      : this.intakeStore.level(did) === 'denied' || this.connectionStore.connectionState(did) === 'blocked';
+    if (denied && (!taskId || this.acceptedPeers.get(taskId) !== did))
       throw new Error('REQUEST_DENIED');
     return this.options.checkPeer?.(did);
   }

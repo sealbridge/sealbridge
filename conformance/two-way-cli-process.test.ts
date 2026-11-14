@@ -128,9 +128,12 @@ it.each([false, true])('real CLI processes: importer off/allow/disallow despite 
     await denied.waitFor(() => denied.exited);
     expect(await denied.closed).not.toBe(0);
     expect(denied.stderr).toContain('PENDING_OWNER_APPROVAL');
+    // End the receiving lifecycle before exercising outbound use of its identity.
+    // This keeps this admission regression independent of concurrent delivery maintenance.
+    await bWorker.stop();
     // Creator admission remains unchanged after importer permission is revoked.
     await actor(b, delegateArgs('alpha-connected', join(root, 'b-final.jsonl')), true).success();
-    await bWorker.stop(); await aWorker.stop();
+    await aWorker.stop();
     const bAudit = (migrated ? 'b-worker' : 'b-worker.requester') + '.' + result.taskId + '.jsonl';
     for (const path of ['a-worker.jsonl', 'b-requester.jsonl', 'a-requester.jsonl', bAudit, 'a-quiet.jsonl', 'b-final.jsonl'])
       expect(verifyAudit(parseJsonl(readFileSync(join(root, path), 'utf8'))).valid, path).toBe(true);
