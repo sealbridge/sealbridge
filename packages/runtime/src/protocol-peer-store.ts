@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { performance } from 'node:perf_hooks';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -95,7 +96,16 @@ export class ProtocolPeerStore {
     let locked = false, temporary: string | undefined;
     try {
       for (const directory of [this.root, this.directory]) privateDirectory(directory, this.io, this.options.platform);
-      try { writePrivateFile(this.path + '.lock', Buffer.alloc(0), this.io, this.options.platform); locked = true; }
+      try {
+        const until = performance.now() + 50, sleeper = new Int32Array(new SharedArrayBuffer(4));
+        for (let attempt = 0; ; attempt++) {
+          try { writePrivateFile(this.path + '.lock', Buffer.alloc(0), this.io, this.options.platform); locked = true; break; }
+          catch (error) {
+            if (code(error) !== 'EEXIST' || performance.now() >= until) throw error;
+            Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
+          }
+        }
+      }
       catch (error) { if (code(error) === 'EEXIST') throw new Error('PROTOCOL_STORE_BUSY'); throw error; }
       const state = this.read(), now = this.now();
       if (!Number.isFinite(now)) throw new Error('PROTOCOL_STORE_INVALID');

@@ -519,8 +519,10 @@ export async function networkCommand(command: string, args: string[], applicatio
     emitWorkerJson({ event: 'invite_ready', inviteDigest: inviteDigest(token),
       expiresAt: invite.expiresAt, workerDid: invite.agentDid, relay: relayUrl });
     const stop = () => { for (const node of listeners) node.stop(); };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+    let stoppedBySignal = false;
+    const stopFromSignal = () => { stoppedBySignal = true; stop(); };
+    process.once('SIGINT', stopFromSignal);
+    process.once('SIGTERM', stopFromSignal);
     try {
       for (const node of listeners) await node.startDelivery();
       if (listeners.length > 1) {
@@ -530,14 +532,15 @@ export async function networkCommand(command: string, args: string[], applicatio
         if (failure?.status === 'rejected') throw failure.reason;
       } else await worker.start({ once: f.has('--once') });
     } catch (error) {
+      if (stoppedBySignal) return;
       if (!f.has('--once')) emitWorkerJson({ event: 'WORKER_EXIT', status: 'unavailable',
         code: 'WORKER_TERMINAL', error });
       throw error;
     } finally {
       if (listeners.length > 1) stop();
       for (const node of listeners) node.stopDelivery();
-      process.removeListener('SIGINT', stop);
-      process.removeListener('SIGTERM', stop);
+      process.removeListener('SIGINT', stopFromSignal);
+      process.removeListener('SIGTERM', stopFromSignal);
     }
     return;
   }

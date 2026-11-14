@@ -8,6 +8,7 @@ import { isTransientRelayError, relayDeadline, RelayAdmissionError, RelayDuplica
 import type { RelayTransport } from '@acp/relay';
 import type { IdentityStoreOptions } from './key-store.js';
 import { DeliveryStore } from './delivery-store.js';
+import { retryDeliveryBusy } from './delivery-retry.js';
 import type { DeliveryWrite, PreparedDeliveryWrite } from './delivery-store.js';
 import { deliveryError, DELIVERY_RETENTION_MS, requireDelivery } from './delivery-records.js';
 import type { DeliveryLimits, MessageRecordV1, MessageStatus, OutboxRecordV1 } from './delivery-records.js';
@@ -63,8 +64,10 @@ class GatewayDeliveryServiceImplementation {
     if (this.active) return;
     if (this.controller.signal.aborted) this.controller = new AbortController();
     this.active = true;
-    if (this.store.ids('observations', e => this.report(e)).length) await this.prepare();
-    this.recipientStatus.reconcile();
+    await retryDeliveryBusy(async () => {
+      if (this.store.ids('observations', e => this.report(e)).length) await this.prepare();
+      this.recipientStatus.reconcile();
+    }, this.controller.signal);
     // Do not create an empty store during lifecycle-only startup.
     if (this.store.ids('observations', e => this.report(e)).length || this.store.ids('batches', e => this.report(e)).length || this.store.ids('receipts', e => this.report(e)).length || this.store.ids('messages', e => this.report(e)).length)
       await this.store.maintainInBackground(error => this.report(error), this.controller.signal);
@@ -157,16 +160,20 @@ class GatewayDeliveryServiceImplementation {
   private publishBatchLocked({ records, message, marker }: ReturnType<GatewayDeliveryServiceImplementation['buildBatch']>,
     publish: (write: DeliveryWrite) => void,
     operation?: ReturnType<GatewayDeliveryServiceImplementation['batchOperation']>): string[] {
-    this.store.assertCapacity(records, message);
-    for (const r of records) {
-      const prior = this.store.read('outbox', r.envelopeId);
-      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+    const existing = records.map(r => this.store.read('outbox', r.envelopeId));
+    this.store.assertCapacity(records.filter((_, i) => !existing[i]), message);
+    for (const [i, r] of records.entries()) {
+      const prior = existing[i];
+      if (prior) {
+        if (prior.batchId !== r.batchId || prior.envelopeDigest !== r.envelopeDigest) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+        continue; // Resume our own partially published batch after a refused rename.
+      }
       publish({ kind: 'outbox', id: r.envelopeId, record: r });
     }
     if (message) {
       const prior = this.store.read('messages', message.messageId);
-      if (prior) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-      publish({ kind: 'messages', id: message.messageId, record: message });
+      if (prior && digest(prior) !== digest(message)) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      if (!prior) publish({ kind: 'messages', id: message.messageId, record: message });
     }
     if (operation) publish({ kind: 'operations', id: operation.record.operationId, record: operation.record });
     publish({ kind: 'batches', id: marker.batchId, record: marker });
@@ -197,25 +204,30 @@ class GatewayDeliveryServiceImplementation {
   /** Independent batches write concurrently without holding the signer lock or blocking relay readers. */
   async enqueuePrepared(frames: readonly SignedEnvelope[], context: DeliveryContext, signal?: AbortSignal): Promise<string[]> {
     const batch = this.buildBatch(frames, context);
-    const prepared = await this.store.prepareWrites(this.batchWrites(batch));
+    let prepared = await this.store.prepareWrites(this.batchWrites(batch));
     try {
       // A concurrent writer (another process closing a held attempt) changes the
       // directory stamp. preparedMode then refuses to scan inside the lock.
       // Refresh outside the lock instead of failing the new batch permanently.
-      let busy = 0;
-      for (;;) {
-        const operation = this.batchOperation(batch.message);
-        const update = operation ? await this.store.prepareWrites([{ kind: 'operations', id: operation.record.operationId, record: operation.record }]) : [];
-        try {
-          await this.prepare(signal);
+      const combined = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
+      return await retryDeliveryBusy(async () => {
+        // A failed multi-record publication can leave orphan members. Another
+        // maintainer may remove them before this retry, so restage all originals.
+        if (prepared.some(write => write.published)) {
+          this.store.discardWrites(prepared);
+          prepared = await this.store.prepareWrites(this.batchWrites(batch));
+        }
+        for (;;) {
+          combined.throwIfAborted();
+          const operation = this.batchOperation(batch.message);
+          const update = operation ? await this.store.prepareWrites([{ kind: 'operations', id: operation.record.operationId, record: operation.record }]) : [];
           try {
+            await this.prepare(combined);
             const ids = this.publishBatch(batch, [...prepared, ...update], operation);
             if (ids) return ids;
-          } catch (error) {
-            if (!(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY' || ++busy > 3) throw error;
-          }
-        } finally { this.store.discardWrites(update); }
-      }
+          } finally { this.store.discardWrites(update); }
+        }
+      }, combined);
     } finally { this.store.discardWrites(prepared); }
   }
   /** C4 stages status frames and observation references in one prepared transaction. */
@@ -247,14 +259,16 @@ class GatewayDeliveryServiceImplementation {
   }
   /** One attempt per due control frame; background lifecycle owns subsequent retries. */
   async drainStatuses(): Promise<void> {
-    try { await this.prepare(); } catch (error) { this.report(error); return; }
-    for (const r of this.store.statusOutbox().sort((a, b) => a.createdAt - b.createdAt || a.ordinal - b.ordinal)) {
-      if (this.controller.signal.aborted) return;
-      try {
-        await this.attempt(r.envelopeId, this.controller.signal);
-        if (!this.controller.signal.aborted) this.finishBatch(r.batchId);
-      } catch (error) { if (!this.controller.signal.aborted) this.report(error); }
-    }
+    try {
+      await this.prepare();
+      for (const r of this.store.statusOutbox().sort((a, b) => a.createdAt - b.createdAt || a.ordinal - b.ordinal)) {
+        if (this.controller.signal.aborted) return;
+        try {
+          await this.attempt(r.envelopeId, this.controller.signal);
+          if (!this.controller.signal.aborted) this.finishBatch(r.batchId);
+        } catch (error) { if (!this.controller.signal.aborted) this.report(error); }
+      }
+    } catch (error) { if (!this.controller.signal.aborted) this.report(error); }
   }
   async sendPrepared(envelopeId: string, signal?: AbortSignal): Promise<void> {
     const combined = AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]);
@@ -278,17 +292,16 @@ class GatewayDeliveryServiceImplementation {
   }
   /** Another publisher invalidated the prepared index. Rebuild outside the signer lock, then retry. */
   private async retryBusy<T>(signal: AbortSignal, operation: () => T): Promise<T> {
-    let last: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try { return operation(); }
-      catch (error) {
-        last = error;
-        if (attempt === 2 || !(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY') throw error;
-        await this.prepare(signal);
-      }
-    }
-    throw last;
+    return retryDeliveryBusy(async () => {
+      await this.prepare(signal);
+      return operation();
+    }, signal);
   }
+  /** Retry local publication only, rebuilding metadata outside the signer lock. */
+  async withStore<T>(operation: () => T, signal?: AbortSignal): Promise<T> {
+    return this.retryBusy(AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]), operation);
+  }
+
   private attempt(id: string, signal: AbortSignal): Promise<void> {
     const prior = this.attempts.get(id);
     if (prior) return prior;

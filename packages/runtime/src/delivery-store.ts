@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+import { performance } from 'node:perf_hooks';
 import * as fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { digest, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, SignedEnvelope } from '@acp/core';
+import { retryDeliveryBusy } from './delivery-retry.js';
 import { checkPath, checkStat, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
 import {
@@ -195,6 +197,23 @@ class DeliveryStoreImplementation {
     } catch (e) { if (errno(e) === 'ENOENT') return []; throw deliveryError('OUTBOX_STORE_INVALID'); }
   }
   read<K extends Kind>(kind: K, id: string): DeliveryRecords[K] | undefined {
+    // Private identity reads reject a stat/open inode change. Mutable delivery
+    // records are atomically replaced and pruned, so retry only a proven change.
+    const path = this.path(kind, id);
+    for (let attempt = 0; ; attempt++) {
+      const stamp = () => {
+        try { return fingerprint(this.io.lstatSync(path, { bigint: true })); }
+        catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw error; }
+      };
+      const before = stamp();
+      try { return this.readOnce(kind, id); }
+      catch (error) {
+        if (stamp() === before) throw error;
+        if (attempt >= 7) throw deliveryError('OUTBOX_STORE_BUSY');
+      }
+    }
+  }
+  private readOnce<K extends Kind>(kind: K, id: string): DeliveryRecords[K] | undefined {
     const path = this.path(kind, id);
     try {
       if (this.transactionReads?.has(path)) return structuredClone(this.transactionReads.get(path)) as DeliveryRecords[K] | undefined;
@@ -264,10 +283,26 @@ class DeliveryStoreImplementation {
     try {
       checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
       for (const dir of this.directories()) this.inspectPath(dir, true);
+      const until = performance.now() + 50;
+      const sleeper = new Int32Array(new SharedArrayBuffer(4));
       try {
         // The exclusive empty lock coordinates live writers; it has no recovery payload to flush.
-        const fd = this.io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-          (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+        let fd: number;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            fd = this.io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+              (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+            break;
+          } catch (error) {
+            const busy = errno(error) === 'EEXIST' || this.platform === 'win32' &&
+              (error as NodeJS.ErrnoException).syscall === 'open' && ['EPERM', 'EACCES', 'EBUSY'].includes(errno(error) ?? '');
+            if (!busy) throw error;
+            if (performance.now() >= until) throw deliveryError('OUTBOX_STORE_BUSY');
+            // Bridge synchronous lifecycle callbacks without spinning. Bound this
+            // slice so signal handlers run promptly; async callers wait longer.
+            Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
+          }
+        }
         acquired = true;
         try { checkStat(this.io.fstatSync(fd)); } finally { this.io.closeSync(fd); }
       }
@@ -277,6 +312,10 @@ class DeliveryStoreImplementation {
       return change();
     } catch (e) {
       if (e instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(e.message)) throw e;
+      // Windows can refuse atomic replacement while another process briefly
+      // has the destination open. Release the signer lock before retrying.
+      if (this.platform === 'win32' && (e as NodeJS.ErrnoException).syscall === 'rename' &&
+          ['EPERM', 'EACCES', 'EBUSY'].includes(errno(e) ?? '')) throw deliveryError('OUTBOX_STORE_BUSY');
       throw deliveryError('OUTBOX_STORE_UNWRITABLE');
     } finally {
       if (acquired) {
@@ -298,7 +337,7 @@ class DeliveryStoreImplementation {
       return;
     }
     const listingId = kind === 'receipts' ? receiptFileId(id) : id;
-    const path = this.path(kind, id), temporary = join(dirname(path), '.' + randomUUID() + '.tmp');
+    const path = this.path(kind, id), temporary = join(this.root, '.' + randomUUID() + '.tmp');
     const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
     if (bytes.length > (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes)) throw deliveryError(kind === 'operations' ? 'IDEMPOTENCY_STORE_FULL' : 'OUTBOX_FULL');
     const retained = this.idempotencyIndexes.get(kind);
@@ -361,28 +400,6 @@ class DeliveryStoreImplementation {
         before.published.every((p, i) => digest(p) === digest(after.published[i])));
     }
   }
-  /** Creating/removing an unpublished temporary does not change the indexed JSON records. */
-  private temporaryChange<T>(kind: Kind, change: () => T): T {
-    const before = this.listingStamp(kind), listing = this.listings.get(kind);
-    if (isIdempotencyKind(kind)) {
-      try { return change(); }
-      finally {
-        // Staging is outside the lock: a concurrent publication must invalidate
-        // both indexes rather than be adopted as our temporary directory change.
-        const after = this.listingStamp(kind);
-        if (after.split('|')[0] === before.split('|')[0]) this.adoptIdempotencyStamp(before, after);
-      }
-    }
-    const index = kind === 'outbox' && this.outboxIndex?.stamp === before ? this.outboxIndex : undefined;
-    const messages = kind === 'messages' && this.messageIndex?.stamp === before ? this.messageIndex : undefined;
-    try { return change(); }
-    finally {
-      const stamp = this.listingStamp(kind);
-      if (index) index.stamp = stamp;
-      if (messages) messages.stamp = stamp;
-      if (listing?.stamp === before) listing.stamp = stamp;
-    }
-  }
   private stageWrites(writes: DeliveryWrite[], prepared: PreparedDeliveryWrite[], descriptors: number[]): void {
     // Unique unpublished files need no writer lock. Publication alone changes visible records.
     checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
@@ -393,20 +410,15 @@ class DeliveryStoreImplementation {
     for (const { kind, id, record: input } of writes) {
       const record = structuredClone(input);
       validateDeliveryRecord(kind, record, this.owner.did); recordIdentity(kind, id, record);
-      const path = this.path(kind, id), temporary = join(dirname(path), '.' + randomUUID() + '.tmp');
+      const path = this.path(kind, id), temporary = join(this.root, '.' + randomUUID() + '.tmp');
       const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
       if (bytes.length > (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes))
         throw deliveryError(kind === 'operations' ? 'IDEMPOTENCY_STORE_FULL' : 'OUTBOX_FULL');
-      // Make absent directory inventories available before local temporary creation changes them.
-      if (kind === 'messages' && !this.messageIndex && this.listingStamp('messages') === 'absent')
-        this.messageIndex = { stamp: 'absent', entries: new Map() };
-      const absentMessages = kind === 'messages' && this.messageIndex?.stamp === 'absent' ? this.messageIndex : undefined;
-      const absentIndex = kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
+      // Only published records change indexed directories. Do not adopt another
+      // process's publication when creating a directory or staging a file.
       this.inspectPath(dirname(path), true);
-      if (absentIndex) absentIndex.stamp = this.listingStamp(kind);
-      if (absentMessages) absentMessages.stamp = this.listingStamp(kind);
-      const fd = this.temporaryChange(kind, () => this.io.openSync(temporary,
-        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600));
+      const fd = this.io.openSync(temporary,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
       descriptors.push(fd); prepared.push({ kind, id, record, temporary, bytes });
       checkStat(this.io.fstatSync(fd));
     }
@@ -544,11 +556,12 @@ class DeliveryStoreImplementation {
   discardWrites(writes: PreparedDeliveryWrite[]): void {
     const remaining = writes.filter(write => !write.published);
     if (!remaining.length) return;
-    this.transaction(() => {
-      for (const { kind, temporary } of remaining) this.temporaryChange(kind, () => {
-        try { this.io.unlinkSync(temporary); } catch (error) { if (errno(error) !== 'ENOENT') throw deliveryError('OUTBOX_STORE_UNWRITABLE'); }
-      });
-    });
+    // These unique unpublished files are owned by this call. Cleanup must not
+    // acquire another writer's lock or mask cancellation with STORE_BUSY.
+    this.inspect();
+    for (const { temporary } of remaining) {
+      try { this.io.unlinkSync(temporary); } catch (error) { if (errno(error) !== 'ENOENT') throw deliveryError('OUTBOX_STORE_UNWRITABLE'); }
+    }
   }
   remove(kind: Kind, id: string): void {
     const listingId = kind === 'receipts' ? receiptFileId(id) : id;
@@ -711,6 +724,15 @@ class DeliveryStoreImplementation {
         this.ids('messages').length >= this.limits.messages) throw deliveryError('OUTBOX_FULL');
   }
   committed(batchId: string): OutboxRecordV1[] {
+    try { return this.committedSnapshot(batchId); }
+    catch (error) {
+      // finishBatch removes the marker before members. An unlocked reader can
+      // cross that boundary; disappearance is completed cleanup, not corruption.
+      if (!this.read('batches', batchId)) return [];
+      throw error;
+    }
+  }
+  private committedSnapshot(batchId: string): OutboxRecordV1[] {
     const b = this.read('batches', batchId);
     if (!b) return [];
     const records = b.envelopeIds.map(id => this.read('outbox', id));
@@ -748,12 +770,12 @@ class DeliveryStoreImplementation {
       const prepared = await this.prepareWrites([{ kind: 'receipts', id, record }]);
       try {
         signal?.throwIfAborted();
-        const published = this.transaction(() => {
+        const published = await retryDeliveryBusy(() => this.transaction(() => {
           const current = this.nextReceipt(envelope, deadline, state, undefined, now);
           if (JSON.stringify(current) !== JSON.stringify(record)) return false;
           if (JSON.stringify(this.read('receipts', id)) !== JSON.stringify(record)) this.publishWrite(prepared[0]);
           return true;
-        });
+        }), signal);
         if (published) return;
       } finally { this.discardWrites(prepared); }
     }
@@ -802,7 +824,7 @@ class DeliveryStoreImplementation {
   }
   maintain(onError: (error: Error) => void = () => {}): void {
     for (const step of this.maintenanceSteps(onError)) {
-      try { step(); } catch { onError(deliveryError('OUTBOX_STORE_INVALID')); }
+      try { step(); } catch (error) { onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID')); }
     }
   }
   /** One batch (at most two frames) or one retained record per event-loop turn. */
@@ -810,7 +832,8 @@ class DeliveryStoreImplementation {
     for (const step of this.maintenanceSteps(onError)) {
       await new Promise<void>(resolve => setImmediate(resolve));
       if (signal.aborted) return;
-      try { step(); } catch { onError(deliveryError('OUTBOX_STORE_INVALID')); }
+      try { await retryDeliveryBusy(step, signal); }
+      catch (error) { if (signal.aborted) return; onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID')); }
     }
   }
 }

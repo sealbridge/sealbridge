@@ -1030,17 +1030,9 @@ export class WorkerNode {
   private async withDelivery<T>(operation: () => T, signal?: AbortSignal): Promise<T> {
     const service = this.deliveryService;
     if (!service) return operation();
-    let last: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await service.prepare(signal);
-      try { return operation(); }
-      catch (error) {
-        last = error;
-        if (attempt === 2 || !(error instanceof Error) || error.message !== 'OUTBOX_STORE_BUSY') throw error;
-      }
-    }
-    throw last;
+    return service.withStore(operation, signal);
   }
+
   private saveTaskCheckpoint(record: TaskCheckpoint): void {
     if (!this.taskJournal) return;
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) {
@@ -1377,7 +1369,7 @@ export class WorkerNode {
       watchHeldAttempt();
     };
     const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
-      this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
+      await this.withDelivery(() => { this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed'); }, signal);
       await acknowledgeRelay(relay, first, signal);
     };
     let invalidProposal = false;
@@ -3169,8 +3161,7 @@ export class RequesterClient {
       this.deliveryService = this.createDelivery();
       if (this.deliveryStarted) await this.deliveryService.start();
     }
-    await this.deliveryService?.prepare(options.signal);
-    this.deliveryService?.store.checkAvailable();
+    await this.deliveryService?.withStore(() => this.deliveryService!.store.checkAvailable(), options.signal);
     const operation = options.idempotencyOperation, childIndex = options.idempotencyChildIndex ?? 0;
     const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
     const approvalRelay = typeof relayOption === 'string' ? relayOption
@@ -3286,7 +3277,9 @@ export class RequesterClient {
         .catch(() => undefined);
     };
     const onUserAbort = () => {
-      if (wireDelivery) wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED');
+      if (wireDelivery) void wireDelivery.service.withStore(() =>
+        wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED'))
+        .catch(error => { if (wireDelivery.service.options.onError) wireDelivery.service.options.onError(error); else console.warn(error.message); });
       const state = gateway?.machine.state;
       if (state === 'IN_PROGRESS') startCancel();
       else if (state === 'ACCEPTED') deferredCancel = true;
@@ -3429,10 +3422,10 @@ export class RequesterClient {
         wire.sealed(envelope),
         this.options.verificationEngine ?? new VerificationEngine(),
         approval,
-        { ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}), allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: () => {
+        { ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}), allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: async () => {
           if (!wireDelivery) return;
-          wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
-            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) });
+          await wireDelivery.service.withStore(() => wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
+            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) }), signal);
         } },
       ), signal);
       if (!result.accepted || !settlement) {
@@ -3460,9 +3453,11 @@ export class RequesterClient {
       };
     } catch (e) {
       if (e instanceof PeerRejectedError && wireDelivery) {
-        if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
-          { status: 'received_held', envelopeId: wireDelivery.context.messageId });
-        wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+        await wireDelivery.service.withStore(() => {
+          if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
+            { status: 'received_held', envelopeId: wireDelivery.context.messageId });
+          wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+        }, signal);
       }
       if (e instanceof PeerRejectedError && e.code === 'PENDING_OWNER_APPROVAL' && this.options.pendingStore) {
         let pendingId = options.pendingId, pendingStoreError: string | undefined;
