@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
+import { InMemoryRelay } from '../packages/relay/src/index.js';
+import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
+import { PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
+import { WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/worker-trust-store.js';
 import { DeliveryStore } from '../packages/runtime/src/delivery-store.js';
 import { retryDeliveryBusy } from '../packages/runtime/src/delivery-retry.js';
 import { outboxFixture } from './outbox-fixture.js';
@@ -167,4 +171,66 @@ it('resumes a partially published batch after a Windows sharing violation withou
   expect(service.store.committed(service.store.read('outbox', ids[0])!.batchId).map(r => r.envelopeId)).toEqual(ids);
   for (const id of ids) await service.sendPrepared(id);
   expect(f.posted).toEqual(p.frames);
+});
+
+it.each([false, true])('persists verified recovery after checkpoint ACK failure, preserving changed local prefixes; changed=%s', async changed => {
+  const f = fixture(), relay = new InMemoryRelay(), send = relay.send.bind(relay);
+  let fail = true, executions = 0, changedBytes = '';
+  relay.send = envelope => {
+    if (fail && envelope.payload.eventType === 'CHECKPOINT_ACK') {
+      fail = false;
+      if (changed) {
+        const bytes = fs.readFileSync(requesterAudit, 'utf8');
+        changedBytes = bytes + bytes.trim().split('\n').at(-1)! + '\n';
+        fs.writeFileSync(requesterAudit, changedBytes);
+      }
+      throw new Error('TEST_LOST_CHECKPOINT_ACK');
+    }
+    return send(envelope);
+  };
+  const workerAudit = join(f.root, 'worker.jsonl'), requesterAudit = join(f.root, 'requester.jsonl');
+  const worker = new WorkerNode({ owner: f.owner, relay, auditPath: workerAudit, timeoutMs: 5000,
+    checkPeer: () => 'trusted', autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    approvalProvider: new PolicyAutoApprovalProvider(f.owner),
+    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async context => { executions++; return context.input; } } });
+  const client = new RequesterClient({ owner: f.peer, relay, auditPath: requesterAudit, timeoutMs: 5000,
+    approvalProvider: new PolicyAutoApprovalProvider(f.peer) });
+  const controller = new AbortController();
+  const request = client.delegate({ to: worker.invite(), title: 'Echo', description: 'Recover a sealed checkpoint',
+    input: { ok: true }, signal: controller.signal });
+  const running = worker.start({ once: true });
+  try {
+    if (changed) {
+      await expect(Promise.all([request, running])).rejects.toThrow('AUDIT_PREFIX_MISMATCH');
+      expect(fs.readFileSync(requesterAudit, 'utf8')).toBe(changedBytes);
+      expect(executions).toBe(1);
+      return;
+    }
+    const [result] = await Promise.all([request, running]);
+    expect(fail).toBe(false); expect(executions).toBe(1);
+    expect(result.state).toBe('SETTLED');
+    for (const path of [workerAudit, requesterAudit])
+      expect(verifyAudit(parseJsonl(fs.readFileSync(path, 'utf8')), { taskId: result.taskId }).valid, path).toBe(true);
+  } finally { controller.abort(); worker.stop(); client.stopDelivery(); await Promise.allSettled([request, running]); }
+});
+
+it.each(['open', 'rename'])('retries a Windows %s sharing refusal in the intake store without changing consent', syscall => {
+  const f = fixture(), path = workerIntakePath(f.owner.did, f.identityOptions);
+  let fail = true;
+  const violation = () => { fail = false; throw Object.assign(new Error('sharing violation'), { code: 'EPERM', syscall }); };
+  const store = new WorkerTrustStore(f.owner, { path, platform: 'win32', fs: { ...fs,
+    writeFileSync: ((file, ...args) => {
+      if (fail && syscall === 'open' && String(file) === path + '.lock') violation();
+      return fs.writeFileSync(file, ...args);
+    }) as typeof fs.writeFileSync,
+    renameSync: (from, to) => {
+      if (fail && syscall === 'rename' && String(to) === path) violation();
+      fs.renameSync(from, to);
+    },
+  } });
+  store.block(f.peer.did);
+  expect(fail).toBe(false);
+  expect(store.connectionState(f.peer.did)).toBe('blocked');
+  expect(store.listConnections()).toEqual([{ peerOwnerDid: f.peer.did, state: 'blocked' }]);
+  expect(fs.existsSync(path + '.lock')).toBe(false);
 });

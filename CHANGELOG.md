@@ -4,7 +4,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-- Keep same-folder worker and concurrent sends reliable: retry bounded outbox contention, tolerate atomic record replacement during reads, and contain background status-drain errors.
+- Keep same-folder worker and concurrent sends reliable: retry bounded outbox contention, tolerate atomic record replacement during reads, contain background status-drain errors, and preserve recovered audit checkpoints.
 
 - Default new importer connections to owner approval; add local `connections allow` / `disallow`, advisory send warnings with script suppression, and expired same-DID invite alias fallback. Creator and legacy connection policies stay unchanged.
 

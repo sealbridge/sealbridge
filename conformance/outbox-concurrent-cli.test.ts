@@ -104,7 +104,7 @@ it.each([false, true])('same-folder worker and bidirectional CLI sends remain co
       const attempt = actor(forward ? b : a, delegateArgs(forward ? 'alpha' : reverse, path), true);
       await attempt.waitFor(() => attempt.exited, 20000);
       if (await attempt.closed !== 0) {
-        expect(attempt.stderr).toContain('INTAKE_RATE_LIMITED');
+        expect(attempt.stderr, (aWorker.stderr + bWorker.stderr).slice(-12000)).toContain('INTAKE_RATE_LIMITED');
         expect(attempt.stderr).not.toMatch(/OUTBOX_STORE_INVALID|Error: OUTBOX_STORE_(?:BUSY|UNWRITABLE)/);
         limited++; return; // Expected intake limit; never resubmit a proposal.
       }
@@ -130,7 +130,11 @@ it.each([false, true])('same-folder worker and bidirectional CLI sends remain co
       // The first task uses the base audit; subsequent tasks get task suffixes.
       const base = path.replace(/\.task_[^.]+\.jsonl$/, '.jsonl');
       const actual = existsSync(path) ? path : base;
-      expect(verifyAudit(parseJsonl(readFileSync(actual, 'utf8')), { taskId }).valid, actual).toBe(true);
+      try {
+        expect(verifyAudit(parseJsonl(readFileSync(actual, 'utf8')), { taskId }).valid, actual).toBe(true);
+      } catch (error) {
+        throw new Error(`audit=${actual}; expectedTask=${taskId}; ${String(error)}; worker diagnostics:\n${(aWorker.stderr + bWorker.stderr).slice(-12000)}`);
+      }
     }
     expect(aWorker.stderr + bWorker.stderr).not.toMatch(/OUTBOX_STORE_INVALID|unhandledRejection/);
   } finally {

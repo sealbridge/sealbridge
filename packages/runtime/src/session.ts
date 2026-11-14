@@ -3504,6 +3504,17 @@ export class RequesterClient {
               }
               hooks?.onDelivered?.();
             }
+            if (auditPath) {
+              // The peer may seal before its CHECKPOINT_ACK fails. Recovery
+              // returns a verified bundle, but the live local file can still
+              // contain only its acknowledged prefix. Preserve and finish it.
+              await wire.quiesceAudit();
+              const store = new JsonlStore(auditPath), prefix = store.read();
+              if (digest(prefix) !== digest(cached.bundle.entries.slice(0, prefix.length)))
+                throw new Error('AUDIT_PREFIX_MISMATCH');
+              for (const entry of cached.bundle.entries.slice(prefix.length)) store.append(entry);
+              store.seal(cached.bundle.checkpoint);
+            }
             return cached;
           }
         }

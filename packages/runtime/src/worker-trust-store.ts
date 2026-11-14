@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import * as fs from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { join, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { digest, signPayload, verifySigned } from '@acp/core';
@@ -127,6 +128,18 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
     } finally { if (fd !== undefined) io.closeSync(fd); }
   }
   private mutate<T>(change: (state: TrustState) => T, connectionMutation = false, reserveRoom = false): T {
+    const until = performance.now() + 50, sleeper = new Int32Array(new SharedArrayBuffer(4));
+    for (let attempt = 0; ; attempt++) {
+      try { return this.mutateOnce(change, connectionMutation, reserveRoom); }
+      catch (error) {
+        if (!(error instanceof Error) || error.message !== 'INTAKE_STORE_BUSY' || performance.now() >= until) throw error;
+        // Retry local state derivation after releasing the lock, never admission
+        // or execution. This also covers Windows pending-delete/sharing refusals.
+        Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
+      }
+    }
+  }
+  private mutateOnce<T>(change: (state: TrustState) => T, connectionMutation: boolean, reserveRoom: boolean): T {
     const path = this.options.path, io = this.io;
     let locked = false, temporary: string | undefined;
     try {
@@ -175,6 +188,8 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       return result;
     } catch (e) {
       if (e instanceof Error && /^(INTAKE_|REQUEST_|CONNECTION_)/.test(e.message)) throw e;
+      if (this.platform === 'win32' && ['open', 'rename'].includes((e as NodeJS.ErrnoException).syscall ?? '') &&
+          ['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '')) throw new Error('INTAKE_STORE_BUSY');
       throw new Error('INTAKE_STORE_UNWRITABLE');
     } finally {
       if (temporary) try { io.unlinkSync(temporary); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
