@@ -123,6 +123,10 @@ const DELEGATE_USAGE = 'Usage: ' + cliName + ' delegate ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
   '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
+const WORKER_IDENTITY_HELP = `
+  worker migrate [--create-owner] [--dry-run | --apply]  Migrate or recover after revocation with a fresh delegate; default is dry-run.
+  worker revoke-delegate [--dry-run | --apply]  Revoke the local delegated execution identity.
+  --create-owner  Explicitly create a missing requester owner key (migration only).`;
 const WORKER_USAGE = 'Usage: ' + cliName + ' worker start [--adapter sandbox|command|claude|codex|openai] [options] | public --settings <file> [options]';
 const RELAY_USAGE = 'Usage: ' + cliName + ' relay start [--port <n>] [--host <address>] [options]';
 const INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--key <file>] [--relay <url>] [--name <text>] [--expires-in <seconds>]\n' +
@@ -172,8 +176,6 @@ const TIMEOUT_HELP = `Timeout options (positive integer milliseconds):
   --heartbeat-interval-ms <n>      Worker liveness interval (default: 15000).
 Worker execution limit defaults to the agreed budget. Heartbeats do not renew task or execution deadlines.`;
 const REVIEW_HELP = `
-  worker migrate [--dry-run | --apply]  Explicit owner/delegate migration; default is dry-run.
-  worker revoke-delegate [--dry-run | --apply]  Revoke the local delegated execution identity.
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
   --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
@@ -248,7 +250,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   --max-queue-bytes <n>          Queued JSON bytes per recipient (default: 4194304).
   --max-envelope-bytes <n>       Signed envelope JSON bytes (default: 262144).
   --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` :
-      (command === 'delegate' ? DELEGATE_USAGE + '\nNoninteractive delegation requires --auto-approve before sending (stdin/stderr must otherwise be TTY). 非対話環境は --auto-approve が必要です。' : WORKER_USAGE) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
+      (command === 'delegate' ? DELEGATE_USAGE + '\nNoninteractive delegation requires --auto-approve before sending (stdin/stderr must otherwise be TTY). 非対話環境は --auto-approve が必要です。' : WORKER_USAGE + WORKER_IDENTITY_HELP) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
@@ -457,9 +459,9 @@ export async function networkCommand(command: string, args: string[], applicatio
         adapter,
         name: text(f, 'name', adapter.name),
         approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
-        auditPath: f.has('--audit') ? text(f, 'audit') + (legacy ? '.legacy' : '') : undefined,
+        auditPath: f.has('--audit') ? (legacy ? text(f, 'audit').replace(/(?:\.jsonl)?$/, '.legacy.jsonl') : text(f, 'audit')) : undefined,
         auditInterruptionFormat: 1,
-        inboxPath: f.has('--inbox') ? text(f, 'inbox') + (legacy ? '.legacy' : '') : undefined,
+        inboxPath: f.has('--inbox') ? (legacy ? text(f, 'inbox').replace(/(?:\.jsonl)?$/, '.legacy.jsonl') : text(f, 'inbox')) : undefined,
         onInboxRecord,
         onStatus: (status, error) => emitWorkerJson({ status, error }),
         onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,

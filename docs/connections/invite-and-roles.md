@@ -60,7 +60,13 @@ atomic and exclusive. Repeating migration preserves keys and backup bytes.
 An interrupted attempt may leave an unselected new key/backup; it cannot activate
 a partial binding. A busy migration lock is never stolen automatically.
 Keychain migration is not supported by this command; it fails before writes.
-Missing pre-existing identities likewise fail before writes.
+A missing worker identity fails before writes. A worker-key-only folder keeps working
+without migration. To opt in, run `sealbridge worker migrate --create-owner` to
+preview, then `sealbridge worker migrate --create-owner --apply`. This backs up
+the original worker key before creating a separate requester owner key and a new
+delegate. It never repurposes or replaces the worker key; old invites retain their
+identity. Without this option, a missing requester key produces these exact commands.
+If interrupted after owner creation, the new owner key is retained for a retry.
 
 Connection records are **not moved or re-signed**: the legacy worker inbox stays
 running alongside the owner inbox, using the original worker key and per-key
@@ -70,8 +76,14 @@ existing per-key store; worker-side consent is not silently granted to the owner
 Use `connections ... --role requester` and `tasks ... --role requester` to inspect
 owner-side records; existing `--role worker` selects the retained legacy store.
 Explicit `--key FILE` keeps selecting that exact identity, bypassing migration.
-Explicit audit/inbox paths for the legacy listener gain `.legacy`; owner paths
-use the supplied names. A one-shot worker stops both listeners after one attempt.
+Explicit legacy audit/inbox paths insert `.legacy` before `.jsonl`:
+`audit.jsonl` becomes `audit.legacy.jsonl`, and `inbox.jsonl` becomes
+`inbox.legacy.jsonl` (paths without `.jsonl` gain `.legacy.jsonl`). Owner paths
+keep the supplied names. Separate files avoid sharing per-identity task journals
+and audit chains. After opting into migration, configure notification watchers to
+follow both `inbox.jsonl` and `inbox.legacy.jsonl`, or the glob `inbox*.jsonl`.
+Unmigrated watchers need no change. `audit-verify` detects JSON/JSONL by content,
+so it also verifies historical `audit.jsonl.legacy` files. A one-shot worker stops both listeners after one attempt.
 
 ```sh
 sealbridge worker revoke-delegate --dry-run
@@ -85,6 +97,24 @@ fall back to a legacy identity. Repeating revocation is safe. It does not delete
 keys, revoke unrelated historical worker invites, or cancel already running work;
 stop the worker to end that work. Revocation is local gateway authorization, not
 a new wire-level revocation type.
+
+To recover after revocation, stop the worker, then run:
+
+```sh
+sealbridge worker migrate              # dry-run recovery plan
+sealbridge worker migrate --apply      # back up, then issue a fresh delegate
+sealbridge worker start                # retain your usual options
+```
+
+Recovery backs up the original owner/worker keys, prior activation, delegate key
+and revocation evidence before publishing a new owner-signed activation. Only
+activation metadata is atomically replaced; keys and signed revocations remain.
+Every recovery generates a fresh delegate. Revoked delegates remain rejected even
+if an old activation is restored. A subsequent revoke/recover cycle retains earlier
+revocations, including the original `revoked.json` format. Backup/write failure
+leaves the revoked activation in place; no manual deletion or editing is needed.
+Existing owner-addressed invites remain routable; invites advertising the revoked
+delegate must be reissued to advertise the new execution identity.
 
 The `invite open` reciprocal invite still advertises requester-as-agent. A migrated
 gateway also accepts that owner-as-agent identity, preserving old MCP and return

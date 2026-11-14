@@ -37,7 +37,14 @@ apply は元の鍵のバイト列と元パスを `<data-root>/worker-delegation/
 元の鍵は置換・削除しません。新しい鍵は `worker-delegation/<uuid>.private.json` に保存し、owner 署名の
 `active.json` を最後に排他的・原子的に公開して有効化します。再実行では鍵・バックアップを維持します。
 中断で未選択の新しい鍵やバックアップが残っても、未完成の設定を有効化しません。使用中の lock を自動で奪いません。
-このコマンドは keychain 移行に未対応です。既存の両方の鍵がない場合も書き込み前に停止します。
+このコマンドは keychain 移行に未対応です。worker 鍵がなければ書き込み前に停止します。
+worker 鍵だけのフォルダーは移行せず従来どおり使えます。移行を選ぶ場合は
+`sealbridge worker migrate --create-owner` で確認し、
+`sealbridge worker migrate --create-owner --apply` で適用します。
+元の worker 鍵をバックアップしてから、別の requester owner 鍵と新しい delegate を作成します。
+worker 鍵を owner に転用・置換しないため、旧招待の識別を維持します。
+requester 鍵がなく、このオプションもない場合、エラーは上の実行コマンドを表示します。
+owner 作成後に中断した場合、その新しい鍵を保持して再試行できます。
 
 移行後は既存 requester 鍵を公開上の owner とし、**新しい** delegate 鍵を実行 agent の識別に使います。
 owner が招待・agent card に署名し、delegate は既存の agent-card delegation 文に署名します。
@@ -56,7 +63,13 @@ relay の変更・デプロイは不要で、プロトコル版や招待の role
 worker 側の同意を owner へ自動移譲しません。owner 側の確認には `connections ... --role requester` と
 `tasks ... --role requester`、旧記録には `--role worker` を使います。
 明示的な `--key FILE` は引き続きその鍵を使い、移行設定で宛先を変更しません。
-旧受信口の明示 audit/inbox パスには `.legacy` が付き、owner 側は指定パスを使います。
+旧受信口の明示 audit/inbox パスは `.jsonl` の前に `.legacy` を挿入します。
+`audit.jsonl` は `audit.legacy.jsonl`、`inbox.jsonl` は `inbox.legacy.jsonl` です。
+`.jsonl` がないパスには `.legacy.jsonl` を付けます。owner 側は指定パスを維持します。
+鍵ごとの task journal と監査チェーンを共有しないため、別ファイルが必要です。
+明示的に移行した後は通知 watcher を `inbox.jsonl` と `inbox.legacy.jsonl` の両方、
+または `inbox*.jsonl` に設定してください。未移行なら変更不要です。
+`audit-verify` は内容で JSON/JSONL を判定し、過去の `audit.jsonl.legacy` も検証できます。
 `--once` は一回の試行で両方の受信口を停止します。
 
 ```sh
@@ -68,6 +81,23 @@ sealbridge worker revoke-delegate --apply
 起動中の CLI gateway は受付前に activation と失効を確認します。以降の既定起動・招待作成も停止し、旧 identity へ
 自動で切り替えません。再実行は安全です。鍵は削除せず、無関係な過去の worker 招待や実行中の仕事は失効しません。
 実行中の仕事も止めるには worker を停止してください。これはローカル gateway の許可であり、新しい通信上の失効種別ではありません。
+
+失効後の復旧は worker を停止してから実行します。
+
+```sh
+sealbridge worker migrate              # 復旧計画を確認（dry run）
+sealbridge worker migrate --apply      # バックアップ後、新しい delegate を発行
+sealbridge worker start                # 従来の起動オプションを指定
+```
+
+復旧では元の owner/worker 鍵、以前の activation、delegate 鍵、失効の証拠を
+バックアップしてから owner 署名の新しい activation を公開します。
+原子的に置換するのは activation metadata だけで、鍵と署名済み失効記録は保持します。
+毎回新しい delegate を生成し、古い activation に戻しても失効済み delegate は拒否します。
+再度の失効・復旧でも過去の失効を保持し、旧 `revoked.json` 形式にも対応します。
+バックアップ・書き込みに失敗しても失効中の activation を維持し、手動の削除や編集は不要です。
+owner 宛ての既存招待は引き続き届きますが、失効した delegate を公開する招待は
+新しい実行 identity を公開するため再発行してください。
 
 `invite open` の返信招待は引き続き requester-as-agent です。移行済み gateway は owner-as-agent も受け付けるため、
 旧 MCP 招待と返信招待の宛先を維持します。open だけで受信処理や双方向の依頼を有効化しません。
