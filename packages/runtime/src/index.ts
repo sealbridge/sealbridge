@@ -33,6 +33,7 @@ export * from './relay-selection.js';
 export * from './invite-store.js';
 export * from './worker-trust-store.js';
 export * from './connection-records.js';
+export * from './connection-aliases.js';
 export * from './application-config.js';
 export * from './requester-pending-store.js';
 export * from './held-request-store.js';

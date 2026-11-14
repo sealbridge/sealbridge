@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inviteShareCommand } from './invite-share.js';
 import { connectionHumanReview } from './connections.js';
+import { connectionTarget } from './connection-target.js';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema } from '@acp/core';
 import { autoAcceptPolicy, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
@@ -20,6 +21,7 @@ import {
   WorkerTrustStore,
   workerIntakePath,
   resolveStoredIdentity,
+  inspectStoredIdentity,
   selectApplicationRelay,
   normalizeRelayUrl,
   readApplicationConfig,
@@ -47,7 +49,7 @@ import { approvalSummary } from './approval-summary.js';
 import { relayAuthOptions, RELAY_AUTH_HELP } from './relay-auth.js';
 import { parseInviteOutput, deliverInvite } from './invite-output.js';
 import { emitWorkerJson, inviteDigest } from './worker-json.js';
-import { cliTaskInspection, literalText } from './task-review.js';
+import { cliWorkerInspection, literalText } from './task-review.js';
 const REPEATABLE = new Set(['--allowed-peer', '--allow-requester', '--allow-task-type']);
 const reportWorkerAutomation: NonNullable<DelegateOptions['beforePropose']> = async ({ workerAutomation }) => {
   if (workerAutomation) console.error(workerAutomation.notice + '\n' + JSON.stringify(workerAutomation.policy));
@@ -134,7 +136,7 @@ const INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--key <file>] [--rel
 const DISCOVER_USAGE = 'Usage: ' + cliName + ' discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
-  const boolean = new Set(['--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
+  const boolean = new Set(['--also-requester', '--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
     '--once', '--publish', '--preview', '--verbose', '--allow-local-pc']);
   const timeouts = ['--execution-timeout-ms', '--task-timeout-ms', '--wait-timeout-ms',
     '--connect-timeout-ms', '--transport-idle-timeout-ms', '--heartbeat-interval-ms'];
@@ -144,7 +146,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
     relay: ['--allow-local-pc', '--port', '--host', '--notification-key', '--notification-ttl-ms', '--envelope-ttl-ms',
       '--max-queue-size', '--max-queue-bytes', '--max-envelope-bytes', '--max-envelopes-per-sender',
       '--wake-command', '--wake-relay', '--wake-max-attempts', '--wake-retry-base-ms', '--wake-timeout-ms'],
-    worker: ['--allow-local-pc', ...timeouts, '--adapter', '--cmd', '--model', '--endpoint', '--name', '--invite-ttl', '--invite-output',
+    worker: ['--also-requester', '--requester-auto-accept', '--allow-local-pc', ...timeouts, '--adapter', '--cmd', '--model', '--endpoint', '--name', '--invite-ttl', '--invite-output',
       '--contacts', '--allowed-peer', '--allow-requester', '--allow-task-type', '--skill', '--task-type',
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
@@ -162,6 +164,12 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
   }
   if (command === 'worker' || command === 'delegate') sessionTimeouts(parsed);
   if (command === 'worker') {
+    if (parsed.has('--also-requester') && parsed.get('--also-requester') !== true)
+      throw new Error('INVALID_ALSO_REQUESTER');
+    if (parsed.has('--requester-auto-accept') && (!parsed.has('--also-requester') ||
+        !['read-only', 'write'].includes(text(parsed, 'requester-auto-accept'))))
+      throw new Error('INVALID_REQUESTER_AUTO_ACCEPT: requires --also-requester and read-only|write');
+    if (parsed.has('--also-requester') && parsed.has('--key')) throw new Error('CONFLICTING_REQUESTER_LISTENER_OPTIONS');
     optionalCount(parsed, 'max-tasks-per-day');
     if (parsed.has('--audit-interruption-format') && parsed.get('--audit-interruption-format') !== '1')
       throw new Error('UNSUPPORTED_AUDIT_INTERRUPTION_FORMAT');
@@ -178,7 +186,7 @@ Worker execution limit defaults to the agreed budget. Heartbeats do not renew ta
 const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
-  --to <invite|link|did|alias|workerRef>  Delegate: accepts invitation links and saved invitation references.
+  --to <invite|link|did|alias|workerRef>  Delegate: resolves local connection aliases, invitation links and saved invitation references.
   --invite <invite|link|did|alias|workerRef>  Delegate: alias of --to; if both are given, values must match.
   --peer-ref <peerRef>          Delegate: role-neutral alias of --to; values must match if combined.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
@@ -226,6 +234,7 @@ export async function networkCommand(command: string, args: string[], applicatio
   pendingRequest?: DelegateOptions; pendingRelayUrl?: string;
   transportFactory?: (url: string, owner: KeyPair) => RelayTransport;
   onDelegated?: () => void;
+  connectionReview?: (summary: string) => Promise<boolean>;
 } = {}): Promise<void> {
   if (command === 'worker' && ['migrate', 'revoke-delegate'].includes(args[0]))
     return workerIdentityCommand(args[0], args.slice(1), application.identityOptions);
@@ -252,9 +261,11 @@ export async function networkCommand(command: string, args: string[], applicatio
   --max-envelopes-per-sender <n> Queued envelopes per sender and recipient (default: queue size).` :
       (command === 'delegate' ? DELEGATE_USAGE + '\nNoninteractive delegation requires --auto-approve before sending (stdin/stderr must otherwise be TTY). 非対話環境は --auto-approve が必要です。' : WORKER_USAGE + WORKER_IDENTITY_HELP) + '\n\n' + TIMEOUT_HELP + '\n' + RELAY_AUTH_HELP + REVIEW_HELP + `
   --allowed-peer <did>          Worker: hard peer perimeter (repeatable/comma-separated).
+  --also-requester             Explicitly listen on an existing unmigrated requester key too; automatic acceptance is off there.
+  --requester-auto-accept read-only|write  With --also-requester, explicitly accept that work from connected peers only.
   requests list|show|approve|discard|deny  Local review; approve records limited connection consent.
   tasks list|show|approve|reject  Individual terminal held-task review; fresh tasks need live owner approval.
-  connections list|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
+  connections list|alias|request|approve|reject|withdraw|disconnect|block|unblock|confirm-invite|prior-approved|connect-prior|sync
                                  Separate human connection consent; tasks use their own inspection and live approval.
   --allow-task-type <type>       Repeatable/comma-separated advertised task types.
   --wake-channel <name>          Worker: register an operator channel on startup (default: off).
@@ -397,7 +408,10 @@ export async function networkCommand(command: string, args: string[], applicatio
       adapter.skills = adapter.skills.map((skill) => ({ ...skill, taskTypes: allowedTaskTypes }));
     const relayUrl = selectedRelay();
     const delegated = !f.has('--key') ? await delegatedWorkerIdentity(application.identityOptions) : undefined;
-    const makeWorker = (key: KeyPair, agentKey?: KeyPair, legacy = false) => {
+    if (delegated && f.has('--also-requester')) throw new Error('REQUESTER_LISTENER_ALREADY_OWNER');
+    const makeWorker = (key: KeyPair, agentKey?: KeyPair, suffix?: 'legacy' | 'requester') => {
+      const requesterListener = suffix === 'requester';
+      const listenerAutomatic = requesterListener ? f.has('--requester-auto-accept') : automatic;
       const contactFile = f.has('--contacts') ? text(f, 'contacts') : contactsPath();
       const localAcceptance = { ...acceptance };
       const explicitAcceptance = { ...localAcceptance };
@@ -409,7 +423,9 @@ export async function networkCommand(command: string, args: string[], applicatio
         path: workerIntakePath(key.did, application.identityOptions),
         fs: application.identityOptions?.fs, platform: application.identityOptions?.platform,
       });
-      const autoAccept = autoAcceptPolicy(readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true }).autoAccept);
+      const autoAccept = requesterListener ? autoAcceptPolicy({ version: 1, enabled: listenerAutomatic,
+        from: 'connected', work: f.get('--requester-auto-accept') ?? 'read-only', limits: {} }) :
+        autoAcceptPolicy(readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true }).autoAccept);
       if (adapterName === 'claude' || adapterName === 'codex')
         assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
       const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, { allowPrivateRelay, ...authRecovery,
@@ -424,7 +440,7 @@ export async function networkCommand(command: string, args: string[], applicatio
         intakeStore,
         ...(f.has('--allowed-peer') ? { allowedPeerDids: text(f, 'allowed-peer').split(',').map(d => d.trim()).filter(Boolean) } : {}),
         adapterKind: LLM_ADAPTERS.has(adapterName) ? 'llm' : 'non-llm',
-        automaticApproval: automatic,
+        automaticApproval: listenerAutomatic,
         autoAccept,
         ownerApprovalProvider: process.stdin.isTTY && process.stderr.isTTY
           ? contactsApproval(contactFile, key, false, explicitAcceptance, approval(key, false, undefined, f.has('--verbose')))
@@ -433,7 +449,7 @@ export async function networkCommand(command: string, args: string[], applicatio
           if (agentKey) delegated!.assertActive();
           const contact = loadContacts(contactFile, key.did).find(c => c.ownerDid === did);
           if (contact?.revoked) throw new Error('CONTACT_REVOKED');
-          if (automatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
+          if (listenerAutomatic && contact && !contact.allow) throw new Error('CONTACT_NOT_ALLOWED');
           if (contact?.allow) return 'trusted';
         },
         identityOptions: application.identityOptions ?? {},
@@ -443,9 +459,9 @@ export async function networkCommand(command: string, args: string[], applicatio
             return workerRelay;
           } },
         heldReview: new HeldRequestReview(key, { ...application.identityOptions,
-          ...(process.stdin.isTTY && process.stderr.isTTY ? { provider: cliTaskInspection(text => new Promise<void>((resolve, reject) => {
+          provider: cliWorkerInspection(process.stdin.isTTY && process.stderr.isTTY ? text => new Promise<void>((resolve, reject) => {
             process.stderr.write(text + '\n', error => error ? reject(error) : resolve());
-          })) } : {}) }),
+          }) : undefined) }),
         protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
         connectionReview: connectionHumanReview(undefined, 'worker'),
         onConnectionEvent: event => console.error(JSON.stringify(event)),
@@ -458,10 +474,10 @@ export async function networkCommand(command: string, args: string[], applicatio
         relayUrl,
         adapter,
         name: text(f, 'name', adapter.name),
-        approvalProvider: contactsApproval(contactFile, key, automatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
-        auditPath: f.has('--audit') ? (legacy ? text(f, 'audit').replace(/(?:\.jsonl)?$/, '.legacy.jsonl') : text(f, 'audit')) : undefined,
+        approvalProvider: contactsApproval(contactFile, key, listenerAutomatic, explicitAcceptance, approval(key, false, undefined, f.has('--verbose'))),
+        auditPath: f.has('--audit') ? (suffix ? text(f, 'audit').replace(/(?:\.jsonl)?$/, '.' + suffix + '.jsonl') : text(f, 'audit')) : undefined,
         auditInterruptionFormat: 1,
-        inboxPath: f.has('--inbox') ? (legacy ? text(f, 'inbox').replace(/(?:\.jsonl)?$/, '.legacy.jsonl') : text(f, 'inbox')) : undefined,
+        inboxPath: f.has('--inbox') ? (suffix ? text(f, 'inbox').replace(/(?:\.jsonl)?$/, '.' + suffix + '.jsonl') : text(f, 'inbox')) : undefined,
         onInboxRecord,
         onStatus: (status, error) => emitWorkerJson({ status, error }),
         onEvent: (event, taskId, error) => emitWorkerJson({ event, taskId,
@@ -474,13 +490,19 @@ export async function networkCommand(command: string, args: string[], applicatio
     const key = delegated?.owner ?? await getKey();
     const { worker, workerRelay } = makeWorker(key, delegated?.agentKey);
     const legacyKey = delegated?.legacyKey;
-    const legacy = legacyKey && legacyKey.did !== key.did ? makeWorker(legacyKey, undefined, true) : undefined;
+    const legacy = legacyKey && legacyKey.did !== key.did ? makeWorker(legacyKey, undefined, 'legacy') : undefined;
     if (f.has('--preview')) {
       console.log(JSON.stringify(publicProfileSummary(worker.agentCard, acceptance.maxTasksPerRequesterPerMinute,
         optionalCount(f, 'max-tasks-per-day'), automatic, { maxInputTokens: acceptance.maxInputTokens,
           maxOutputTokens: acceptance.maxOutputTokens, maxToolInvocations: acceptance.maxToolInvocations, maxWallClockSeconds: acceptance.maxWallClockSeconds }), null, 2));
       return;
     }
+    // A separate requester inbox is an explicit opt-in, never inferred from key existence.
+    const requesterKey = f.has('--also-requester')
+      ? (await inspectStoredIdentity('requester', application.identityOptions)).key : undefined;
+    if (f.has('--also-requester') && !requesterKey) throw new Error('REQUESTER_IDENTITY_REQUIRED');
+    const reciprocal = requesterKey && requesterKey.did !== key.did ? makeWorker(requesterKey, undefined, 'requester') : undefined;
+    const listeners = [worker, legacy?.worker, reciprocal?.worker].filter((node): node is WorkerNode => !!node);
     if (needsLocalPc || f.has('--allow-local-pc')) {
       const isolation = adapterName === 'sandbox'
         ? 'task_policy_dependent (determined at execution; hooks use host_adapter)'
@@ -495,15 +517,14 @@ export async function networkCommand(command: string, args: string[], applicatio
     deliverInvite(inviteOutput!, token);
     emitWorkerJson({ event: 'invite_ready', inviteDigest: inviteDigest(token),
       expiresAt: invite.expiresAt, workerDid: invite.agentDid, relay: relayUrl });
-    const stop = () => { worker.stop(); legacy?.worker.stop(); };
+    const stop = () => { for (const node of listeners) node.stop(); };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     try {
-      await worker.startDelivery();
-      await legacy?.worker.startDelivery();
-      if (legacy) {
+      for (const node of listeners) await node.startDelivery();
+      if (listeners.length > 1) {
         const run = (node: WorkerNode) => node.start({ once: f.has('--once') }).finally(stop);
-        const results = await Promise.allSettled([run(worker), run(legacy.worker)]);
+        const results = await Promise.allSettled(listeners.map(run));
         const failure = results.find(r => r.status === 'rejected');
         if (failure?.status === 'rejected') throw failure.reason;
       } else await worker.start({ once: f.has('--once') });
@@ -512,9 +533,8 @@ export async function networkCommand(command: string, args: string[], applicatio
         code: 'WORKER_TERMINAL', error });
       throw error;
     } finally {
-      if (legacy) stop();
-      worker.stopDelivery();
-      legacy?.worker.stopDelivery();
+      if (listeners.length > 1) stop();
+      for (const node of listeners) node.stopDelivery();
       process.removeListener('SIGINT', stop);
       process.removeListener('SIGTERM', stop);
     }
@@ -540,14 +560,18 @@ export async function networkCommand(command: string, args: string[], applicatio
     if (f.has('--save-contact')) text(f, 'to');
     if (!automatic && (!process.stdin.isTTY || !process.stderr.isTTY))
       throw new Error('APPROVAL_REQUIRED: delegate requires stdin/stderr TTY or --auto-approve before sending. 非対話環境では送信前に --auto-approve を明示してください。');
-    const key = await getKey();
+    const connection = !f.has('--peer-ref') && !f.has('--invite') && !application.pendingRequest
+      ? await connectionTarget(target, { ...application.identityOptions,
+        explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined }) : undefined;
+    const key = connection?.key ?? await getKey();
     const workerRef = application.pendingRequest?.workerRef ??
-      (target && !isInviteTarget(target) && !target.startsWith('did:') ? target : undefined);
-    const to = workerRef
+      (!connection && target && !isInviteTarget(target) && !target.startsWith('did:') ? target : undefined);
+    const to = connection?.connection.peerOwnerDid ?? (workerRef
       ? (await InviteStore.open(key, { ...application.identityOptions, relayPolicy: { allowPrivateRelay } })).resolve(workerRef).inviteToken
-      : target;
+      : target);
     const invite = isInviteTarget(to) ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay }) : undefined;
-    const relay = selectedRelay(invite?.relayUrl ?? application.pendingRelayUrl);
+    const connectionRelay = connection && 'relayUrl' in connection.connection ? connection.connection.relayUrl : undefined;
+    const relay = selectedRelay(invite?.relayUrl ?? connectionRelay ?? application.pendingRelayUrl);
     if (f.has('--save-contact')) addContact(
       f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
       text(f, 'save-contact'), allowPrivateRelay,
@@ -558,7 +582,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       owner: key,
       identityOptions: application.identityOptions ?? {},
       protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
-      connectionReview: connectionHumanReview(),
+      connectionReview: connectionHumanReview(application.connectionReview),
       pendingStore: new RequesterPendingStore(key, application.identityOptions),
       pendingRelayUrl: relay,
       deliveryOptions: { identityOptions: application.identityOptions,

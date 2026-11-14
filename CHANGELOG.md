@@ -4,6 +4,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Enable return delegation over confirmed connections with local, renamable aliases (`connections list`, `connections alias`, `delegate --to <name>`), retaining invite-store references and per-key consent without migration or protocol changes.
+- Keep separate requester receiving opt-in (`worker start --also-requester`, automatic acceptance off unless separately requested); inspect CLI connection metadata independently, cancel stopped status readers, and preserve same-peer saved-alias expiry behavior.
+
 - Keep migrated legacy inbox/audit paths in `*.legacy.jsonl` and detect audit format by content; add backed-up delegate recovery via `worker migrate` and explicit `--create-owner` migration for worker-key-only folders, with clearer worker help.
 
 - Add explicit, backed-up `worker migrate` and `worker revoke-delegate` commands. Migrated workers receive owner-addressed MCP invites with a separate delegated execution identity while retaining legacy worker invitations; unmigrated defaults remain unchanged.

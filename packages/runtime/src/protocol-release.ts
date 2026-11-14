@@ -36,7 +36,12 @@ export class LiveProtocol {
   }
   private key(owner: string, agent: string): string { return JSON.stringify([owner, agent]); }
   floor(owner: string, agent: string): ManifestProtocolVersion | undefined {
-    return this.options.protocolPeers?.floor(owner, agent) ?? this.floors.get(this.key(owner, agent));
+    const stored = this.options.protocolPeers?.floor(owner, agent), local = this.floors.get(this.key(owner, agent));
+    return stored && local ? compareProtocolVersions(stored, local) > 0 ? stored : local : stored ?? local;
+  }
+  /** A completed owner-authenticated connection exchange itself requires 0.2.0. */
+  observeConnection(owner: string, agent: string): void {
+    this.floors.set(this.key(owner, agent), '0.2.0');
   }
   observe(card: SignedAgentCard, cards: readonly SignedAgentCard[] = [card]): void {
     const current = findDiscoveredAgentCard(cards, card.payload.agentDid, this.now());

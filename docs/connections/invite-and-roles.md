@@ -120,22 +120,118 @@ The `invite open` reciprocal invite still advertises requester-as-agent. A migra
 gateway also accepts that owner-as-agent identity, preserving old MCP and return
 invites. Opening an invite does not create a receiver or bilateral requesting.
 
-The current Muse path remains: Muse creates an invite, Grok Bot accepts it locally
-and delegates to the running Muse worker. Existing connection recording is on the
-worker side. One invite does **not** yet enable requests in both directions.
+## Two-way connections and local names
 
-`peerRef` is the role-neutral alias of `workerRef`, with exactly the same saved
-reference value. MCP delegation and removal accept either spelling; if both are
-supplied they must match. TypeScript `DelegateOptions` accepts either spelling
-(applications still resolve the saved invite into `to`). CLI delegation accepts
-`--peer-ref <peerRef>` alongside existing `--to <workerRef>` and `--invite`; combined
-selectors must match. InviteStore methods and positional CLI references accept
-the same reference value under either variable name. Resolution still uses the
-saved invite store, including its expiry checks, rather than the connection list.
+The Muse path remains unchanged: Muse creates an invite, Grok Bot imports it
+locally and delegates to the running Muse worker. `accept` is still a local-only
+import (apart from resolving an existing short link); it sends no connection
+exchange and grants no connection consent or task approval.
+
+Connection records are created during the existing signed connection exchange:
+
+- `connections confirm-invite <peerRef-or-workerRef>` asks for separate local
+  owner consent and saves an outgoing pending offer before sending it. The
+  creator records a connected peer when its running receiver validates, inspects
+  and redeems that invite offer. The importing side records connected when it
+  receives and verifies the signed acceptance; the final ACK completes delivery.
+  Keep a receiver or `connections sync --role requester --relay <URL>` running
+  on the importing side to consume a late acceptance.
+- The first delegate over an invite can carry the same offer after the existing
+  separate connection-consent prompt. Its creator records the connection when
+  the validated task redeems the invite, and the requester records the reverse
+  connection when it consumes the signed connection acceptance. Declining that
+  prompt, or running without a connection-review channel, still permits the old
+  invite task path but does not invent requester-side connection consent.
+  `--auto-approve` and `--auto-accept` do not answer the connection prompt.
+
+The CLI inspects signed connection-request metadata separately from task content,
+including in a headless worker. This lets an issuer redeem its own invitation and
+send the signed acceptance. It neither completes task inspection nor grants task
+execution; offers without a redeemable invite still require owner consent.
+
+Once that exchange is accepted, both sides have their own connection record.
+Either side can send work, including the original invite creator, if the other
+side runs a worker for the addressed identity and accepts that work. Connection
+consent does not start a worker or grant task execution permission. Task review,
+auto-accept configuration and defaults are unchanged.
+
+Records stay in the existing owner-signed **per-key connection store**, under the
+DID that participated in the exchange. With separate unmigrated keys, a creator's
+record belongs to its worker key, and the importer's record belongs to its
+requester key. Default unmigrated `worker start` listens only on its worker key,
+as before. To explicitly receive return work on an existing separate requester key,
+start it with `--also-requester`. Automatic acceptance on that additional listener
+is **off**: it inherits neither `--auto-accept` nor the folder's auto-accept config.
+The owner can separately opt in with `--requester-auto-accept read-only|write`,
+which accepts that work only from connected peers. No requester key is created.
+`--also-requester` is incompatible with `--key` and migrated owner setups (the
+migrated gateway already receives owner-addressed work). Explicit audit/inbox paths use
+`*.requester.jsonl`; original worker paths remain unchanged. `--key FILE` selects
+only that identity. Migrated owner/delegate setups use the owner store and retain
+the legacy listener and `*.legacy.jsonl` paths. No records are copied, moved or
+rewritten on read, and no migration is required.
+
+```sh
+sealbridge connections list
+sealbridge connections list --role requester
+sealbridge connections alias <peer-DID-or-current-alias> reviewer
+sealbridge delegate --to reviewer --title "Review" --description "Review input" --input-file input.json
+```
+
+`connections list` includes the local alias, `peerOwnerDid`, `localOwnerDid` and
+connection state for both existing local identities. Use `--role worker`,
+`--role requester` or `--key FILE` to narrow the store. The historical top-level
+`role` and `localOwnerDid` describe the selected/default identity (worker by default);
+`scope: "all"` marks the aggregate listing, whose rows each identify their local owner.
+Renaming is local only;
+use the peer DID plus a role/key if a name is ambiguous. It sends no protocol
+message and changes no peer DID or connection consent.
+
+The default alias is derived from the retained peer display name: lowercase,
+replace runs outside ASCII letters/digits with `-`, trim edge hyphens, and take
+at most 64 characters; an empty result uses `peer`. Renames accept 1–64 lowercase
+ASCII letters/digits, `_` or `-`, starting with a letter/digit. Identical display
+names can produce identical defaults: they are **ambiguous**, never silently
+numbered or picked. Display names and aliases are not identifiers; DIDs identify
+peers. Explicit renames are owner-signed in a separate
+`<data-root>/connection-aliases/<sha256-local-owner-DID>.json` sidecar. Keeping
+aliases outside connection records lets older strict store readers continue to
+share the original format.
+
+Display names are peer-controlled. Confirm the intended peer DID before using a
+derived alias, and rename it locally if helpful; ambiguity always fails closed.
+If an alias-store lock survives a crash, the error identifies its exact path.
+Check that no alias writer is alive before manually removing that lock; the CLI
+does not delete a possibly active writer's lock automatically.
+
+### `--to` resolution and compatibility
+
+1. Invite links/tokens and literal `did:...` values keep their existing meaning.
+   `saved:...` references always use the invite store with its expiry checks.
+2. A plain `--to <name>` searches connection aliases across existing local
+   requester/worker stores (or just `--key FILE`). A unique connected match selects
+   the peer DID, its recorded relay/agent DID, and the local signing identity
+   owning that connection. It works without publishing to the relay directory.
+3. Only connected aliases participate in conflicts with saved invite aliases;
+   pending/blocked aliases do not shadow a saved invitation. If the saved alias
+   and connected aliases all identify the **same peer DID**, keep the original
+   invite-store resolution, including expiry and confirmation checks. A connected
+   alias identifying a **different peer DID** fails `CONNECTION_TARGET_CONFLICT`.
+   Without a saved alias, multiple connected matches fail `CONNECTION_ALIAS_AMBIGUOUS`.
+   Rename the connection or use an explicit DID / `saved:...` reference to disambiguate.
+4. With no connection match, the existing invite-store alias/reference resolution
+   runs unchanged. An unknown name fails with `INVITE_NOT_FOUND`; a pending or
+   blocked connection alias fails with `CONNECTION_NOT_CONNECTED`.
+
+`peerRef` remains the role-neutral spelling of `workerRef`, with the same saved
+reference value. Existing MCP arguments and TypeScript options are unchanged.
+`--peer-ref` and `--invite` explicitly retain invite-store resolution, including
+expiry checks. Combined selectors must still contain exactly equal values;
+unequal values fail before sending. `--to <workerRef>` remains supported.
 
 ## Later work
 
-Bidirectional connection handling, accepter defaults,
-warnings before sending to a peer that will not accept, further MCP listing
-changes and Desktop support are separate staged changes. This preparation does
-not enable them, change automatic acceptance, or bump the protocol version.
+Accepter defaults (Q2), warnings before sending to a peer that will not accept
+(Q3), `connections allow`, MCP connected-peer listing/name targeting (PR5),
+Desktop and the Muse-first README guide remain separate changes. This PR changes
+neither automatic acceptance defaults nor the protocol version or invite payload.
