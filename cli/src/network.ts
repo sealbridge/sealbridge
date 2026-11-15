@@ -14,6 +14,7 @@ import type { RelayTransport } from '@acp/relay';
 import { startLocalRelay, HttpRelayClient } from '@acp/relay';
 import {
   WorkerNode,
+  ConnectionAliases,
   delegatedWorkerIdentity,
   HeldRequestReview,
   LiveProtocol,
@@ -585,7 +586,12 @@ export async function networkCommand(command: string, args: string[], applicatio
       f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
       text(f, 'save-contact'), allowPrivateRelay,
     );
+    const noticeName = connection?.connection.alias ?? (invite
+      ? new ConnectionAliases(key, application.identityOptions).list([{ peerOwnerDid: invite.ownerDid,
+        peerDisplayName: invite.agentCard.payload.name, state: 'connected' as const }])[0].alias
+      : undefined);
     let connectionRecorded: { peerOwnerDid: string; message: string } | undefined;
+    let connectionRecordWarning: { code: string; peerOwnerDid: string; message: string } | undefined;
     const client = new RequesterClient({
       ...authRecovery,
       ...sessionTimeouts(f),
@@ -595,11 +601,16 @@ export async function networkCommand(command: string, args: string[], applicatio
       connectionReview: f.has('--no-connect') ? undefined : connectionHumanReview(application.connectionReview),
       connectAcceptedInvite: !f.has('--no-connect') && !application.connectionReview &&
         (!process.stdin.isTTY || !process.stderr.isTTY) && !application.pendingRequest,
+      onConnectionRecordWarning: warning => {
+        connectionRecordWarning = warning;
+        console.error(warning.message);
+      },
       onConnectionEvent: event => {
+        const localName = noticeName ?? event.peerOwnerDid;
         const message = 'Connection recorded. Work from this peer is not allowed. To allow read-only work, run: ' +
-          cliName + ' connections allow ' + event.peerOwnerDid +
+          cliName + ' connections allow ' + localName +
           '\n接続を記録しました。相手からの作業は許可されていません。読み取り専用の作業を許可するには: ' +
-          cliName + ' connections allow ' + event.peerOwnerDid;
+          cliName + ' connections allow ' + localName;
         connectionRecorded = { peerOwnerDid: event.peerOwnerDid, message };
         console.error(message);
       },
@@ -647,6 +658,7 @@ export async function networkCommand(command: string, args: string[], applicatio
         audit: 'VALID',
         ...(acceptanceWarning ? { acceptanceWarning } : {}),
         ...(connectionRecorded ? { connectionRecorded } : {}),
+        ...(connectionRecordWarning ? { connectionRecordWarning } : {}),
       }),
     );
     return;

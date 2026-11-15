@@ -33,6 +33,8 @@ sealbridge audit-verify audit.jsonl
 
 保存だけでは接続同意や仕事の許可にはなりません。非対話 CLI で招待先へ明示的に依頼を送ると、その送信が接続への同意になります。招待と一致する DID から署名付き ACCEPT を受信・検証した後、取り込んだ側にも接続を記録します。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録しません。単発送信には `--no-connect` を指定します。記録時は日英の通知と JSON の `connectionRecorded` が出ます。受信許可は **off** のままです。TTY の接続確認と MCP の `connect: true` フォームは従来どおりです。
 
+接続記録は失敗しても受諾済みの作業を中断しません。日英の stderr と JSON の `connectionRecordWarning`（コード `CONNECTION_RECORD_FAILED`）で、delegate の再実行または TTY/MCP の確認で記録するよう案内します。失敗時は `connectionRecorded` を出しません。成功通知は既知のローカル名を使い、JSON には DID を保持します。stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。
+
 `connections list` で相手 DID とローカル別名を確認してください。招待作成側の受付ルールは維持します。成功は `SETTLED`、検証済み監査は `VALID` です。信頼アンカーなしでは古い正当な記録への切り詰めは検査しません。
 
 `--auto-approve` は送信と最終検収の確認を省く明示指定です。TTY の接続確認や相手側の実行許可は代行しません。非対話 CLI の接続同意は上記の明示的な送信によります。結果は自分でも確認してください。`--to` は保存した招待名・接続名・招待リンク・DID に対応します。古い `workerRef` / `peerRef` も使えます。`--invite` は招待ストアを使う従来の指定で、接続名を探す `--to` と完全に同じではありません。

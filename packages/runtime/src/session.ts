@@ -2683,6 +2683,7 @@ export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuth
   connectionReview?: ConnectionHumanReviewProvider;
   /** CLI-only explicit non-TTY sending consent; applies only to verified invite tasks after ACCEPT. */
   connectAcceptedInvite?: boolean;
+  onConnectionRecordWarning?: (warning: { code: 'CONNECTION_RECORD_FAILED'; peerOwnerDid: string; message: string }) => void;
   onConnectionEvent?: (event: ConnectedEvent) => void;
   /** Application-owned local records; omitted by library callers unless requested. */
   pendingStore?: RequesterPendingStore;
@@ -3390,9 +3391,18 @@ export class RequesterClient {
       if (this.options.connectAcceptedInvite && invite && peer === invite.ownerDid &&
           manifest.worker!.agentDid === invite.agentDid) {
         const connectionId = connectionIdFor(owner.did, peer);
-        const recorded = connectionStore.recordAcceptedInviteTask({ peerOwnerDid: peer,
-          peerAgentDid: invite.agentDid, peerDisplayName: invite.agentCard.payload.name,
-          relayUrl: invite.relayUrl }, connectionId, digest({ manifest, input: options.input }), digest(accept.approval), manifest);
+        let recorded = false;
+        try {
+          recorded = connectionStore.recordAcceptedInviteTask({ peerOwnerDid: peer,
+            peerAgentDid: invite.agentDid, peerDisplayName: invite.agentCard.payload.name,
+            relayUrl: invite.relayUrl }, connectionId, digest({ manifest, input: options.input }), digest(accept.approval), manifest);
+        } catch {
+          const warning = { code: 'CONNECTION_RECORD_FAILED' as const, peerOwnerDid: peer,
+            message: 'CONNECTION_RECORD_FAILED: Connection was not recorded. The accepted task will continue. Re-run delegate or use TTY/MCP connection confirmation to record it.' +
+              '\n接続を記録できませんでした。受諾済みの作業は続行します。delegate を再実行するか、TTY/MCP の接続確認で記録してください。' };
+          if (this.options.onConnectionRecordWarning) this.options.onConnectionRecordWarning(warning);
+          else console.error(warning.message);
+        }
         if (recorded) this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: peer,
           peerAgentDid: invite.agentDid, connectionId, source: 'request', connectedAt: (this.options.now ?? Date.now)() });
       }

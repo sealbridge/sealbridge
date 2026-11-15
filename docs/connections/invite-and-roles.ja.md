@@ -124,6 +124,8 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
 
 非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、`connections allow <名前>` が必要です。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
 
+接続記録は失敗しても受諾済みの作業を中断しません。日英の stderr と JSON の `connectionRecordWarning`（コード `CONNECTION_RECORD_FAILED`）で、delegate の再実行または TTY/MCP の確認で記録するよう案内します。失敗時は `connectionRecorded` を出しません。成功通知は既知のローカル名を使い、JSON には DID を保持します。stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。
+
 CLI は署名付き接続申し込みの metadata をタスク本文と別に検査し、非対話 worker でも
 発行者自身の招待を受理して署名付き受諾を送れます。タスク検査の完了や実行承認にはならず、
 受理可能な招待のない申し込みには引き続き所有者の同意が必要です。

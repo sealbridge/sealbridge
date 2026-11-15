@@ -16,6 +16,29 @@ Cross-machine collaboration uses the hosted Cloudflare Blind Relay at
 A local loopback relay remains available for same-machine and offline work.
 別マシン間では公開 HTTPS 中継器を既定とし、すぐに接続します。
 
+## Non-interactive invite delegation / 非対話の招待先への依頼
+
+Non-interactive `delegate --to <name>` records the importer-side connection after
+verifying the matching peer's signed ACCEPT. Incoming work stays off until the
+owner runs `connections allow <name>` (read-only); writes require explicitly
+`connections allow <name> write`. Use `--no-connect` for one-off sends.
+`invite accept` / `accept` alone creates no connection or work permission.
+Redirecting only stderr can make the CLI non-interactive (both stdin and stderr
+must be TTYs). Sending still requires explicit `--auto-approve` in that case.
+If recording fails, the accepted task continues; stderr and JSON
+`connectionRecordWarning` (`CONNECTION_RECORD_FAILED`) explain how to record it
+with a later delegate or TTY/MCP confirmation. Success notices prefer the local name.
+
+非対話の `delegate --to <名前>` は、一致する相手の署名付き ACCEPT を検証してから
+取り込んだ側に接続を記録します。逆向きの仕事は `connections allow <名前>`
+（読み取り専用）まで許可されません。書き込みは `connections allow <名前> write`
+の明示指定が必要です。単発送信には `--no-connect` を使います。
+`invite accept` / `accept` だけでは接続も作業許可も作りません。
+stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。
+その場合も送信には明示的な `--auto-approve` が必要です。記録失敗でも受諾済みの作業を続行し、
+stderr と JSON の `connectionRecordWarning`（`CONNECTION_RECORD_FAILED`）で、後の delegate
+または TTY/MCP の確認で記録する方法を案内します。成功通知はローカル名を優先します。
+
 ## Setup / セットアップ
 
 Requires Git, Node.js 22, and pnpm 10. From a parent directory, run:

@@ -146,6 +146,8 @@ Connection records are created during the existing signed connection exchange:
 
 Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <name>` to opt in. `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
 
+Connection recording is best-effort: a store failure does not abort accepted work. Bilingual stderr and JSON `connectionRecordWarning` with code `CONNECTION_RECORD_FAILED` advise re-running delegate or using TTY/MCP confirmation to record it. No `connectionRecorded` is emitted on failure. Successful notices use the local alias/name when available (JSON retains the DID). Redirecting only stderr also makes the CLI non-interactive; stdin and stderr must both be TTYs.
+
 The CLI inspects signed connection-request metadata separately from task content,
 including in a headless worker. This lets an issuer redeem its own invitation and
 send the signed acceptance. It neither completes task inspection nor grants task
