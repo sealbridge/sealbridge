@@ -82,7 +82,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 // Model HTTP is a fixture; the failure case also injects a connection-write exception.
 // MCP, CLI, keys, relay, task execution and audits are real.
-it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> Grok Bot over stdio: creator/name send, importer hold/read-only/write/disallow, name errors and expiry, VALID audits, SIGTERM; connection-write failure settles and later delegate records; migrated=%s non-TTY CLI=%s', async (migrated, cliFirst) => {
+it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> Grok Bot over stdio: creator/name send, importer hold/read-only/write/disallow, name errors and expiry, VALID audits, SIGTERM; migrated=%s non-TTY CLI=%s', async (migrated, cliFirst) => {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'muse-grok-e2e-')); roots.push(root);
   const a = join(root, 'muse'), b = join(root, 'grok-bot');
   for (const folder of [a, b]) {
@@ -114,20 +114,6 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> 
     if (cliFirst) {
       expect(await cliSend(['--no-connect'])).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
       expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
-      const capture = { stderr: '' };
-      const failed = JSON.parse(await cli(b, ['delegate', '--to', 'muse', '--title', 'Record failure',
-        '--description', 'Return JSON', '--input', '{"ok":true}', '--auto-approve', '--allow-private-relay',
-        '--task-timeout-ms', '10000', '--audit', join(root, 'record-failure.jsonl')], undefined, capture, true));
-      expect(failed).toMatchObject({ state: 'SETTLED', audit: 'VALID', deliverable: { ok: true },
-        connectionRecordWarning: { code: 'CONNECTION_RECORD_FAILED', peerOwnerDid: parseAndVerifyInviteToken(invite.inviteToken, Date.now(), { allowPrivateRelay: true }).ownerDid,
-          message: expect.stringContaining('Connection was not recorded') } });
-      expect(failed.connectionRecorded).toBeUndefined();
-      expect(capture.stderr).toContain(failed.connectionRecordWarning.message);
-      expect(capture.stderr).toContain('接続を記録できませんでした');
-      expect(capture.stderr).toContain('Re-run delegate or use TTY/MCP');
-      expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
-      expect(verifyAudit(parseJsonl(readFileSync(join(root, 'record-failure.jsonl'), 'utf8'))).status).toBe('VALID');
-      expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${failed.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
     }
     const first = cliFirst ? await cliSend(['--audit', join(root, 'grok-first.jsonl')]) :
       await call(bm.client, 'acp_delegate_task', { peerRef: 'muse', title: 'Connect', input: { ok: true }, taskTimeoutMs: 10000 });
@@ -267,3 +253,51 @@ it.each(['unreachable', 'DID mismatch'] as const)('non-TTY CLI leaves no importe
     await relay.close();
   }
 }, 20000);
+
+it.each([false, true])('non-TTY connection-write failure warns, settles with VALID audits, and later delegate records; migrated=%s', async migrated => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'connection-write-failure-')); roots.push(root);
+  const a = join(root, 'muse'), b = join(root, 'grok-bot');
+  for (const folder of [a, b]) {
+    const options = { home: folder, env: { SEALBRIDGE_DATA_DIR: folder, SEALBRIDGE_KEY_STORE: 'file' } };
+    await resolveStoredIdentity('requester', options); await resolveStoredIdentity('worker', options);
+    if (migrated) await cli(folder, ['worker', 'migrate', '--apply']);
+    await cli(folder, ['config', 'auto-accept', 'anyone', 'write']);
+  }
+  const relay = await startLocalRelay({ port: 0 });
+  let receiver: ChildProcess | undefined;
+  try {
+    const invite = { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Muse', '--allow-private-relay'])).trim().split(/\r?\n/)[0] };
+    await cli(b, ['accept', '--stdin', '--alias', 'saved-muse', '--allow-private-relay'], invite.inviteToken + '\n');
+    receiver = await worker(a, relay.url, join(root, 'muse.jsonl'), migrated);
+    const capture = { stderr: '' };
+    const failed = JSON.parse(await cli(b, ['delegate', '--to', 'saved-muse', '--title', 'Record failure',
+      '--description', 'Return JSON', '--input', '{"ok":true}', '--auto-approve', '--allow-private-relay',
+      '--task-timeout-ms', '10000', '--audit', join(root, 'record-failure.jsonl')], undefined, capture, true));
+    expect(failed).toMatchObject({ state: 'SETTLED', audit: 'VALID', deliverable: { ok: true },
+      connectionRecordWarning: { code: 'CONNECTION_RECORD_FAILED', peerOwnerDid: parseAndVerifyInviteToken(invite.inviteToken, Date.now(), { allowPrivateRelay: true }).ownerDid,
+        message: expect.stringContaining('Connection was not recorded') } });
+    expect(failed.connectionRecorded).toBeUndefined();
+    expect(capture.stderr).toContain(failed.connectionRecordWarning.message);
+    expect(capture.stderr).toContain('接続を記録できませんでした');
+    expect(capture.stderr).toContain('Re-run delegate or use TTY/MCP');
+    expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, 'record-failure.jsonl'), 'utf8'))).status).toBe('VALID');
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${failed.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
+    // Send the raw invite on recovery: the notice must still use the connection's
+    // local display-name alias, rather than the token, saved reference, or DID.
+    const recovered = JSON.parse(await cli(b, ['delegate', '--to', invite.inviteToken, '--title', 'Recover',
+      '--description', 'Return JSON', '--input', '{"ok":true}', '--auto-approve', '--allow-private-relay',
+      '--task-timeout-ms', '10000', '--audit', join(root, 'recovered.jsonl')]));
+    expect(recovered).toMatchObject({ state: 'SETTLED', audit: 'VALID',
+      connectionRecorded: { peerOwnerDid: failed.connectionRecordWarning.peerOwnerDid } });
+    expect(recovered.connectionRecordWarning).toBeUndefined();
+    expect(recovered.connectionRecorded.message).toContain('sealbridge connections allow muse\n');
+    expect(recovered.connectionRecorded.message).toMatch(/読み取り専用.*sealbridge connections allow muse$/);
+    expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toContainEqual(expect.objectContaining({ alias: 'muse', acceptance: 'off' }));
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, 'recovered.jsonl'), 'utf8'))).status).toBe('VALID');
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${recovered.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
+  } finally {
+    if (receiver) await stop(receiver);
+    await relay.close();
+  }
+}, 30000);
