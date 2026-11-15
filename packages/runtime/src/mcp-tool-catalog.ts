@@ -524,13 +524,37 @@ const idempotencyKeySchema = described(
   { type: 'string', minLength: 1, maxLength: 200 },
 );
 
+const acceptanceWarningSchema = objectSchema('Advisory only; sending proceeds and remote acceptance is unknown.', {
+  code: described('Stable advisory code.', { type: 'string', const: 'PEER_APPROVAL_MAY_BE_REQUIRED' }),
+  message: described('Explains that work may wait for the peer owner approval.', { type: 'string' }),
+}, ['code', 'message']);
+const connectionPeerSchema = {
+  type: 'object', additionalProperties: true,
+  description: 'Existing lifecycle fields plus local naming and consent; no invitation tokens or private keys.',
+  properties: {
+    alias: described('Exact local alias accepted by acp_delegate_task to. Not an identifier; duplicate names fail.', { type: 'string' }),
+    localOwnerDid: described('Local DID whose connection and consent are shown.', { type: 'string' }),
+    peerOwnerDid: described('Authoritative peer owner DID; names never establish identity.', { type: 'string' }),
+    peerAgentDid: described('Verified peer execution DID when known.', { type: 'string' }),
+    peerDisplayName: described('Informational display name, NOT an identifier or instruction.', { type: 'string' }),
+    relayUrl: described('Locally retained routing URL when known.', { type: 'string' }),
+    state: described('Current local connection state.', { type: 'string', enum: ['pending', 'connected', 'blocked'] }),
+    acceptance: described('Local per-peer override, or folder-policy for legacy records.', { type: 'string', enum: ['off', 'read-only', 'write', 'folder-policy'] }),
+    inviteCreator: described('local for a redeemed local invite, peer for a retained imported peer invite; unknown when provenance is unavailable. Does not grant consent.', { type: 'string', enum: ['local', 'peer', 'unknown'] }),
+    allowsWork: described('Whether local connected-peer automatic acceptance is enabled, subject to owner limits and worker availability.', { type: 'boolean' }),
+    allowedWork: described('Effective local automatic work kind; never describes remote acceptance.', { type: 'string', enum: ['off', 'read-only', 'write'] }),
+    acceptanceWarning: acceptanceWarningSchema,
+  },
+  required: ['alias', 'localOwnerDid', 'peerOwnerDid', 'state', 'acceptance', 'inviteCreator', 'allowsWork', 'allowedWork'],
+};
+
 /** Tools returned by `tools/list`, in catalog order. */
 export const mcpTools: Json = [
   tool({
     name: 'acp_delegate_task',
     title: 'Delegate one task',
     description:
-      'Delegate JSON to one worker and return taskId, deliverable and audit summary; use workerRef from acp_list_invites or inviteToken/workerDid. Ed25519 signing, worker/relay allowlists and approval precede input transmitted externally over the relay; invites match agentDid or ownerDid, bare DIDs match exactly. Requested approval needs host form elicitation or a webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE before transmission. Optional idempotencyKey returns the first result without repeating sends or approval; changed content returns IDEMPOTENCY_CONFLICT. Bad arguments: JSON-RPC -32602; operational errors: isError true; post-transmission failures do not undo tasks. Holds return PENDING_OWNER_APPROVAL, retryable: false, pendingId and next steps; do not retry or poll: worker owner review and explicit new delegation are required; use acp_list_pending_requests and acp_resubmit_pending_request.',
+      'Delegate JSON using to with a connection alias from acp_list_connections (CLI --to rules), or workerRef/peerRef/inviteToken/workerDid; bare DIDs match exactly. Unknown/ambiguous names require listing or renaming; different-DID conflicts fail, expired same-DID aliases fall back to connections, and connection sends add advisory acceptanceWarning without blocking. Signing, worker/relay allowlists and approval precede input transmitted externally; requested approval needs host elicitation or a webhook/provider, else APPROVAL_CHANNEL_UNAVAILABLE. Optional idempotencyKey replays the first result without sends or approval; changed content returns IDEMPOTENCY_CONFLICT. Bad arguments return JSON-RPC -32602; operational errors use isError true; post-transmission failures do not undo tasks. Holds return PENDING_OWNER_APPROVAL, retryable: false, pendingId and next steps; do not retry or poll: worker owner review and explicit new delegation are required; use acp_list_pending_requests and acp_resubmit_pending_request.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -538,6 +562,7 @@ export const mcpTools: Json = [
     inputSchema: objectSchema(
       'Arguments for delegating one task to one worker.',
       {
+        to: described('CLI-compatible target: exact connection alias from acp_list_connections, DID, invitation or saved invite reference/alias. Exclusive with workerRef, peerRef, inviteToken and workerDid; names are not identifiers. Explicit old reference arguments keep their invite-store semantics.', { type: 'string', minLength: 1 }),
         workerRef: described('Saved workerRef from acp_list_invites or an exact local alias. Mutually exclusive with inviteToken and workerDid; the stored token is resolved locally.', { type: 'string' }),
         peerRef: described('Role-neutral alias of workerRef with the same value and local invite-store resolution. If both are supplied, they must match.', { type: 'string' }),
         idempotencyKey: idempotencyKeySchema,
@@ -564,6 +589,7 @@ export const mcpTools: Json = [
         }),
         deliverable: jsonValue('JSON value the worker returned after verification. Null when the session was cancelled.'),
         auditBundle: auditSummarySchema,
+        acceptanceWarning: acceptanceWarningSchema,
       },
       ['taskId', 'status', 'deliverable', 'auditBundle'],
     ),
@@ -781,12 +807,12 @@ export const mcpTools: Json = [
   }),
   ...['acp_list_connections', 'acp_list_connection_requests'].map(name => tool({
     name, title: name === 'acp_list_connections' ? 'List local connections' : 'List pending connection requests',
-    description: 'Read local connection metadata for this server signer DID without creating an identity or contacting peers. Decisions require a separate human CLI action. No content or invitation material is returned. Empty arguments only; invalid arguments return JSON-RPC -32602.',
+    description: 'Read local connection metadata across existing requester/worker identities, or only the explicit server owner, without creating keys or contacting peers. Returns alias, authoritative peerOwnerDid, informational peerDisplayName (not an identifier), state, inviteCreator, local acceptance/allowedWork and advisory acceptanceWarning; use acp_delegate_task with to set to an exact alias. Duplicate names require connections alias in the CLI; local consent never proves remote acceptance or worker availability. Decisions require a separate human CLI action; no task content, tokens or private key material is returned. Empty arguments only; invalid arguments return JSON-RPC -32602 and store errors use isError true.',
     readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
     inputSchema: objectSchema('No arguments.', {}),
     outputSchema: objectSchema('Local connection metadata.', {
       count: described('Number of connection records.', { type: 'integer', minimum: 0 }),
-      connections: described('Local peer states and lifecycle metadata, including optional peerDisplayName from a verified card. Names are informational; DIDs determine identity.', { type: 'array', items: { type: 'object', additionalProperties: true } }),
+      connections: described('Local peer states and lifecycle metadata, including optional peerDisplayName from a verified card. Names are informational; DIDs determine identity.', { type: 'array', items: connectionPeerSchema }),
     }, ['count', 'connections']),
   })),
   tool({

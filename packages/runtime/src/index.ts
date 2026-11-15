@@ -55,3 +55,5 @@ export * from './execution-backend.js';
 export * from './auto-accept.js';
 
 export * from './worker-identity.js';
+
+export * from './connection-target.js';

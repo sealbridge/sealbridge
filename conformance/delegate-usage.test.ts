@@ -158,7 +158,7 @@ it('rejects missing, unconfirmed, expired and conflicting saved targets before t
   const saved = store.import(token, 'reviewer', { pendingConfirmation: true });
   const run = (to: string, extra: string[] = []) => networkCommand('delegate',
     [...taskArgs(), '--to', to, ...extra], { identityOptions, transportFactory });
-  await expect(run('missing')).rejects.toThrow('INVITE_NOT_FOUND');
+  await expect(run('missing')).rejects.toThrow('CONNECTION_NOT_FOUND');
   await expect(run(saved.workerRef)).rejects.toThrow('INVITE_CONFIRMATION_REQUIRED');
   store.retain(saved.workerRef);
   await expect(run(saved.alias, ['--relay', 'https://other.example'])).rejects.toThrow('CONFLICTING_RELAY');

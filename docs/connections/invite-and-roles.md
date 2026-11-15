@@ -287,8 +287,47 @@ for scripts. Result JSON retains its existing fields and adds `acceptanceWarning
 with code `PEER_APPROVAL_MAY_BE_REQUIRED` and a message, even when suppressed.
 Explicit invite/saved selectors keep their existing behavior and no new warning.
 
+## MCP peer listing and name targeting (PR5)
+
+Call `acp_list_connections {}` to see existing requester and worker connections
+(an explicitly configured MCP owner/key restricts the scope). Listing creates no
+identity, sends nothing, and returns `{count, connections}` with existing lifecycle
+fields plus `alias`, `localOwnerDid`, `peerOwnerDid`, optional `peerDisplayName`,
+`state`, `inviteCreator`, `acceptance`, `allowsWork`, `allowedWork`, and an optional
+`acceptanceWarning`. Display names and aliases are not identifiers; DIDs remain
+authoritative. `acceptance` is the local override (`off`, `read-only`, `write`, or
+legacy `folder-policy`); `allowedWork` applies that override to the local folder
+policy, subject to owner limits and a running worker. It makes no claim about
+the remote policy. `inviteCreator` is `local` for a redeemed local invite, `peer`
+when a peer invitation remains imported, or `unknown` when provenance is unavailable.
+No tokens or private keys are returned; legacy records are not rewritten.
+
+```json
+{"name":"acp_delegate_task","arguments":{"to":"review-bot","title":"Review","input":{"text":"Example"}}}
+```
+
+The new optional string `to` uses the same runtime resolver as CLI `delegate --to`.
+It accepts an exact local connection alias, DID, invitation, or saved reference/alias.
+It is exclusive with `workerRef`, `peerRef`, `workerDid`, and `inviteToken`; all old
+arguments retain their behavior. Unknown names return `CONNECTION_NOT_FOUND`;
+ambiguous names return `CONNECTION_ALIAS_AMBIGUOUS`; both include English/Japanese
+guidance to list names with the CLI or MCP. Different-DID invite/connection conflicts
+return `CONNECTION_TARGET_CONFLICT`. An active saved alias retains invitation
+checks; an expired same-DID alias can use its connected peer. Explicit saved
+references keep their expiry checks. The matching local connection key signs the
+send, including in unmigrated folders; explicit MCP owner selection limits key scope.
+
+Connection sends add the same Q3 `acceptanceWarning` object as the CLI, including
+on terminal approval holds. The warning never blocks sending or promises remote
+acceptance; active invitation paths retain their existing behavior. `acp_list_connections`
+includes this advisory for connected rows. Existing MCP output fields remain intact.
+`acp_list_connection_requests {}` returns the same metadata for pending rows only.
+Both tools are read-only, idempotent, local-only and non-destructive; their input
+schema is an empty object. MCP alias/allow/disallow tools are deferred; use the
+explicit local CLI commands to change names or owner consent.
+
 ## Later work
 
-MCP connected-peer listing and name targeting (PR5), end-to-end Muse ↔ Grok Bot
-tests and the README guide (PR6), and Desktop remain later work. This change does
+End-to-end Muse ↔ Grok Bot tests and the README guide (PR6), and Desktop remain
+later work. This change does
 not bump the protocol version or change the invitation payload.

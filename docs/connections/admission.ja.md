@@ -173,8 +173,14 @@ CLI の明示的な contacts 設定は独立して維持します。`requests ap
 `accessMode`・`openPolicy`・`allowAnyRequester` は移行案内付きの `ACCESS_MODE_REMOVED` です。
 MCP 検索の旧 `accessMode` 引数は JSON-RPC -32602 です。検索は署名と期限を確認した
 最新の掲載カードすべてを返し、運用モードの欄は返しません。旧カードの署名済み原本は保持します。
-`acp_list_connections {}`・`acp_list_connection_requests {}` は鍵を作らず、サーバーの署名者の
-ローカル情報だけを返します。所有者の判断は人間用 CLI で行います。
+`acp_list_connections {}`・`acp_list_connection_requests {}` は鍵を作らず、既存の requester / worker
+（所有者・鍵の明示時はその DID のみ）のローカル情報を返します。入力 schema は空の object、
+出力は `{count, connections}` で、別名・DID・情報用の表示名・状態・招待作成側・ローカル受付設定・
+相手の承認待ちの可能性を含みます。`acp_delegate_task {"to":"<完全一致の別名>","title":"レビュー","input":{}}`
+は CLI と共通の名前解決を使います。従来の `workerRef` / `peerRef` / `workerDid` / `inviteToken` も維持し、
+`to` とは排他です。接続による送信では `acceptanceWarning` を追加し、そのまま送信します。
+schema・不確実性・エラーは [MCP の一覧と名前指定](invite-and-roles.ja.md) を参照してください。
+所有者の判断は人間用 CLI で行います。PR6 の実際の Muse ↔ Grok Bot テスト・README と Desktop は後続です。
 
 board の claim と dispatch は、選択した投稿者の現在の接続が必要です。
 未接続なら `CONNECTION_REQUIRED` で、接続だけでは依頼・リースを承認しません。

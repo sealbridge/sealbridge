@@ -225,7 +225,7 @@ it('preserves unmigrated MCP owner-key worker routing; migrated CLI routing is c
 it('accepts old and neutral CLI reference selectors with identical invite-store resolution', async () => {
   for (const flag of ['--to', '--invite', '--peer-ref']) {
     await expect(networkCommand('delegate', [flag, 'missing', '--title', 'Test', '--description', 'Test',
-      '--input', '{}', '--auto-approve'], { identityOptions })).rejects.toThrow('INVITE_NOT_FOUND');
+      '--input', '{}', '--auto-approve'], { identityOptions })).rejects.toThrow(flag === '--to' ? 'CONNECTION_NOT_FOUND' : 'INVITE_NOT_FOUND');
   }
   await expect(networkCommand('delegate', ['--to', 'one', '--peer-ref', 'two'], { identityOptions }))
     .rejects.toThrow('CONFLICTING_TARGET_OPTIONS');

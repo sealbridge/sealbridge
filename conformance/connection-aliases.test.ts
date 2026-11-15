@@ -52,8 +52,8 @@ it('rejects identical default names and cross-key ambiguity instead of choosing 
   expect((await connectionTarget('peer', options))?.connection.peerOwnerDid).toBe(b.peer.did);
 });
 it('fails clearly on unknown targets and preserves literal DID/invite/saved references', async () => {
-  expect(await connectionTarget('missing', options)).toBeUndefined();
-  await expect(networkCommand('delegate', ['--to', 'missing', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'], { identityOptions: options })).rejects.toThrow('INVITE_NOT_FOUND');
+  await expect(connectionTarget('missing', options)).rejects.toThrow('CONNECTION_NOT_FOUND');
+  await expect(networkCommand('delegate', ['--to', 'missing', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'], { identityOptions: options })).rejects.toThrow('CONNECTION_NOT_FOUND');
   for (const name of ['did:key:test', 'saved:test']) expect(await connectionTarget(name, options)).toBeUndefined();
 });
 it('rejects connection/invite alias conflicts and never bypasses saved invite expiry', async () => {
