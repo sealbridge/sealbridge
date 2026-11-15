@@ -118,9 +118,11 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
   `connections sync --role requester --relay <URL>` を動かしてください。
 - 招待を使う初回 delegate も、既存の独立した接続同意の確認後に同じ申し込みを添付できます。
   作成側は検証済みタスクが招待を使用した時点で接続記録を作り、依頼側は署名付き接続受諾を
-  受信した時点で逆方向の接続記録を作ります。同意を断った場合や接続確認チャネルがない場合も
+  受信した時点で逆方向の接続記録を作ります。TTY / MCP で同意を断った場合や接続確認チャネルがない場合も
   従来の招待タスクの経路は維持しますが、依頼側の接続同意を勝手に作りません。
   `--auto-approve`・`--auto-accept` は接続同意の確認に回答しません。
+
+非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、`connections allow <名前>` が必要です。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
 
 CLI は署名付き接続申し込みの metadata をタスク本文と別に検査し、非対話 worker でも
 発行者自身の招待を受理して署名付き受諾を送れます。タスク検査の完了や実行承認にはならず、

@@ -357,3 +357,22 @@ it('uses separate local-owner paths and returns detached connection snapshots in
     path: workerIntakePath(otherOwner.did, { env: { SEALBRIDGE_DATA_DIR: join(root, 'data') } }), now: () => NOW });
   expect(other.connectionState(f.peer.did)).toBe('none'); expect(other.listPriorApprovedPeers()).toEqual([]);
 });
+
+it('accepted invite task recording is durable, idempotent and never overwrites legacy or explicit acceptance', () => {
+  const f = fixture(), peer = { peerOwnerDid: f.peer.did, peerAgentDid: f.peer.did, peerDisplayName: 'Muse', relayUrl: RELAY };
+  const task = { taskId: 'task', createdAt: new Date(NOW).toISOString(), deadline: new Date(NOW + DAY).toISOString() };
+  const record = () => f.store.recordAcceptedInviteTask(peer, 'connection', digest('explicit task send'), digest('signed ACCEPT'), task);
+  expect(record()).toBe(true);
+  expect(f.restart().listConnections()).toContainEqual(expect.objectContaining({ state: 'connected', acceptance: 'off' }));
+  for (const kind of ['off', 'read-only', 'write'] as const) {
+    f.store.setConnectionAcceptance(f.peer.did, kind);
+    const before = f.store.listConnections();
+    expect(record()).toBe(false);
+    expect(f.store.listConnections()).toEqual(before);
+  }
+  const legacy = fixture();
+  legacy.store.recordIncoming(incoming(legacy)); legacy.store.approveConnection(approval(legacy));
+  const before = legacy.store.listConnections();
+  expect(legacy.store.recordAcceptedInviteTask({ ...peer, peerOwnerDid: legacy.peer.did }, 'different', digest('send'), digest('accept'), task)).toBe(false);
+  expect(legacy.store.listConnections()).toEqual(before);
+});

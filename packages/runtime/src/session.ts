@@ -2681,6 +2681,8 @@ export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuth
   connectionStore?: WorkerTrustStore;
   identityOptions?: IdentityStoreOptions;
   connectionReview?: ConnectionHumanReviewProvider;
+  /** CLI-only explicit non-TTY sending consent; applies only to verified invite tasks after ACCEPT. */
+  connectAcceptedInvite?: boolean;
   onConnectionEvent?: (event: ConnectedEvent) => void;
   /** Application-owned local records; omitted by library callers unless requested. */
   pendingStore?: RequesterPendingStore;
@@ -3385,6 +3387,15 @@ export class RequesterClient {
       managedChild?.onAcceptedContract(accept.contract);
       gateway = new OwnerGateway(owner, accept.contract, policy);
       gateway.machine.apply(accept.transition);
+      if (this.options.connectAcceptedInvite && invite && peer === invite.ownerDid &&
+          manifest.worker!.agentDid === invite.agentDid) {
+        const connectionId = connectionIdFor(owner.did, peer);
+        const recorded = connectionStore.recordAcceptedInviteTask({ peerOwnerDid: peer,
+          peerAgentDid: invite.agentDid, peerDisplayName: invite.agentCard.payload.name,
+          relayUrl: invite.relayUrl }, connectionId, digest({ manifest, input: options.input }), digest(accept.approval), manifest);
+        if (recorded) this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: peer,
+          peerAgentDid: invite.agentDid, connectionId, source: 'request', connectedAt: (this.options.now ?? Date.now)() });
+      }
       gateway.machine.apply(
         (await wire.receiveEvent('START')).payload.payload as unknown as Signed<Transition>,
       );

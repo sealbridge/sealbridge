@@ -140,9 +140,11 @@ Connection records are created during the existing signed connection exchange:
   separate connection-consent prompt. Its creator records the connection when
   the validated task redeems the invite, and the requester records the reverse
   connection when it consumes the signed connection acceptance. Declining that
-  prompt, or running without a connection-review channel, still permits the old
+  prompt, or using MCP without a connection-review channel, still permits the old
   invite task path but does not invent requester-side connection consent.
   `--auto-approve` and `--auto-accept` do not answer the connection prompt.
+
+Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <name>` to opt in. `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
 
 The CLI inspects signed connection-request metadata separately from task content,
 including in a headless worker. This lets an issuer redeem its own invitation and

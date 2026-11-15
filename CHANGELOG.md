@@ -6,6 +6,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- **Behavior change:** explicit non-interactive CLI delegation to an invite peer now records the importer-side connection after verifying the matching peer’s signed task ACCEPT. Incoming read/write acceptance stays off until `connections allow`. Use `--no-connect` for one-off sends. TTY/MCP consent is unchanged; recording emits a bilingual notice and JSON `connectionRecorded`. Correct delegate `--invite` and worker `--name` help.
+
 - Invitations establish connections; local owner policy controls work in either direction. Add role-neutral `peerRef` / `--peer-ref`, local connection aliases and `delegate --to`, preserving old names, MCP arguments and per-key consent without a protocol change.
 - **Behavior change:** new importer-side connections no longer auto-accept by default. Owners opt in per peer with `connections allow <name>` (read-only) or `connections allow <name> write`; `disallow` restores owner approval. Creator and legacy policies remain unchanged. Connection sends include a soft approval warning; CLI scripts can suppress stderr with `--quiet-approval-warning`.
 - **Behavior change:** an unknown `delegate --to` name now returns `CONNECTION_NOT_FOUND` (previously `INVITE_NOT_FOUND`), with corrected English/Japanese guidance. Add MCP `acp_delegate_task.to`; ambiguous names and different-DID conflicts fail closed, while an expired same-DID invite alias can fall back to its connected peer.
