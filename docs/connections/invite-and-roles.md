@@ -144,7 +144,9 @@ Connection records are created during the existing signed connection exchange:
   invite task path but does not invent requester-side connection consent.
   `--auto-approve` and `--auto-accept` do not answer the connection prompt.
 
-Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <name>` to opt in. `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
+Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <connection-name>` with the name shown in the recording notice or `connections list` to opt in. This connection name can differ from the saved invite alias (`accept --alias`). `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
+
+Connection recording is best-effort: a store failure does not abort accepted work. Bilingual stderr and JSON `connectionRecordWarning` with code `CONNECTION_RECORD_FAILED` advise re-running delegate or using TTY/MCP confirmation to record it. No `connectionRecorded` is emitted on failure. Successful notices use the local alias/name when available (JSON retains the DID). Redirecting only stderr also makes the CLI non-interactive; stdin and stderr must both be TTYs.
 
 The CLI inspects signed connection-request metadata separately from task content,
 including in a headless worker. This lets an issuer redeem its own invitation and
@@ -239,10 +241,15 @@ acceptance now records local `acceptance: "off"`. `accept` itself still only sav
 an invitation. The creator keeps its current policy and Muse needs no extra step:
 Grok Bot can import and delegate to Muse exactly as before.
 
+Use the connection name from the recording notice or `connections list`, which
+can differ from the saved invite alias. For example, an invitation saved as
+`buddy` for display name "Alpha Muse" defaults to connection name `alpha-muse`.
+The commands below assume `connections list` shows `alpha-muse`.
+
 ```sh
-sealbridge connections allow reviewer             # read-only
-sealbridge connections allow reviewer write       # explicit writes
-sealbridge connections disallow reviewer          # owner approval again
+sealbridge connections allow alpha-muse             # read-only
+sealbridge connections allow alpha-muse write       # explicit writes
+sealbridge connections disallow alpha-muse          # owner approval again
 sealbridge connections list
 ```
 

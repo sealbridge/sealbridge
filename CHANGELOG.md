@@ -6,6 +6,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Continue accepted tasks when importer-side connection recording fails; report bilingual stderr and JSON `connectionRecordWarning` (`CONNECTION_RECORD_FAILED`) with recovery guidance. Prefer local names in successful connection notices, retaining DIDs in JSON.
+
 - **Behavior change:** explicit non-interactive CLI delegation to an invite peer now records the importer-side connection after verifying the matching peer’s signed task ACCEPT. Incoming read/write acceptance stays off until `connections allow`. Use `--no-connect` for one-off sends. TTY/MCP consent is unchanged; recording emits a bilingual notice and JSON `connectionRecorded`. Correct delegate `--invite` and worker `--name` help.
 
 - Invitations establish connections; local owner policy controls work in either direction. Add role-neutral `peerRef` / `--peer-ref`, local connection aliases and `delegate --to`, preserving old names, MCP arguments and per-key consent without a protocol change.

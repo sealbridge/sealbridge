@@ -122,7 +122,9 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
   従来の招待タスクの経路は維持しますが、依頼側の接続同意を勝手に作りません。
   `--auto-approve`・`--auto-accept` は接続同意の確認に回答しません。
 
-非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、`connections allow <名前>` が必要です。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
+非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、記録時の通知か `connections list` に表示された接続名で `connections allow <接続名>` を実行します。接続名は招待の保存名（`accept --alias`）とは異なる場合があります。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
+
+接続記録は失敗しても受諾済みの作業を中断しません。日英の stderr と JSON の `connectionRecordWarning`（コード `CONNECTION_RECORD_FAILED`）で、delegate の再実行または TTY/MCP の確認で記録するよう案内します。失敗時は `connectionRecorded` を出しません。成功通知は既知のローカル名を使い、JSON には DID を保持します。stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。
 
 CLI は署名付き接続申し込みの metadata をタスク本文と別に検査し、非対話 worker でも
 発行者自身の招待を受理して署名付き受諾を送れます。タスク検査の完了や実行承認にはならず、
@@ -203,10 +205,14 @@ CLI の委任には `--peer-ref <peerRef>` を追加し、従来の `--to <worke
 ローカルに `acceptance: "off"` を記録します。`accept` 自体は招待保存だけです。
 招待作成側の自動受付は変わらず、Muse が招待を作り Grok Bot が保存して依頼する手順に追加操作はありません。
 
+記録時の通知か `connections list` に表示された接続名を使います。招待の保存名とは異なる場合があります。
+たとえば表示名 "Alpha Muse" の招待を `buddy` で保存しても、既定の接続名は `alpha-muse` です。
+以下は `connections list` に `alpha-muse` と表示された場合の例です。
+
 ```sh
-sealbridge connections allow reviewer             # 読み取り専用
-sealbridge connections allow reviewer write       # 書き込みを明示許可
-sealbridge connections disallow reviewer          # 所有者の承認へ戻す
+sealbridge connections allow alpha-muse             # 読み取り専用
+sealbridge connections allow alpha-muse write       # 書き込みを明示許可
+sealbridge connections disallow alpha-muse          # 所有者の承認へ戻す
 sealbridge connections list
 ```
 
