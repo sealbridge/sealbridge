@@ -4,6 +4,7 @@ import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkS
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { checkedChildOutput } from './child-process-result.js';
 import { createInviteToken, createSignedAgentCard, generateKeyPair, signPayload } from '../packages/core/src/index.js';
 import { InviteStore, resolveStoredIdentity } from '../packages/runtime/src/index.js';
 const roots: string[] = [];
@@ -25,9 +26,9 @@ async function fixture() {
   const store = new InviteStore(identity, { env });
   function cli(args: string[], input?: string, capture?: { stderr: string }) {
     const result = spawnSync(process.execPath, [resolve('cli/dist/index.js'), ...args], { env, input, encoding: 'utf8', timeout: 30000 });
-    expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
+    const stdout = checkedChildOutput(result);
     if (capture) capture.stderr = result.stderr;
-    return JSON.parse(result.stdout);
+    return JSON.parse(stdout);
   }
   function oldRead(token?: string) {
     const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
@@ -39,8 +40,8 @@ async function fixture() {
       if (token) store.import(token, 'unrelated');
       console.log(JSON.stringify(store.list()));
     `], { env, input: token ?? '', encoding: 'utf8', timeout: 30000 });
-    expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
-    return JSON.parse(result.stdout);
+    const stdout = checkedChildOutput(result);
+    return JSON.parse(stdout);
   }
   return { env, identity, token, store, cli, oldRead };
 }
@@ -59,7 +60,7 @@ it('new CLI accept remains readable by a separate frozen old reader; duplicate a
   expect(f.oldRead()).toEqual([]);
   expect(f.cli(['accept', '--stdin', '--alias', 'renamed'], f.token + '\n').aliasExplicit).toBe(true);
   expect(f.oldRead()).toMatchObject([{ alias: 'renamed' }]);
-});
+}, 60000);
 it('preserves a per-record explicit mark after a real old process accepts an unrelated invite', async () => {
   const f = await fixture();
   f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n');
@@ -82,7 +83,12 @@ it.each(['directory', ...(process.platform === 'win32' ? [] : ['permissions', 's
       else symlinkSync(target, f.store.aliasPath);
     }
     const capture = { stderr: '' };
-    expect(f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n', capture).alias).toBe('buddy');
+    expect(f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n', capture)).toMatchObject({ alias: 'buddy', aliasExplicit: kind === 'permissions' });
+    if (kind === 'permissions') {
+      expect(capture.stderr).not.toContain('INVITE_ALIAS_METADATA_UNAVAILABLE');
+      expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBe(true);
+      return;
+    }
     expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g)).toHaveLength(1);
     expect(capture.stderr).toContain('招待別名の明示指定を読み取り・保存できませんでした');
     expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBeUndefined();
@@ -98,7 +104,7 @@ it.each(['list', 'accept'] as const)('a new CLI %s process migrates a signed inl
     f.cli(['accept', '--stdin', '--alias', 'chosen'], f.token + '\n').aliasExplicit).toBe(true);
   expect(f.oldRead()).toMatchObject([{ alias: 'chosen' }]);
   expect(JSON.parse(readFileSync(f.store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
-});
+}, 60000);
 it.each(['missing', 'corrupt', 'wrong-signature'] as const)('new processes ignore %s sidecar without breaking accept or old validation', async kind => {
   const f = await fixture();
   f.cli(['accept', '--stdin', '--alias', 'chosen'], f.token + '\n');
@@ -111,5 +117,5 @@ it.each(['missing', 'corrupt', 'wrong-signature'] as const)('new processes ignor
   expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBeUndefined();
   expect(f.cli(['accept', '--stdin'], f.token + '\n').aliasExplicit).toBeUndefined();
   expect(f.oldRead()).toMatchObject([{ alias: 'chosen' }]);
-});
+}, 60000);
 

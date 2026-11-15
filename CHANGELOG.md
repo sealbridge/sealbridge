@@ -6,6 +6,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Report `aliasExplicit: false` when explicit invitation alias intent cannot be saved, with the existing English/Japanese warning; repair owner-held sidecar permissions to 0600 during writes when possible. Limit blocked read-time legacy migration to one attempt per store instance; explicit writes can retry. Translate permission and read-only invitation writes into `INVITE_STORE_UNWRITABLE` with folder-specific English/Japanese recovery guidance. Preserve signed invite formats and old-reader compatibility; add child timeout stream diagnostics and allow 60 seconds for downgrade and alias end-to-end tests.
+- 明示した招待別名の印を保存できなかった場合は、日英の警告と `aliasExplicit: false` を返します。読み取り時の旧形式移行はストアごとに一度だけ試し、明示的な書き込みでは再試行できます。書き込み権限がない場合は `INVITE_STORE_UNWRITABLE` と対象フォルダ・修復方法を日英で案内します。旧版との互換を維持し、子プロセスの時間切れ診断とテストの待ち時間を改善しました。
+
 - Keep verified inline alias intent usable when read-time migration is blocked by a live lock or a read-only directory; retry migration later. Bind sidecar marks per invite so unrelated old-version writes preserve explicit aliases, and publish intent before replacing the store. Warn once in English/Japanese for unavailable sidecar metadata and repair the Japanese compatibility notes.
 
 - Keep explicit invite-alias intent in a separate signed sidecar; migrate inline `aliasExplicit` markers so invite records stay readable by older releases. Missing/unreadable intent metadata falls back to derived names. Previously saved unmarked aliases need re-acceptance with `--alias` before first connect. CLI/MCP `connectionRecorded.alias` now includes derived connection names.
