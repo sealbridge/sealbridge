@@ -590,7 +590,7 @@ export async function networkCommand(command: string, args: string[], applicatio
       ? new ConnectionAliases(key, application.identityOptions).list([{ peerOwnerDid: invite.ownerDid,
         peerDisplayName: invite.agentCard.payload.name, state: 'connected' as const }])[0].alias
       : undefined);
-    let connectionRecorded: { peerOwnerDid: string; message: string } | undefined;
+    let connectionRecorded: { peerOwnerDid: string; alias: string; message: string } | undefined;
     let connectionRecordWarning: { code: string; peerOwnerDid: string; message: string } | undefined;
     const client = new RequesterClient({
       ...authRecovery,
@@ -611,7 +611,7 @@ export async function networkCommand(command: string, args: string[], applicatio
           cliName + ' connections allow ' + localName +
           '\n接続を記録しました。相手からの作業は許可されていません。読み取り専用の作業を許可するには: ' +
           cliName + ' connections allow ' + localName;
-        connectionRecorded = { ...event, peerOwnerDid: event.peerOwnerDid, message };
+        connectionRecorded = { ...event, alias: localName, peerOwnerDid: event.peerOwnerDid, message };
         console.error(message);
       },
       pendingStore: new RequesterPendingStore(key, application.identityOptions),

@@ -182,3 +182,5 @@ All CLI subcommands are listed in `sealbridge --help`, and each command has `--h
 - **Public Blind Relay**: `https://relay.sealbridge.dev` (the legacy `https://acp-relay.agent-collab.workers.dev` URL reaches the same relay)
 
 Formerly ACP / agent-collab-platform. Renamed to avoid confusion with Zed’s Agent Client Protocol and IBM / BeeAI’s Agent Communication Protocol. The `acp` bin remains a deprecated alias. Protocol identifiers and existing data paths stay compatible.
+
+Explicit invitation alias intent is stored in an optional, signed sidecar so invite data remains readable by older versions. Existing inline `aliasExplicit` markers are migrated out of the invite records on access. Aliases saved before explicit intent tracking are treated as not explicit: re-accept the same invitation with `--alias` before the first connection to use that name. Missing, corrupt or unreadable sidecar metadata falls back to the derived connection name without blocking import or delegation.

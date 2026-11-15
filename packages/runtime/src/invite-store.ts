@@ -15,7 +15,7 @@ import type { RelaySelectionOptions } from './relay-selection.js';
 interface StoredInvite {
   id: string;
   alias: string;
-  /** Present only when an owner explicitly supplied the alias. */
+  /** In-memory intent or legacy migration input; never serialized in invite records. */
   aliasExplicit?: true;
   displayName: string;
   ownerDid: string;
@@ -75,6 +75,10 @@ export class InviteStore {
   private readonly io: typeof fs;
   private readonly now: () => number;
   private secretStore?: SecretStore;
+  private locked = false;
+  private legacyInline = false;
+  /** Optional owner-signed intent metadata; older releases never read this file. */
+  get aliasPath(): string { return this.path + '.aliases.json'; }
   /** Loads the optional backend; the constructor and synchronous methods remain available. */
   static async open(owner: KeyPair, options: InviteStoreOptions = {}): Promise<InviteStore> {
     const store = new InviteStore(owner, options);
@@ -142,8 +146,50 @@ export class InviteStore {
         if (!external) this.validateToken(e, e.inviteToken!);
         ids.add(e.id); aliases.add(e.alias);
       }
-      return p.entries;
+      const legacyInline = p.entries.some(e => e.aliasExplicit === true);
+      if (this.locked) this.legacyInline = legacyInline;
+      if (!this.locked && legacyInline) {
+        // Re-read under the normal writer lock before migrating legacy inline marks.
+        this.mutate(entries => ({ entries, result: undefined, changed: true }), true);
+        return this.readMetadata();
+      }
+      const marks = this.readAliasMarks(p.entries);
+      return p.entries.map(e => ({ ...e, ...(marks.has(this.aliasKey(e)) ? { aliasExplicit: true as const } : {}) }));
     } catch { throw new Error('INVITE_STORE_INVALID'); }
+  }
+  private recordsDigest(entries: StoredInvite[]): string {
+    return digest(entries.map(({ aliasExplicit: _intent, ...record }) => record));
+  }
+  private aliasKey(e: StoredInvite): string {
+    return digest({ id: e.id, alias: e.alias, importedAt: e.importedAt });
+  }
+  private readAliasMarks(entries: StoredInvite[]): Set<string> {
+    try {
+      const contents = readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+      if (contents === undefined) return new Set();
+      const signed = JSON.parse(contents), p = signed.payload;
+      if (!exactKeys(signed, 'payload,signature') || !verifySigned(signed, this.owner.did) ||
+          !exactKeys(p, 'type,version,localOwnerDid,recordsDigest,marks') || p.type !== 'InviteAliasIntent' ||
+          p.version !== 1 || p.localOwnerDid !== this.owner.did || p.recordsDigest !== this.recordsDigest(entries) || !Array.isArray(p.marks) ||
+          p.marks.some((m: unknown) => typeof m !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m))) return new Set();
+      return new Set(p.marks);
+    } catch { return new Set(); }
+  }
+  /** Called only under the invite-store lock. Intent loss must never prevent invitation use. */
+  private writeAliasMarks(entries: StoredInvite[]): void {
+    const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
+    let written = false;
+    try {
+      const marks = entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e));
+      if (marks.length === 0 && !this.io.existsSync(this.aliasPath)) return;
+      const bytes = Buffer.from(JSON.stringify(signPayload({ type: 'InviteAliasIntent', version: 1,
+        localOwnerDid: this.owner.did, recordsDigest: this.recordsDigest(entries), marks }, this.owner)) + '\n');
+      if (bytes.length > MAX_STORE_BYTES) return;
+      writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
+      checkPath(this.aliasPath, this.io, this.options.platform);
+      this.io.renameSync(temporary, this.aliasPath); written = false;
+    } catch { /* Optional intent metadata: fall back to derived connection names. */ }
+    finally { if (written) { try { this.io.unlinkSync(temporary); } catch { /* best effort */ } } }
   }
   private validateToken(e: StoredInvite, token: string): void {
     try {
@@ -156,8 +202,8 @@ export class InviteStore {
         expected.tokenDigest = digestBytes(token);
       }
       if (e.importState !== undefined) expected.importState = e.importState;
-      if (e.aliasExplicit === true) expected.aliasExplicit = true;
-      if (token !== inviteTokenFromUri(token) || digest(e) !== digest(expected)) throw new Error();
+      const { aliasExplicit: _intent, ...record } = e;
+      if (token !== inviteTokenFromUri(token) || digest(record) !== digest(expected)) throw new Error();
     } catch { throw new Error('INVITE_STORE_INVALID'); }
   }
   private token(e: StoredInvite): string {
@@ -223,21 +269,26 @@ export class InviteStore {
         if (code(error) === 'EEXIST') throw new Error('INVITE_STORE_BUSY');
         throw error;
       }
+      this.locked = true;
+      this.legacyInline = false;
       const { entries, result, changed } = change(metadataOnly ? this.readMetadata() : this.read());
-      if (!changed) return result;
+      if (!changed && !this.legacyInline) return result;
       const bytes = Buffer.from(JSON.stringify(signPayload<StoredInvites>({
-        type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did, entries,
+        type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did,
+        entries: entries.map(({ aliasExplicit: _intent, ...record }) => record),
       }, this.owner, new Date(this.now()).toISOString())) + '\n');
       if (bytes.length > MAX_STORE_BYTES) throw new Error('INVITE_STORE_INVALID');
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
+      this.writeAliasMarks(entries);
       return result;
     } catch (error) {
       if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
       throw new Error('INVITE_STORE_INVALID');
     } finally {
       if (written) this.io.unlinkSync(temporary);
+      this.locked = false;
       if (locked) this.io.unlinkSync(lock);
     }
   }

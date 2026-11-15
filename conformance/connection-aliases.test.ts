@@ -208,7 +208,7 @@ it('falls back on a different-DID collision, reports the actual name and never s
 it('keeps the derived default without a saved invite and never renames pre-existing legacy records', async () => {
   const f = await connect('requester', 'Alpha Muse');
   const connections = f.store.listConnections(), peer = connections[0];
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({});
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({ alias: 'alpha-muse' });
   (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
   expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
   expect(localConnections(f.key, options)[0].alias).toBe('alpha-muse');
@@ -221,9 +221,10 @@ it.each(['automatic', 'legacy'] as const)('keeps derived names for %s saved invi
   if (kind === 'legacy') {
     const signed = JSON.parse(readFileSync(invites.path, 'utf8'));
     delete signed.payload.entries[0].aliasExplicit;
+    (await import('node:fs')).unlinkSync(invites.aliasPath);
     writeFileSync(invites.path, JSON.stringify(signPayload(signed.payload, f.key)));
   }
   const connections = f.store.listConnections();
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), connections[0], [], connections)).toEqual({});
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), connections[0], [], connections)).toEqual({ alias: 'gamma-bot' });
   expect(localConnections(f.key, options)[0].alias).toBe('gamma-bot');
 });

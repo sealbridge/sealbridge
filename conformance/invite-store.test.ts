@@ -244,6 +244,7 @@ it('marks only owner-supplied aliases and preserves legacy metadata without infe
   expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBe(true);
   const signed = JSON.parse(fs.readFileSync(store.path, 'utf8'));
   delete signed.payload.entries[0].aliasExplicit;
+  fs.unlinkSync(store.aliasPath);
   fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
   const legacyBytes = fs.readFileSync(store.path);
   expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBeUndefined();
@@ -257,4 +258,22 @@ it.each([false, 'true', 1, null])('rejects an invalid signed aliasExplicit marke
   signed.payload.entries[0].aliasExplicit = value;
   fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
   expect(() => store.list()).toThrow('INVITE_STORE_INVALID');
+});
+it('treats unreadable intent as absent and accepts when sidecar publication fails', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'chosen');
+  const io = { ...fs, openSync: ((path, ...args) => {
+    if (String(path) === store.aliasPath) throw Object.assign(new Error('unreadable'), { code: 'EACCES' });
+    return (fs.openSync as any)(path, ...args);
+  }) as typeof fs.openSync };
+  const unreadable = new InviteStore(owner, { ...options, fs: io });
+  expect(unreadable.list()[0].aliasExplicit).toBeUndefined();
+  expect(unreadable.resolve('chosen').inviteToken).toBe(token);
+  const failing = new InviteStore(owner, { ...options, fs: { ...fs, renameSync: (from, to) => {
+    if (String(to) === store.aliasPath) throw new Error('sidecar unavailable');
+    fs.renameSync(from, to);
+  } } });
+  const imported = failing.import(fixture().token, 'second');
+  expect(imported.alias).toBe('second');
+  expect(store.list().every(e => e.aliasExplicit === undefined)).toBe(true);
 });

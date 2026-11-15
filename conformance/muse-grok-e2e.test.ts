@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { startLocalRelay } from '../packages/relay/src/index.js';
-import { resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
+import { InviteStore, resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { createInviteToken, createSignedAgentCard, generateKeyPair, signPayload, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 const roots: string[] = [], children: ChildProcess[] = [], clients: Client[] = [];
@@ -353,8 +353,8 @@ it.each(['cli', 'mcp'] as const)('reports a saved-alias collision through %s wit
   }
 }, 30000);
 
-it.each([[false, 'cli'], [true, 'cli'], [false, 'tty'], [true, 'tty'], [false, 'mcp'], [true, 'mcp']] as const)(
-  'accept without --alias keeps the derived connection name; migrated=%s mode=%s', async (migrated, mode) => {
+it.each([[false, 'cli', 'automatic'], [true, 'cli', 'automatic'], [false, 'tty', 'automatic'], [true, 'tty', 'automatic'], [false, 'mcp', 'automatic'], [true, 'mcp', 'automatic'], [false, 'cli', 'missing'], [false, 'mcp', 'corrupt']] as const)(
+  'accept without --alias keeps the derived connection name; migrated=%s mode=%s intent=%s', async (migrated, mode, intent) => {
     const root = mkdtempSync(join(realpathSync(tmpdir()), 'auto-alias-process-')); roots.push(root);
     const a = join(root, 'a'), b = join(root, 'b');
     for (const folder of [a, b]) {
@@ -368,13 +368,19 @@ it.each([[false, 'cli'], [true, 'cli'], [false, 'tty'], [true, 'tty'], [false, '
     try {
       const token = (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Gamma Bot', '--allow-private-relay'])).trim().split(/\r?\n/)[0];
       const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--allow-private-relay'], token + '\n'));
+      if (intent !== 'automatic') {
+        await cli(b, ['accept', '--stdin', '--allow-private-relay', '--alias', saved.alias], token + '\n');
+        const key = await resolveStoredIdentity('requester', { env: environment(b) });
+        const path = new InviteStore(key, { env: environment(b) }).aliasPath;
+        if (intent === 'missing') unlinkSync(path); else writeFileSync(path, '{corrupt');
+      }
       expect(saved.alias).toMatch(/^gamma-bot-[a-f0-9]{12}$/);
       expect(saved.aliasExplicit).toBeUndefined();
       receiver = await worker(a, relay.url, join(root, 'worker.jsonl'), migrated);
       if (mode === 'mcp') {
         const host = await mcp(b, relay.url);
         expect(await call(host.client, 'acp_delegate_task', { to: saved.alias, title: 'Automatic alias', input: {}, taskTimeoutMs: 10000 }))
-          .toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' } });
+          .toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' }, connectionRecorded: { alias: 'gamma-bot' } });
         expect(host.prompts()).toBe(1);
       } else {
         const capture = { stderr: '' };
@@ -382,6 +388,7 @@ it.each([[false, 'cli'], [true, 'cli'], [false, 'tty'], [true, 'tty'], [false, '
           '--input', '{}', '--auto-approve', '--allow-private-relay', '--task-timeout-ms', '10000', '--audit', join(root, 'requester.jsonl')],
           mode === 'tty' ? 'y\n' : undefined, capture, false, mode === 'tty'));
         expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
+        expect(result.connectionRecorded.alias).toBe('gamma-bot');
         expect(result.connectionRecorded.message).toContain('connections allow gamma-bot\n');
         expect(verifyAudit(parseJsonl(readFileSync(join(root, 'requester.jsonl'), 'utf8'))).status).toBe('VALID');
         if (mode === 'tty') expect(capture.stderr).toContain('Confirm owner decision');
