@@ -31,21 +31,15 @@ sealbridge connections list
 sealbridge audit-verify audit.jsonl
 ```
 
-Import alone grants neither connection consent nor task permission. **On a non-interactive CLI (no TTY), the task can succeed under the creator's acceptance rule, but the importer does not record a connection.** The creator can show the peer as `connected` while the importer's `connections list` is empty. `connections allow muse` then fails with `CONNECTION_NOT_FOUND`; the saved invite alias is not a connection alias.
+Import alone grants neither connection consent nor task permission. Explicit non-interactive CLI delegation to an invite peer is consent to connect. After verifying a signed ACCEPT from the matching invite DID, the importer records its connection too. Failure before reaching the peer, a DID mismatch, or `CONNECTION_TARGET_CONFLICT` records nothing. Use `--no-connect` for a one-off send. Recording prints an English/Japanese notice and a JSON `connectionRecorded` field; incoming work remains **off**. The TTY connection prompt and MCP `connect: true` form remain unchanged.
 
-For the importer-side connection and reverse direction, [register MCP](#register-mcp-for-connection-confirmation), send the first task with `acp_delegate_task`, and accept its separate connection confirmation (`connect: true`):
+Check `connections list` for the peer DID and local alias. Creator acceptance policy is unchanged. Success reports `SETTLED`; verified audits report `VALID`. Without a trust anchor, verification does not detect truncation to an older valid prefix.
 
-```json
-{"name":"acp_delegate_task","arguments":{"peerRef":"muse","title":"Quick check","input":{"text":"hello"}}}
-```
-
-If you already sent a non-interactive CLI task, explicitly send a new task through MCP and accept that confirmation. Alternatively, run the CLI task in a TTY and have the owner answer `y` to `Confirm owner decision [y/N]?`. An agent must not answer for the owner. Both sides show the peer DID and local alias **after you accept the connection and the exchange completes**. Check `connections list` or `acp_list_connections {}` before using `allow` or delegating back. The creator keeps its existing acceptance policy; no new creator-side permission step is required. Success reports `SETTLED`; a verified audit reports `VALID`. Without a trust anchor, audit verification does not check for truncation to an older valid prefix.
-
-`--auto-approve` explicitly skips send/final-verification prompts. It does not answer connection consent or grant remote execution permission. Read the result yourself. `--to` accepts saved invite names, connection names, invite links and DIDs. Old `workerRef` / `peerRef` arguments remain supported. `--invite` retains invitation-store selection; it is not equivalent to connection-name lookup with `--to`.
+`--auto-approve` explicitly skips send/final-verification prompts. It does not answer the TTY connection prompt or grant remote execution permission. Non-interactive connection consent comes from the explicit send described above. Read the result yourself. `--to` accepts saved invite names, connection names, invite links and DIDs. Old `workerRef` / `peerRef` arguments remain supported. `--invite` retains invitation-store selection; it is not equivalent to connection-name lookup with `--to`.
 
 ### Ask in the reverse direction
 
-First complete and confirm the importer-side connection as above; a successful non-interactive CLI task alone is insufficient. New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
+After recording the connection through the non-interactive CLI above, check `connections list`. New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
 
 The importer must also run a worker for the DID that owns its connection. With separate unmigrated requester/worker keys, add `--also-requester` to `worker start` (an existing requester key is required). A migrated owner gateway already receives owner-addressed work. Check the local name with `connections list`, then have the owner choose the scope:
 
@@ -84,11 +78,11 @@ sealbridge delegate --to reviewer --title "Quick check" --description "Return JS
 sealbridge connections list
 ```
 
-Without a TTY, this CLI task can succeed while the importer's connection list stays empty. To record that side and enable reverse-direction setup, use MCP `acp_delegate_task` with `peerRef: "reviewer"` and accept its connection confirmation, or run the CLI in a TTY and answer `y`. Only then use the connection name listed locally for allow/disallow, as on Muse. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
+Non-interactive CLI delegation records the importer connection after verifying the invite peer's signed ACCEPT (unless `--no-connect`). Use its listed connection name with `connections allow reviewer` before reverse work. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
 
 ## Register MCP for connection confirmation
 
-In an MCP-capable host, register the stdio command `sealbridge mcp-server`. The host must support **form elicitation** (`elicitation/create`) and show the connection confirmation to the owner. Starting the server alone does not grant consent. Use the same OS account, data directory and key-store configuration as the CLI that imported the invite.
+In an MCP-capable host, register the stdio command `sealbridge mcp-server`. The host must support **form elicitation** (`elicitation/create`) and show the connection confirmation to the owner. Starting the server alone does not grant consent. Send with `acp_delegate_task` (for example `{ "peerRef": "muse", "title": "Quick check", "input": { "text": "hello" } }`) and have the owner accept the separate `connect: true` form. Use the same OS account, data directory and key-store configuration as the CLI that imported the invite.
 
 For a source checkout, a common host configuration looks like this (replace the absolute paths; the host's settings format may differ):
 
@@ -96,7 +90,7 @@ For a source checkout, a common host configuration looks like this (replace the 
 {"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
 ```
 
-On Windows, use paths such as `C:/path/to/node.exe` and `C:/path/to/sealbridge/cli/dist/index.js`. Add `--allow-private-relay` to `args` only when your relay environment requires it. Reload the host, check that `acp_list_invites` sees the imported alias, then send the first task and accept the connection form. Muse/Grok Bot support for registering this stdio server and displaying elicitation forms has not been verified here; check your host's MCP settings. If either is unavailable, use an interactive TTY for connection consent. Non-interactive CLI delegation alone does not establish the importer-side connection.
+On Windows, use paths such as `C:/path/to/node.exe` and `C:/path/to/sealbridge/cli/dist/index.js`. Add `--allow-private-relay` to `args` only when your relay environment requires it. Reload the host, check that `acp_list_invites` sees the imported alias, then send the first task and accept the connection form. Muse/Grok Bot support for registering this stdio server and displaying elicitation forms has not been verified here; check your host's MCP settings. If MCP is unavailable, use the non-interactive CLI flow above. In a TTY, the owner still answers the separate connection prompt.
 
 ### Connection troubleshooting
 
@@ -146,7 +140,7 @@ For the local edition, run `npm i -g sealbridge-local` and use `sealbridge-local
 
 ### MCP hosts (Cursor / Claude)
 
-`sealbridge setup` supports `cursor`, `claude-desktop` (macOS / Windows), and `claude-code` (requires `--project` with an absolute path). There is no Muse-specific `setup --host` target; this does not replace the MCP registration step. For other hosts, follow [manual MCP registration](#register-mcp-for-connection-confirmation) if supported. See `sealbridge setup --help`.
+`sealbridge setup` supports `cursor`, `claude-desktop` (macOS / Windows), and `claude-code` (requires `--project` with an absolute path). There is no Muse-specific `setup --host` target; register MCP only when using the MCP path. For other hosts, follow [manual MCP registration](#register-mcp-for-connection-confirmation) if supported. See `sealbridge setup --help`.
 
 ### Try from source / run your own relay
 

@@ -168,3 +168,16 @@ it('default request approval records limited intent without a trusted grant or r
     expect(f.execute).not.toHaveBeenCalled();
   } finally { f.cleanup(); }
 });
+
+it('documents invitation selection and worker names and validates the no-connect switch before opening identity stores', async () => {
+  const f = fixture();
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await networkCommand('delegate', ['--help'], f);
+  expect(output.mock.calls.flat().join('\n')).toContain('invitation selector; bypasses connection-alias resolution');
+  expect(output.mock.calls.flat().join('\n')).toContain('--no-connect');
+  output.mockClear();
+  await networkCommand('worker', ['start', '--help'], f);
+  expect(output.mock.calls.flat().join('\n')).toContain('--name <text>');
+  await expect(networkCommand('delegate', ['--no-connect', 'false'], f)).rejects.toThrow('INVALID_NO_CONNECT');
+  expect(existsSync(join(f.root, 'identities'))).toBe(false);
+});

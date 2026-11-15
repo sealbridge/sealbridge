@@ -9,7 +9,7 @@ import { resolveDataRoot, privateDirectory, checkPath, checkStat, inspectDirecto
 import type { LocalIdentityOptions } from './local-identity.js';
 import { emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
   projectConnectionState, projectConnectionTrust, validConnectionPeer, validConnectionOffer,
-  validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
+  validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_OFFER_TTL_MS, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
 import type { ConnectionData, ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionRecord, ConnectionPeer,
   PriorApprovedPeer, RecordIncomingConnection, RecordOutgoingConnection, ApproveConnectionInput,
   ApplyConnectionAcceptedInput, BindInviteFirstUseInput, ConnectionOutboxRecord, ConnectionPersistence } from './connection-records.js';
@@ -445,6 +445,28 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
           state: 'connected', connectionId, connectedAt: this.now(), source: 'invite', localConsentDigest: inviteDigest });
       }
       return 'first';
+    });
+  }
+  /** Caller verified the invite and the matching peer's signed task ACCEPT.
+   * Explicit outbound consent connects identities, never authorizes inbound work. */
+  recordAcceptedInviteTask(peer: ConnectionPeer, connectionId: string, consentDigest: string, acceptanceDigest: string,
+    task: Pick<TaskManifest, 'taskId' | 'createdAt' | 'deadline'>): boolean {
+    return this.mutateConnections(s => {
+      if (!validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
+      this.assertAvailable(s, peer.peerOwnerDid);
+      assertConnectionCommit(connectionId, consentDigest);
+      assertConnectionCommit(connectionId, acceptanceDigest);
+      const previous = s.connections.find(c => c.peerOwnerDid === peer.peerOwnerDid);
+      if (previous?.state === 'connected') return false;
+      s.connections = s.connections.filter(c => c.peerOwnerDid !== peer.peerOwnerDid);
+      // Retain task-derived outgoing consent evidence in the existing record shape; no control offer/outbox is sent.
+      s.connections.push({ ...peer, state: 'connected', connectionId, connectedAt: this.now(),
+        source: 'request', localConsentDigest: consentDigest, remoteAcceptanceDigest: acceptanceDigest,
+        outgoing: { requestId: task.taskId, requestDigest: consentDigest, ownerConsentDigest: consentDigest,
+          createdAt: Date.parse(task.createdAt),
+          expiresAt: Math.min(Date.parse(task.deadline), Date.parse(task.createdAt) + CONNECTION_OFFER_TTL_MS) },
+        acceptance: 'off' });
+      return true;
     });
   }
   bindInviteFirstUse(input: BindInviteFirstUseInput): 'first' | 'same' | 'other' {

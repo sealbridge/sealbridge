@@ -136,7 +136,7 @@ const INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--key <file>] [--rel
 const DISCOVER_USAGE = 'Usage: ' + cliName + ' discover [--relay <url>] [--skill <id>] [--task-type <type>] [--did <did>] [--allow-private-relay]';
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
-  const boolean = new Set(['--quiet-approval-warning', '--also-requester', '--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
+  const boolean = new Set(['--no-connect', '--quiet-approval-warning', '--also-requester', '--allow-private-relay', '--yes', '--auto-accept', '--auto-approve',
     '--once', '--publish', '--preview', '--verbose', '--allow-local-pc']);
   const timeouts = ['--execution-timeout-ms', '--task-timeout-ms', '--wait-timeout-ms',
     '--connect-timeout-ms', '--transport-idle-timeout-ms', '--heartbeat-interval-ms'];
@@ -151,7 +151,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--max-input-tokens', '--max-output-tokens', '--max-tool-invocations', '--max-wall-clock-seconds',
       '--max-concurrent-tasks', '--max-requests-per-minute', '--max-tasks-per-day', '--wake-channel',
       '--audit', '--audit-interruption-format', '--inbox', '--on-receive', '--yes', '--auto-accept', '--auto-approve', '--once', '--publish', '--preview', '--verbose'],
-    delegate: ['--quiet-approval-warning', ...timeouts, '--to', '--invite', '--peer-ref', '--discover', '--task-type', '--title', '--description',
+    delegate: ['--no-connect', '--quiet-approval-warning', ...timeouts, '--to', '--invite', '--peer-ref', '--discover', '--task-type', '--title', '--description',
       '--input', '--input-file', '--output-schema', '--save-contact', '--contacts', '--audit', '--out',
       '--yes', '--auto-accept', '--auto-approve', '--verbose'],
   };
@@ -159,6 +159,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
     '--relay-auth-recovery-timeout-ms', ...options[command]]);
   for (const [name, value] of parsed) {
     if (!known.has(name)) throw new Error('Unknown option: ' + name);
+    if (name === '--no-connect' && value !== true) throw new Error('INVALID_NO_CONNECT: pass --no-connect without a value');
     if (name === '--allow-local-pc' && value !== true) throw new Error('INVALID_ALLOW_LOCAL_PC: pass --allow-local-pc without a value');
     if (!boolean.has(name) && typeof value !== 'string') throw new Error('Missing ' + name);
   }
@@ -187,8 +188,10 @@ const REVIEW_HELP = `
   --input-file <path>            Delegate: JSON object, or text/diff wrapped as { "diff": contents }.
                                  Use exactly one of --input <json> and --input-file.
   --to <invite|link|did|alias|workerRef>  Delegate: resolves local connection aliases, invitation links and saved invitation references.
-  --invite <invite|link|did|alias|workerRef>  Delegate: alias of --to; if both are given, values must match.
+  --invite <invite|link|did|alias|workerRef>  Delegate: invitation selector; bypasses connection-alias resolution. Combined target values must match.
+  --no-connect                  Delegate: one-off send; do not record an importer-side connection.
   --peer-ref <peerRef>          Delegate: role-neutral alias of --to; values must match if combined.
+  --name <text>                 Worker: display name in the signed agent card.
   --invite-ttl <seconds>          Worker invite lifetime (default: 86400 / 24h; range: 1–2592000).
                                  Startup prints both the token and a ready-to-share HTTPS link.
   --invite-output <destination>  Worker: stdout (default), none, file:<path>, or fd:<n> (POSIX only, n > 2).
@@ -582,13 +585,24 @@ export async function networkCommand(command: string, args: string[], applicatio
       f.has('--contacts') ? text(f, 'contacts') : contactsPath(), key, text(f, 'to'),
       text(f, 'save-contact'), allowPrivateRelay,
     );
+    let connectionRecorded: { peerOwnerDid: string; message: string } | undefined;
     const client = new RequesterClient({
       ...authRecovery,
       ...sessionTimeouts(f),
       owner: key,
       identityOptions: application.identityOptions ?? {},
       protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
-      connectionReview: connectionHumanReview(application.connectionReview),
+      connectionReview: f.has('--no-connect') ? undefined : connectionHumanReview(application.connectionReview),
+      connectAcceptedInvite: !f.has('--no-connect') && !application.connectionReview &&
+        (!process.stdin.isTTY || !process.stderr.isTTY) && !application.pendingRequest,
+      onConnectionEvent: event => {
+        const message = 'Connection recorded. Work from this peer is not allowed. To allow read-only work, run: ' +
+          cliName + ' connections allow ' + event.peerOwnerDid +
+          '\n接続を記録しました。相手からの作業は許可されていません。読み取り専用の作業を許可するには: ' +
+          cliName + ' connections allow ' + event.peerOwnerDid;
+        connectionRecorded = { peerOwnerDid: event.peerOwnerDid, message };
+        console.error(message);
+      },
       pendingStore: new RequesterPendingStore(key, application.identityOptions),
       pendingRelayUrl: relay,
       deliveryOptions: { identityOptions: application.identityOptions,
@@ -632,6 +646,7 @@ export async function networkCommand(command: string, args: string[], applicatio
         deliverable: result.deliverable,
         audit: 'VALID',
         ...(acceptanceWarning ? { acceptanceWarning } : {}),
+        ...(connectionRecorded ? { connectionRecorded } : {}),
       }),
     );
     return;

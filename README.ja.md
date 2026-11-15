@@ -31,21 +31,15 @@ sealbridge connections list
 sealbridge audit-verify audit.jsonl
 ```
 
-保存だけでは接続の同意や仕事の許可にはなりません。**非対話 CLI（TTY なし）では、招待した側の受付ルールに合えば依頼は成功しますが、取り込んだ側の接続は記録されません。** 招待した側は相手を `connected` と表示しても、取り込んだ側の `connections list` は空のままになり得ます。その状態で `connections allow muse` を実行すると `CONNECTION_NOT_FOUND` です。保存した招待名と接続名は別です。
+保存だけでは接続同意や仕事の許可にはなりません。非対話 CLI で招待先へ明示的に依頼を送ると、その送信が接続への同意になります。招待と一致する DID から署名付き ACCEPT を受信・検証した後、取り込んだ側にも接続を記録します。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録しません。単発送信には `--no-connect` を指定します。記録時は日英の通知と JSON の `connectionRecorded` が出ます。受信許可は **off** のままです。TTY の接続確認と MCP の `connect: true` フォームは従来どおりです。
 
-取り込んだ側の接続名と逆向きの依頼を使うには、[MCP を登録](#接続確認のために-mcp-を登録する)し、最初の依頼を `acp_delegate_task` で送り、別に表示される接続確認で持ち主が同意（`connect: true`）してください。
+`connections list` で相手 DID とローカル別名を確認してください。招待作成側の受付ルールは維持します。成功は `SETTLED`、検証済み監査は `VALID` です。信頼アンカーなしでは古い正当な記録への切り詰めは検査しません。
 
-```json
-{"name":"acp_delegate_task","arguments":{"peerRef":"muse","title":"短い確認","input":{"text":"hello"}}}
-```
-
-既に非対話 CLI で送った場合は、MCP から明示的に新しい依頼を送り、その接続確認で同意します。または TTY のある端末で CLI の依頼を実行し、`Confirm owner decision [y/N]?` に持ち主が `y` と答えます。エージェントが代わりに答えてはいけません。**接続に同意し、交換が完了した後に**、両側に相手の DID とローカルの別名が出ます。`allow` や逆向きの依頼の前に、`connections list` または `acp_list_connections {}` で確認してください。招待した側の既存の受付ルールは維持され、招待した側に新しい許可操作は増えません。成功は `SETTLED`、監査は `VALID` です。信頼アンカーなしの監査では、古い正当な記録への切り詰めまでは検査しません。
-
-`--auto-approve` は送信と最終検収の確認を省く明示指定です。接続同意や相手側の実行許可は代行しません。結果は自分でも確認してください。`--to` は保存した招待名・接続名・招待リンク・DID に対応します。古い `workerRef` / `peerRef` も使えます。`--invite` は招待ストアを使う従来の指定で、接続名を探す `--to` と完全に同じではありません。
+`--auto-approve` は送信と最終検収の確認を省く明示指定です。TTY の接続確認や相手側の実行許可は代行しません。非対話 CLI の接続同意は上記の明示的な送信によります。結果は自分でも確認してください。`--to` は保存した招待名・接続名・招待リンク・DID に対応します。古い `workerRef` / `peerRef` も使えます。`--invite` は招待ストアを使う従来の指定で、接続名を探す `--to` と完全に同じではありません。
 
 ### 逆向きにも頼む
 
-先に上の手順で取り込んだ側の接続を確認・完了してください。非対話 CLI の依頼が成功しただけでは足りません。取り込んだ側の新しい接続は、既定で自動受付が **off** です。接続していても、持ち主が許可するまで逆向きの仕事は保留になります。送信側には「相手の承認待ちになるかもしれない」という警告が出ます。保留は自動再試行しません。
+上記の非対話 CLI で接続を記録した後、`connections list` で確認してください。取り込んだ側の新しい接続は、既定で自動受付が **off** です。接続していても、持ち主が許可するまで逆向きの仕事は保留になります。送信側には「相手の承認待ちになるかもしれない」という警告が出ます。保留は自動再試行しません。
 
 取り込んだ側で受けるなら、接続を持つ DID のワーカーも動かします。未移行で requester / worker が別の鍵なら `worker start` に `--also-requester` を付けます（requester 鍵がすでに必要）。移行済みの owner gateway には不要です。名前は `connections list` で確認し、持ち主が必要な範囲だけ許可します。
 
@@ -84,11 +78,11 @@ sealbridge delegate --to reviewer --title "Quick check" --description "Return JS
 sealbridge connections list
 ```
 
-TTY がなければ、この CLI の依頼は成功しても取り込んだ側の接続一覧は空のままになり得ます。取り込んだ側の接続を記録して逆向きの準備へ進むには、MCP の `acp_delegate_task` に `peerRef: "reviewer"` を渡し、接続確認で同意するか、TTY のある端末で CLI を実行して `y` と答えてください。その後、ローカル一覧に出る接続名を使って Muse と同じように許可・取り消しを行います。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
+非対話 CLI は招待先の署名付き ACCEPT を検証して取り込んだ側にも接続を記録します（`--no-connect` で省略）。一覧の接続名で `connections allow reviewer` を実行してから逆向きに頼めます。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
 
 ## 接続確認のために MCP を登録する
 
-MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録します。ホストは **確認フォームの elicitation**（`elicitation/create`）に対応し、持ち主へ接続確認を表示する必要があります。サーバーを起動しただけでは同意になりません。招待を取り込んだ CLI と同じ OS アカウント・データディレクトリ・鍵ストアの設定を使います。
+MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録します。ホストは **確認フォームの elicitation**（`elicitation/create`）に対応し、持ち主へ接続確認を表示する必要があります。サーバーを起動しただけでは同意になりません。`acp_delegate_task`（例: `{ "peerRef": "muse", "title": "確認", "input": { "text": "hello" } }`）で依頼し、別の接続フォームで持ち主が `connect: true` に同意します。招待を取り込んだ CLI と同じ OS アカウント・データディレクトリ・鍵ストアの設定を使います。
 
 ソースのチェックアウトを使う場合の一般的な登録例です。絶対パスを置き換えてください。設定形式はホストによって異なります。
 
@@ -96,7 +90,7 @@ MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録し
 {"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
 ```
 
-Windows では `C:/path/to/node.exe` と `C:/path/to/sealbridge/cli/dist/index.js` などを指定します。中継器の環境で必要な場合だけ `args` に `--allow-private-relay` を加えます。ホストを再読込し、`acp_list_invites` に取り込んだ別名が出ることを確認してから、最初の依頼を送り、接続フォームで同意します。Muse / Grok Bot でこの stdio サーバーを登録でき、確認フォームも表示できるかは、ここでは検証できていません。利用ホストの MCP 設定を確認してください。どちらかが使えない場合は、TTY のある端末で接続に同意します。非対話 CLI の依頼だけでは、取り込んだ側の接続は作られません。
+Windows では `C:/path/to/node.exe` と `C:/path/to/sealbridge/cli/dist/index.js` などを指定します。中継器の環境で必要な場合だけ `args` に `--allow-private-relay` を加えます。ホストを再読込し、`acp_list_invites` に取り込んだ別名が出ることを確認してから、最初の依頼を送り、接続フォームで同意します。Muse / Grok Bot でこの stdio サーバーを登録でき、確認フォームも表示できるかは、ここでは検証できていません。利用ホストの MCP 設定を確認してください。MCP が使えない場合も、上記の非対話 CLI の手順で接続できます。TTY では接続確認に持ち主本人が回答します。
 
 ### 通信でつまずいたとき
 
@@ -146,7 +140,7 @@ sealbridge worker start --adapter sandbox --allow-local-pc
 
 ### MCP ホスト（Cursor / Claude）
 
-`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 専用の `setup --host` はありませんが、MCP の登録手順は必要です。ほかのホストでは、対応していれば [手動で MCP を登録](#接続確認のために-mcp-を登録する)してください。手順は `sealbridge setup --help` も確認してください。
+`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 専用の `setup --host` はありません。MCP を使う場合は登録してください。ほかのホストでは、対応していれば [手動で MCP を登録](#接続確認のために-mcp-を登録する)してください。手順は `sealbridge setup --help` も確認してください。
 
 ### ソースから試す / 中継器を自分で持つ
 
