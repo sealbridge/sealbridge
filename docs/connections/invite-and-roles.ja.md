@@ -242,7 +242,42 @@ sealbridge connections list
 抑制時も code `PEER_APPROVAL_MAY_BE_REQUIRED` と message を持つ `acceptanceWarning` を追加します。
 明示的な招待・保存参照は従来の動作を維持し、新警告は出しません。
 
+## MCP の相手一覧と名前指定（PR5）
+
+`acp_list_connections {}` は、既存の requester / worker の接続を返します。
+MCP の所有者や鍵を明示した場合はその DID だけが対象です。鍵作成・通信・同意変更は行いません。
+`{count, connections}` の従来の情報に `alias`・`localOwnerDid`・`peerOwnerDid`・
+任意の `peerDisplayName`・`state`・`inviteCreator`・`acceptance`・`allowsWork`・
+`allowedWork`・任意の `acceptanceWarning` を追加します。表示名と別名は識別子ではなく、
+本人確認は DID に基づきます。秘密鍵や招待トークンは返さず、旧レコードを書き換えません。
+
+`acceptance` はローカルの相手別設定（`off` / `read-only` / `write` / 旧設定の
+`folder-policy`）です。`allowedWork` はフォルダ設定と相手別設定を合わせたローカルの受付種別で、
+所有者の上限と稼働中のワーカーが別途必要です。相手側の受付設定は示しません。
+`inviteCreator` はローカル招待の使用記録があれば `local`、相手の招待を保存していれば
+`peer`、由来を確認できなければ `unknown` です。
+
+```json
+{"name":"acp_delegate_task","arguments":{"to":"review-bot","title":"レビュー","input":{"text":"例"}}}
+```
+
+新しい任意の文字列引数 `to` は CLI `delegate --to` と同じ runtime の解決処理を使います。
+接続の完全一致の別名・DID・招待・保存済み参照や別名を指定できます。
+`workerRef` / `peerRef` / `workerDid` / `inviteToken` との併用はできません。
+従来の引数はそのまま使えます。不明な名前は `CONNECTION_NOT_FOUND`、重複する名前は
+`CONNECTION_ALIAS_AMBIGUOUS` となり、CLI または MCP で名前一覧を確認する案内を日英で返します。
+異なる DID の招待との衝突は `CONNECTION_TARGET_CONFLICT` です。有効な保存別名は招待の確認を維持し、
+期限切れでも同じ DID の接続があれば接続を使います。明示的な保存参照の期限確認は維持します。
+未移行フォルダでも、その接続のローカル鍵で署名します。MCP の所有者明示時は鍵の範囲を限定します。
+
+接続による送信は CLI と同じ Q3 の `acceptanceWarning` を追加します。終端の承認保留にも付け、
+警告だけでは送信を止めません。相手の受付を断定しません。有効な招待による従来の経路は維持します。
+一覧では接続済みの行にこの案内を付けます。従来の MCP 出力項目は維持します。
+`acp_list_connection_requests {}` は同じ情報の保留行だけを返します。両一覧ツールの入力 schema は
+空の object で、read-only・冪等・ローカル限定・非破壊です。
+MCP の alias / allow / disallow は後続に回し、名前やローカル同意の変更には CLI を使います。
+
 ## 後続の変更
 
-MCP の接続相手一覧・名前指定（PR5）、実際の Muse ↔ Grok Bot の end-to-end テストと
+実際の Muse ↔ Grok Bot の end-to-end テストと
 README ガイド（PR6）、Desktop は後続です。プロトコル版・招待 payload は変更しません。

@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inviteShareCommand } from './invite-share.js';
 import { connectionHumanReview } from './connections.js';
-import { connectionTarget } from './connection-target.js';
+import { connectionTarget, connectionAcceptanceWarning } from '@acp/runtime';
 import { publicSettingsFlags, publicProfileSummary } from './public-settings.js';
 import type { KeyPair, Schema } from '@acp/core';
 import { autoAcceptPolicy, discoverAgentCards, isInviteTarget, parseAndVerifyInviteToken } from '@acp/core';
@@ -567,8 +567,7 @@ export async function networkCommand(command: string, args: string[], applicatio
     const connection = !f.has('--peer-ref') && !f.has('--invite') && !application.pendingRequest
       ? await connectionTarget(target, { ...application.identityOptions,
         explicitKeyPath: f.has('--key') ? text(f, 'key') : undefined }) : undefined;
-    const acceptanceWarning = connection ? { code: 'PEER_APPROVAL_MAY_BE_REQUIRED',
-      message: 'This work may wait for the peer owner approval; current peer acceptance settings are not known locally.' } : undefined;
+    const acceptanceWarning = connection ? connectionAcceptanceWarning() : undefined;
     if (acceptanceWarning && !f.has('--quiet-approval-warning')) console.error(acceptanceWarning.message);
     const key = connection?.key ?? await getKey();
     const workerRef = application.pendingRequest?.workerRef ??

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { connectionTargetGuidance } from '@acp/runtime';
 import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
@@ -62,6 +63,8 @@ const nextSteps: [RegExp, string][] = [
 ];
 
 export function japaneseErrorReason(message: string): string | undefined {
+  const guidance = connectionTargetGuidance(message.replace(/^Error: /, '').split(':')[0]);
+  if (guidance) return guidance;
   return reasons.find(([pattern]) => pattern.test(message))?.[1];
 }
 function pendingGate(error: unknown): string {

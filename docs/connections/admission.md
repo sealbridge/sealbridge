@@ -122,8 +122,17 @@ with migration guidance. Use host budget/type/rate flags above. MCP discovery's
 removed `accessMode` argument returns JSON-RPC -32602. Discovery returns all current
 verified published cards, including legacy cards, without operational mode fields;
 original signed cards remain intact. `acp_list_connections {}` and
-`acp_list_connection_requests {}` read local metadata for the server signer without
-creating an identity. Owner decisions stay in the human CLI.
+`acp_list_connection_requests {}` read local metadata across existing requester and
+worker identities (or only an explicitly configured owner/key), without creating an
+identity. Their empty-object inputs return `{count, connections}`; rows include
+local aliases, authoritative DIDs, informational display names, connection state,
+invite creator provenance, local acceptance and advisory remote-approval warnings.
+Use `acp_delegate_task {"to":"<exact-alias>","title":"Review","input":{}}` for
+CLI-shared name resolution; existing `workerRef`, `peerRef`, `workerDid` and
+`inviteToken` remain supported and are exclusive with `to`. Connection sends add
+`acceptanceWarning` without blocking. See [MCP peer listing and targeting](invite-and-roles.md#mcp-peer-listing-and-name-targeting-pr5)
+for schemas, uncertainty and errors. Owner decisions stay in the human CLI;
+PR6 live Muse ↔ Grok Bot tests/README and Desktop remain later work.
 
 Board claims and dispatch require the selected poster identity's current local
 connection (`CONNECTION_REQUIRED` otherwise). A connection does not approve a task
