@@ -340,6 +340,7 @@ it.each(['cli', 'mcp'] as const)('reports a saved-alias collision through %s wit
       expect(result).toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' } });
       recorded = result.connectionRecorded;
     }
+    expect(recorded.aliasWarning.message).toContain('保存した招待名 "buddy" は別の相手が使用中のため、接続名は "alpha-muse" になりました。');
     expect(recorded).toMatchObject({ alias: 'alpha-muse', aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias: 'buddy' } });
     const listed = JSON.parse(await cli(b, ['connections', 'list'])).connections;
     expect(listed).toContainEqual(expect.objectContaining({ alias: 'buddy', peerOwnerDid: other.did }));
@@ -351,3 +352,47 @@ it.each(['cli', 'mcp'] as const)('reports a saved-alias collision through %s wit
     await relay.close();
   }
 }, 30000);
+
+it.each([[false, 'cli'], [true, 'cli'], [false, 'tty'], [true, 'tty'], [false, 'mcp'], [true, 'mcp']] as const)(
+  'accept without --alias keeps the derived connection name; migrated=%s mode=%s', async (migrated, mode) => {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), 'auto-alias-process-')); roots.push(root);
+    const a = join(root, 'a'), b = join(root, 'b');
+    for (const folder of [a, b]) {
+      await resolveStoredIdentity('requester', { env: environment(folder) });
+      await resolveStoredIdentity('worker', { env: environment(folder) });
+      if (migrated) await cli(folder, ['worker', 'migrate', '--apply']);
+      await cli(folder, ['config', 'auto-accept', 'anyone', 'write']);
+    }
+    const relay = await startLocalRelay({ port: 0 });
+    let receiver: ChildProcess | undefined;
+    try {
+      const token = (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Gamma Bot', '--allow-private-relay'])).trim().split(/\r?\n/)[0];
+      const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--allow-private-relay'], token + '\n'));
+      expect(saved.alias).toMatch(/^gamma-bot-[a-f0-9]{12}$/);
+      expect(saved.aliasExplicit).toBeUndefined();
+      receiver = await worker(a, relay.url, join(root, 'worker.jsonl'), migrated);
+      if (mode === 'mcp') {
+        const host = await mcp(b, relay.url);
+        expect(await call(host.client, 'acp_delegate_task', { to: saved.alias, title: 'Automatic alias', input: {}, taskTimeoutMs: 10000 }))
+          .toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' } });
+        expect(host.prompts()).toBe(1);
+      } else {
+        const capture = { stderr: '' };
+        const result = JSON.parse(await cli(b, ['delegate', '--to', saved.alias, '--title', 'Automatic alias', '--description', 'Return JSON',
+          '--input', '{}', '--auto-approve', '--allow-private-relay', '--task-timeout-ms', '10000', '--audit', join(root, 'requester.jsonl')],
+          mode === 'tty' ? 'y\n' : undefined, capture, false, mode === 'tty'));
+        expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
+        expect(result.connectionRecorded.message).toContain('connections allow gamma-bot\n');
+        expect(verifyAudit(parseJsonl(readFileSync(join(root, 'requester.jsonl'), 'utf8'))).status).toBe('VALID');
+        if (mode === 'tty') expect(capture.stderr).toContain('Confirm owner decision');
+      }
+      expect(JSON.parse(await cli(b, ['connections', 'list'])).connections)
+        .toContainEqual(expect.objectContaining({ alias: 'gamma-bot', state: 'connected', acceptance: 'off' }));
+      expect(verifyAudit(parseJsonl(readFileSync(join(root, 'worker.jsonl'), 'utf8'))).status).toBe('VALID');
+      await cli(b, ['connections', 'allow', 'gamma-bot']);
+    } finally {
+      await Promise.all(clients.splice(0).map(c => c.close()));
+      if (receiver) await stop(receiver);
+      await relay.close();
+    }
+  }, 30000);

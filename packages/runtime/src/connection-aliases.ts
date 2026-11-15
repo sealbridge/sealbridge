@@ -79,7 +79,7 @@ export class ConnectionAliases {
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
       return { alias, ...(collision ? { aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias,
-        message: 'Saved invite alias "' + savedAlias + '" is used by a different peer; connection name is "' + alias + '".' } } : {}) };
+        message: 'Saved invite alias "' + savedAlias + '" is used by a different peer; connection name is "' + alias + '".' + '\n保存した招待名 "' + savedAlias + '" は別の相手が使用中のため、接続名は "' + alias + '" になりました。' } } : {}) };
     } finally {
       if (written) this.io.unlinkSync(temporary);
       this.io.unlinkSync(lock);
@@ -94,7 +94,7 @@ export async function nameInviteConnection(owner: KeyPair, options: IdentityStor
   if (before.some(c => c.peerOwnerDid === peer.peerOwnerDid)) return {};
   const saved = (await InviteStore.open(owner, options)).list().find(i =>
     i.workerRef === 'saved:' + digest({ localOwnerDid: owner.did, inviteDigest }).slice(7) &&
-    i.ownerDid === peer.peerOwnerDid && i.importState !== 'unconfirmed');
+    i.aliasExplicit === true && i.ownerDid === peer.peerOwnerDid && i.importState !== 'unconfirmed');
   if (!saved) return {};
   return aliases.rename(peer.peerOwnerDid, saved.alias, connections, true);
 }

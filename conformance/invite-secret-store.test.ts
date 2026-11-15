@@ -63,7 +63,7 @@ describe('imported invitation string storage', () => {
     const entry = { id: digest({ localOwnerDid: owner.did, inviteDigest }).slice(7), alias: 'reviewer',
       displayName: invite.agentCard.payload.name, ownerDid: invite.ownerDid, agentDid: invite.agentDid,
       relayUrl: invite.relayUrl, inviteToken: token, inviteDigest, importedAt,
-      effectiveExpiresAt: new Date(Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt))).toISOString() };
+      effectiveExpiresAt: new Date(Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt))).toISOString(), aliasExplicit: true };
     const expected = JSON.stringify(signPayload({ type: 'StoredInvites', version: 1,
       localOwnerDid: owner.did, entries: [entry] }, owner, importedAt)) + '\n';
     expect(fs.readFileSync(store.path, 'utf8') === expected).toBe(true);

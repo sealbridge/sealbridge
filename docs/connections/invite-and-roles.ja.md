@@ -122,7 +122,7 @@ Muse が招待を作り、Grok Bot がローカルに保存して、起動中の
   従来の招待タスクの経路は維持しますが、依頼側の接続同意を勝手に作りません。
   `--auto-approve`・`--auto-accept` は接続同意の確認に回答しません。
 
-非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、記録時の通知か `connections list` に表示された接続名で `connections allow <接続名>` を実行します。接続名は `accept --alias` で保存した名前を使い、保存名がなければ相手の表示名から作ります。通知と `connections list` は実際の名前を表示します。別の DID が保存名を使用中なら表示名から作った名前に切り替え、通知・JSON で衝突を案内します。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
+非対話 CLI の `delegate --to` / `--invite` は、招待先への明示的な送信を接続同意として扱います。招待の owner/agent DID と一致する署名付きタスク ACCEPT を検証した後、保存側にも接続を記録します。受信許可は read/write とも `off` で、記録時の通知か `connections list` に表示された接続名で `connections allow <接続名>` を実行します。接続名は `accept --alias` で保存した名前を使い、明示された保存名がなければ相手の表示名から作ります。通知と `connections list` は実際の名前を表示します。別の DID が保存名を使用中なら表示名から作った名前に切り替え、通知・JSON で衝突を案内します。`--no-connect` は単発送信用に記録を省略します。TTY の確認と MCP elicitation は変更しません。到達前の失敗、DID 不一致、`CONNECTION_TARGET_CONFLICT` では記録せず、再送で記録・別名・許可設定を上書きしません。記録時は日英の stderr 通知と JSON `connectionRecorded: {peerOwnerDid, message}` を出します。`accept` 自体は引き続き保存だけです。
 
 接続記録は失敗しても受諾済みの作業を中断しません。日英の stderr と JSON の `connectionRecordWarning`（コード `CONNECTION_RECORD_FAILED`）で、delegate の再実行または TTY/MCP の確認で記録するよう案内します。失敗時は `connectionRecorded` を出しません。成功通知は既知のローカル名を使い、JSON には DID を保持します。stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。
 
@@ -162,9 +162,9 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
 別名変更はローカルだけで完結し、通信せず、相手の DID や接続同意を変更しません。
 名前が曖昧な場合は相手 DID と role/key を指定してください。
 
-新規の取り込み側は保存済み招待の別名（大文字・小文字を含む）を優先し、既存接続や所有者の別名変更は維持します。別 DID との保存名衝突時は表示名由来の名前に必要なら連番を付け、実際の名前を通知します。
+新規の取り込み側は明示して保存した招待の別名（大文字・小文字を含む）を優先し、既存接続や所有者の別名変更は維持します。別 DID との保存名衝突時は表示名由来の名前に必要なら連番を付け、実際の名前を通知します。
 
-保存名がないときの既定別名は保持済みの相手表示名を小文字にし、ASCII 英数字以外の連続を `-` に置換し、
+明示された保存名がないときの既定別名は保持済みの相手表示名を小文字にし、ASCII 英数字以外の連続を `-` に置換し、
 両端のハイフンを除いて最大64文字とします。空なら `peer` です。
 変更後の別名は小文字 ASCII 英数字・`_`・`-` の1〜64文字で、先頭は英数字です。
 同じ表示名から同じ既定別名ができた場合は**曖昧エラー**とし、勝手な採番・選択はしません。
@@ -207,7 +207,7 @@ CLI の委任には `--peer-ref <peerRef>` を追加し、従来の `--to <worke
 ローカルに `acceptance: "off"` を記録します。`accept` 自体は招待保存だけです。
 招待作成側の自動受付は変わらず、Muse が招待を作り Grok Bot が保存して依頼する手順に追加操作はありません。
 
-接続名は `accept --alias` で保存した名前を使い、保存名がなければ相手の表示名から作ります。通知と `connections list` は実際の名前を表示します。別の DID が保存名を使用中なら表示名から作った名前に切り替え、通知・JSON で衝突を案内します。
+接続名は `accept --alias` で保存した名前を使い、明示された保存名がなければ相手の表示名から作ります。通知と `connections list` は実際の名前を表示します。別の DID が保存名を使用中なら表示名から作った名前に切り替え、通知・JSON で衝突を案内します。
 
 ```sh
 sealbridge connections allow buddy             # 読み取り専用
@@ -290,3 +290,7 @@ MCP の alias / allow / disallow は後続に回し、名前やローカル同�
 [README ガイド](../../README.ja.md) と実プロセスの Muse ↔ Grok Bot テストで、
 未移行・移行済みの両構成と双方向の許可・取り消しを確認します。
 Desktop は後続です。招待・役割の一連の変更ではプロトコル版・招待 payload は変更しません。
+
+所有者が別名を明示した招待だけに `aliasExplicit: true` を記録します。自動生成された保存名と、この印がない旧データでは、接続名は表示名から作ります。同じ別名を明示して再保存すると選択を記録しますが、既存接続は改名しません。
+
+保存した招待名が別 DID の接続名と衝突すると、`delegate --to <alias>` は `CONNECTION_TARGET_CONFLICT` になります。`delegate --invite <alias>` で保存済み招待を明示的に選んでください。記録時の通知に実際の接続名を表示します。

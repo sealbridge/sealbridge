@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken, signPayload } from '../packages/core/src/index.js';
 import { ConnectionAliases, connectionAutoAccept, defaultConnectionAlias, InviteStore, resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionTarget, localConnections } from '../cli/src/connection-target.js';
 import { connectionsCommand } from '../cli/src/connections.js';
@@ -212,4 +212,18 @@ it('keeps the derived default without a saved invite and never renames pre-exist
   (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
   expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
   expect(localConnections(f.key, options)[0].alias).toBe('alpha-muse');
+});
+
+it.each(['automatic', 'legacy'] as const)('keeps derived names for %s saved invite aliases', async kind => {
+  const f = await connect('requester', 'Gamma Bot');
+  const invites = await InviteStore.open(f.key, options);
+  invites.import(f.token, kind === 'legacy' ? 'old-owner-name' : undefined);
+  if (kind === 'legacy') {
+    const signed = JSON.parse(readFileSync(invites.path, 'utf8'));
+    delete signed.payload.entries[0].aliasExplicit;
+    writeFileSync(invites.path, JSON.stringify(signPayload(signed.payload, f.key)));
+  }
+  const connections = f.store.listConnections();
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), connections[0], [], connections)).toEqual({});
+  expect(localConnections(f.key, options)[0].alias).toBe('gamma-bot');
 });

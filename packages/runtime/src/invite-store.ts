@@ -15,6 +15,8 @@ import type { RelaySelectionOptions } from './relay-selection.js';
 interface StoredInvite {
   id: string;
   alias: string;
+  /** Present only when an owner explicitly supplied the alias. */
+  aliasExplicit?: true;
   displayName: string;
   ownerDid: string;
   agentDid: string;
@@ -38,6 +40,8 @@ export interface SavedInvite {
   peerRef?: string;
   workerRef: string;
   alias: string;
+  /** Present only when an owner explicitly supplied the alias. */
+  aliasExplicit?: true;
   displayName: string;
   ownerDid: string;
   agentDid: string;
@@ -127,9 +131,10 @@ export class InviteStore {
         const external = e?.inviteSecret !== undefined;
         const fields = 'id,alias,displayName,ownerDid,agentDid,relayUrl,inviteDigest,importedAt,effectiveExpiresAt,';
         if (!e || !exactKeys(e, fields + (external ? 'inviteSecret,tokenDigest' : 'inviteToken') +
-            (e.importState !== undefined ? ',importState' : '')) ||
+            (e.importState !== undefined ? ',importState' : '') + (e.aliasExplicit !== undefined ? ',aliasExplicit' : '')) ||
             (e.importState !== undefined && e.importState !== 'unconfirmed') ||
-            Object.values(e).some(v => typeof v !== 'string') || !aliasPattern.test(e.alias) ||
+            (e.aliasExplicit !== undefined && e.aliasExplicit !== true) ||
+            Object.entries(e).some(([k, v]) => k !== 'aliasExplicit' && typeof v !== 'string') || !aliasPattern.test(e.alias) ||
             !Number.isFinite(Date.parse(e.importedAt)) || Date.parse(e.importedAt) > this.now() ||
             ids.has(e.id) || aliases.has(e.alias)) throw new Error();
         if (external && (e.inviteSecret !== 'invite:' + e.id || !/^[a-f0-9]{64}$/.test(e.id) ||
@@ -151,6 +156,7 @@ export class InviteStore {
         expected.tokenDigest = digestBytes(token);
       }
       if (e.importState !== undefined) expected.importState = e.importState;
+      if (e.aliasExplicit === true) expected.aliasExplicit = true;
       if (token !== inviteTokenFromUri(token) || digest(e) !== digest(expected)) throw new Error();
     } catch { throw new Error('INVITE_STORE_INVALID'); }
   }
@@ -188,7 +194,7 @@ export class InviteStore {
   private publicEntry(e: StoredInvite): SavedInvite {
     const { alias, displayName, ownerDid, agentDid, relayUrl, importedAt, effectiveExpiresAt } = e;
     return { peerRef: 'saved:' + e.id, workerRef: 'saved:' + e.id, alias, displayName, ownerDid, agentDid, relayUrl,
-      importedAt, effectiveExpiresAt, ...(e.importState ? { importState: e.importState } : {}),
+      importedAt, effectiveExpiresAt, ...(e.aliasExplicit === true ? { aliasExplicit: true as const } : {}), ...(e.importState ? { importState: e.importState } : {}),
       status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current' };
   }
   list(): SavedInvite[] { return this.read().map(e => this.publicEntry(e)); }
@@ -243,13 +249,17 @@ export class InviteStore {
     const suffix = digest(invite).slice(7, 19);
     const slug = invite.agentCard.payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'worker';
     const entry = this.entry(inviteTokenFromUri(link), alias ?? slug + '-' + suffix, new Date(now).toISOString(), invite);
+    if (alias !== undefined) entry.aliasExplicit = true;
     if (options.pendingConfirmation) entry.importState = 'unconfirmed';
     return this.mutate(entries => {
       const duplicate = entries.find(e => e.inviteDigest === entry.inviteDigest);
       if (duplicate) {
         if (alias !== undefined && alias !== duplicate.alias) throw new Error('ALIAS_EXISTS');
-        const changed = !options.pendingConfirmation && duplicate.importState === 'unconfirmed';
-        if (changed) delete duplicate.importState;
+        const retained = !options.pendingConfirmation && duplicate.importState === 'unconfirmed';
+        const explicit = alias !== undefined && duplicate.aliasExplicit !== true;
+        const changed = retained || explicit;
+        if (retained) delete duplicate.importState;
+        if (explicit) duplicate.aliasExplicit = true;
         return { entries, result: this.publicEntry(duplicate), changed };
       }
       if (entries.some(e => e.alias === entry.alias)) throw new Error('ALIAS_EXISTS');
