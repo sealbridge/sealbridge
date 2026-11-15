@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import type { ConnectedEvent } from './connection-router.js';
 import { connectionTarget, localConnectionKeys, localConnections, connectionAcceptanceWarning, connectionTargetGuidance } from './connection-target.js';
 import { connectionAutoAccept } from './auto-accept.js';
 import { autoAcceptPolicy } from '@acp/core';
@@ -588,7 +589,7 @@ export class AcpMcpServer {
     if (binding) this.deliveryTransports.set(binding, transport);
     return transport;
   }
-  private async client(relay: RelayTransport | string): Promise<RequesterClient> {
+  private async client(relay: RelayTransport | string, onConnectionEvent?: (event: ConnectedEvent) => void): Promise<RequesterClient> {
     const owner = await this.owner();
     const server = this;
     return new class extends RequesterClient {
@@ -599,7 +600,7 @@ export class AcpMcpServer {
           pendingRelayUrl: typeof options.relay === 'string' ? options.relay : typeof relay === 'string' ? relay : options.pendingRelayUrl }, hooks);
       }
     }({
-      owner,
+      owner, onConnectionEvent,
       deliveryService: await this.delivery(owner),
       identityOptions: this.options.identityOptions ?? {},
       protocolPolicy: this.options.protocolPolicy, now: this.options.now,
@@ -739,7 +740,8 @@ export class AcpMcpServer {
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
-    const result = await (await this.client(relay)).delegate(pendingRequest
+    let connectionRecorded: ConnectedEvent | undefined;
+    const result = await (await this.client(relay, event => { connectionRecorded = event; })).delegate(pendingRequest
       ? { ...pendingRequest, to, signal, beforePropose: request.beforePropose, idempotencyOperation: operation } : request).catch(error => {
         if (connection && error instanceof Error) Object.assign(error, { acceptanceWarning: connectionAcceptanceWarning() });
         throw error;
@@ -748,6 +750,8 @@ export class AcpMcpServer {
     return {
       taskId: result.taskId,
       status: result.state,
+      ...(connectionRecorded ? { connectionRecorded: { peerOwnerDid: connectionRecorded.peerOwnerDid, alias: connectionRecorded.alias ?? null,
+        ...(connectionRecorded.aliasWarning ? { aliasWarning: { ...connectionRecorded.aliasWarning } } : {}) } } : {}),
       ...(connection ? { acceptanceWarning: connectionAcceptanceWarning() } : {}),
       deliverable: result.deliverable,
       auditBundle: {

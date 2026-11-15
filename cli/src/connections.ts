@@ -151,7 +151,7 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
   if (!relayUrl || !to && action !== 'sync') throw new Error('RELAY_REQUIRED');
   const relay: RelayTransport = options.transportFactory?.(relayUrl, key) ?? new HttpRelayClient(relayUrl, key, { allowPrivateRelay: flags.has('--allow-private-relay') });
   relay.setRecipientKey?.(key);
-  const router = new ConnectionRouter({ owner: key, relay: relay.withRecipient?.(key) ?? relay, relayUrl, store, review,
+  const router = new ConnectionRouter({ identityOptions, owner: key, relay: relay.withRecipient?.(key) ?? relay, relayUrl, store, review,
     agentCard: createSignedAgentCard({ name: 'Sealbridge ' + role, agentDid: key.did,
       relayEndpoint: relayUrl, skills: [], protocolVersions: new LiveProtocol({ now: options.now }).receiveVersions() }, key),
     humanReview: connectionHumanReview(options.review, role), now: options.now, allowPrivateRelay: flags.has('--allow-private-relay'),
@@ -168,5 +168,6 @@ export async function connectionsCommand(args: string[], options: ConnectionsCom
     if (!held) throw new Error('INSPECTION_INCOMPLETE');
     output(JSON.stringify(await router.approve(review.store.read(held.id)!.envelope))); return;
   }
-  output(JSON.stringify(await router.service.request({ toOwnerDid: to, message: flags.get('--message'), inviteToken: token })));
+  const result = await router.service.request({ toOwnerDid: to, message: flags.get('--message'), inviteToken: token });
+  output(JSON.stringify({ ...result, ...router.inviteNaming(to) }));
 }

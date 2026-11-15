@@ -606,12 +606,12 @@ export async function networkCommand(command: string, args: string[], applicatio
         console.error(warning.message);
       },
       onConnectionEvent: event => {
-        const localName = noticeName ?? event.peerOwnerDid;
-        const message = 'Connection recorded. Work from this peer is not allowed. To allow read-only work, run: ' +
+        const localName = event.alias ?? noticeName ?? event.peerOwnerDid;
+        const message = (event.aliasWarning ? event.aliasWarning.message + '\n' : '') + 'Connection recorded. Work from this peer is not allowed. To allow read-only work, run: ' +
           cliName + ' connections allow ' + localName +
           '\n接続を記録しました。相手からの作業は許可されていません。読み取り専用の作業を許可するには: ' +
           cliName + ' connections allow ' + localName;
-        connectionRecorded = { peerOwnerDid: event.peerOwnerDid, message };
+        connectionRecorded = { ...event, peerOwnerDid: event.peerOwnerDid, message };
         console.error(message);
       },
       pendingStore: new RequesterPendingStore(key, application.identityOptions),

@@ -2,13 +2,14 @@
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { digestBytes, signPayload, verifySigned } from '@acp/core';
+import { digest, digestBytes, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, Signed } from '@acp/core';
 import type { IdentityStoreOptions } from './key-store.js';
 import { checkPath, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot, writePrivateFile } from './local-identity.js';
+import { InviteStore } from './invite-store.js';
 import type { ConnectionSummary } from './connection-records.js';
 
-const aliasPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const aliasPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 export function defaultConnectionAlias(displayName?: string): string {
   return displayName?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'peer';
 }
@@ -43,8 +44,8 @@ export class ConnectionAliases {
     const aliases = this.read();
     return connections.map(c => ({ ...c, alias: aliases[c.peerOwnerDid] ?? defaultConnectionAlias(c.peerDisplayName) }));
   }
-  rename(peerOwnerDid: string, alias: string, connections: ConnectionSummary[]): void {
-    if (!aliasPattern.test(alias)) throw new Error('INVALID_CONNECTION_ALIAS: use 1–64 lowercase letters, digits, _ or -');
+  rename(peerOwnerDid: string, alias: string, connections: ConnectionSummary[], initialize = false) {
+    if (!(initialize ? aliasPattern : /^[a-z0-9][a-z0-9_-]{0,63}$/).test(alias)) throw new Error('INVALID_CONNECTION_ALIAS: use 1–64 lowercase letters, digits, _ or -');
     if (!connections.some(c => c.peerOwnerDid === peerOwnerDid)) throw new Error('CONNECTION_NOT_FOUND');
     privateDirectory(resolveDataRoot(this.options), this.io, this.options.platform);
     privateDirectory(this.directory, this.io, this.options.platform);
@@ -58,8 +59,18 @@ export class ConnectionAliases {
     let written = false;
     try {
       const aliases = this.read();
-      if (connections.some(c => c.peerOwnerDid !== peerOwnerDid &&
-          (aliases[c.peerOwnerDid] ?? defaultConnectionAlias(c.peerDisplayName)) === alias)) throw new Error('CONNECTION_ALIAS_EXISTS');
+      if (initialize && aliases[peerOwnerDid] !== undefined) return { alias: aliases[peerOwnerDid] };
+      const savedAlias = alias;
+      const used = new Set(connections.filter(c => c.peerOwnerDid !== peerOwnerDid)
+        .map(c => aliases[c.peerOwnerDid] ?? defaultConnectionAlias(c.peerDisplayName)));
+      if (initialize) for (const [did, value] of Object.entries(aliases)) if (did !== peerOwnerDid) used.add(value);
+      const collision = used.has(alias);
+      if (collision) {
+        if (!initialize) throw new Error('CONNECTION_ALIAS_EXISTS');
+        const base = defaultConnectionAlias(connections.find(c => c.peerOwnerDid === peerOwnerDid)?.peerDisplayName);
+        alias = base;
+        for (let n = 2; used.has(alias); n++) alias = base.slice(0, 64 - String(n).length - 1) + '-' + n;
+      }
       aliases[peerOwnerDid] = alias;
       const bytes = Buffer.from(JSON.stringify(signPayload<Aliases>({ type: 'ConnectionAliases', version: 1,
         localOwnerDid: this.owner.did, aliases }, this.owner)) + '\n');
@@ -67,9 +78,23 @@ export class ConnectionAliases {
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
+      return { alias, ...(collision ? { aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias,
+        message: 'Saved invite alias "' + savedAlias + '" is used by a different peer; connection name is "' + alias + '".' } } : {}) };
     } finally {
       if (written) this.io.unlinkSync(temporary);
       this.io.unlinkSync(lock);
     }
   }
+}
+
+/** Initialize only a new importer record. The verified invite digest selects saved metadata, never identity. */
+export async function nameInviteConnection(owner: KeyPair, options: IdentityStoreOptions,
+  inviteDigest: string, peer: ConnectionSummary, before: ConnectionSummary[], connections: ConnectionSummary[]) {
+  const aliases = new ConnectionAliases(owner, options);
+  if (before.some(c => c.peerOwnerDid === peer.peerOwnerDid)) return {};
+  const saved = (await InviteStore.open(owner, options)).list().find(i =>
+    i.workerRef === 'saved:' + digest({ localOwnerDid: owner.did, inviteDigest }).slice(7) &&
+    i.ownerDid === peer.peerOwnerDid && i.importState !== 'unconfirmed');
+  if (!saved) return {};
+  return aliases.rename(peer.peerOwnerDid, saved.alias, connections, true);
 }

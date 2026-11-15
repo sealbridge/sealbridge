@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import { ConnectionAliases, nameInviteConnection } from './connection-aliases.js';
+import type { IdentityStoreOptions } from './key-store.js';
 import { digest, isConnectionEvent, openEnvelope } from '@acp/core';
 import type { KeyPair, SignedAgentCard, SignedEnvelope, RevocationList } from '@acp/core';
 import { waitForRelayRetry } from '@acp/relay';
@@ -13,10 +15,12 @@ import type { WorkerTrustStore } from './worker-trust-store.js';
 import type { ConnectionRecord } from './connection-records.js';
 
 export interface ConnectedEvent {
+  alias?: string; aliasWarning?: { code: string; savedAlias: string; message: string };
   event: 'connected'; peerOwnerDid: string; peerAgentDid?: string;
   connectionId: string; source: ConnectionRecord['source']; connectedAt: number;
 }
 export interface ConnectionRouterOptions {
+  identityOptions?: IdentityStoreOptions;
   owner: KeyPair; agentCard: SignedAgentCard; relayUrl: string; relay: RelayTransport;
   store: WorkerTrustStore; review: HeldRequestReview; now?: () => number;
   humanReview?: ConnectionHumanReviewProvider; revocations?: RevocationList; allowPrivateRelay?: boolean;
@@ -26,6 +30,7 @@ export interface ConnectionRouterOptions {
 /** Control events are consumed by the existing role reader before task mailbox routing. */
 export class ConnectionRouter {
   readonly service: ConnectionService;
+  private readonly names = new Map<string, { alias?: string; aliasWarning?: ConnectedEvent['aliasWarning'] }>();
   constructor(readonly options: ConnectionRouterOptions) {
     const { review, owner } = options;
     const find = (contentDigest: string) => review.list().find(r => r.kind === 'connection' &&
@@ -49,16 +54,28 @@ export class ConnectionRouter {
       },
       async discard(contentDigest) { const held = find(contentDigest); if (held) review.discard(held.id); },
     };
-    this.service = new ConnectionService({ ...options, persistence: new StoredConnectionExchange(options.store),
+    const persistence = new StoredConnectionExchange(options.store);
+    const recordOutgoing = persistence.recordOutgoing.bind(persistence);
+    persistence.recordOutgoing = async (offer, consent, outbox, now) => {
+      const before = options.store.listConnections();
+      await recordOutgoing(offer, consent, outbox, now);
+      if (offer.inviteDigest) {
+        const connections = options.store.listConnections(), peer = connections.find(c => c.peerOwnerDid === offer.toOwnerDid)!;
+        this.names.set(peer.peerOwnerDid, await nameInviteConnection(owner, options.identityOptions ?? {}, offer.inviteDigest, peer, before, connections));
+      }
+    };
+    this.service = new ConnectionService({ ...options, persistence,
       inspection, transport: { send: async (url, envelope) => {
         if (url !== options.relayUrl) throw new Error('CONNECTION_RELAY_MISMATCH');
         options.assertPeer?.(envelope.payload.recipientDid); await options.relay.send(envelope);
       } } });
   }
+  inviteNaming(peerOwnerDid: string) { return this.names.get(peerOwnerDid); }
   private notify(before: ReturnType<WorkerTrustStore['listConnections']>): void {
     for (const c of this.options.store.listConnections()) if ('connectionId' in c && c.state === 'connected' &&
       !before.some(b => 'connectionId' in b && b.connectionId === c.connectionId && b.state === 'connected'))
-      this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: c.peerOwnerDid,
+      this.options.onConnectionEvent?.({ ...this.names.get(c.peerOwnerDid),
+        ...(this.names.has(c.peerOwnerDid) ? { alias: new ConnectionAliases(this.options.owner, this.options.identityOptions).list([c])[0].alias } : {}), event: 'connected', peerOwnerDid: c.peerOwnerDid,
         ...(c.peerAgentDid ? { peerAgentDid: c.peerAgentDid } : {}), connectionId: c.connectionId!,
         source: c.source, connectedAt: c.connectedAt! });
   }
