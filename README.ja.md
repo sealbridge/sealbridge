@@ -55,17 +55,30 @@ sealbridge connections disallow muse     # また持ち主の確認待ちに戻�
 
 同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 と pnpm 10 が必要です。グローバルに書けない場合はユーザー用の場所へ入れ、コマンドの PATH を設定します。`sealbridge doctor` で通信を確認します。
 
+公開パッケージをユーザー領域へ入れる場合は次を使えます。招待・役割の一連の機能をすべて使う場合は、上のリポジトリからの導入を選んでください。
+
+```sh
+npm i --prefix "$HOME/.local" sealbridge
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+```
+
 招待を作る場合は上と同じくワーカーを起動し、表示されたリンクを渡します。受け取る場合は、非公開の `invitation.txt` を標準入力から取り込めます。
 
 ```sh
-sealbridge accept --stdin --alias muse < invitation.txt
-sealbridge delegate --to muse --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
+sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge delegate --to reviewer --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
 sealbridge connections list
 ```
 
 接続後の名前による依頼と逆向きの許可・取り消しは Muse と同じです。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
 
 ### 通信でつまずいたとき
+
+プロキシ経由で接続できると、`sealbridge doctor` は次のように表示します。
+
+```text
+Relay: Reachable; via proxy (OK)
+```
 
 Muse のプロキシ設定は自動で利用します。公開中継器 `https://relay.sealbridge.dev` は既定なので `--relay` を省略できます。Grok Bot の合成 DNS（198.18/15）は 0.8.1 以降で自動検出します。それ以外の私設アドレスへ解決される環境や私設・ループバックの中継器では、接続先を確認した上で `accept` / `delegate` / `worker start` / `mcp-server` の該当コマンドに `--allow-private-relay` が必要です。メタデータ用アドレスは許可されません。
 

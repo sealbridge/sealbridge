@@ -53,19 +53,32 @@ These choices apply only to that local peer; they do not start a worker or remov
 
 ## Install on Grok Bot
 
-Paste the same repository link and say ?install this.? Building from source needs Node.js 22 and pnpm 10. If the global install directory is not writable, install in a user-owned location and add the command to PATH. Run `sealbridge doctor` to check connectivity.
+Paste the same repository link and say "install this." Building from source needs Node.js 22 and pnpm 10. If the global install directory is not writable, install in a user-owned location and add the command to PATH. Run `sealbridge doctor` to check connectivity.
+
+For the published package, the user-directory alternative is below. Use the repository installation above for the full invite/role series.
+
+```sh
+npm i --prefix "$HOME/.local" sealbridge
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+```
 
 To create an invite, start a worker as above and share its printed link. To receive one, save it in a private `invitation.txt` and import through stdin:
 
 ```sh
-sealbridge accept --stdin --alias muse < invitation.txt
-sealbridge delegate --to muse --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
+sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge delegate --to reviewer --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
 sealbridge connections list
 ```
 
 Name targeting and reverse-direction allow/disallow work as on Muse. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
 
 ### Connection troubleshooting
+
+For a working proxy connection, `sealbridge doctor` reports:
+
+```text
+Relay: Reachable; via proxy (OK)
+```
 
 Muse's proxy settings are used automatically. The default public relay is `https://relay.sealbridge.dev`; omit `--relay` to use it. Grok Bot synthetic DNS (198.18/15) is detected automatically from 0.8.1. Other environments resolving the relay to private addresses, or intentional private/loopback relays, can require `--allow-private-relay` on the relevant `accept`, `delegate`, `worker start` or `mcp-server` command after checking the destination. Metadata addresses remain blocked.
 
