@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, chmodSync, mkdirSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, chmodSync, mkdirSync, symlinkSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -84,12 +84,13 @@ it.each(['directory', ...(process.platform === 'win32' ? [] : ['permissions', 's
     }
     const capture = { stderr: '' };
     expect(f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n', capture)).toMatchObject({ alias: 'buddy', aliasExplicit: kind === 'permissions' });
+    // Opening the store may warn about unreadable intent before the writer repairs it.
+    expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g)).toHaveLength(1);
     if (kind === 'permissions') {
-      expect(capture.stderr).not.toContain('INVITE_ALIAS_METADATA_UNAVAILABLE');
+      expect(statSync(f.store.aliasPath).mode & 0o777).toBe(0o600);
       expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBe(true);
       return;
     }
-    expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g)).toHaveLength(1);
     expect(capture.stderr).toContain('招待別名の明示指定を読み取り・保存できませんでした');
     expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBeUndefined();
   }, 60000);
