@@ -71,7 +71,7 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
       for (const result of first) { if (result.status === 'rejected') throw result.reason; }
       expect(new WorkerTrustStore(aOwner, { path: workerIntakePath(aOwner.did, aOptions) }).connectionState(bOwner.did)).toBe('connected');
       expect(new WorkerTrustStore(bOwner, { path: workerIntakePath(bOwner.did, bOptions) }).connectionState(aOwner.did)).toBe('connected');
-      expect(localConnections(bOwner, bOptions)[0].alias).toBe('alpha');
+      expect(localConnections(bOwner, bOptions)[0].alias).toBe('old-reviewer');
       const alias = localConnections(aOwner, aOptions)[0].alias;
       expect((await connectionTarget(alias, aOptions))?.key.did).toBe(aOwner.did);
       // Return routing uses the connection, independently of the original bearer invite's lifetime.
