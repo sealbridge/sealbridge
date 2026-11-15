@@ -20,7 +20,7 @@ export function localConnections(key: KeyPair, options: InviteStoreOptions = {})
     fs: options.fs, platform: options.platform, now: options.now });
   return new ConnectionAliases(key, options).list(store.listConnections()).map(c => ({ ...c, acceptance: 'acceptance' in c ? c.acceptance ?? 'folder-policy' : 'folder-policy', localOwnerDid: key.did }));
 }
-/** Explicit invite selectors keep their historical store/expiry semantics. Only --to names opt in. */
+/** Explicit invite selectors keep their historical store/expiry semantics. Only CLI --to / MCP to names opt in. */
 export async function connectionTarget(name: string, options: InviteStoreOptions = {}, selectedKeys?: KeyPair[]) {
   if (!name || isInviteTarget(name) || name.startsWith('did:') || name.startsWith('saved:')) return undefined;
   const keys = selectedKeys ?? await localConnectionKeys(options);

@@ -89,12 +89,15 @@ it.each(['requester', 'worker'] as const)('settles name and DID sends using the 
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     approvalProvider: new PolicyAutoApprovalProvider(f.peer), adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute } });
   const server = new AcpMcpServer({ identityOptions: options, relay, allowAnyRelay: true });
-  const running = worker.start();
+  const running = worker.start(), send = vi.spyOn(relay, 'send');
   try {
     for (const selector of [{ to: 'reviewer' }, { workerDid: f.peer.did }]) {
       const value = await call(server, 'acp_delegate_task', { ...selector, title: 'Echo', input: { ok: true }, taskTimeoutMs: 5000 });
       expect(value, JSON.stringify(value)).toMatchObject({ isError: false, status: 'SETTLED', deliverable: { ok: true }, auditBundle: { valid: true } });
-      if ('to' in selector) expect(value.acceptanceWarning.code).toBe('PEER_APPROVAL_MAY_BE_REQUIRED');
+      if ('to' in selector) {
+        expect(value.acceptanceWarning.code).toBe('PEER_APPROVAL_MAY_BE_REQUIRED');
+        expect(send.mock.calls.find(([e]) => e.payload.eventType === 'PROPOSE')![0].payload.senderDid).toBe(f.key.did);
+      }
     }
     const args = { to: 'reviewer', title: 'Echo', idempotencyKey: 'named', taskTimeoutMs: 5000 };
     expect(await call(server, 'acp_delegate_task', args)).toEqual(await call(server, 'acp_delegate_task', args));

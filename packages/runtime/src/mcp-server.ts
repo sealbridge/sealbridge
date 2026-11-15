@@ -392,7 +392,7 @@ export class AcpMcpServer {
           args.workerRef !== undefined || args.workerDid !== undefined || args.inviteToken !== undefined)
         throw new RpcError(-32602, 'to must be a nonempty target, exclusive with workerRef/peerRef/inviteToken/workerDid');
       try {
-        const connection = await connectionTarget(args.to, this.connectionOptions(), await this.connectionKeys());
+        const connection = await connectionTarget(args.to, this.connectionOptions(), this.options.owner ? [this.options.owner] : undefined);
         const owner = this.options.owner ?? await this.selectedOwner ??
           (await inspectStoredIdentity('requester', this.options.identityOptions)).key;
         if (connection && connection.key.did !== owner?.did) {
@@ -691,7 +691,9 @@ export class AcpMcpServer {
   }
   private async delegateTask(args: Record<string, unknown>, signal?: AbortSignal, pendingRequest?: DelegateOptions, operation?: IdempotencyOperation): Promise<Json> {
     const connection = typeof args.to === 'string'
-      ? await connectionTarget(args.to, this.connectionOptions(), await this.connectionKeys()) : undefined;
+      ? await connectionTarget(args.to, this.connectionOptions(), this.options.owner ? [this.options.owner] : undefined) : undefined;
+    if (connection && connection.key.did !== (await this.owner()).did)
+      throw new Error('CONNECTION_TARGET_CHANGED: list connections again before sending');
     if (args.to !== undefined) {
       const { to: target, ...rest } = args;
       args = { ...rest, ...(connection ? { workerDid: connection.connection.peerOwnerDid } :
