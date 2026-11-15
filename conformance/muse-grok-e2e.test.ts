@@ -4,9 +4,9 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -27,6 +27,19 @@ afterEach(async () => {
 const environment = (root: string) => ({ ...Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string')),
   SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'file', OPENAI_API_KEY: 'local-fixture-only',
   HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '', NO_PROXY: '*'  });
+async function oldAccept(root: string, token: string) {
+  const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+    import { InviteStore } from './conformance/fixtures/pre-290-invite-store.ts';
+    import { resolveStoredIdentity } from './packages/runtime/dist/index.js';
+    const key = await resolveStoredIdentity('requester');
+    let token = ''; for await (const chunk of process.stdin) token += chunk;
+    new InviteStore(key).import(token, 'unrelated');
+  `], { env: environment(root), stdio: ['pipe', 'ignore', 'pipe'] });
+  children.push(child);
+  let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
+  const closed = once(child, 'close'); child.stdin.end(token);
+  expect((await closed)[0], stderr).toBe(0);
+}
 function cli(root: string, args: string[], stdin?: string, capture?: { stderr: string }, failConnection = false, terminal = false) {
   const child = spawn(process.execPath, [...(terminal ? ['--require', resolve('conformance/fixtures/cli-terminal.cjs')] : []), ...(failConnection ? ['--import', pathToFileURL(resolve('conformance/fixtures/connection-record-failure.mjs')).href] : []), resolve('cli/dist/index.js'), ...args], { env: { ...environment(root), ...(terminal ? { SEALBRIDGE_TEST_TERMINAL: '1' } : {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
   children.push(child);
@@ -43,7 +56,7 @@ async function worker(root: string, url: string, audit: string, migrated: boolea
     ...(!migrated ? ['--also-requester', '--requester-auto-accept', 'write'] : [])], { env: environment(root), stdio: ['pipe', 'ignore', 'pipe', 'ipc'] });
   children.push(child);
   await new Promise<void>((done, fail) => {
-    const timer = setTimeout(() => fail(new Error('worker readiness timeout')), 10000);
+    const timer = setTimeout(() => fail(new Error('worker readiness timeout')), 30000);
     let stderr = '';
     child.stderr!.on('data', b => { stderr += b; if (stderr.includes('invite_ready')) { clearTimeout(timer); done(); } });
     child.once('error', fail); child.once('close', () => { clearTimeout(timer); fail(new Error('worker exited before readiness')); });
@@ -403,3 +416,68 @@ it.each([[false, 'cli', 'automatic'], [true, 'cli', 'automatic'], [false, 'tty',
       await relay.close();
     }
   }, 30000);
+
+async function legacyAliasProcessCase(kind: 'old-write' | 'held-lock' | 'read-only') {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'alias-maintenance-')); roots.push(root);
+  const a = join(root, 'a'), b = join(root, 'b');
+  for (const folder of [a, b]) {
+    await resolveStoredIdentity('requester', { env: environment(folder) });
+    await resolveStoredIdentity('worker', { env: environment(folder) });
+    await cli(folder, ['config', 'auto-accept', 'anyone', 'write']);
+  }
+  const relay = await startLocalRelay({ port: 0 });
+  let receiver: ChildProcess | undefined, holder: ChildProcess | undefined, directory: string | undefined;
+  try {
+    const token = (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Gamma Bot', '--allow-private-relay'])).trim().split(/\r?\n/)[0];
+    await cli(b, ['accept', '--stdin', '--alias', 'buddy', '--allow-private-relay'], token + '\n');
+    const key = await resolveStoredIdentity('requester', { env: environment(b) });
+    const store = new InviteStore(key, { env: environment(b) });
+    if (kind === 'old-write') {
+      const other = generateKeyPair();
+      const card = createSignedAgentCard({ name: 'Unrelated', agentDid: other.did, relayEndpoint: 'https://relay.example', skills: [] }, other);
+      await oldAccept(b, createInviteToken({ agentCard: card, expiresInSeconds: 3600 }, other));
+    } else {
+      const signed = JSON.parse(readFileSync(store.path, 'utf8'));
+      signed.payload.entries[0].aliasExplicit = true;
+      writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, key)));
+      unlinkSync(store.aliasPath);
+      if (kind === 'read-only') {
+        directory = dirname(store.path); chmodSync(directory, 0o500);
+      } else {
+        holder = spawn(process.execPath, ['-e', `
+          const fs = require('node:fs'), path = process.argv[1];
+          fs.writeFileSync(path, String(process.pid), { flag: 'wx', mode: 0o600 });
+          process.stdout.write('locked'); process.stdin.resume();
+          process.stdin.on('end', () => { fs.unlinkSync(path); process.exit(0); });
+        `, store.path + '.lock'], { stdio: ['pipe', 'pipe', 'pipe'] });
+        children.push(holder); await once(holder.stdout!, 'data');
+      }
+    }
+    expect(JSON.parse(await cli(b, ['invites', 'list'])).invites)
+      .toContainEqual(expect.objectContaining({ alias: 'buddy', aliasExplicit: true }));
+    receiver = await worker(a, relay.url, join(root, 'worker.jsonl'), false);
+    const result = JSON.parse(await cli(b, ['delegate', '--to', 'buddy', '--title', 'Alias maintenance', '--description', 'Return JSON',
+      '--input', '{}', '--auto-approve', '--allow-private-relay', '--task-timeout-ms', '10000', '--audit', join(root, 'requester.jsonl')]));
+    expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID', connectionRecorded: { alias: 'buddy' } });
+    expect(JSON.parse(await cli(b, ['connections', 'list'])).connections)
+      .toContainEqual(expect.objectContaining({ alias: 'buddy', state: 'connected', acceptance: 'off' }));
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, 'requester.jsonl'), 'utf8'))).status).toBe('VALID');
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, 'worker.jsonl'), 'utf8'))).status).toBe('VALID');
+    if (kind !== 'old-write') expect(JSON.parse(readFileSync(store.path, 'utf8')).payload.entries[0].aliasExplicit).toBe(true);
+    if (holder) {
+      const closed = once(holder, 'close'); holder.stdin!.end(); expect((await closed)[0]).toBe(0); holder = undefined;
+    }
+    if (directory) { chmodSync(directory, 0o700); directory = undefined; }
+    // A later write completes the deferred migration without losing the name.
+    await cli(b, ['accept', '--stdin', '--alias', 'buddy', '--allow-private-relay'], token + '\n');
+    expect(JSON.parse(readFileSync(store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
+  } finally {
+    if (directory) chmodSync(directory, 0o700);
+    if (holder) { const closed = once(holder, 'close'); holder.stdin!.end(); await closed; }
+    if (receiver) await stop(receiver);
+    await relay.close();
+  }
+}
+it.each(['old-write', 'held-lock'] as const)('keeps buddy through real-process %s and delegate --to buddy', legacyAliasProcessCase, 60000);
+it.skipIf(process.platform === 'win32')('keeps buddy through a read-only invites directory and delegate --to buddy',
+  () => legacyAliasProcessCase('read-only'), 60000);

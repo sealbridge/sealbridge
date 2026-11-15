@@ -275,5 +275,113 @@ it('treats unreadable intent as absent and accepts when sidecar publication fail
   } } });
   const imported = failing.import(fixture().token, 'second');
   expect(imported.alias).toBe('second');
-  expect(store.list().every(e => e.aliasExplicit === undefined)).toBe(true);
+  expect(store.list()).toMatchObject([{ alias: 'chosen', aliasExplicit: true }, { alias: 'second' }]);
+  expect(store.list()[1].aliasExplicit).toBeUndefined();
+});
+
+function inlineLegacy(owner: ReturnType<typeof generateKeyPair>, store: InviteStore) {
+  const signed = JSON.parse(fs.readFileSync(store.path, 'utf8'));
+  signed.payload.entries[0].aliasExplicit = true;
+  fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
+  fs.unlinkSync(store.aliasPath);
+}
+it.each(['held-lock', 'read-only'] as const)('reads verified legacy aliases when migration encounters %s and retries on write', reason => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy'); inlineLegacy(owner, store);
+  const before = fs.readFileSync(store.path);
+  if (reason === 'held-lock') fs.writeFileSync(store.path + '.lock', 'another writer', { mode: 0o600 });
+  const io = reason === 'held-lock' ? fs : { ...fs, openSync: ((path, flags, ...args) => {
+    if (typeof flags === 'number' && (flags & fs.constants.O_CREAT))
+      throw Object.assign(new Error('read-only directory'), { code: 'EROFS' });
+    return (fs.openSync as any)(path, flags, ...args);
+  }) as typeof fs.openSync };
+  const reader = new InviteStore(owner, { ...options, fs: io });
+  expect(reader.list()[0]).toMatchObject({ alias: 'buddy', aliasExplicit: true });
+  expect(reader.resolve('buddy').inviteToken).toBe(token);
+  expect(fs.readFileSync(store.path)).toEqual(before);
+  if (reason === 'held-lock') {
+    expect(fs.readFileSync(store.path + '.lock', 'utf8')).toBe('another writer');
+    expect(() => reader.import(token, 'buddy')).toThrow('INVITE_STORE_BUSY');
+    fs.unlinkSync(store.path + '.lock');
+  } else expect(() => reader.import(token, 'buddy')).toThrow('read-only directory');
+  expect(store.import(token, 'buddy').aliasExplicit).toBe(true);
+  expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
+  expect(store.list()[0].aliasExplicit).toBe(true);
+});
+it('publishes migration intent before replacing the store and survives interruption at that boundary', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy'); inlineLegacy(owner, store);
+  const before = fs.readFileSync(store.path);
+  const reader = new InviteStore(owner, { ...options, fs: { ...fs, renameSync: (from, to) => {
+    expect(fs.existsSync(store.path + '.lock')).toBe(true);
+    if (String(to) === store.path) {
+      expect(JSON.parse(fs.readFileSync(store.aliasPath, 'utf8')).payload.marks).toHaveLength(1);
+      throw new Error('simulated interruption');
+    }
+    fs.renameSync(from, to);
+  } } });
+  expect(reader.list()[0].aliasExplicit).toBe(true);
+  expect(fs.readFileSync(store.path)).toEqual(before);
+  const legacy = JSON.parse(before.toString());
+  delete legacy.payload.entries[0].aliasExplicit;
+  fs.writeFileSync(store.path, JSON.stringify(signPayload(legacy.payload, owner)));
+  expect(store.list()[0].aliasExplicit).toBe(true);
+});
+it('keeps legacy inline intent when the sidecar cannot be published', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options);
+  store.import(fixture().token, 'buddy'); inlineLegacy(owner, store);
+  fs.mkdirSync(store.aliasPath, { mode: 0o700 });
+  expect(store.list()[0].aliasExplicit).toBe(true);
+  expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0].aliasExplicit).toBe(true);
+  fs.rmdirSync(store.aliasPath);
+  expect(store.list()[0].aliasExplicit).toBe(true);
+  expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
+});
+it('retains per-entry intent from an earlier sidecar after unrelated store changes', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options);
+  store.import(fixture().token, 'buddy');
+  const signed = JSON.parse(fs.readFileSync(store.aliasPath, 'utf8'));
+  signed.payload.recordsDigest = 'sha256:' + '0'.repeat(64);
+  fs.writeFileSync(store.aliasPath, JSON.stringify(signPayload(signed.payload, owner)));
+  expect(store.list()[0]).toMatchObject({ alias: 'buddy', aliasExplicit: true });
+});
+it('keeps existing intent when store replacement fails during removal', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options);
+  store.import(fixture().token, 'buddy');
+  const before = fs.readFileSync(store.path);
+  const failing = new InviteStore(owner, { ...options, fs: { ...fs, renameSync: (from, to) => {
+    if (String(to) === store.path) throw new Error('store publication interrupted');
+    fs.renameSync(from, to);
+  } } });
+  expect(() => failing.remove('buddy')).toThrow('INVITE_STORE_INVALID');
+  expect(fs.readFileSync(store.path)).toEqual(before);
+  expect(store.list()[0]).toMatchObject({ alias: 'buddy', aliasExplicit: true });
+});
+it('keeps per-entry intent absent after an old-style record alias change', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options);
+  store.import(fixture().token, 'buddy');
+  const signed = JSON.parse(fs.readFileSync(store.path, 'utf8'));
+  signed.payload.entries[0].alias = 'renamed';
+  fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
+  expect(store.list()[0].alias).toBe('renamed');
+  expect(store.list()[0].aliasExplicit).toBeUndefined();
+});
+it.each(['directory', 'symlink', 'permissions'] as const)('warns once in both languages for an unsafe %s sidecar without blocking use', kind => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy');
+  const io = { ...fs, lstatSync: ((path, ...args) => {
+    const stat = (fs.lstatSync as any)(path, ...args);
+    if (String(path) !== store.aliasPath) return stat;
+    if (kind === 'symlink') return { ...stat, isSymbolicLink: () => true };
+    if (kind === 'directory') return { ...stat, isSymbolicLink: () => false, isFile: () => false };
+    throw Object.assign(new Error('unsafe permissions'), { code: 'EACCES' });
+  }) as typeof fs.lstatSync };
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const reader = new InviteStore(owner, { ...options, fs: io });
+  expect(reader.list()[0].aliasExplicit).toBeUndefined();
+  expect(reader.resolve('buddy').inviteToken).toBe(token);
+  expect(reader.import(token, 'buddy').alias).toBe('buddy');
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn.mock.calls[0][0]).toContain('explicit invite alias metadata could not be read or saved');
+  expect(warn.mock.calls[0][0]).toContain('招待別名の明示指定を読み取り・保存できませんでした');
 });

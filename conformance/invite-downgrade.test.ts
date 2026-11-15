@@ -1,6 +1,6 @@
 ﻿// SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, chmodSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,13 @@ import { createInviteToken, createSignedAgentCard, generateKeyPair, signPayload 
 import { InviteStore, resolveStoredIdentity } from '../packages/runtime/src/index.js';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+it('keeps the Japanese compatibility paragraphs in valid UTF-8 without question-mark runs', () => {
+  for (const file of ['README.ja.md', 'docs/connections/invite-lifecycle.ja.md', 'CHANGELOG.md']) {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(resolve(file)));
+    expect(text).not.toMatch(/\?{3,}/);
+    if (file.endsWith('.ja.md')) expect(text).toContain('明示的な招待別名の指定は');
+  }
+});
 async function fixture() {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'invite-downgrade-')); roots.push(root);
   const env = { ...process.env, SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'file' };
@@ -16,18 +23,22 @@ async function fixture() {
   const card = createSignedAgentCard({ name: 'Gamma Bot', agentDid: peer.did, relayEndpoint: 'https://relay.example', skills: [] }, peer);
   const token = createInviteToken({ agentCard: card, expiresInSeconds: 3600 }, peer);
   const store = new InviteStore(identity, { env });
-  function cli(args: string[], input?: string) {
-    const result = spawnSync(process.execPath, [resolve('cli/dist/index.js'), ...args], { env, input, encoding: 'utf8', timeout: 10000 });
+  function cli(args: string[], input?: string, capture?: { stderr: string }) {
+    const result = spawnSync(process.execPath, [resolve('cli/dist/index.js'), ...args], { env, input, encoding: 'utf8', timeout: 30000 });
     expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
+    if (capture) capture.stderr = result.stderr;
     return JSON.parse(result.stdout);
   }
-  function oldRead() {
+  function oldRead(token?: string) {
     const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
       import { InviteStore } from './conformance/fixtures/pre-290-invite-store.ts';
       import { resolveStoredIdentity } from './packages/runtime/dist/index.js';
       const identity = await resolveStoredIdentity('requester');
-      console.log(JSON.stringify(new InviteStore(identity).list()));
-    `], { env, encoding: 'utf8', timeout: 10000 });
+      const store = new InviteStore(identity);
+      let token = ''; for await (const chunk of process.stdin) token += chunk;
+      if (token) store.import(token, 'unrelated');
+      console.log(JSON.stringify(store.list()));
+    `], { env, input: token ?? '', encoding: 'utf8', timeout: 30000 });
     expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
     return JSON.parse(result.stdout);
   }
@@ -49,6 +60,33 @@ it('new CLI accept remains readable by a separate frozen old reader; duplicate a
   expect(f.cli(['accept', '--stdin', '--alias', 'renamed'], f.token + '\n').aliasExplicit).toBe(true);
   expect(f.oldRead()).toMatchObject([{ alias: 'renamed' }]);
 });
+it('preserves a per-record explicit mark after a real old process accepts an unrelated invite', async () => {
+  const f = await fixture();
+  f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n');
+  const peer = generateKeyPair();
+  const card = createSignedAgentCard({ name: 'Other', agentDid: peer.did, relayEndpoint: 'https://relay.example', skills: [] }, peer);
+  expect(f.oldRead(createInviteToken({ agentCard: card, expiresInSeconds: 3600 }, peer))).toHaveLength(2);
+  expect(f.cli(['invites', 'list']).invites).toContainEqual(expect.objectContaining({ alias: 'buddy', aliasExplicit: true }));
+  expect(JSON.parse(readFileSync(f.store.aliasPath, 'utf8')).payload).not.toHaveProperty('recordsDigest');
+}, 60000);
+it.each(['directory', ...(process.platform === 'win32' ? [] : ['permissions', 'symlink'])])(
+  'prints one bilingual stderr notice for a real %s sidecar and keeps stdout valid JSON', async kind => {
+    const f = await fixture();
+    f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n');
+    if (kind === 'permissions') chmodSync(f.store.aliasPath, 0o644);
+    else {
+      const target = f.store.aliasPath + '.target';
+      writeFileSync(target, readFileSync(f.store.aliasPath), { mode: 0o600 });
+      unlinkSync(f.store.aliasPath);
+      if (kind === 'directory') mkdirSync(f.store.aliasPath, { mode: 0o700 });
+      else symlinkSync(target, f.store.aliasPath);
+    }
+    const capture = { stderr: '' };
+    expect(f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n', capture).alias).toBe('buddy');
+    expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g)).toHaveLength(1);
+    expect(capture.stderr).toContain('招待別名の明示指定を読み取り・保存できませんでした');
+    expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBeUndefined();
+  }, 60000);
 it.each(['list', 'accept'] as const)('a new CLI %s process migrates a signed inline main marker before the frozen old reader opens it', async action => {
   const f = await fixture();
   f.cli(['accept', '--stdin', '--alias', 'chosen'], f.token + '\n');

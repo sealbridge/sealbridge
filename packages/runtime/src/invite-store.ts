@@ -77,6 +77,8 @@ export class InviteStore {
   private secretStore?: SecretStore;
   private locked = false;
   private legacyInline = false;
+  private legacyKeys = new Set<string>();
+  private static readonly warnedAliasPaths = new Set<string>();
   /** Optional owner-signed intent metadata; older releases never read this file. */
   get aliasPath(): string { return this.path + '.aliases.json'; }
   /** Loads the optional backend; the constructor and synchronous methods remain available. */
@@ -117,7 +119,7 @@ export class InviteStore {
         Date.parse(invite.agentCard.payload.expiresAt))).toISOString(),
     };
   }
-  private readMetadata(): StoredInvite[] {
+  private readMetadata(migrate = true): StoredInvite[] {
     try {
       for (const path of [this.root, this.directory]) {
         try { inspectDirectory(path, this.io, this.options.platform); }
@@ -147,48 +149,61 @@ export class InviteStore {
         ids.add(e.id); aliases.add(e.alias);
       }
       const legacyInline = p.entries.some(e => e.aliasExplicit === true);
-      if (this.locked) this.legacyInline = legacyInline;
-      if (!this.locked && legacyInline) {
-        // Re-read under the normal writer lock before migrating legacy inline marks.
-        this.mutate(entries => ({ entries, result: undefined, changed: true }), true);
-        return this.readMetadata();
+      if (this.locked) {
+        this.legacyInline = legacyInline;
+        this.legacyKeys = new Set(p.entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e)));
       }
-      const marks = this.readAliasMarks(p.entries);
+      if (migrate && !this.locked && legacyInline) {
+        // Re-read under the normal writer lock before migrating legacy inline marks.
+        try {
+          this.mutate(entries => ({ entries, result: undefined, changed: true }), true);
+          return this.readMetadata(false);
+        } catch {
+          // Migration is maintenance, not validation. Keep this verified snapshot
+          // usable when a writer holds the lock or publication is unavailable.
+        }
+      }
+      const marks = this.readAliasMarks();
       return p.entries.map(e => ({ ...e, ...(marks.has(this.aliasKey(e)) ? { aliasExplicit: true as const } : {}) }));
     } catch { throw new Error('INVITE_STORE_INVALID'); }
-  }
-  private recordsDigest(entries: StoredInvite[]): string {
-    return digest(entries.map(({ aliasExplicit: _intent, ...record }) => record));
   }
   private aliasKey(e: StoredInvite): string {
     return digest({ id: e.id, alias: e.alias, importedAt: e.importedAt });
   }
-  private readAliasMarks(entries: StoredInvite[]): Set<string> {
+  private warnAliasMetadata(): void {
+    if (InviteStore.warnedAliasPaths.has(this.aliasPath)) return;
+    InviteStore.warnedAliasPaths.add(this.aliasPath);
+    console.error('INVITE_ALIAS_METADATA_UNAVAILABLE: explicit invite alias metadata could not be read or saved; derived connection names may be used.\n招待別名の明示指定を読み取り・保存できませんでした。表示名から作った接続名を使用する場合があります。');
+  }
+  private readAliasMarks(): Set<string> {
     try {
       const contents = readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
       if (contents === undefined) return new Set();
       const signed = JSON.parse(contents), p = signed.payload;
       if (!exactKeys(signed, 'payload,signature') || !verifySigned(signed, this.owner.did) ||
-          !exactKeys(p, 'type,version,localOwnerDid,recordsDigest,marks') || p.type !== 'InviteAliasIntent' ||
-          p.version !== 1 || p.localOwnerDid !== this.owner.did || p.recordsDigest !== this.recordsDigest(entries) || !Array.isArray(p.marks) ||
-          p.marks.some((m: unknown) => typeof m !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m))) return new Set();
+          !exactKeys(p, 'type,version,localOwnerDid,marks' + (p.recordsDigest !== undefined ? ',recordsDigest' : '')) || p.type !== 'InviteAliasIntent' ||
+          p.version !== 1 || p.localOwnerDid !== this.owner.did ||
+          (p.recordsDigest !== undefined && (typeof p.recordsDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(p.recordsDigest))) ||
+          !Array.isArray(p.marks) || p.marks.some((m: unknown) => typeof m !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m))) throw new Error();
       return new Set(p.marks);
-    } catch { return new Set(); }
+    } catch { this.warnAliasMetadata(); return new Set(); }
   }
   /** Called only under the invite-store lock. Intent loss must never prevent invitation use. */
-  private writeAliasMarks(entries: StoredInvite[]): void {
+  private writeAliasMarks(marks: Set<string>): boolean {
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     let written = false;
     try {
-      const marks = entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e));
-      if (marks.length === 0 && !this.io.existsSync(this.aliasPath)) return;
+      // Validate an existing destination too: never replace an unsafe sidecar.
+      const previous = readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+      if (marks.size === 0 && previous === undefined) return true;
       const bytes = Buffer.from(JSON.stringify(signPayload({ type: 'InviteAliasIntent', version: 1,
-        localOwnerDid: this.owner.did, recordsDigest: this.recordsDigest(entries), marks }, this.owner)) + '\n');
-      if (bytes.length > MAX_STORE_BYTES) return;
+        localOwnerDid: this.owner.did, marks: [...marks] }, this.owner)) + '\n');
+      if (bytes.length > MAX_STORE_BYTES) throw new Error();
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
       checkPath(this.aliasPath, this.io, this.options.platform);
       this.io.renameSync(temporary, this.aliasPath); written = false;
-    } catch { /* Optional intent metadata: fall back to derived connection names. */ }
+      return true;
+    } catch { this.warnAliasMetadata(); return false; }
     finally { if (written) { try { this.io.unlinkSync(temporary); } catch { /* best effort */ } } }
   }
   private validateToken(e: StoredInvite, token: string): void {
@@ -271,19 +286,28 @@ export class InviteStore {
       }
       this.locked = true;
       this.legacyInline = false;
+      this.legacyKeys = new Set();
+      const previousMarks = this.readAliasMarks();
       const { entries, result, changed } = change(metadataOnly ? this.readMetadata() : this.read());
       if (!changed && !this.legacyInline) return result;
+      const marks = new Set(entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e)));
+      const prepared = new Set([...previousMarks, ...marks]);
+      // Publish intent before removing inline legacy marks. Keep old marks until
+      // the store commits, so a failed replacement cannot erase existing intent.
+      const aliasWritten = this.writeAliasMarks(prepared);
       const bytes = Buffer.from(JSON.stringify(signPayload<StoredInvites>({
         type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did,
-        entries: entries.map(({ aliasExplicit: _intent, ...record }) => record),
+        entries: entries.map(({ aliasExplicit: _intent, ...record }) => ({ ...record,
+          ...(!aliasWritten && this.legacyKeys.has(this.aliasKey(record)) ? { aliasExplicit: true as const } : {}) })),
       }, this.owner, new Date(this.now()).toISOString())) + '\n');
       if (bytes.length > MAX_STORE_BYTES) throw new Error('INVITE_STORE_INVALID');
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
-      this.writeAliasMarks(entries);
+      if (aliasWritten && prepared.size !== marks.size) this.writeAliasMarks(marks);
       return result;
     } catch (error) {
+      if (['EACCES', 'EPERM', 'EROFS'].includes(code(error) ?? '')) throw error;
       if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
       throw new Error('INVITE_STORE_INVALID');
     } finally {
