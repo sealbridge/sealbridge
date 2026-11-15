@@ -182,3 +182,5 @@ CLI のすべてのサブコマンドは `sealbridge --help`、各コマンド�
 - **公開中継器**: `https://relay.sealbridge.dev`（従来の `https://acp-relay.agent-collab.workers.dev` も同じ中継器です）
 
 旧称は ACP / agent-collab-platform です。Zed の Agent Client Protocol および IBM / BeeAI の Agent Communication Protocol との名称衝突を避けるため改称しました。`acp` コマンドは非推奨の別名として残っています。プロトコル識別子や既存のデータ場所はそのまま使えます。
+
+明示的な招待別名の指定は、旧版でも招待データを読み取れるよう、任意の署名付きサイドカーファイルに保存します。既存レコード内の `aliasExplicit` はアクセス時に別ファイルへ移行し、レコードから削除します。明示指定の記録がない過去の別名は、明示的に選ばれたものとは見なしません。その名前を接続名に使うには、初回接続前に同じ招待を `--alias` 付きで再保存してください。サイドカーファイルの欠落・破損・読み取り不能時は、保存や依頼を妨げず、表示名から作った接続名を使います。

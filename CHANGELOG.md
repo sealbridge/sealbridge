@@ -6,6 +6,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Keep verified inline alias intent usable when read-time migration is blocked by a live lock or a read-only directory; retry migration later. Bind sidecar marks per invite so unrelated old-version writes preserve explicit aliases, and publish intent before replacing the store. Warn once in English/Japanese for unavailable sidecar metadata and repair the Japanese compatibility notes.
+
+- Keep explicit invite-alias intent in a separate signed sidecar; migrate inline `aliasExplicit` markers so invite records stay readable by older releases. Missing/unreadable intent metadata falls back to derived names. Previously saved unmarked aliases need re-acceptance with `--alias` before first connect. CLI/MCP `connectionRecorded.alias` now includes derived connection names.
+
 - Use only explicitly owner-supplied invitation aliases for new connection names; automatic and legacy unmarked import aliases retain display-name defaults. Add Japanese collision warnings and document explicit invitation selection on different-DID name conflicts.
 
 - New importer connections use the saved invitation alias across CLI and MCP recording. Preserve existing names and owner renames; report different-DID alias collisions and use a derived fallback without changing identity or consent.

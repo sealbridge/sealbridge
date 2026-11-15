@@ -95,6 +95,6 @@ export async function nameInviteConnection(owner: KeyPair, options: IdentityStor
   const saved = (await InviteStore.open(owner, options)).list().find(i =>
     i.workerRef === 'saved:' + digest({ localOwnerDid: owner.did, inviteDigest }).slice(7) &&
     i.aliasExplicit === true && i.ownerDid === peer.peerOwnerDid && i.importState !== 'unconfirmed');
-  if (!saved) return {};
+  if (!saved) return { alias: aliases.list([peer])[0].alias };
   return aliases.rename(peer.peerOwnerDid, saved.alias, connections, true);
 }

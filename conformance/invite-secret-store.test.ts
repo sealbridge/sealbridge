@@ -63,7 +63,7 @@ describe('imported invitation string storage', () => {
     const entry = { id: digest({ localOwnerDid: owner.did, inviteDigest }).slice(7), alias: 'reviewer',
       displayName: invite.agentCard.payload.name, ownerDid: invite.ownerDid, agentDid: invite.agentDid,
       relayUrl: invite.relayUrl, inviteToken: token, inviteDigest, importedAt,
-      effectiveExpiresAt: new Date(Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt))).toISOString(), aliasExplicit: true };
+      effectiveExpiresAt: new Date(Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt))).toISOString() };
     const expected = JSON.stringify(signPayload({ type: 'StoredInvites', version: 1,
       localOwnerDid: owner.did, entries: [entry] }, owner, importedAt)) + '\n';
     expect(fs.readFileSync(store.path, 'utf8') === expected).toBe(true);
@@ -201,7 +201,7 @@ describe('imported invitation string storage', () => {
   it.each(['loader', 'constructor', 'read', 'write', 'readback'] as const)('retains file state on keychain %s failure with no inline fallback', async stage => {
     const owner = generateKeyPair(), token = invitation();
     const file = new InviteStore(owner, options); file.import(invitation(), 'legacy');
-    const before = fs.readFileSync(file.path);
+    const before = fs.readFileSync(file.path), aliasBefore = fs.readFileSync(file.aliasPath);
     const broken: KeyringModule = { Entry: class {
       constructor() { if (stage === 'constructor') throw new Error('native detail'); }
       getPassword(): string | null { if (stage === 'read') throw new Error('native detail'); return null; }
@@ -212,7 +212,8 @@ describe('imported invitation string storage', () => {
     const action = async () => (await InviteStore.open(owner, selected)).import(token);
     await expect(action()).rejects.toThrow(stage === 'readback' ? 'INVITE_SECRET_MISMATCH' : 'KEY_STORE_UNAVAILABLE');
     expect(fs.readFileSync(file.path).equals(before)).toBe(true);
-    expect(fs.readdirSync(dirname(file.path))).toEqual([basename(file.path)]);
+    expect(fs.readFileSync(file.aliasPath)).toEqual(aliasBefore);
+    expect(fs.readdirSync(dirname(file.path)).sort()).toEqual([basename(file.path), basename(file.aliasPath)].sort());
   });
 
   it('retains metadata on secret deletion failure and holds the lock through deletion', async () => {
