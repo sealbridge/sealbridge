@@ -282,7 +282,7 @@ it.each([false, true])('non-TTY connection-write failure warns, settles with VAL
     expect(capture.stderr).toContain('Re-run delegate or use TTY/MCP');
     expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
     expect(verifyAudit(parseJsonl(readFileSync(join(root, 'record-failure.jsonl'), 'utf8'))).status).toBe('VALID');
-    expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${failed.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
+    expect(verifyAudit(parseJsonl(readFileSync(join(root, 'muse.jsonl'), 'utf8'))).status).toBe('VALID');
     // Send the raw invite on recovery: the notice must still use the connection's
     // local display-name alias, rather than the token, saved reference, or DID.
     const recovered = JSON.parse(await cli(b, ['delegate', '--to', invite.inviteToken, '--title', 'Recover',
