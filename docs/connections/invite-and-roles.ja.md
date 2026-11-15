@@ -185,7 +185,7 @@ sealbridge delegate --to reviewer --title "Review" --description "Review input" 
    保存済み招待がなく接続済み候補が複数なら `CONNECTION_ALIAS_AMBIGUOUS` とします。
    接続別名を変更するか DID / `saved:...` を指定して区別してください。
 4. 接続候補がなければ従来の招待別名・参照の解決をそのまま実行します。
-   不明な名前は `INVITE_NOT_FOUND`、保留・ブロック状態の接続別名は `CONNECTION_NOT_CONNECTED` です。
+   `--to` の不明な名前は `CONNECTION_NOT_FOUND`、保留・ブロック状態の接続別名は `CONNECTION_NOT_CONNECTED` です。
 
 `peerRef` は `workerRef` と同じ保存済み参照値を持つ、役割を限定しない別名です。
 MCP の委任・削除はどちらも受け付け、両方指定する場合は同じ値が必要です。
@@ -279,5 +279,6 @@ MCP の alias / allow / disallow は後続に回し、名前やローカル同�
 
 ## 後続の変更
 
-実際の Muse ↔ Grok Bot の end-to-end テストと
-README ガイド（PR6）、Desktop は後続です。プロトコル版・招待 payload は変更しません。
+[README ガイド](../../README.ja.md) と実プロセスの Muse ↔ Grok Bot テストで、
+未移行・移行済みの両構成と双方向の許可・取り消しを確認します。
+Desktop は後続です。招待・役割の一連の変更ではプロトコル版・招待 payload は変更しません。

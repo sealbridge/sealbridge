@@ -2,118 +2,78 @@
 
 **English** | [日本語 (README.ja.md)](./README.ja.md)
 
-Sealbridge lets the AI in Muse ask another person’s AI to do a task, or be asked. Traffic goes through a public relay, but the contents are encrypted to the recipient, so the relay cannot read them. You start with an invitation you were given.
+Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An invitation starts a connection; each owner decides whether their side accepts work. DIDs identify peers; names are local shortcuts.
 
 ## Install on Muse
 
-In Muse, ask it to install `sealbridge@0.8.1` from npm. Muse provides Node.js and the rest.
+Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. The invite/role features below are on GitHub main; the published npm 0.8.1 package does not contain the whole series yet.
 
-```sh
-npm i -g sealbridge@0.8.1
-```
+### Create an invitation (for example, on Muse)
 
-When that finishes, the `sealbridge` command should be available. The published package includes relay support for environments like Muse that can only reach the network through `HTTPS_PROXY`.
-
-> For the GitHub-main fallback, paste `https://github.com/sealbridge/sealbridge` into Muse and say “これ入れて” (install this).
-
-## First use
-
-The default relay is `https://relay.sealbridge.dev`. You can omit `--relay` and still connect there.
-
-### 1. Check that you can reach the relay
+Ask Muse to create an invite and keep its worker running. If you already run a worker, keep your usual startup procedure; migration is optional. To try it with commands:
 
 ```sh
 sealbridge doctor
+sealbridge config auto-accept invited write
+sealbridge worker start --adapter sandbox --allow-local-pc --name Muse
 ```
 
-When Muse can reach the relay through its proxy, you should see a line like this:
+Share the printed invitation link and keep the process running. This example explicitly allows invited tasks and uses a sandbox adapter that echoes JSON; its host declaration requires write permission even for an echo. For real work, configure your AI adapter and owner acceptance rule. `--allow-local-pc` explicitly permits local execution with access to that environment.
 
-```text
-Relay: Reachable; via proxy (OK)
-```
+### Receive the invitation
 
-To probe a specific relay, run `sealbridge doctor --relay https://relay.sealbridge.dev`. `--relay` requires a URL. `doctor` does not create keys; they are created the first time you use a command that needs one.
-
-### 2. Connect with an invitation
-
-Use the invitation you received from a worker — the official trial worker, or someone else’s. Passing the link as an argument is the most reliable method in Muse.
+Muse can import the link as an argument. Choose a name used only on your side:
 
 ```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
-sealbridge invites list
-```
-
-Raw `acp-invite:...` tokens and `acp://invite?token=...` are also accepted. You can skip saving the invite and pass it straight to `delegate --to`.
-
-The official worker is a trial. It may be unavailable because of capacity limits. You need an invitation from the operator to use it.
-
-### 3. Delegate one task
-
-```sh
-sealbridge delegate \
-  --to reviewer \
-  --title "Quick check" \
-  --description "Read the JSON I send and return a short JSON reply." \
-  --input '{"text":"hello"}' \
-  --audit audit.jsonl \
-  --out result.json \
-  --auto-approve
-```
-
-`--to` accepts a saved alias (such as `reviewer` above), an invitation link, or a `did:...`. `--invite` is the same as `--to`. `--title` and `--description` are required, and you must pass exactly one of `--input` (JSON) or `--input-file`. A text or diff file is sent as `{ "diff": <file contents> }`.
-
-`--auto-approve` is an explicit opt-in that skips the terminal y/N prompt for final verification. Muse often has no confirmation UI, so this flag is usually required to finish a request. Still read the result yourself.
-
-A successful run goes from `PROPOSE` to `SETTLED`, and writes the deliverable to `--out`.
-
-### 4. Verify the audit log
-
-```sh
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias muse
+sealbridge delegate --to muse --title "Quick check" --description "Read input and return JSON" --input '{"text":"hello"}' --auto-approve --audit audit.jsonl
+sealbridge connections list
 sealbridge audit-verify audit.jsonl
 ```
 
-If both sides’ records chain together, this reports `VALID`. Without a trust-anchor file, the label is `VALID (no trust anchor: truncation not checked)`: the chain is intact, but an older valid prefix has not been ruled out.
+Import alone grants neither connection consent nor task permission. A first invite task can exchange a connection after a separate owner consent prompt. A CLI without an interactive review channel can still use the existing invite task path, but does not invent connection consent. A supporting MCP host presents that separate decision to the owner.
 
-## What happens on your machine
+After the exchange completes, both sides see the peer DID and local alias in `connections list`. With MCP, use `acp_list_connections {}` and pass the name as `to` to `acp_delegate_task`. The creator keeps its existing acceptance policy: Muse needs no new permission step. Success reports `SETTLED`; a verified audit reports `VALID`. Without a trust anchor, audit verification does not check for truncation to an older valid prefix.
 
-- Task contents are encrypted to the recipient’s key. The relay stores ciphertext plus routing metadata such as the destination.
-- Requester and worker keys are created on first use in the data directory. On Linux that is usually `~/.local/share/sealbridge` (or `SEALBRIDGE_DATA_DIR`, then `ACP_DATA_DIR`, if set). Do not print, log, or commit `*.private.json` files or invitation material.
-- Requesting work from Muse (`delegate`) does not need `--allow-local-pc`.
-- If you run a worker on this PC, accepted tasks may reach files, signed-in accounts, and the network. Mainline `sealbridge` requires `--allow-local-pc` for local execution. `sealbridge-local` and Sealbridge Desktop are the local alternatives.
-- By default, a worker automatically accepts read-only work from connected peers. The owner can widen this to invited peers or anyone, allow write/command work, or turn it off with `sealbridge config auto-accept off`. Work that does not match the rule waits for the owner. See [automatic acceptance](docs/auto-accept.md).
-- When an `openai` worker accepts work automatically, model usage is billed to the owner’s API key.
+`--auto-approve` explicitly skips send/final-verification prompts. It does not answer connection consent or grant remote execution permission. Read the result yourself. `--to` accepts saved invite names, connection names, invite links and DIDs. Old `workerRef` / `peerRef` arguments remain supported. `--invite` retains invitation-store selection; it is not equivalent to connection-name lookup with `--to`.
 
-## Troubleshooting on Muse
+### Ask in the reverse direction
 
-Muse is often a proxy-only environment. Relay clients automatically use `HTTPS_PROXY` / `https_proxy` for HTTPS and WSS (falling back to `ALL_PROXY` / `all_proxy`), and `HTTP_PROXY` / `http_proxy` for HTTP and WS. Uppercase wins. Only `http://` proxy URLs are supported. You do not need `--allow-private-relay` to reach the public relay through the proxy.
+New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
 
-- If you see `Relay: Unreachable`, or a failure after `via proxy`, check the network and proxy, then run `sealbridge doctor` again.
-- `RELAY_PROXY_AUTH_FAILED` (407) means proxy credentials; `RELAY_PROXY_REFUSED` means CONNECT is not allowed. Never paste proxy credentials into logs or reports.
-- `accept --paste` needs an interactive terminal (TTY). That often does not work in Muse; pass the invitation link as an argument as shown above.
-- Only loopback or private-relay invitations need `--allow-private-relay` on `accept` and `delegate`.
-- A continuous worker automatically retries relay authentication after a sandbox suspend/resume. See the docs below for details.
+The importer must also run a worker for the DID that owns its connection. With separate unmigrated requester/worker keys, add `--also-requester` to `worker start` (an existing requester key is required). A migrated owner gateway already receives owner-addressed work. Check the local name with `connections list`, then have the owner choose the scope:
 
-For the full proxy and retry behavior, see [relay reliability](docs/relay-reliability.md).
+```sh
+sealbridge connections allow muse        # read-only
+sealbridge connections allow muse write  # also allow writes
+sealbridge connections disallow muse     # require owner approval again
+```
+
+These choices apply only to that local peer; they do not start a worker or remove limits. The original creator can send back using the peer's connection name in `--to`. See [invitations and local roles](docs/connections/invite-and-roles.md) for details.
 
 ## Install on Grok Bot
 
-Paste `https://github.com/sealbridge/sealbridge` into Grok Bot and say "install this". You can also install from npm with `npm i -g sealbridge`. If the global directory is not writable, use:
+Paste the same repository link and say ?install this.? Building from source needs Node.js 22 and pnpm 10. If the global install directory is not writable, install in a user-owned location and add the command to PATH. Run `sealbridge doctor` to check connectivity.
+
+To create an invite, start a worker as above and share its printed link. To receive one, save it in a private `invitation.txt` and import through stdin:
 
 ```sh
-npm i --prefix "$HOME/.local" sealbridge
-export PATH="$HOME/.local/node_modules/.bin:$PATH"
-sealbridge doctor
+sealbridge accept --stdin --alias muse < invitation.txt
+sealbridge delegate --to muse --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
+sealbridge connections list
 ```
 
-With 0.8.1 or later, no network flags are needed: Grok Bot's synthetic DNS is detected automatically. With that version, never pass `--allow-private-relay` for this environment. Save the received invite link in a private invitation.txt file and import it without putting the token in argv:
+Name targeting and reverse-direction allow/disallow work as on Muse. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
 
-```sh
-sealbridge accept --stdin --alias reviewer < invitation.txt
-sealbridge delegate --to reviewer --title "Quick check" --description "Return a short JSON reply" --input '{"text":"hello"}' --auto-approve
-sealbridge worker start --adapter openai --name "Grok Bot"
-```
+### Connection troubleshooting
 
-Agents usually have no TTY, so delegation needs `--auto-approve`; without it the command stops before sending. Read the result yourself. Configure the openai worker's API key (and endpoint/model if needed) in the host environment. It needs no `--allow-local-pc`; sandbox / codex / claude workers do. Owner acceptance rules still apply. One invite is for one requester: a second requester receives `PENDING_OWNER_APPROVAL`. Work outside the automatic rule needs owner approval.
+Muse's proxy settings are used automatically. The default public relay is `https://relay.sealbridge.dev`; omit `--relay` to use it. Grok Bot synthetic DNS (198.18/15) is detected automatically from 0.8.1. Other environments resolving the relay to private addresses, or intentional private/loopback relays, can require `--allow-private-relay` on the relevant `accept`, `delegate`, `worker start` or `mcp-server` command after checking the destination. Metadata addresses remain blocked.
+
+`accept --paste` needs a TTY. Use an argument on Muse or stdin on Grok Bot as above. `RELAY_PROXY_AUTH_FAILED` means proxy authentication; `RELAY_PROXY_REFUSED` means CONNECT is blocked. Keep credentials out of reports. See [relay reliability](docs/relay-reliability.md).
+
+## Privacy
+
+Tasks and results are encrypted to the recipient's key. The relay handles ciphertext and routing metadata such as the destination. The receiving agent and its model provider read task content. Do not give a worker access to personal data or accounts it does not need. Keep private keys and invitation material private.
 
 ## Other environments
 
