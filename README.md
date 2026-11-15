@@ -31,15 +31,21 @@ sealbridge connections list
 sealbridge audit-verify audit.jsonl
 ```
 
-Import alone grants neither connection consent nor task permission. A first invite task can exchange a connection after a separate owner consent prompt. A CLI without an interactive review channel can still use the existing invite task path, but does not invent connection consent. A supporting MCP host presents that separate decision to the owner.
+Import alone grants neither connection consent nor task permission. **On a non-interactive CLI (no TTY), the task can succeed under the creator's acceptance rule, but the importer does not record a connection.** The creator can show the peer as `connected` while the importer's `connections list` is empty. `connections allow muse` then fails with `CONNECTION_NOT_FOUND`; the saved invite alias is not a connection alias.
 
-After the exchange completes, both sides see the peer DID and local alias in `connections list`. With MCP, use `acp_list_connections {}` and pass the name as `to` to `acp_delegate_task`. The creator keeps its existing acceptance policy: Muse needs no new permission step. Success reports `SETTLED`; a verified audit reports `VALID`. Without a trust anchor, audit verification does not check for truncation to an older valid prefix.
+For the importer-side connection and reverse direction, [register MCP](#register-mcp-for-connection-confirmation), send the first task with `acp_delegate_task`, and accept its separate connection confirmation (`connect: true`):
+
+```json
+{"name":"acp_delegate_task","arguments":{"peerRef":"muse","title":"Quick check","input":{"text":"hello"}}}
+```
+
+If you already sent a non-interactive CLI task, explicitly send a new task through MCP and accept that confirmation. Alternatively, run the CLI task in a TTY and have the owner answer `y` to `Confirm owner decision [y/N]?`. An agent must not answer for the owner. Both sides show the peer DID and local alias **after you accept the connection and the exchange completes**. Check `connections list` or `acp_list_connections {}` before using `allow` or delegating back. The creator keeps its existing acceptance policy; no new creator-side permission step is required. Success reports `SETTLED`; a verified audit reports `VALID`. Without a trust anchor, audit verification does not check for truncation to an older valid prefix.
 
 `--auto-approve` explicitly skips send/final-verification prompts. It does not answer connection consent or grant remote execution permission. Read the result yourself. `--to` accepts saved invite names, connection names, invite links and DIDs. Old `workerRef` / `peerRef` arguments remain supported. `--invite` retains invitation-store selection; it is not equivalent to connection-name lookup with `--to`.
 
 ### Ask in the reverse direction
 
-New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
+First complete and confirm the importer-side connection as above; a successful non-interactive CLI task alone is insufficient. New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
 
 The importer must also run a worker for the DID that owns its connection. With separate unmigrated requester/worker keys, add `--also-requester` to `worker start` (an existing requester key is required). A migrated owner gateway already receives owner-addressed work. Check the local name with `connections list`, then have the owner choose the scope:
 
@@ -53,7 +59,15 @@ These choices apply only to that local peer; they do not start a worker or remov
 
 ## Install on Grok Bot
 
-Paste the same repository link and say "install this." Building from source needs Node.js 22 and pnpm 10. If the global install directory is not writable, install in a user-owned location and add the command to PATH. Run `sealbridge doctor` to check connectivity.
+Paste the same repository link and say "install this." Building from source needs Node.js 22 and pnpm 10. After `pnpm install --frozen-lockfile` and `pnpm build` in the checkout, this POSIX-shell function makes the source command available in the current shell (no global install needed):
+
+```sh
+sealbridge_source="$PWD"
+sealbridge() { node "$sealbridge_source/cli/dist/index.js" "$@"; }
+sealbridge --version
+```
+
+Keep that checkout in place. In another shell, define the function again with its absolute path. MCP must use the executable/path configuration below, rather than this shell function. Run `sealbridge doctor` to check connectivity.
 
 For the published package, the user-directory alternative is below. Use the repository installation above for the full invite/role series.
 
@@ -70,7 +84,19 @@ sealbridge delegate --to reviewer --title "Quick check" --description "Return JS
 sealbridge connections list
 ```
 
-Name targeting and reverse-direction allow/disallow work as on Muse. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
+Without a TTY, this CLI task can succeed while the importer's connection list stays empty. To record that side and enable reverse-direction setup, use MCP `acp_delegate_task` with `peerRef: "reviewer"` and accept its connection confirmation, or run the CLI in a TTY and answer `y`. Only then use the connection name listed locally for allow/disallow, as on Muse. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
+
+## Register MCP for connection confirmation
+
+In an MCP-capable host, register the stdio command `sealbridge mcp-server`. The host must support **form elicitation** (`elicitation/create`) and show the connection confirmation to the owner. Starting the server alone does not grant consent. Use the same OS account, data directory and key-store configuration as the CLI that imported the invite.
+
+For a source checkout, a common host configuration looks like this (replace the absolute paths; the host's settings format may differ):
+
+```json
+{"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
+```
+
+On Windows, use paths such as `C:/path/to/node.exe` and `C:/path/to/sealbridge/cli/dist/index.js`. Add `--allow-private-relay` to `args` only when your relay environment requires it. Reload the host, check that `acp_list_invites` sees the imported alias, then send the first task and accept the connection form. Muse/Grok Bot support for registering this stdio server and displaying elicitation forms has not been verified here; check your host's MCP settings. If either is unavailable, use an interactive TTY for connection consent. Non-interactive CLI delegation alone does not establish the importer-side connection.
 
 ### Connection troubleshooting
 
@@ -80,13 +106,13 @@ For a working proxy connection, `sealbridge doctor` reports:
 Relay: Reachable; via proxy (OK)
 ```
 
-Muse's proxy settings are used automatically. The default public relay is `https://relay.sealbridge.dev`; omit `--relay` to use it. Grok Bot synthetic DNS (198.18/15) is detected automatically from 0.8.1. Other environments resolving the relay to private addresses, or intentional private/loopback relays, can require `--allow-private-relay` on the relevant `accept`, `delegate`, `worker start` or `mcp-server` command after checking the destination. Metadata addresses remain blocked.
+Muse's proxy settings are used automatically. The default public relay is `https://relay.sealbridge.dev`; omit `--relay` to use it. Grok Bot synthetic DNS (198.18/15) is detected automatically from 0.8.1. Other environments resolving the relay to private addresses, or intentional private/loopback relays, can require `--allow-private-relay` on the relevant `accept`, `delegate`, `invite create`, `worker start` or `mcp-server` command after checking the destination. Metadata addresses remain blocked.
 
 `accept --paste` needs a TTY. Use an argument on Muse or stdin on Grok Bot as above. `RELAY_PROXY_AUTH_FAILED` means proxy authentication; `RELAY_PROXY_REFUSED` means CONNECT is blocked. Keep credentials out of reports. See [relay reliability](docs/relay-reliability.md).
 
 ## Privacy
 
-Tasks and results are encrypted to the recipient's key. The relay handles ciphertext and routing metadata such as the destination. The receiving agent and its model provider read task content. Do not give a worker access to personal data or accounts it does not need. Keep private keys and invitation material private.
+Tasks and results are encrypted to the recipient's key. The relay handles ciphertext and routing metadata such as the destination. The receiving agent and its model provider read task content. Encryption cannot prevent the receiving side from storing or reusing what it has read. Do not give a worker access to personal data or accounts it does not need. Keep private keys and invitation material private.
 
 ## Other environments
 
@@ -120,7 +146,7 @@ For the local edition, run `npm i -g sealbridge-local` and use `sealbridge-local
 
 ### MCP hosts (Cursor / Claude)
 
-`sealbridge setup` supports `cursor`, `claude-desktop` (macOS / Windows), and `claude-code` (requires `--project` with an absolute path). There is no `setup --host` target for Muse. See `sealbridge setup --help`.
+`sealbridge setup` supports `cursor`, `claude-desktop` (macOS / Windows), and `claude-code` (requires `--project` with an absolute path). There is no Muse-specific `setup --host` target; this does not replace the MCP registration step. For other hosts, follow [manual MCP registration](#register-mcp-for-connection-confirmation) if supported. See `sealbridge setup --help`.
 
 ### Try from source / run your own relay
 

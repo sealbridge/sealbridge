@@ -11,8 +11,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - **Behavior change:** an unknown `delegate --to` name now returns `CONNECTION_NOT_FOUND` (previously `INVITE_NOT_FOUND`), with corrected English/Japanese guidance. Add MCP `acp_delegate_task.to`; ambiguous names and different-DID conflicts fail closed, while an expired same-DID invite alias can fall back to its connected peer.
 - **Behavior change:** `acp_list_connections` lists connections belonging to both existing requester and worker keys, with aliases, DIDs, local acceptance and advisory fields. Explicit owner/key selection restricts scope. Existing output fields remain available.
 - Add explicit, backed-up owner/delegate migration, revocation and recovery with `worker migrate` / `worker revoke-delegate`, including `--create-owner` for worker-key-only folders. Preserve old keys/invites and legacy listeners with separate `*.legacy.jsonl` audit/inbox files. Unmigrated requester receiving remains opt-in with `--also-requester` and separate acceptance.
+- Migrated workers' MCP invitations now target the owner key with a separate delegated execution identity, while legacy worker invitations keep working.
 - Add real-process Muse ↔ Grok Bot MCP/CLI end-to-end coverage for both identity layouts, permission changes, target errors, expiry fallback, audit verification and clean shutdown; rewrite English/Japanese onboarding with Muse repository-link installation first.
 - Keep same-folder worker and concurrent sends reliable: bounded outbox contention retries, atomic replacement reads, contained background status-drain errors and recovered audit checkpoints.
+- Abort stalled status-check drains when their readers stop, so stopped readers do not leave a drain running.
 
 ## [0.8.1] - 2026-11-14
 

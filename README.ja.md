@@ -31,15 +31,21 @@ sealbridge connections list
 sealbridge audit-verify audit.jsonl
 ```
 
-保存だけでは接続の同意や仕事の許可にはなりません。初回依頼で接続を交換する場合、接続への同意は別に持ち主へ確認します。対話画面がない CLI からの依頼は従来の招待経路を使えますが、接続同意を自動で作りません。MCP ホストが対応していれば、その確認画面で持ち主が同意します。
+保存だけでは接続の同意や仕事の許可にはなりません。**非対話 CLI（TTY なし）では、招待した側の受付ルールに合えば依頼は成功しますが、取り込んだ側の接続は記録されません。** 招待した側は相手を `connected` と表示しても、取り込んだ側の `connections list` は空のままになり得ます。その状態で `connections allow muse` を実行すると `CONNECTION_NOT_FOUND` です。保存した招待名と接続名は別です。
 
-接続の交換が完了すると、両側の `connections list` に相手の DID とローカルの別名が出ます。MCP では `acp_list_connections {}` で確認し、`acp_delegate_task` の `to` にその名前を渡せます。招待した側の既存の受付ルールは維持され、Muse に新しい許可操作は増えません。成功は `SETTLED`、監査は `VALID` です。信頼アンカーなしの監査では、古い正当な記録への切り詰めまでは検査しません。
+取り込んだ側の接続名と逆向きの依頼を使うには、[MCP を登録](#接続確認のために-mcp-を登録する)し、最初の依頼を `acp_delegate_task` で送り、別に表示される接続確認で持ち主が同意（`connect: true`）してください。
+
+```json
+{"name":"acp_delegate_task","arguments":{"peerRef":"muse","title":"短い確認","input":{"text":"hello"}}}
+```
+
+既に非対話 CLI で送った場合は、MCP から明示的に新しい依頼を送り、その接続確認で同意します。または TTY のある端末で CLI の依頼を実行し、`Confirm owner decision [y/N]?` に持ち主が `y` と答えます。エージェントが代わりに答えてはいけません。**接続に同意し、交換が完了した後に**、両側に相手の DID とローカルの別名が出ます。`allow` や逆向きの依頼の前に、`connections list` または `acp_list_connections {}` で確認してください。招待した側の既存の受付ルールは維持され、招待した側に新しい許可操作は増えません。成功は `SETTLED`、監査は `VALID` です。信頼アンカーなしの監査では、古い正当な記録への切り詰めまでは検査しません。
 
 `--auto-approve` は送信と最終検収の確認を省く明示指定です。接続同意や相手側の実行許可は代行しません。結果は自分でも確認してください。`--to` は保存した招待名・接続名・招待リンク・DID に対応します。古い `workerRef` / `peerRef` も使えます。`--invite` は招待ストアを使う従来の指定で、接続名を探す `--to` と完全に同じではありません。
 
 ### 逆向きにも頼む
 
-取り込んだ側の新しい接続は、既定で自動受付が **off** です。接続していても、持ち主が許可するまで逆向きの仕事は保留になります。送信側には「相手の承認待ちになるかもしれない」という警告が出ます。保留は自動再試行しません。
+先に上の手順で取り込んだ側の接続を確認・完了してください。非対話 CLI の依頼が成功しただけでは足りません。取り込んだ側の新しい接続は、既定で自動受付が **off** です。接続していても、持ち主が許可するまで逆向きの仕事は保留になります。送信側には「相手の承認待ちになるかもしれない」という警告が出ます。保留は自動再試行しません。
 
 取り込んだ側で受けるなら、接続を持つ DID のワーカーも動かします。未移行で requester / worker が別の鍵なら `worker start` に `--also-requester` を付けます（requester 鍵がすでに必要）。移行済みの owner gateway には不要です。名前は `connections list` で確認し、持ち主が必要な範囲だけ許可します。
 
@@ -53,7 +59,15 @@ sealbridge connections disallow muse     # また持ち主の確認待ちに戻�
 
 ## Grok Bot に入れる
 
-同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 と pnpm 10 が必要です。グローバルに書けない場合はユーザー用の場所へ入れ、コマンドの PATH を設定します。`sealbridge doctor` で通信を確認します。
+同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 と pnpm 10 が必要です。チェックアウト内で `pnpm install --frozen-lockfile` と `pnpm build` を実行した後、POSIX シェルでは次の関数で現在のシェルからソースのコマンドを使えます。グローバルへのインストールは不要です。
+
+```sh
+sealbridge_source="$PWD"
+sealbridge() { node "$sealbridge_source/cli/dist/index.js" "$@"; }
+sealbridge --version
+```
+
+チェックアウトはその場所に残してください。別のシェルでは絶対パスを指定して関数を再定義します。MCP はこのシェル関数ではなく、下の実行ファイル・パス指定で登録します。`sealbridge doctor` で通信を確認します。
 
 公開パッケージをユーザー領域へ入れる場合は次を使えます。招待・役割の一連の機能をすべて使う場合は、上のリポジトリからの導入を選んでください。
 
@@ -70,7 +84,19 @@ sealbridge delegate --to reviewer --title "Quick check" --description "Return JS
 sealbridge connections list
 ```
 
-接続後の名前による依頼と逆向きの許可・取り消しは Muse と同じです。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
+TTY がなければ、この CLI の依頼は成功しても取り込んだ側の接続一覧は空のままになり得ます。取り込んだ側の接続を記録して逆向きの準備へ進むには、MCP の `acp_delegate_task` に `peerRef: "reviewer"` を渡し、接続確認で同意するか、TTY のある端末で CLI を実行して `y` と答えてください。その後、ローカル一覧に出る接続名を使って Muse と同じように許可・取り消しを行います。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
+
+## 接続確認のために MCP を登録する
+
+MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録します。ホストは **確認フォームの elicitation**（`elicitation/create`）に対応し、持ち主へ接続確認を表示する必要があります。サーバーを起動しただけでは同意になりません。招待を取り込んだ CLI と同じ OS アカウント・データディレクトリ・鍵ストアの設定を使います。
+
+ソースのチェックアウトを使う場合の一般的な登録例です。絶対パスを置き換えてください。設定形式はホストによって異なります。
+
+```json
+{"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
+```
+
+Windows では `C:/path/to/node.exe` と `C:/path/to/sealbridge/cli/dist/index.js` などを指定します。中継器の環境で必要な場合だけ `args` に `--allow-private-relay` を加えます。ホストを再読込し、`acp_list_invites` に取り込んだ別名が出ることを確認してから、最初の依頼を送り、接続フォームで同意します。Muse / Grok Bot でこの stdio サーバーを登録でき、確認フォームも表示できるかは、ここでは検証できていません。利用ホストの MCP 設定を確認してください。どちらかが使えない場合は、TTY のある端末で接続に同意します。非対話 CLI の依頼だけでは、取り込んだ側の接続は作られません。
 
 ### 通信でつまずいたとき
 
@@ -80,13 +106,13 @@ sealbridge connections list
 Relay: Reachable; via proxy (OK)
 ```
 
-Muse のプロキシ設定は自動で利用します。公開中継器 `https://relay.sealbridge.dev` は既定なので `--relay` を省略できます。Grok Bot の合成 DNS（198.18/15）は 0.8.1 以降で自動検出します。それ以外の私設アドレスへ解決される環境や私設・ループバックの中継器では、接続先を確認した上で `accept` / `delegate` / `worker start` / `mcp-server` の該当コマンドに `--allow-private-relay` が必要です。メタデータ用アドレスは許可されません。
+Muse のプロキシ設定は自動で利用します。公開中継器 `https://relay.sealbridge.dev` は既定なので `--relay` を省略できます。Grok Bot の合成 DNS（198.18/15）は 0.8.1 以降で自動検出します。それ以外の私設アドレスへ解決される環境や私設・ループバックの中継器では、接続先を確認した上で `accept` / `delegate` / `invite create` / `worker start` / `mcp-server` の該当コマンドに `--allow-private-relay` が必要です。メタデータ用アドレスは許可されません。
 
 `accept --paste` は TTY が必要です。Muse では引数、Grok Bot では上の標準入力が使えます。`RELAY_PROXY_AUTH_FAILED` はプロキシ認証、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認してください。認証情報をログへ貼らないでください。詳しくは [リレーの信頼性](docs/relay-reliability.ja.md)。
 
 ## プライバシー
 
-依頼と結果は宛先の鍵へ暗号化され、中継器は暗号文と届け先などの経路情報を扱います。受信する AI と、その AI が利用するモデル提供者は依頼の本文を読みます。仕事に不要な個人情報やアカウントへのアクセスをワーカーに与えないでください。鍵と招待は非公開で保管します。
+依頼と結果は宛先の鍵へ暗号化され、中継器は暗号文と届け先などの経路情報を扱います。受信する AI と、その AI が利用するモデル提供者は依頼の本文を読みます。暗号化しても、受信側が読んだ内容を保存・再利用することは防げません。仕事に不要な個人情報やアカウントへのアクセスをワーカーに与えないでください。鍵と招待は非公開で保管します。
 
 ## ほかの環境
 
@@ -120,7 +146,7 @@ sealbridge worker start --adapter sandbox --allow-local-pc
 
 ### MCP ホスト（Cursor / Claude）
 
-`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 向けの `setup --host` はありません。手順は `sealbridge setup --help` を見てください。
+`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 専用の `setup --host` はありませんが、MCP の登録手順は必要です。ほかのホストでは、対応していれば [手動で MCP を登録](#接続確認のために-mcp-を登録する)してください。手順は `sealbridge setup --help` も確認してください。
 
 ### ソースから試す / 中継器を自分で持つ
 
