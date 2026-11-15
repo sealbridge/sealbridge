@@ -2,118 +2,117 @@
 
 [English (README.md)](./README.md) | **日本語**
 
-Sealbridge は、Muse のなかのあなたの AI が、別の人の AI に仕事を頼んだり、頼まれたりするための道具です。やりとりは公開の中継器を通しますが、中身は相手にだけ暗号化され、中継器からは読めません。始めるには、相手から受け取った招待を使います。
+Muse や Grok Bot の AI が、別の人の AI と仕事を頼み合うための道具です。招待は接続の入口です。どちらが仕事を受けるかは、それぞれの持ち主が決めます。相手の識別には名前ではなく DID を使います。
 
 ## Muse に入れる
 
-Muse では、npm から `sealbridge@0.8.1` を入れるように伝えてください。Node.js などは Muse が用意します。
+`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。以下の招待・役割の機能は GitHub main のものです。公開 npm 0.8.1 にはまだ全部は入っていません。
 
-```sh
-npm i -g sealbridge@0.8.1
-```
+### 招待を作る側（例: Muse）
 
-入れ終わったら、`sealbridge` コマンドが使える状態になります。公開済みのパッケージには、Muse のように `HTTPS_PROXY` 越しでしか外に出られない環境向けの中継器対応が入っています。
-
-> GitHub-main から入れる場合は、`https://github.com/sealbridge/sealbridge` を Muse に貼って「これ入れて」と伝えてください。
-
-## 最初の使い方
-
-公開中継器 `https://relay.sealbridge.dev` が既定です。`--relay` を省略しても、ここに接続します。
-
-### 1. つながるか確認する
+「招待を作って、ワーカーを動かして」と頼みます。すでに使っているワーカーがあれば、その起動方法のままで構いません。移行は不要です。コマンドで試す場合:
 
 ```sh
 sealbridge doctor
+sealbridge config auto-accept invited write
+sealbridge worker start --adapter sandbox --allow-local-pc --name Muse
 ```
 
-Muse で中継器まで届いていると、次のような行が出ます。
+表示された招待リンクを相手に渡し、ワーカーを動かしたままにします。この例は招待した相手の仕事を明示的に許可し、入力 JSON を返す sandbox で動作確認します。sandbox は入力を返すだけでも、ホスト側の宣言上は書き込み許可が必要です。実際の作業には、使う AI の adapter と持ち主の受付ルールを設定します。`--allow-local-pc` はローカル実行とその環境へのアクセスを許す明示指定です。
+
+### 招待を受け取る側
+
+Muse ではリンクを引数に渡す方法が使えます。自分の環境だけの名前を付けます。
+
+```sh
+sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias muse
+sealbridge delegate --to muse --title "短い確認" --description "入力を確認して JSON で返してください" --input '{"text":"hello"}' --auto-approve --audit audit.jsonl
+sealbridge connections list
+sealbridge audit-verify audit.jsonl
+```
+
+保存だけでは接続の同意や仕事の許可にはなりません。**非対話 CLI（TTY なし）では、招待した側の受付ルールに合えば依頼は成功しますが、取り込んだ側の接続は記録されません。** 招待した側は相手を `connected` と表示しても、取り込んだ側の `connections list` は空のままになり得ます。その状態で `connections allow muse` を実行すると `CONNECTION_NOT_FOUND` です。保存した招待名と接続名は別です。
+
+取り込んだ側の接続名と逆向きの依頼を使うには、[MCP を登録](#接続確認のために-mcp-を登録する)し、最初の依頼を `acp_delegate_task` で送り、別に表示される接続確認で持ち主が同意（`connect: true`）してください。
+
+```json
+{"name":"acp_delegate_task","arguments":{"peerRef":"muse","title":"短い確認","input":{"text":"hello"}}}
+```
+
+既に非対話 CLI で送った場合は、MCP から明示的に新しい依頼を送り、その接続確認で同意します。または TTY のある端末で CLI の依頼を実行し、`Confirm owner decision [y/N]?` に持ち主が `y` と答えます。エージェントが代わりに答えてはいけません。**接続に同意し、交換が完了した後に**、両側に相手の DID とローカルの別名が出ます。`allow` や逆向きの依頼の前に、`connections list` または `acp_list_connections {}` で確認してください。招待した側の既存の受付ルールは維持され、招待した側に新しい許可操作は増えません。成功は `SETTLED`、監査は `VALID` です。信頼アンカーなしの監査では、古い正当な記録への切り詰めまでは検査しません。
+
+`--auto-approve` は送信と最終検収の確認を省く明示指定です。接続同意や相手側の実行許可は代行しません。結果は自分でも確認してください。`--to` は保存した招待名・接続名・招待リンク・DID に対応します。古い `workerRef` / `peerRef` も使えます。`--invite` は招待ストアを使う従来の指定で、接続名を探す `--to` と完全に同じではありません。
+
+### 逆向きにも頼む
+
+先に上の手順で取り込んだ側の接続を確認・完了してください。非対話 CLI の依頼が成功しただけでは足りません。取り込んだ側の新しい接続は、既定で自動受付が **off** です。接続していても、持ち主が許可するまで逆向きの仕事は保留になります。送信側には「相手の承認待ちになるかもしれない」という警告が出ます。保留は自動再試行しません。
+
+取り込んだ側で受けるなら、接続を持つ DID のワーカーも動かします。未移行で requester / worker が別の鍵なら `worker start` に `--also-requester` を付けます（requester 鍵がすでに必要）。移行済みの owner gateway には不要です。名前は `connections list` で確認し、持ち主が必要な範囲だけ許可します。
+
+```sh
+sealbridge connections allow muse        # 読むだけ
+sealbridge connections allow muse write  # 書き換えも許可
+sealbridge connections disallow muse     # また持ち主の確認待ちに戻す
+```
+
+許可はそのローカル接続だけに適用され、ワーカーの起動や上限の解除はしません。招待を作った側も、相手の接続名を `--to` に渡して依頼できます。詳しくは [招待と役割](docs/connections/invite-and-roles.ja.md) を見てください。
+
+## Grok Bot に入れる
+
+同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 と pnpm 10 が必要です。チェックアウト内で `pnpm install --frozen-lockfile` と `pnpm build` を実行した後、POSIX シェルでは次の関数で現在のシェルからソースのコマンドを使えます。グローバルへのインストールは不要です。
+
+```sh
+sealbridge_source="$PWD"
+sealbridge() { node "$sealbridge_source/cli/dist/index.js" "$@"; }
+sealbridge --version
+```
+
+チェックアウトはその場所に残してください。別のシェルでは絶対パスを指定して関数を再定義します。MCP はこのシェル関数ではなく、下の実行ファイル・パス指定で登録します。`sealbridge doctor` で通信を確認します。
+
+公開パッケージをユーザー領域へ入れる場合は次を使えます。招待・役割の一連の機能をすべて使う場合は、上のリポジトリからの導入を選んでください。
+
+```sh
+npm i --prefix "$HOME/.local" sealbridge
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+```
+
+招待を作る場合は上と同じくワーカーを起動し、表示されたリンクを渡します。受け取る場合は、非公開の `invitation.txt` を標準入力から取り込めます。
+
+```sh
+sealbridge accept --stdin --alias reviewer < invitation.txt
+sealbridge delegate --to reviewer --title "Quick check" --description "Return JSON" --input '{"text":"hello"}' --auto-approve
+sealbridge connections list
+```
+
+TTY がなければ、この CLI の依頼は成功しても取り込んだ側の接続一覧は空のままになり得ます。取り込んだ側の接続を記録して逆向きの準備へ進むには、MCP の `acp_delegate_task` に `peerRef: "reviewer"` を渡し、接続確認で同意するか、TTY のある端末で CLI を実行して `y` と答えてください。その後、ローカル一覧に出る接続名を使って Muse と同じように許可・取り消しを行います。`openai` adapter で受ける場合はホスト環境に API キー、必要なら endpoint/model を設定します。モデル代は持ち主負担です。`openai` はローカルのコマンド hook を使わなければ `--allow-local-pc` は不要です。sandbox / codex / claude では必要です。
+
+## 接続確認のために MCP を登録する
+
+MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録します。ホストは **確認フォームの elicitation**（`elicitation/create`）に対応し、持ち主へ接続確認を表示する必要があります。サーバーを起動しただけでは同意になりません。招待を取り込んだ CLI と同じ OS アカウント・データディレクトリ・鍵ストアの設定を使います。
+
+ソースのチェックアウトを使う場合の一般的な登録例です。絶対パスを置き換えてください。設定形式はホストによって異なります。
+
+```json
+{"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
+```
+
+Windows では `C:/path/to/node.exe` と `C:/path/to/sealbridge/cli/dist/index.js` などを指定します。中継器の環境で必要な場合だけ `args` に `--allow-private-relay` を加えます。ホストを再読込し、`acp_list_invites` に取り込んだ別名が出ることを確認してから、最初の依頼を送り、接続フォームで同意します。Muse / Grok Bot でこの stdio サーバーを登録でき、確認フォームも表示できるかは、ここでは検証できていません。利用ホストの MCP 設定を確認してください。どちらかが使えない場合は、TTY のある端末で接続に同意します。非対話 CLI の依頼だけでは、取り込んだ側の接続は作られません。
+
+### 通信でつまずいたとき
+
+プロキシ経由で接続できると、`sealbridge doctor` は次のように表示します。
 
 ```text
 Relay: Reachable; via proxy (OK)
 ```
 
-特定の中継器を指定するときは `sealbridge doctor --relay https://relay.sealbridge.dev` です。`--relay` のあとに URL が必要です。`doctor` は鍵を作りません。鍵は、鍵を必要とするコマンドを初めて使ったときに作られます。
+Muse のプロキシ設定は自動で利用します。公開中継器 `https://relay.sealbridge.dev` は既定なので `--relay` を省略できます。Grok Bot の合成 DNS（198.18/15）は 0.8.1 以降で自動検出します。それ以外の私設アドレスへ解決される環境や私設・ループバックの中継器では、接続先を確認した上で `accept` / `delegate` / `invite create` / `worker start` / `mcp-server` の該当コマンドに `--allow-private-relay` が必要です。メタデータ用アドレスは許可されません。
 
-### 2. 招待で相手につなぐ
+`accept --paste` は TTY が必要です。Muse では引数、Grok Bot では上の標準入力が使えます。`RELAY_PROXY_AUTH_FAILED` はプロキシ認証、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認してください。認証情報をログへ貼らないでください。詳しくは [リレーの信頼性](docs/relay-reliability.ja.md)。
 
-相手のワーカー（公式のお試しワーカーでも、知人のワーカーでも）から届いた招待を、そのまま使います。リンクを引数に渡す方法が、Muse ではいちばん確実です。
+## プライバシー
 
-```sh
-sealbridge accept "https://sealbridge.app/i#acp-invite:..." --alias reviewer
-sealbridge invites list
-```
-
-`acp-invite:...` のトークンそのものや、`acp://invite?token=...` の形も受け付けます。保存せずに、次の `delegate --to` へ招待を直接渡しても構いません。
-
-公式ワーカーはお試し用です。上限があるため、使えないことがあります。使うには、運営から受け取った招待が必要です。
-
-### 3. 仕事を一件頼む
-
-```sh
-sealbridge delegate \
-  --to reviewer \
-  --title "短い確認" \
-  --description "渡した JSON を確認し、短い JSON で返してください。" \
-  --input '{"text":"hello"}' \
-  --audit audit.jsonl \
-  --out result.json \
-  --auto-approve
-```
-
-`--to` には、保存した別名（上の `reviewer`）、招待リンク、または `did:...` を渡せます。`--invite` は `--to` と同じ意味です。`--title` と `--description` は必須で、入力は `--input`（JSON）か `--input-file`（ファイル）のどちらか一方です。テキストや差分のファイルは `{ "diff": ファイルの中身 }` として送られます。
-
-`--auto-approve` は、最終確認をターミナルの y/N なしで通す明示的な指定です。Muse では確認画面が出ないことが多いため、依頼を最後まで進めるには通常この指定が必要です。結果の中身は、あなた自身でも必ず見てください。
-
-うまくいくと、依頼は `PROPOSE` から `SETTLED` まで進み、`--out` に結果が書き出されます。
-
-### 4. 記録を確かめる
-
-```sh
-sealbridge audit-verify audit.jsonl
-```
-
-双方の記録がつながっていれば `VALID` と出ます。信頼アンカーのファイルを渡さない場合の表示は `VALID (no trust anchor: truncation not checked)` です。鎖は壊れていませんが、より古い正当な接頭辞まで除外したわけではない、という意味です。
-
-## 自分の環境で起きること
-
-- 依頼の本文は相手の鍵へ暗号化されます。中継器が持つのは暗号文と、届け先などの経路情報です。
-- 依頼者用とワーカー用の鍵は、初回利用時にデータディレクトリへ作られます。Linux では通常 `~/.local/share/sealbridge`（`SEALBRIDGE_DATA_DIR`、次に `ACP_DATA_DIR` があればそちら）です。`*.private.json` や招待の中身は、表示・ログ・コミットしないでください。
-- Muse から頼むだけ（`delegate`）なら、`--allow-local-pc` は不要です。
-- ワーカーをこの PC で動かすと、受けた仕事からファイル・ログイン中のアカウント・ネットワークへ手が届くことがあります。本流の `sealbridge` では、ローカル実行に `--allow-local-pc` が必須です。代わりに `sealbridge-local` か Sealbridge Desktop も使えます。
-- ワーカーの自動受付の既定は、「接続済みの相手から、読むだけ」です。持ち主が「招待した相手」「誰でも」「書き換えも可」に広げたり、`sealbridge config auto-accept off` で毎回確認に戻したりできます。条件に合わない依頼は、持ち主の確認待ちになります。詳しくは [自動受付の設定](docs/auto-accept.ja.md) を見てください。
-- `openai` ワーカーが自動で受けた仕事のモデル代は、持ち主の API キーに請求されます。
-
-## Muse でつまずいたとき
-
-Muse は外部通信がプロキシ経由だけのことがあります。中継器クライアントは HTTPS / WSS に `HTTPS_PROXY` / `https_proxy`（なければ `ALL_PROXY` / `all_proxy`）、HTTP / WS に `HTTP_PROXY` / `http_proxy` を自動で使います。大文字が優先です。プロキシ URL は `http://` のみです。公開中継器へのプロキシ接続に `--allow-private-relay` は不要です。
-
-- `Relay: Unreachable` や `via proxy` のあとに失敗と出るときは、ネットとプロキシを確認し、もう一度 `sealbridge doctor` を実行してください。
-- `RELAY_PROXY_AUTH_FAILED`（407）はプロキシの認証、`RELAY_PROXY_REFUSED` は CONNECT の許可を確認します。プロキシの認証情報はログや報告に貼らないでください。
-- `accept --paste` は対話型の端末（TTY）が必要です。Muse では動かないことが多いので、上の例のように招待リンクを引数に渡してください。
-- ループバックや私設の中継器の招待だけ、`accept` と `delegate` に `--allow-private-relay` が必要です。
-- 連続稼働のワーカーは、サンドボックスの一時停止から戻ったあとの中継器認証を自動でやり直します。詳しくは下記の資料を見てください。
-
-プロキシと再試行の詳しい動作は、[リレーの信頼性](docs/relay-reliability.ja.md) にあります。
-
-## Grok Bot に入れる
-
-Grok Bot に `https://github.com/sealbridge/sealbridge` を貼って「これ入れて」と伝えてください。npm からは `npm i -g sealbridge` で入れられます。グローバルに書き込めない場合は次を使います。
-
-```sh
-npm i --prefix "$HOME/.local" sealbridge
-export PATH="$HOME/.local/node_modules/.bin:$PATH"
-sealbridge doctor
-```
-
-0.8.1 以降では、追加のネットワーク用フラグは不要です。Grok Bot の合成 DNS は自動検出します。その版では `--allow-private-relay` は渡さないでください。招待リンクを非公開の invitation.txt に保存し、引数に含めず取り込みます。
-
-```sh
-sealbridge accept --stdin --alias reviewer < invitation.txt
-sealbridge delegate --to reviewer --title "Quick check" --description "Return a short JSON reply" --input '{"text":"hello"}' --auto-approve
-sealbridge worker start --adapter openai --name "Grok Bot"
-```
-
-エージェントには通常 TTY がないため、依頼には `--auto-approve` が必要です。指定しない場合は送信前に停止します。結果は自分でも確認してください。openai ワーカーはホスト側に API キー・必要なら endpoint/model を設定します。`--allow-local-pc` は不要ですが、sandbox / codex / claude には必要です。持ち主の受付ルールは維持されます。招待は依頼者1人用で、2人目は `PENDING_OWNER_APPROVAL` になります。自動受付の範囲外は持ち主の承認が必要です。
+依頼と結果は宛先の鍵へ暗号化され、中継器は暗号文と届け先などの経路情報を扱います。受信する AI と、その AI が利用するモデル提供者は依頼の本文を読みます。暗号化しても、受信側が読んだ内容を保存・再利用することは防げません。仕事に不要な個人情報やアカウントへのアクセスをワーカーに与えないでください。鍵と招待は非公開で保管します。
 
 ## ほかの環境
 
@@ -147,7 +146,7 @@ sealbridge worker start --adapter sandbox --allow-local-pc
 
 ### MCP ホスト（Cursor / Claude）
 
-`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 向けの `setup --host` はありません。手順は `sealbridge setup --help` を見てください。
+`sealbridge setup` が対応しているのは `cursor`、`claude-desktop`（macOS / Windows）、`claude-code`（`--project` で絶対パスが必須）です。Muse 専用の `setup --host` はありませんが、MCP の登録手順は必要です。ほかのホストでは、対応していれば [手動で MCP を登録](#接続確認のために-mcp-を登録する)してください。手順は `sealbridge setup --help` も確認してください。
 
 ### ソースから試す / 中継器を自分で持つ
 

@@ -4,20 +4,17 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-- Extend MCP connected-peer listing with local aliases, consent and advisory warnings; add CLI-shared name targeting via `acp_delegate_task.to` and correct unknown-name guidance in English/Japanese. PR6 live-agent tests/README and Desktop remain later work.
+### Invite and role series
 
-- Keep same-folder worker and concurrent sends reliable: retry bounded outbox contention, tolerate atomic record replacement during reads, contain background status-drain errors, and preserve recovered audit checkpoints.
-
-- Default new importer connections to owner approval; add local `connections allow` / `disallow`, advisory send warnings with script suppression, and expired same-DID invite alias fallback. Creator and legacy connection policies stay unchanged.
-
-- Enable return delegation over confirmed connections with local, renamable aliases (`connections list`, `connections alias`, `delegate --to <name>`), retaining invite-store references and per-key consent without migration or protocol changes.
-- Keep separate requester receiving opt-in (`worker start --also-requester`, automatic acceptance off unless separately requested); inspect CLI connection metadata independently, cancel stopped status readers, and preserve same-peer saved-alias expiry behavior.
-
-- Keep migrated legacy inbox/audit paths in `*.legacy.jsonl` and detect audit format by content; add backed-up delegate recovery via `worker migrate` and explicit `--create-owner` migration for worker-key-only folders, with clearer worker help.
-
-- Add explicit, backed-up `worker migrate` and `worker revoke-delegate` commands. Migrated workers receive owner-addressed MCP invites with a separate delegated execution identity while retaining legacy worker invitations; unmigrated defaults remain unchanged.
-
-- Add role-neutral `peerRef` / `--peer-ref` aliases while preserving `workerRef` and `--to`, and explain current invitation identities versus planned local roles in English and Japanese.
+- Invitations establish connections; local owner policy controls work in either direction. Add role-neutral `peerRef` / `--peer-ref`, local connection aliases and `delegate --to`, preserving old names, MCP arguments and per-key consent without a protocol change.
+- **Behavior change:** new importer-side connections no longer auto-accept by default. Owners opt in per peer with `connections allow <name>` (read-only) or `connections allow <name> write`; `disallow` restores owner approval. Creator and legacy policies remain unchanged. Connection sends include a soft approval warning; CLI scripts can suppress stderr with `--quiet-approval-warning`.
+- **Behavior change:** an unknown `delegate --to` name now returns `CONNECTION_NOT_FOUND` (previously `INVITE_NOT_FOUND`), with corrected English/Japanese guidance. Add MCP `acp_delegate_task.to`; ambiguous names and different-DID conflicts fail closed, while an expired same-DID invite alias can fall back to its connected peer.
+- **Behavior change:** `acp_list_connections` lists connections belonging to both existing requester and worker keys, with aliases, DIDs, local acceptance and advisory fields. Explicit owner/key selection restricts scope. Existing output fields remain available.
+- Add explicit, backed-up owner/delegate migration, revocation and recovery with `worker migrate` / `worker revoke-delegate`, including `--create-owner` for worker-key-only folders. Preserve old keys/invites and legacy listeners with separate `*.legacy.jsonl` audit/inbox files. Unmigrated requester receiving remains opt-in with `--also-requester` and separate acceptance.
+- Migrated workers' MCP invitations now target the owner key with a separate delegated execution identity, while legacy worker invitations keep working.
+- Add real-process Muse ↔ Grok Bot MCP/CLI end-to-end coverage for both identity layouts, permission changes, target errors, expiry fallback, audit verification and clean shutdown; rewrite English/Japanese onboarding with Muse repository-link installation first.
+- Keep same-folder worker and concurrent sends reliable: bounded outbox contention retries, atomic replacement reads, contained background status-drain errors and recovered audit checkpoints.
+- Abort stalled status-check drains when their readers stop, so stopped readers do not leave a drain running.
 
 ## [0.8.1] - 2026-11-14
 

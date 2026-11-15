@@ -221,7 +221,7 @@ does not delete a possibly active writer's lock automatically.
    Without a saved alias, multiple connected matches fail `CONNECTION_ALIAS_AMBIGUOUS`.
    Rename the connection or use an explicit DID / `saved:...` reference to disambiguate.
 4. With no connection match, the existing invite-store alias/reference resolution
-   runs unchanged. An unknown name fails with `INVITE_NOT_FOUND`; a pending or
+   runs unchanged. An unknown `--to` name fails with `CONNECTION_NOT_FOUND`; a pending or
    blocked connection alias fails with `CONNECTION_NOT_CONNECTED`.
 
 `peerRef` remains the role-neutral spelling of `workerRef`, with the same saved
@@ -328,6 +328,7 @@ explicit local CLI commands to change names or owner consent.
 
 ## Later work
 
-End-to-end Muse ↔ Grok Bot tests and the README guide (PR6), and Desktop remain
-later work. This change does
-not bump the protocol version or change the invitation payload.
+The [README guide](../../README.md) and real-process Muse ↔ Grok Bot tests cover
+both identity layouts and the two-way permission lifecycle. Desktop remains later
+work. The invite/role series does not bump the protocol version or change the
+invitation payload.
