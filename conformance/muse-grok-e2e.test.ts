@@ -12,8 +12,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { startLocalRelay } from '../packages/relay/src/index.js';
-import { resolveStoredIdentity } from '../packages/runtime/src/index.js';
-import { generateKeyPair, signPayload, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
+import { createInviteToken, createSignedAgentCard, generateKeyPair, signPayload, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 const roots: string[] = [], children: ChildProcess[] = [], clients: Client[] = [];
 afterEach(async () => {
@@ -27,8 +27,8 @@ afterEach(async () => {
 const environment = (root: string) => ({ ...Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => typeof e[1] === 'string')),
   SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'file', OPENAI_API_KEY: 'local-fixture-only',
   HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '', NO_PROXY: '*'  });
-function cli(root: string, args: string[], stdin?: string, capture?: { stderr: string }, failConnection = false) {
-  const child = spawn(process.execPath, [...(failConnection ? ['--import', pathToFileURL(resolve('conformance/fixtures/connection-record-failure.mjs')).href] : []), resolve('cli/dist/index.js'), ...args], { env: environment(root), stdio: ['pipe', 'pipe', 'pipe'] });
+function cli(root: string, args: string[], stdin?: string, capture?: { stderr: string }, failConnection = false, terminal = false) {
+  const child = spawn(process.execPath, [...(terminal ? ['--require', resolve('conformance/fixtures/cli-terminal.cjs')] : []), ...(failConnection ? ['--import', pathToFileURL(resolve('conformance/fixtures/connection-record-failure.mjs')).href] : []), resolve('cli/dist/index.js'), ...args], { env: { ...environment(root), ...(terminal ? { SEALBRIDGE_TEST_TERMINAL: '1' } : {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
   children.push(child);
   let stdout = '', stderr = '';
   child.stdout.on('data', b => { stdout += b; }); child.stderr.on('data', b => { stderr += b; if (capture) capture.stderr += b; });
@@ -82,7 +82,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 // Model HTTP is a fixture; the failure case also injects a connection-write exception.
 // MCP, CLI, keys, relay, task execution and audits are real.
-it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> Grok Bot over stdio: creator/name send, importer hold/read-only/write/disallow, name errors and expiry, VALID audits, SIGTERM; migrated=%s non-TTY CLI=%s', async (migrated, cliFirst) => {
+it.each([[false, false, false], [true, false, false], [false, true, false], [true, true, false], [false, true, true], [true, true, true]])('Muse <-> Grok Bot over stdio: creator/name send, importer hold/read-only/write/disallow, name errors and expiry, VALID audits, SIGTERM; migrated=%s CLI=%s TTY=%s', async (migrated, cliFirst, ttyFirst) => {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'muse-grok-e2e-')); roots.push(root);
   const a = join(root, 'muse'), b = join(root, 'grok-bot');
   for (const folder of [a, b]) {
@@ -105,31 +105,35 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> 
   const relay = await startLocalRelay({ port: 0 });
   try {
     const am = await mcp(a, relay.url), bm = await mcp(b, relay.url);
-    const invite = cliFirst ? { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Muse', '--allow-private-relay'])).trim().split(/\r?\n/)[0] } : await call(am.client, 'acp_create_invite', { name: 'Muse' });
-    const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--alias', 'muse', '--allow-private-relay'], invite.inviteToken + '\n'));
+    const invite = cliFirst ? { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Alpha Muse', '--allow-private-relay'])).trim().split(/\r?\n/)[0] } : await call(am.client, 'acp_create_invite', { name: 'Alpha Muse' });
+    const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--alias', 'buddy', '--allow-private-relay'], invite.inviteToken + '\n'));
     const aw = await worker(a, relay.url, join(root, 'muse.jsonl'), migrated);
-    const cliSend = (extra: string[] = []) => cli(b, ['delegate', ...(migrated && cliFirst ? ['--invite', 'muse'] : ['--to', 'muse']), '--title', 'Connect',
+    const ttyCapture = { stderr: '' };
+    const cliSend = (extra: string[] = []) => cli(b, ['delegate', '--to', 'buddy', '--title', 'Connect',
       '--description', 'Return JSON', '--input', '{"ok":true}', '--auto-approve', '--allow-private-relay',
-      '--task-timeout-ms', '10000', ...extra]).then(JSON.parse);
-    if (cliFirst) {
+      '--task-timeout-ms', '10000', ...extra], ttyFirst ? 'y\n' : undefined, ttyCapture, false, ttyFirst).then(JSON.parse);
+    if (cliFirst && !ttyFirst) {
       expect(await cliSend(['--no-connect'])).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
       expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
     }
     const first = cliFirst ? await cliSend(['--audit', join(root, 'grok-first.jsonl')]) :
-      await call(bm.client, 'acp_delegate_task', { peerRef: 'muse', title: 'Connect', input: { ok: true }, taskTimeoutMs: 10000 });
+      await call(bm.client, 'acp_delegate_task', { to: 'buddy', title: 'Connect', input: { ok: true }, taskTimeoutMs: 10000 });
     if (cliFirst) {
       expect(first).toMatchObject({ state: 'SETTLED', audit: 'VALID', connectionRecorded: { message: expect.stringContaining('Work from this peer is not allowed') } });
-      expect(first.connectionRecorded.message).toContain('sealbridge connections allow muse\n');
-      expect(first.connectionRecorded.message).toMatch(/読み取り専用.*sealbridge connections allow muse$/);
+      expect(first.connectionRecorded.message).toContain('sealbridge connections allow buddy\n');
+      expect(first.connectionRecorded.message).toMatch(/読み取り専用.*sealbridge connections allow buddy$/);
       expect(first.connectionRecordWarning).toBeUndefined();
-      expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toContainEqual(expect.objectContaining({ alias: 'muse', state: 'connected', acceptance: 'off' }));
+      expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toContainEqual(expect.objectContaining({ alias: 'buddy', state: 'connected', acceptance: 'off' }));
       expect(verifyAudit(parseJsonl(readFileSync(join(root, 'grok-first.jsonl'), 'utf8'))).status).toBe('VALID');
-      expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${first.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
+      expect(verifyAudit(parseJsonl(readFileSync(join(root, ttyFirst ? 'muse.jsonl' : `muse.${first.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
     } else expect(first).toMatchObject({ status: 'SETTLED', auditBundle: { valid: true, status: 'VALID' } });
+    if (ttyFirst) expect(ttyCapture.stderr.match(/Confirm owner decision/g)).toHaveLength(1);
     expect(bm.prompts()).toBe(cliFirst ? 0 : 1);
     const list = await call(bm.client, 'acp_list_connections');
-    expect(list.connections).toContainEqual(expect.objectContaining({ alias: 'muse', acceptance: 'off', inviteCreator: 'peer', allowsWork: false }));
-    await cli(b, ['connections', 'alias', 'muse', 'muse-connected', '--role', 'requester']);
+    expect(list.connections).toContainEqual(expect.objectContaining({ alias: 'buddy', acceptance: 'off', inviteCreator: 'peer', allowsWork: false }));
+    await cli(b, ['connections', 'allow', 'buddy']);
+    await cli(b, ['connections', 'disallow', 'buddy']);
+    await cli(b, ['connections', 'alias', 'buddy', 'muse-connected', '--role', 'requester']);
     const named = await call(bm.client, 'acp_delegate_task', { to: 'muse-connected', title: 'Name', input: { ok: true }, taskTimeoutMs: 10000 });
     expect(named).toMatchObject({ status: 'SETTLED', deliverable: { ok: true }, auditBundle: { status: 'VALID' }, acceptanceWarning: { code: 'PEER_APPROVAL_MAY_BE_REQUIRED' } });
     expect(bm.prompts()).toBe(cliFirst ? 0 : 1);
@@ -198,7 +202,7 @@ it.each([[false, false], [true, false], [false, true], [true, true]])('Muse <-> 
     const otherPeer = otherList.connections.find((c: { peerOwnerDid: string }) => c.peerOwnerDid !== list.connections[0].peerOwnerDid);
     await cli(b, ['connections', 'alias', otherPeer.peerOwnerDid, 'other-connected', '--role', 'worker']);
     // Real wall-clock expiry, never fake timers in subprocesses. Import before expiry.
-    const short = cliFirst ? { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Muse', '--expires-in', '3', '--allow-private-relay'])).trim().split(/\r?\n/)[0] } : await call(am.client, 'acp_create_invite', { name: 'Muse', expiresInSeconds: 3 });
+    const short = cliFirst ? { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Alpha Muse', '--expires-in', '3', '--allow-private-relay'])).trim().split(/\r?\n/)[0] } : await call(am.client, 'acp_create_invite', { name: 'Muse', expiresInSeconds: 3 });
     await cli(b, ['accept', '--stdin', '--alias', 'muse-connected', '--allow-private-relay'], short.inviteToken + '\n');
     // Use the verified invitation parser rather than depending on its serialized layout.
     const expiry = parseAndVerifyInviteToken(short.inviteToken, Date.now(), { allowPrivateRelay: true }).expiresAt;
@@ -284,16 +288,16 @@ it.each([false, true])('non-TTY connection-write failure warns, settles with VAL
     expect(verifyAudit(parseJsonl(readFileSync(join(root, 'record-failure.jsonl'), 'utf8'))).status).toBe('VALID');
     expect(verifyAudit(parseJsonl(readFileSync(join(root, 'muse.jsonl'), 'utf8'))).status).toBe('VALID');
     // Send the raw invite on recovery: the notice must still use the connection's
-    // local display-name alias, rather than the token, saved reference, or DID.
+    // saved invite alias, rather than the token, saved reference, or DID.
     const recovered = JSON.parse(await cli(b, ['delegate', '--to', invite.inviteToken, '--title', 'Recover',
       '--description', 'Return JSON', '--input', '{"ok":true}', '--auto-approve', '--allow-private-relay',
       '--task-timeout-ms', '10000', '--audit', join(root, 'recovered.jsonl')]));
     expect(recovered).toMatchObject({ state: 'SETTLED', audit: 'VALID',
       connectionRecorded: { peerOwnerDid: failed.connectionRecordWarning.peerOwnerDid } });
     expect(recovered.connectionRecordWarning).toBeUndefined();
-    expect(recovered.connectionRecorded.message).toContain('sealbridge connections allow muse\n');
-    expect(recovered.connectionRecorded.message).toMatch(/読み取り専用.*sealbridge connections allow muse$/);
-    expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toContainEqual(expect.objectContaining({ alias: 'muse', acceptance: 'off' }));
+    expect(recovered.connectionRecorded.message).toContain('sealbridge connections allow saved-muse\n');
+    expect(recovered.connectionRecorded.message).toMatch(/読み取り専用.*sealbridge connections allow saved-muse$/);
+    expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toContainEqual(expect.objectContaining({ alias: 'saved-muse', acceptance: 'off' }));
     expect(verifyAudit(parseJsonl(readFileSync(join(root, 'recovered.jsonl'), 'utf8'))).status).toBe('VALID');
     expect(verifyAudit(parseJsonl(readFileSync(join(root, `muse.${recovered.taskId}.jsonl`), 'utf8'))).status).toBe('VALID');
   } finally {
@@ -301,3 +305,94 @@ it.each([false, true])('non-TTY connection-write failure warns, settles with VAL
     await relay.close();
   }
 }, 30000);
+
+it.each(['cli', 'mcp'] as const)('reports a saved-alias collision through %s without stealing the other DID name', async mode => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'invite-name-collision-')); roots.push(root);
+  const a = join(root, 'a'), b = join(root, 'b');
+  const options = { env: environment(b) };
+  const local = await resolveStoredIdentity('requester', options), other = generateKeyPair();
+  const relay = await startLocalRelay({ port: 0 });
+  let receiver: ChildProcess | undefined;
+  try {
+    const localCard = createSignedAgentCard({ name: 'Local', agentDid: local.did, relayEndpoint: relay.url, skills: [] }, local);
+    const localInvite = parseAndVerifyInviteToken(createInviteToken({ agentCard: localCard }, local), Date.now(), { allowPrivateRelay: true });
+    const store = new WorkerTrustStore(local, { path: workerIntakePath(local.did, options) });
+    store.redeemTaskInvite(localInvite, { peerOwnerDid: other.did, peerAgentDid: other.did,
+      peerDisplayName: 'Buddy', relayUrl: relay.url }, 'seed-existing-peer');
+    await resolveStoredIdentity('requester', { env: environment(a) });
+    await resolveStoredIdentity('worker', { env: environment(a) });
+    await cli(a, ['config', 'auto-accept', 'anyone', 'write']);
+    const invite = (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Alpha Muse', '--allow-private-relay'])).trim().split(/\r?\n/)[0];
+    await cli(b, ['accept', '--stdin', '--alias', 'buddy', '--allow-private-relay'], invite + '\n');
+    receiver = await worker(a, relay.url, join(root, 'worker.jsonl'), false);
+    let recorded;
+    if (mode === 'cli') {
+      const capture = { stderr: '' };
+      const result = JSON.parse(await cli(b, ['delegate', '--invite', 'buddy', '--title', 'Collision', '--description', 'Return JSON',
+        '--input', '{}', '--auto-approve', '--allow-private-relay', '--task-timeout-ms', '10000'], undefined, capture));
+      expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
+      recorded = result.connectionRecorded;
+      expect(capture.stderr).toContain('different peer');
+      expect(recorded.message).toContain('connections allow alpha-muse');
+    } else {
+      const host = await mcp(b, relay.url);
+      const result = await call(host.client, 'acp_delegate_task', { peerRef: 'buddy', title: 'Collision', input: {}, taskTimeoutMs: 10000 });
+      expect(result).toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' } });
+      recorded = result.connectionRecorded;
+    }
+    expect(recorded.aliasWarning.message).toContain('保存した招待名 "buddy" は別の相手が使用中のため、接続名は "alpha-muse" になりました。');
+    expect(recorded).toMatchObject({ alias: 'alpha-muse', aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias: 'buddy' } });
+    const listed = JSON.parse(await cli(b, ['connections', 'list'])).connections;
+    expect(listed).toContainEqual(expect.objectContaining({ alias: 'buddy', peerOwnerDid: other.did }));
+    expect(listed).toContainEqual(expect.objectContaining({ alias: 'alpha-muse', peerOwnerDid: recorded.peerOwnerDid }));
+    await cli(b, ['connections', 'allow', 'alpha-muse']);
+  } finally {
+    await Promise.all(clients.splice(0).map(c => c.close()));
+    if (receiver) await stop(receiver);
+    await relay.close();
+  }
+}, 30000);
+
+it.each([[false, 'cli'], [true, 'cli'], [false, 'tty'], [true, 'tty'], [false, 'mcp'], [true, 'mcp']] as const)(
+  'accept without --alias keeps the derived connection name; migrated=%s mode=%s', async (migrated, mode) => {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), 'auto-alias-process-')); roots.push(root);
+    const a = join(root, 'a'), b = join(root, 'b');
+    for (const folder of [a, b]) {
+      await resolveStoredIdentity('requester', { env: environment(folder) });
+      await resolveStoredIdentity('worker', { env: environment(folder) });
+      if (migrated) await cli(folder, ['worker', 'migrate', '--apply']);
+      await cli(folder, ['config', 'auto-accept', 'anyone', 'write']);
+    }
+    const relay = await startLocalRelay({ port: 0 });
+    let receiver: ChildProcess | undefined;
+    try {
+      const token = (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Gamma Bot', '--allow-private-relay'])).trim().split(/\r?\n/)[0];
+      const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--allow-private-relay'], token + '\n'));
+      expect(saved.alias).toMatch(/^gamma-bot-[a-f0-9]{12}$/);
+      expect(saved.aliasExplicit).toBeUndefined();
+      receiver = await worker(a, relay.url, join(root, 'worker.jsonl'), migrated);
+      if (mode === 'mcp') {
+        const host = await mcp(b, relay.url);
+        expect(await call(host.client, 'acp_delegate_task', { to: saved.alias, title: 'Automatic alias', input: {}, taskTimeoutMs: 10000 }))
+          .toMatchObject({ status: 'SETTLED', auditBundle: { status: 'VALID' } });
+        expect(host.prompts()).toBe(1);
+      } else {
+        const capture = { stderr: '' };
+        const result = JSON.parse(await cli(b, ['delegate', '--to', saved.alias, '--title', 'Automatic alias', '--description', 'Return JSON',
+          '--input', '{}', '--auto-approve', '--allow-private-relay', '--task-timeout-ms', '10000', '--audit', join(root, 'requester.jsonl')],
+          mode === 'tty' ? 'y\n' : undefined, capture, false, mode === 'tty'));
+        expect(result).toMatchObject({ state: 'SETTLED', audit: 'VALID' });
+        expect(result.connectionRecorded.message).toContain('connections allow gamma-bot\n');
+        expect(verifyAudit(parseJsonl(readFileSync(join(root, 'requester.jsonl'), 'utf8'))).status).toBe('VALID');
+        if (mode === 'tty') expect(capture.stderr).toContain('Confirm owner decision');
+      }
+      expect(JSON.parse(await cli(b, ['connections', 'list'])).connections)
+        .toContainEqual(expect.objectContaining({ alias: 'gamma-bot', state: 'connected', acceptance: 'off' }));
+      expect(verifyAudit(parseJsonl(readFileSync(join(root, 'worker.jsonl'), 'utf8'))).status).toBe('VALID');
+      await cli(b, ['connections', 'allow', 'gamma-bot']);
+    } finally {
+      await Promise.all(clients.splice(0).map(c => c.close()));
+      if (receiver) await stop(receiver);
+      await relay.close();
+    }
+  }, 30000);

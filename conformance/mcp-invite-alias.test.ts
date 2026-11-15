@@ -54,7 +54,8 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   const { verificationNumber, relayContacted, ...imported } = JSON.parse(log.mock.calls.at(-1)![0]);
   expect(verificationNumber).toMatch(/^\d{6}$/);
   expect(relayContacted).toBe(false);
-  expect(Object.keys(imported)).toHaveLength(10);
+  expect(Object.keys(imported)).toHaveLength(11);
+  expect(imported.aliasExplicit).toBe(true);
   expect(imported.peerRef).toBe(imported.workerRef);
   const listed = await call(server, 'acp_list_invites');
   expect(listed.value.invites).toEqual([imported]);

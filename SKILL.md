@@ -21,10 +21,7 @@ A local loopback relay remains available for same-machine and offline work.
 Non-interactive `delegate --to <name>` records the importer-side connection after
 verifying the matching peer's signed ACCEPT. Incoming work stays off until the
 owner runs `connections allow <connection-name>` (read-only); writes require explicitly
-`connections allow <connection-name> write`. Use the connection name shown in the
-recording notice or `connections list`; it can differ from the saved invite alias
-(`accept --alias`). For example, peer display name "Alpha Muse" defaults to `alpha-muse`,
-even if the invitation was saved as `buddy`. Use `--no-connect` for one-off sends.
+`connections allow <connection-name> write`. The connection uses the name saved with `accept --alias`, or a name derived from the peer display name when no explicit saved alias exists. The notice and `connections list` show the actual name. If another DID already uses the saved alias, a derived name is used and the notice/JSON explains the collision. Use `--no-connect` for one-off sends.
 `accept` alone creates no connection or work permission.
 Redirecting only stderr can make the CLI non-interactive (both stdin and stderr
 must be TTYs). Sending still requires explicit `--auto-approve` in that case.
@@ -35,9 +32,7 @@ with a later delegate or TTY/MCP confirmation. Success notices prefer the local 
 非対話の `delegate --to <名前>` は、一致する相手の署名付き ACCEPT を検証してから
 取り込んだ側に接続を記録します。逆向きの仕事は `connections allow <接続名>`
 （読み取り専用）まで許可されません。書き込みは `connections allow <接続名> write`
-の明示指定が必要です。記録時の通知か `connections list` に表示された接続名を使います。
-招待の保存名（`accept --alias`）とは異なる場合があります。たとえば表示名 "Alpha Muse"
-の既定の接続名は `alpha-muse` となり、招待の保存名 `buddy` とは異なります。
+の明示指定が必要です。接続名は `accept --alias` で保存した名前を使い、明示された保存名がなければ相手の表示名から作ります。通知と `connections list` は実際の名前を表示します。別の DID が保存名を使用中なら表示名から作った名前に切り替え、通知・JSON で衝突を案内します。
 単発送信には `--no-connect` を使います。
 `accept` だけでは接続も作業許可も作りません。
 stderr だけのリダイレクトでも非対話になります（stdin と stderr の両方が TTY である必要があります）。

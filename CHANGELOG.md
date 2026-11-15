@@ -6,6 +6,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Use only explicitly owner-supplied invitation aliases for new connection names; automatic and legacy unmarked import aliases retain display-name defaults. Add Japanese collision warnings and document explicit invitation selection on different-DID name conflicts.
+
+- New importer connections use the saved invitation alias across CLI and MCP recording. Preserve existing names and owner renames; report different-DID alias collisions and use a derived fallback without changing identity or consent.
+
 - Continue accepted tasks when importer-side connection recording fails; report bilingual stderr and JSON `connectionRecordWarning` (`CONNECTION_RECORD_FAILED`) with recovery guidance. Prefer local names in successful connection notices, retaining DIDs in JSON.
 
 - **Behavior change:** explicit non-interactive CLI delegation to an invite peer now records the importer-side connection after verifying the matching peer’s signed task ACCEPT. Incoming read/write acceptance stays off until `connections allow`. Use `--no-connect` for one-off sends. TTY/MCP consent is unchanged; recording emits a bilingual notice and JSON `connectionRecorded`. Correct delegate `--invite` and worker `--name` help.

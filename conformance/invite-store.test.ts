@@ -233,3 +233,28 @@ describe('local invitation store', () => {
     expect(fs.readdirSync(dirname(store.path))).toEqual([store.path.slice(dirname(store.path).length + 1)]);
   });
 });
+
+it('marks only owner-supplied aliases and preserves legacy metadata without inferring intent', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  const automatic = store.import(token);
+  expect(automatic.aliasExplicit).toBeUndefined();
+  expect(store.list()[0].aliasExplicit).toBeUndefined();
+  const explicit = store.import(token, automatic.alias);
+  expect(explicit.aliasExplicit).toBe(true);
+  expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBe(true);
+  const signed = JSON.parse(fs.readFileSync(store.path, 'utf8'));
+  delete signed.payload.entries[0].aliasExplicit;
+  fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
+  const legacyBytes = fs.readFileSync(store.path);
+  expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBeUndefined();
+  expect(new InviteStore(owner, options).import(token).aliasExplicit).toBeUndefined();
+  expect(fs.readFileSync(store.path)).toEqual(legacyBytes);
+});
+it.each([false, 'true', 1, null])('rejects an invalid signed aliasExplicit marker: %j', value => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options);
+  store.import(fixture().token, 'buddy');
+  const signed = JSON.parse(fs.readFileSync(store.path, 'utf8'));
+  signed.payload.entries[0].aliasExplicit = value;
+  fs.writeFileSync(store.path, JSON.stringify(signPayload(signed.payload, owner)));
+  expect(() => store.list()).toThrow('INVITE_STORE_INVALID');
+});

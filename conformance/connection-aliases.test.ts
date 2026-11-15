@@ -3,11 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken, signPayload } from '../packages/core/src/index.js';
 import { ConnectionAliases, connectionAutoAccept, defaultConnectionAlias, InviteStore, resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { connectionTarget, localConnections } from '../cli/src/connection-target.js';
 import { connectionsCommand } from '../cli/src/connections.js';
 import { networkCommand } from '../cli/src/network.js';
+import { nameInviteConnection } from '../packages/runtime/src/connection-aliases.js';
 import { protocolTestNow } from './protocol-test-clock.js';
 
 let root: string;
@@ -173,4 +174,56 @@ it.each(['invited', 'connected', 'anyone'] as const)('preserves legacy explicit 
     expect(connectionAutoAccept(policy, 'write')).toEqual({ ...policy, enabled: true, from: 'connected', work: 'write' });
   }
   expect(readFileSync(path)).toEqual(before);
+});
+
+it('initializes the exact saved invite alias, preserving case and owner renames on repeats', async () => {
+  const f = await connect('requester', 'Alpha Muse');
+  const invites = await InviteStore.open(f.key, options);
+  invites.import(f.token, 'Buddy');
+  const connections = f.store.listConnections(), peer = connections[0];
+  const result = await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections);
+  expect(result).toEqual({ alias: 'Buddy' });
+  expect(localConnections(f.key, options)[0].alias).toBe('Buddy');
+  await connectionsCommand(['allow', 'Buddy'], { identityOptions: options, output: vi.fn() });
+  new ConnectionAliases(f.key, options).rename(f.peer.did, 'chosen', connections);
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
+  expect(localConnections(f.key, options)[0].alias).toBe('chosen');
+  // A competing first-record initializer also cannot overwrite a sidecar rename.
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({ alias: 'chosen' });
+});
+it('falls back on a different-DID collision, reports the actual name and never steals an alias', async () => {
+  const other = await connect('requester', 'Other');
+  new ConnectionAliases(other.key, options).rename(other.peer.did, 'buddy', other.store.listConnections());
+  const derived = await connect('requester', 'Alpha Muse');
+  const f = await connect('requester', 'Alpha Muse');
+  (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
+  const connections = f.store.listConnections(), peer = connections.find(c => c.peerOwnerDid === f.peer.did)!;
+  const result = await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer,
+    connections.filter(c => c.peerOwnerDid !== f.peer.did), connections);
+  expect(result).toMatchObject({ alias: 'alpha-muse-2', aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias: 'buddy',
+    message: expect.stringContaining('alpha-muse-2') } });
+  expect(localConnections(f.key, options).find(c => c.peerOwnerDid === other.peer.did)?.alias).toBe('buddy');
+  expect(localConnections(f.key, options).find(c => c.peerOwnerDid === derived.peer.did)?.alias).toBe('alpha-muse');
+});
+it('keeps the derived default without a saved invite and never renames pre-existing legacy records', async () => {
+  const f = await connect('requester', 'Alpha Muse');
+  const connections = f.store.listConnections(), peer = connections[0];
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({});
+  (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
+  expect(localConnections(f.key, options)[0].alias).toBe('alpha-muse');
+});
+
+it.each(['automatic', 'legacy'] as const)('keeps derived names for %s saved invite aliases', async kind => {
+  const f = await connect('requester', 'Gamma Bot');
+  const invites = await InviteStore.open(f.key, options);
+  invites.import(f.token, kind === 'legacy' ? 'old-owner-name' : undefined);
+  if (kind === 'legacy') {
+    const signed = JSON.parse(readFileSync(invites.path, 'utf8'));
+    delete signed.payload.entries[0].aliasExplicit;
+    writeFileSync(invites.path, JSON.stringify(signPayload(signed.payload, f.key)));
+  }
+  const connections = f.store.listConnections();
+  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), connections[0], [], connections)).toEqual({});
+  expect(localConnections(f.key, options)[0].alias).toBe('gamma-bot');
 });

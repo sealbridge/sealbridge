@@ -953,6 +953,7 @@ export const mcpTools: Json = [
           ownerDid: described('Public owner DID bound to the verified invitation.', { type: 'string' }),
           agentDid: described('Public agent DID bound to the verified invitation.', { type: 'string' }),
           relayUrl: described('Relay URL retained from the verified invitation.', { type: 'string' }),
+          aliasExplicit: described('Present only when the owner explicitly supplied the saved alias.', { const: true, type: 'boolean' }),
           importedAt: described('ISO timestamp of the user-operated local import.', { type: 'string' }),
           effectiveExpiresAt: described('Earlier of invitation expiry and signed card expiry.', { type: 'string' }),
           status: described('Current or expired according to the effective expiry.', { type: 'string', enum: ['current', 'expired'] }),

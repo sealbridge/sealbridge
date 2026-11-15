@@ -144,7 +144,7 @@ Connection records are created during the existing signed connection exchange:
   invite task path but does not invent requester-side connection consent.
   `--auto-approve` and `--auto-accept` do not answer the connection prompt.
 
-Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <connection-name>` with the name shown in the recording notice or `connections list` to opt in. This connection name can differ from the saved invite alias (`accept --alias`). `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
+Non-interactive CLI `delegate --to` / `--invite` treats an explicit send to an invite peer as connection consent. Only after verifying a signed task ACCEPT matching the invite owner/agent DIDs does it record the importer connection. Read and write acceptance remain `off`; use `connections allow <connection-name>` with the name shown in the recording notice or `connections list` to opt in. The connection uses the name saved with `accept --alias`, or a name derived from the peer display name when no explicit saved alias exists. The notice and `connections list` show the actual name. If another DID already uses the saved alias, a derived name is used and the notice/JSON explains the collision. `--no-connect` skips recording for one-off sends. TTY prompts and MCP elicitation are unchanged. Unreachable peers, DID mismatches and `CONNECTION_TARGET_CONFLICT` create no record. Repeats preserve existing records, aliases and allow settings. Recording emits a bilingual stderr notice and JSON `connectionRecorded: {peerOwnerDid, message}`. `accept` alone remains local import only.
 
 Connection recording is best-effort: a store failure does not abort accepted work. Bilingual stderr and JSON `connectionRecordWarning` with code `CONNECTION_RECORD_FAILED` advise re-running delegate or using TTY/MCP confirmation to record it. No `connectionRecorded` is emitted on failure. Successful notices use the local alias/name when available (JSON retains the DID). Redirecting only stderr also makes the CLI non-interactive; stdin and stderr must both be TTYs.
 
@@ -192,7 +192,9 @@ Renaming is local only;
 use the peer DID plus a role/key if a name is ambiguous. It sends no protocol
 message and changes no peer DID or connection consent.
 
-The default alias is derived from the retained peer display name: lowercase,
+New importer records prefer the explicitly chosen saved invitation alias (including case). Existing records and owner renames remain unchanged. On a different-DID saved-alias collision, use the display-name default with a numeric suffix if needed and report the actual name.
+
+Without an explicitly chosen saved alias, the default is derived from the retained peer display name: lowercase,
 replace runs outside ASCII letters/digits with `-`, trim edge hyphens, and take
 at most 64 characters; an empty result uses `peer`. Renames accept 1–64 lowercase
 ASCII letters/digits, `_` or `-`, starting with a letter/digit. Identical display
@@ -241,15 +243,12 @@ acceptance now records local `acceptance: "off"`. `accept` itself still only sav
 an invitation. The creator keeps its current policy and Muse needs no extra step:
 Grok Bot can import and delegate to Muse exactly as before.
 
-Use the connection name from the recording notice or `connections list`, which
-can differ from the saved invite alias. For example, an invitation saved as
-`buddy` for display name "Alpha Muse" defaults to connection name `alpha-muse`.
-The commands below assume `connections list` shows `alpha-muse`.
+The connection uses the name saved with `accept --alias`, or a name derived from the peer display name when no explicit saved alias exists. The notice and `connections list` show the actual name. If another DID already uses the saved alias, a derived name is used and the notice/JSON explains the collision.
 
 ```sh
-sealbridge connections allow alpha-muse             # read-only
-sealbridge connections allow alpha-muse write       # explicit writes
-sealbridge connections disallow alpha-muse          # owner approval again
+sealbridge connections allow buddy             # read-only
+sealbridge connections allow buddy write       # explicit writes
+sealbridge connections disallow buddy          # owner approval again
 sealbridge connections list
 ```
 
@@ -341,3 +340,7 @@ The [README guide](../../README.md) and real-process Muse ↔ Grok Bot tests cov
 both identity layouts and the two-way permission lifecycle. Desktop remains later
 work. The invite/role series does not bump the protocol version or change the
 invitation payload.
+
+Explicit invitation names are recorded as `aliasExplicit: true` only when the owner supplies an alias. Automatically generated import aliases and older entries without that marker keep display-name-derived connection defaults. Reimporting with the same alias explicitly records that choice; it never renames an existing connection.
+
+If a saved invitation alias collides with a connection for a different DID, `delegate --to <alias>` fails with `CONNECTION_TARGET_CONFLICT`. Use `delegate --invite <alias>` to select the saved invitation explicitly; the recording notice shows the actual fallback connection name.

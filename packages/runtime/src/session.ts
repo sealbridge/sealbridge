@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { nameInviteConnection } from './connection-aliases.js';
 import { checkInputSize, measureInput, type PreCallSizeLimits, autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
 import { connectionAutoAccept, matchesAutoAccept, WorkerAutoApprovalProvider, type AutoAcceptStateGuard } from './auto-accept.js';
 import { privateDirectory } from './local-identity.js';
@@ -3328,7 +3329,7 @@ export class RequesterClient {
           ? workerIntakePath(owner.did, this.options.identityOptions) : undefined, now: this.options.now });
         if (store.ownerDid !== owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
         if (store.connectionState(peer) !== 'connected') {
-          connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store,
+          connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store, identityOptions: this.options.identityOptions,
             agentCard: createSignedAgentCard({ name: 'Sealbridge requester', agentDid: owner.did,
               relayEndpoint: relayUrl, skills: [], protocolVersions: await retryDeliveryBusy(() => this.protocol.receiveVersions(), signal, 'PROTOCOL_STORE_BUSY') }, owner),
             review: new HeldRequestReview(owner, { ...this.options.identityOptions, now: this.options.now }),
@@ -3392,18 +3393,26 @@ export class RequesterClient {
           manifest.worker!.agentDid === invite.agentDid) {
         const connectionId = connectionIdFor(owner.did, peer);
         let recorded = false;
+        let naming = {};
         try {
+          const before = connectionStore.listConnections();
           recorded = connectionStore.recordAcceptedInviteTask({ peerOwnerDid: peer,
             peerAgentDid: invite.agentDid, peerDisplayName: invite.agentCard.payload.name,
             relayUrl: invite.relayUrl }, connectionId, digest({ manifest, input: options.input }), digest(accept.approval), manifest);
+          if (recorded) {
+            const connections = connectionStore.listConnections();
+            naming = await nameInviteConnection(owner, this.options.identityOptions ?? {}, digest(invite),
+              connections.find(c => c.peerOwnerDid === peer)!, before, connections);
+          }
         } catch {
           const warning = { code: 'CONNECTION_RECORD_FAILED' as const, peerOwnerDid: peer,
-            message: 'CONNECTION_RECORD_FAILED: Connection was not recorded. The accepted task will continue. Re-run delegate or use TTY/MCP connection confirmation to record it.' +
+            message: recorded ? 'CONNECTION_RECORD_FAILED: Connection was recorded, but its saved invite name could not be applied. The accepted task will continue. Use connections list to see its actual name.\n接続を記録しましたが、保存済み招待の名前を適用できませんでした。受諾済みの作業は続行します。connections list で実際の名前を確認してください。' :
+              'CONNECTION_RECORD_FAILED: Connection was not recorded. The accepted task will continue. Re-run delegate or use TTY/MCP connection confirmation to record it.' +
               '\n接続を記録できませんでした。受諾済みの作業は続行します。delegate を再実行するか、TTY/MCP の接続確認で記録してください。' };
           if (this.options.onConnectionRecordWarning) this.options.onConnectionRecordWarning(warning);
           else console.error(warning.message);
         }
-        if (recorded) this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: peer,
+        if (recorded) this.options.onConnectionEvent?.({ ...naming, event: 'connected', peerOwnerDid: peer,
           peerAgentDid: invite.agentDid, connectionId, source: 'request', connectedAt: (this.options.now ?? Date.now)() });
       }
       gateway.machine.apply(

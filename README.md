@@ -43,7 +43,7 @@ Check `connections list` for the peer DID and local alias. Creator acceptance po
 
 After recording the connection through the non-interactive CLI above, check `connections list`. New connections on the importing side have automatic acceptance **off**. Return tasks wait for that owner's approval until they opt in. The sender sees an advisory that peer approval may be needed. A held task is not retried automatically.
 
-The importer must also run a worker for the DID that owns its connection. With separate unmigrated requester/worker keys, add `--also-requester` to `worker start` (an existing requester key is required). A migrated owner gateway already receives owner-addressed work. Use the connection name shown in the recording notice or `connections list`; it can differ from the saved invite alias (`accept --alias`). The example below assumes the listed connection name is `muse`. Have the owner choose the scope:
+The importer must also run a worker for the DID that owns its connection. With separate unmigrated requester/worker keys, add `--also-requester` to `worker start` (an existing requester key is required). A migrated owner gateway already receives owner-addressed work. The connection uses the name saved with `accept --alias`, or a name derived from the peer display name when no explicit saved alias exists. The notice and `connections list` show the actual name. If another DID already uses the saved alias, a derived name is used and the notice/JSON explains the collision. The example below assumes the listed connection name is `muse`. Have the owner choose the scope:
 
 ```sh
 sealbridge connections allow muse        # read-only
@@ -80,7 +80,7 @@ sealbridge delegate --to reviewer --title "Quick check" --description "Return JS
 sealbridge connections list
 ```
 
-Non-interactive CLI delegation records the importer connection after verifying the invite peer's signed ACCEPT (unless `--no-connect`). Before reverse work, run `connections allow <connection-name>` using the connection name shown in the recording notice or `connections list`, not necessarily the saved invite alias `reviewer`. For example, if the peer display name is "Alpha Muse", the default connection name is `alpha-muse`, so run `connections allow alpha-muse` (read-only), or explicitly `connections allow alpha-muse write` for writes. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
+Non-interactive CLI delegation records the importer connection after verifying the invite peer's signed ACCEPT (unless `--no-connect`). Before reverse work, run `connections allow <connection-name>` using the connection name shown in the recording notice or `connections list`. With `accept --alias reviewer`, use `connections allow reviewer` (or explicitly `connections allow reviewer write` for writes); a different-DID name collision is reported with the actual fallback name. An `openai` receiver needs a provider API key, and any required endpoint/model, in the host environment; usage is billed to its owner. It needs no `--allow-local-pc` unless local command hooks are used. Sandbox / codex / claude workers need that flag.
 
 ## Register MCP for connection confirmation
 
