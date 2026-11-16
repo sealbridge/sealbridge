@@ -26,6 +26,15 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm validate:schemas
       - run: pnpm test --exclude conformance/codex-proxy-real.test.ts
+      - name: Verify tests leave the worktree clean
+        if: always()
+        shell: bash
+        run: |
+          status=$(git status --porcelain --untracked-files=all)
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
       - name: Install Codex CLI 0.163.0
         run: npm install -g @openai/codex@0.163.0
       - name: Verify Codex proxy routing
