@@ -461,6 +461,36 @@ it('falls back to the nearest existing parent when a nested data root has no err
   } });
   expect(() => store.import(fixture().token, 'buddy')).toThrow(`at "${home}"`);
 });
+
+it.each(['missing invites', 'missing lock', 'existing file', 'existing directory'] as const)(
+  'names an existing recovery folder for OS error.path pointing to %s', kind => {
+    const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+    const root = options.env!.SEALBRIDGE_DATA_DIR!, invites = dirname(store.path);
+    fs.mkdirSync(root, { mode: 0o700 });
+    if (kind !== 'missing invites') store.import(token, 'buddy');
+    const failedPath = kind === 'missing invites' || kind === 'existing directory' ? invites :
+      kind === 'missing lock' ? store.path + '.lock' : store.path;
+    const expected = kind === 'missing invites' ? root : invites;
+    const denied = () => { throw Object.assign(new Error('denied'), { code: 'EACCES', path: failedPath }); };
+    const failing = new InviteStore(owner, { ...options, fs: { ...fs,
+      mkdirSync: ((path, ...args) => {
+        if (kind === 'missing invites' && String(path) === invites) denied();
+        return (fs.mkdirSync as any)(path, ...args);
+      }) as typeof fs.mkdirSync,
+      openSync: ((path, flags, ...args) => {
+        if (String(path) === store.path + '.lock') denied();
+        return (fs.openSync as any)(path, flags, ...args);
+      }) as typeof fs.openSync,
+    } });
+    expect(fs.existsSync(failedPath)).toBe(kind === 'existing file' || kind === 'existing directory');
+    expect(fs.statSync(expected).isDirectory()).toBe(true);
+    expect(() => failing.import(token, 'buddy')).toThrow(new Error(
+      `INVITE_STORE_UNWRITABLE: Cannot write invitation data at "${expected}". Grant the current user write access to "${expected}" or select a writable SEALBRIDGE_DATA_DIR.\n招待データのパス「${expected}」に書き込めません。「${expected}」に現在のユーザーの書き込み権限を付けるか、書き込み可能な SEALBRIDGE_DATA_DIR を指定してください。`,
+    ));
+    expect(fs.existsSync(store.path + '.lock')).toBe(false);
+    if (kind !== 'missing invites') expect(store.list()[0]).toMatchObject({ alias: 'buddy', aliasExplicit: true });
+  },
+);
 it('retains per-entry intent from an earlier sidecar after unrelated store changes', () => {
   const owner = generateKeyPair(), store = new InviteStore(owner, options);
   store.import(fixture().token, 'buddy');

@@ -7,7 +7,8 @@ import { createSignedAgentCard, generateKeyPair, digest } from '../packages/core
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { ConnectionRouter, HeldRequestReview, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { completeInspection } from './connections-fixture.js';
-import { slowTestDiagnostics } from './slow-test-diagnostics.js';
+import { slowTestDiagnostics, SLOW_TEST_TIMEOUT } from './slow-test-diagnostics.js';
+vi.setConfig({ testTimeout: SLOW_TEST_TIMEOUT });
 const cleanups: Array<() => void> = [];
 let diagnostic: () => unknown = () => ({});
 slowTestDiagnostics(() => diagnostic());

@@ -358,12 +358,16 @@ export class InviteStore {
       if (['EACCES', 'EPERM', 'EROFS'].includes(code(error) ?? '') ||
           (error instanceof Error && error.message === 'IDENTITY_STORE_UNWRITABLE')) {
         let path = (error as NodeJS.ErrnoException).path;
-        if (typeof path !== 'string' || !path) {
-          path = operationPath;
-          while (true) {
-            try { this.io.lstatSync(path); break; }
-            catch { const parent = dirname(path); if (parent === path) break; path = parent; }
-          }
+        if (typeof path !== 'string' || !path) path = operationPath;
+        // OS errors can name an uncreated directory, lock or temporary file.
+        // Recovery guidance must always name an existing directory, including
+        // the parent when the failing path is an existing file.
+        while (true) {
+          try { if (this.io.lstatSync(path).isDirectory()) break; }
+          catch { /* Walk up through missing or inaccessible path components. */ }
+          const parent = dirname(path);
+          if (parent === path) break;
+          path = parent;
         }
         throw new Error(`INVITE_STORE_UNWRITABLE: Cannot write invitation data at "${path}". Grant the current user write access to "${path}" or select a writable SEALBRIDGE_DATA_DIR.\n招待データのパス「${path}」に書き込めません。「${path}」に現在のユーザーの書き込み権限を付けるか、書き込み可能な SEALBRIDGE_DATA_DIR を指定してください。`, { cause: error });
       }

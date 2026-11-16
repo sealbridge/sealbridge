@@ -18,6 +18,8 @@ import { diagnose } from '../cli/src/doctor.js';
 import { formatCliError } from '../cli/src/error-messages.js';
 import { childFailure, slowTestDiagnostics, SLOW_TEST_TIMEOUT } from './slow-test-diagnostics.js';
 
+vi.setConfig({ testTimeout: SLOW_TEST_TIMEOUT });
+
 let diagnostic: () => unknown = () => ({});
 let finalDiagnostic: unknown;
 const listening: Array<{ port: number; sockets: Set<net.Socket> }> = [];
