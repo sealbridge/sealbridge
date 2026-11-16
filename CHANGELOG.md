@@ -4,7 +4,7 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-17
+## [0.9.0] - 2026-11-16
 
 Role-neutral invitations and named bilateral connections now work across CLI/MCP, with owner gateways, delegated workers, explicit migration and importer acceptance controls. Concurrent outbox access and Muse ↔ Grok Bot end-to-end coverage improve reliability.
 

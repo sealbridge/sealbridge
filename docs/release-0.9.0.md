@@ -12,7 +12,7 @@ site deployment or relay deployment. 公開・デプロイは別途所有者が�
 - Verified `git diff v0.8.1..origin/main -- packages/relay` is empty at this base.
   No relay implementation changes are included; relay deployment is unnecessary.
   The relay workspace manifest receives only the coordinated version bump.
-- The planned changelog date is 2026-11-17; correct it before any future tag if
+- The release date is 2026-11-16; correct it before any future tag if
   publication occurs on another date. Historical publication records remain.
 - Source installers pin 0.9.0. Hosted installers remain unchanged until a separately
   authorized deployment. Site documentation is generated from the READMEs.
