@@ -4,6 +4,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+- Keep the outbox Windows sharing-violation test's real files under its native OS temporary directory and existing teardown; simulate only the Windows I/O policy. CI now checks for tracked changes and untracked files immediately after the full conformance suite. No product behavior changes.
+
 ### Invite and role series
 
 - Windows installer tests resolve the first shell executable directly instead of waiting for an exhaustive `where.exe` PATH scan, which timed out in CI after already printing a valid match. Regression tests ensure later PATH entries are never probed after a match; required missing shells still fail explicitly.

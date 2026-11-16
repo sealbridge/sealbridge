@@ -158,7 +158,7 @@ it('keeps a concurrent publication visible while opening unpublished temporary f
 it('resumes a partially published batch after a Windows sharing violation without duplicate frames', async () => {
   const f = fixture(), p = f.prepare(true);
   let fail = true;
-  const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, platform: 'win32', fs: { ...fs,
+  const service = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: { ...fs,
     renameSync: (from, to) => {
       if (fail && String(to).includes(join('messages', ''))) {
         fail = false;
@@ -167,7 +167,12 @@ it('resumes a partially published batch after a Windows sharing violation withou
       fs.renameSync(from, to);
     },
   } } });
+  // Resolve real paths on the host OS, then simulate only the store's Windows
+  // sharing-violation policy. Windows path normalization on POSIX escapes f.root.
+  Object.defineProperty(service.store, 'platform', { value: 'win32' });
+  expect(service.store.root).toBe(f.service.store.root);
   const ids = await service.enqueuePrepared(p.frames, p.context);
+  expect(fail).toBe(false);
   expect(ids).toEqual(p.frames.map(frame => frame.payload.envelopeId));
   expect(service.store.committed(service.store.read('outbox', ids[0])!.batchId).map(r => r.envelopeId)).toEqual(ids);
   for (const id of ids) await service.sendPrepared(id);
