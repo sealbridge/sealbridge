@@ -40,8 +40,8 @@ export interface SavedInvite {
   peerRef?: string;
   workerRef: string;
   alias: string;
-  /** Present only when an owner explicitly supplied the alias. */
-  aliasExplicit?: true;
+  /** True only for persisted owner intent; false when an explicit import could not save it. */
+  aliasExplicit?: boolean;
   displayName: string;
   ownerDid: string;
   agentDid: string;
@@ -78,6 +78,7 @@ export class InviteStore {
   private locked = false;
   private legacyInline = false;
   private legacyKeys = new Set<string>();
+  private migrationAttempted = false;
   private static readonly warnedAliasPaths = new Set<string>();
   /** Optional owner-signed intent metadata; older releases never read this file. */
   get aliasPath(): string { return this.path + '.aliases.json'; }
@@ -153,10 +154,11 @@ export class InviteStore {
         this.legacyInline = legacyInline;
         this.legacyKeys = new Set(p.entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e)));
       }
-      if (migrate && !this.locked && legacyInline) {
+      if (migrate && !this.locked && legacyInline && !this.migrationAttempted) {
+        this.migrationAttempted = true;
         // Re-read under the normal writer lock before migrating legacy inline marks.
         try {
-          this.mutate(entries => ({ entries, result: undefined, changed: true }), true);
+          this.mutate(entries => ({ entries, result: undefined, changed: true }), true, true);
           return this.readMetadata(false);
         } catch {
           // Migration is maintenance, not validation. Keep this verified snapshot
@@ -175,9 +177,27 @@ export class InviteStore {
     InviteStore.warnedAliasPaths.add(this.aliasPath);
     console.error('INVITE_ALIAS_METADATA_UNAVAILABLE: explicit invite alias metadata could not be read or saved; derived connection names may be used.\n招待別名の明示指定を読み取り・保存できませんでした。表示名から作った接続名を使用する場合があります。');
   }
-  private readAliasMarks(): Set<string> {
+  /** Repair mode bits only through an owner-checked descriptor, never through a link. */
+  private readAliasFile(repair = false): string | undefined {
+    if (repair && (this.options.platform ?? process.platform) !== 'win32') {
+      checkPath(this.aliasPath, this.io, this.options.platform);
+      let before: fs.Stats | undefined;
+      try { before = this.io.lstatSync(this.aliasPath); }
+      catch (error) { if (code(error) !== 'ENOENT') throw error; }
+      if (before?.isFile() && before.uid === process.getuid!() && (before.mode & 0o077) !== 0) {
+        const fd = this.io.openSync(this.aliasPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        try {
+          const stat = this.io.fstatSync(fd);
+          if (!stat.isFile() || stat.uid !== process.getuid!() || stat.dev !== before.dev || stat.ino !== before.ino) throw new Error();
+          this.io.fchmodSync(fd, 0o600);
+        } finally { this.io.closeSync(fd); }
+      }
+    }
+    return readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+  }
+  private readAliasMarks(repair = false): Set<string> {
     try {
-      const contents = readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+      const contents = this.readAliasFile(repair);
       if (contents === undefined) return new Set();
       const signed = JSON.parse(contents), p = signed.payload;
       if (!exactKeys(signed, 'payload,signature') || !verifySigned(signed, this.owner.did) ||
@@ -194,7 +214,7 @@ export class InviteStore {
     let written = false;
     try {
       // Validate an existing destination too: never replace an unsafe sidecar.
-      const previous = readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+      const previous = this.readAliasFile(true);
       if (marks.size === 0 && previous === undefined) return true;
       const bytes = Buffer.from(JSON.stringify(signPayload({ type: 'InviteAliasIntent', version: 1,
         localOwnerDid: this.owner.did, marks: [...marks] }, this.owner)) + '\n');
@@ -272,7 +292,7 @@ export class InviteStore {
   private find(entries: StoredInvite[], ref: string): StoredInvite | undefined {
     return entries.find(e => ref === 'saved:' + e.id || ref === e.alias);
   }
-  private mutate<T>(change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean }, metadataOnly = false): T {
+  private mutate<T>(change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean }, metadataOnly = false, migrationOnly = false): T {
     const lock = this.path + '.lock';
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     let locked = false, written = false;
@@ -287,7 +307,7 @@ export class InviteStore {
       this.locked = true;
       this.legacyInline = false;
       this.legacyKeys = new Set();
-      const previousMarks = this.readAliasMarks();
+      const previousMarks = this.readAliasMarks(true);
       const { entries, result, changed } = change(metadataOnly ? this.readMetadata() : this.read());
       if (!changed && !this.legacyInline) return result;
       const marks = new Set(entries.filter(e => e.aliasExplicit === true).map(e => this.aliasKey(e)));
@@ -295,6 +315,9 @@ export class InviteStore {
       // Publish intent before removing inline legacy marks. Keep old marks until
       // the store commits, so a failed replacement cannot erase existing intent.
       const aliasWritten = this.writeAliasMarks(prepared);
+      // A failed maintenance-only migration has nothing to commit. Preserve the
+      // original signed bytes instead of publishing the same inline records again.
+      if (migrationOnly && !aliasWritten) return result;
       const bytes = Buffer.from(JSON.stringify(signPayload<StoredInvites>({
         type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did,
         entries: entries.map(({ aliasExplicit: _intent, ...record }) => ({ ...record,
@@ -305,9 +328,18 @@ export class InviteStore {
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
       if (aliasWritten && prepared.size !== marks.size) this.writeAliasMarks(marks);
+      if (!aliasWritten) {
+        // Results may reference these entries. Report only intent that survived publication.
+        for (const entry of entries) {
+          const key = this.aliasKey(entry);
+          if (!this.legacyKeys.has(key) && !previousMarks.has(key)) delete entry.aliasExplicit;
+        }
+      }
       return result;
     } catch (error) {
-      if (['EACCES', 'EPERM', 'EROFS'].includes(code(error) ?? '')) throw error;
+      if (['EACCES', 'EPERM', 'EROFS'].includes(code(error) ?? '') ||
+          (error instanceof Error && error.message === 'IDENTITY_STORE_UNWRITABLE'))
+        throw new Error(`INVITE_STORE_UNWRITABLE: Cannot write invitation folder "${this.directory}". Grant the current user write access or select a writable SEALBRIDGE_DATA_DIR.\n招待フォルダ「${this.directory}」に書き込めません。現在のユーザーに書き込み権限を付けるか、書き込み可能な SEALBRIDGE_DATA_DIR を指定してください。`, { cause: error });
       if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
       throw new Error('INVITE_STORE_INVALID');
     } finally {
@@ -326,7 +358,7 @@ export class InviteStore {
     const entry = this.entry(inviteTokenFromUri(link), alias ?? slug + '-' + suffix, new Date(now).toISOString(), invite);
     if (alias !== undefined) entry.aliasExplicit = true;
     if (options.pendingConfirmation) entry.importState = 'unconfirmed';
-    return this.mutate(entries => {
+    const saved = this.mutate(entries => {
       const duplicate = entries.find(e => e.inviteDigest === entry.inviteDigest);
       if (duplicate) {
         if (alias !== undefined && alias !== duplicate.alias) throw new Error('ALIAS_EXISTS');
@@ -335,12 +367,13 @@ export class InviteStore {
         const changed = retained || explicit;
         if (retained) delete duplicate.importState;
         if (explicit) duplicate.aliasExplicit = true;
-        return { entries, result: this.publicEntry(duplicate), changed };
+        return { entries, result: duplicate, changed };
       }
       if (entries.some(e => e.alias === entry.alias)) throw new Error('ALIAS_EXISTS');
       const stored = this.options.secretStore || this.selection() === 'keychain' ? this.externalize(entry) : entry;
-      return { entries: [...entries, stored], result: this.publicEntry(entry), changed: true };
+      return { entries: [...entries, stored], result: stored, changed: true };
     });
+    return { ...this.publicEntry(saved), ...(alias !== undefined && !saved.aliasExplicit ? { aliasExplicit: false } : {}) };
   }
   /** Explicit migration publishes only after all external strings have been read back. */
   migrateToKeychain(dryRun = false): { count: number; dryRun: boolean } {

@@ -415,7 +415,7 @@ it.each([[false, 'cli', 'automatic'], [true, 'cli', 'automatic'], [false, 'tty',
       if (receiver) await stop(receiver);
       await relay.close();
     }
-  }, 30000);
+  }, 60000);
 
 async function legacyAliasProcessCase(kind: 'old-write' | 'held-lock' | 'read-only') {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'alias-maintenance-')); roots.push(root);

@@ -9,6 +9,7 @@ import { InviteStore } from '../packages/runtime/src/invite-store.js';
 import type { InviteStoreOptions } from '../packages/runtime/src/invite-store.js';
 import { inspectLocalIdentity, resolveOrCreateIdentity } from '../packages/runtime/src/local-identity.js';
 import { addContact, loadContacts } from '../cli/src/contacts.js';
+import { acceptCommand } from '../cli/src/accept.js';
 
 const NOW = Date.parse('2026-11-01T00:00:00.000Z');
 let home: string, options: InviteStoreOptions, now: number;
@@ -275,6 +276,7 @@ it('treats unreadable intent as absent and accepts when sidecar publication fail
   } } });
   const imported = failing.import(fixture().token, 'second');
   expect(imported.alias).toBe('second');
+  expect(imported.aliasExplicit).toBe(false);
   expect(store.list()).toMatchObject([{ alias: 'chosen', aliasExplicit: true }, { alias: 'second' }]);
   expect(store.list()[1].aliasExplicit).toBeUndefined();
 });
@@ -303,7 +305,7 @@ it.each(['held-lock', 'read-only'] as const)('reads verified legacy aliases when
     expect(fs.readFileSync(store.path + '.lock', 'utf8')).toBe('another writer');
     expect(() => reader.import(token, 'buddy')).toThrow('INVITE_STORE_BUSY');
     fs.unlinkSync(store.path + '.lock');
-  } else expect(() => reader.import(token, 'buddy')).toThrow('read-only directory');
+  } else expect(() => reader.import(token, 'buddy')).toThrow('INVITE_STORE_UNWRITABLE');
   expect(store.import(token, 'buddy').aliasExplicit).toBe(true);
   expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
   expect(store.list()[0].aliasExplicit).toBe(true);
@@ -334,8 +336,98 @@ it('keeps legacy inline intent when the sidecar cannot be published', () => {
   expect(store.list()[0].aliasExplicit).toBe(true);
   expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0].aliasExplicit).toBe(true);
   fs.rmdirSync(store.aliasPath);
-  expect(store.list()[0].aliasExplicit).toBe(true);
+  expect(store.import(store.resolve('buddy').inviteToken, 'buddy').aliasExplicit).toBe(true);
   expect(JSON.parse(fs.readFileSync(store.path, 'utf8')).payload.entries[0]).not.toHaveProperty('aliasExplicit');
+});
+
+it('attempts blocked read-time migration only once per instance and retries on explicit import', () => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy'); inlineLegacy(owner, store);
+  const before = fs.readFileSync(store.path);
+  const publish = vi.fn((from: fs.PathLike, to: fs.PathLike) => {
+    if (String(to) === store.aliasPath) throw Object.assign(new Error('blocked'), { code: 'EACCES' });
+    fs.renameSync(from, to);
+  });
+  const reader = new InviteStore(owner, { ...options, fs: { ...fs, renameSync: publish } });
+  expect(reader.list()[0].aliasExplicit).toBe(true);
+  const attempts = publish.mock.calls.length;
+  expect(attempts).toBe(1); // Only the sidecar was attempted; the main store was not rewritten.
+  expect(fs.readFileSync(store.path)).toEqual(before);
+  reader.list(); reader.listUnconfirmed(); reader.resolve('buddy');
+  expect(publish).toHaveBeenCalledTimes(attempts);
+  expect(reader.import(token, 'buddy').aliasExplicit).toBe(true); // Legacy inline intent survives.
+  expect(publish.mock.calls.length).toBeGreaterThan(attempts);
+});
+
+it.each(['EACCES', 'EPERM', 'EROFS'])('explains an unwritable invite folder (%s) without damaging existing data', errno => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy');
+  const before = fs.readFileSync(store.path);
+  const failing = new InviteStore(owner, { ...options, fs: { ...fs, openSync: ((path, flags, ...args) => {
+    if (String(path) === store.path + '.lock') throw Object.assign(new Error('write denied'), { code: errno });
+    return (fs.openSync as any)(path, flags, ...args);
+  }) as typeof fs.openSync } });
+  expect(() => failing.import(fixture().token, 'other')).toThrow('INVITE_STORE_UNWRITABLE');
+  try { failing.import(token, 'buddy'); } catch (error) {
+    const message = (error as Error).message;
+    expect(message).toContain(dirname(store.path));
+    expect(message).toContain('Grant the current user write access');
+    expect(message).toContain('書き込み権限を付けるか');
+    expect(message).toContain('SEALBRIDGE_DATA_DIR');
+  }
+  expect(fs.readFileSync(store.path)).toEqual(before);
+  expect(fs.existsSync(store.path + '.lock')).toBe(false);
+});
+
+it.each(['new', 'duplicate'] as const)('reports false for unsaved explicit intent on %s import and recovers on retry', kind => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  if (kind === 'duplicate') store.import(token);
+  const alias = kind === 'duplicate' ? store.list()[0].alias : 'chosen';
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const failing = new InviteStore(owner, { ...options, fs: { ...fs, renameSync: (from, to) => {
+    if (String(to) === store.aliasPath) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    fs.renameSync(from, to);
+  } } });
+  expect(failing.import(token, alias)).toMatchObject({ alias, aliasExplicit: false });
+  expect(store.list()[0].aliasExplicit).toBeUndefined();
+  expect(store.resolve(alias).inviteToken).toBe(token);
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn.mock.calls[0][0]).toContain('explicit invite alias metadata could not be read or saved');
+  expect(warn.mock.calls[0][0]).toContain('招待別名の明示指定を読み取り・保存できませんでした');
+  expect(store.import(token, alias).aliasExplicit).toBe(true);
+  expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBe(true);
+});
+
+it.skipIf(process.platform === 'win32').each([false, true])('repairs owner sidecar permissions on accept, or reports failed repair: %s', denied => {
+  const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
+  store.import(token, 'buddy');
+  fs.chmodSync(store.aliasPath, 0o644);
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const repair = vi.fn((fd: number, mode: fs.Mode) => {
+    if (denied) throw Object.assign(new Error('repair denied'), { code: 'EPERM' });
+    fs.fchmodSync(fd, mode);
+  });
+  const writer = new InviteStore(owner, { ...options, fs: { ...fs, fchmodSync: repair } });
+  expect(writer.import(token, 'buddy').aliasExplicit).toBe(!denied);
+  expect(fs.statSync(store.aliasPath).mode & 0o777).toBe(denied ? 0o644 : 0o600);
+  expect(warn).toHaveBeenCalledTimes(denied ? 1 : 0);
+});
+
+it('accept returns token-free JSON for unsaved alias intent and explains an unwritable folder', async () => {
+  const owner = resolveOrCreateIdentity('requester', options), store = new InviteStore(owner, options), token = fixture().token;
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+  await acceptCommand('accept', [token, '--alias', 'buddy'], { ...options, fs: { ...fs, renameSync: (from, to) => {
+    if (String(to) === store.aliasPath) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    fs.renameSync(from, to);
+  } } });
+  expect(JSON.parse(log.mock.calls.at(-1)![0])).toMatchObject({ alias: 'buddy', aliasExplicit: false });
+  expect(log.mock.calls.at(-1)![0]).not.toContain(token);
+  expect(warn).toHaveBeenCalledTimes(1);
+  await expect(acceptCommand('accept', [token, '--alias', 'buddy'], { ...options, fs: { ...fs, mkdirSync: ((path, ...args) => {
+    if (String(path) === dirname(store.path)) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    return (fs.mkdirSync as any)(path, ...args);
+  }) as typeof fs.mkdirSync } })).rejects.toThrow('INVITE_STORE_UNWRITABLE');
 });
 it('retains per-entry intent from an earlier sidecar after unrelated store changes', () => {
   const owner = generateKeyPair(), store = new InviteStore(owner, options);
