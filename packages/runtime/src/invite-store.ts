@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import * as fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { digest, digestBytes, inviteTokenFromUri, parseAndVerifyInviteToken, signPayload, verifySigned } from '@acp/core';
 import type { Invite, KeyPair, Signed } from '@acp/core';
@@ -165,7 +165,7 @@ export class InviteStore {
           // usable when a writer holds the lock or publication is unavailable.
         }
       }
-      const marks = this.readAliasMarks();
+      const marks = this.readAliasMarks(this.locked);
       return p.entries.map(e => ({ ...e, ...(marks.has(this.aliasKey(e)) ? { aliasExplicit: true as const } : {}) }));
     } catch { throw new Error('INVITE_STORE_INVALID'); }
   }
@@ -179,21 +179,34 @@ export class InviteStore {
   }
   /** Repair mode bits only through an owner-checked descriptor, never through a link. */
   private readAliasFile(repair = false): string | undefined {
-    if (repair && (this.options.platform ?? process.platform) !== 'win32') {
-      checkPath(this.aliasPath, this.io, this.options.platform);
-      let before: fs.Stats | undefined;
-      try { before = this.io.lstatSync(this.aliasPath); }
-      catch (error) { if (code(error) !== 'ENOENT') throw error; }
-      if (before?.isFile() && before.uid === process.getuid!() && (before.mode & 0o077) !== 0) {
-        const fd = this.io.openSync(this.aliasPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-        try {
-          const stat = this.io.fstatSync(fd);
-          if (!stat.isFile() || stat.uid !== process.getuid!() || stat.dev !== before.dev || stat.ino !== before.ino) throw new Error();
-          this.io.fchmodSync(fd, 0o600);
-        } finally { this.io.closeSync(fd); }
+    checkPath(this.aliasPath, this.io, this.options.platform);
+    let before: fs.Stats;
+    try { before = this.io.lstatSync(this.aliasPath); }
+    catch (error) { if (code(error) === 'ENOENT') return undefined; throw error; }
+    const check = (stat: fs.Stats) => {
+      if (!stat.isFile() || ((this.options.platform ?? process.platform) !== 'win32' &&
+          stat.uid !== process.getuid!()) || stat.dev !== before.dev || stat.ino !== before.ino) throw new Error();
+    };
+    check(before);
+    const fd = this.io.openSync(this.aliasPath, fs.constants.O_RDONLY |
+      (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
+    try {
+      const stat = this.io.fstatSync(fd);
+      check(stat);
+      // This signed, token-free metadata may be read with loose mode bits.
+      // Only writers repair them; a successful repair must not emit a warning.
+      if (repair && (this.options.platform ?? process.platform) !== 'win32' && (stat.mode & 0o077) !== 0)
+        this.io.fchmodSync(fd, 0o600);
+      const bytes = Buffer.alloc(MAX_STORE_BYTES + 1);
+      let length = 0;
+      while (length < bytes.length) {
+        const count = this.io.readSync(fd, bytes, length, bytes.length - length, null);
+        if (!count) break;
+        length += count;
       }
-    }
-    return readPrivateFile(this.aliasPath, this.io, MAX_STORE_BYTES, this.options.platform);
+      if (length > MAX_STORE_BYTES) throw new Error();
+      return bytes.subarray(0, length).toString('utf8');
+    } finally { this.io.closeSync(fd); }
   }
   private readAliasMarks(repair = false): Set<string> {
     try {
@@ -296,9 +309,12 @@ export class InviteStore {
     const lock = this.path + '.lock';
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
     let locked = false, written = false;
+    let operationPath = this.root;
     try {
       privateDirectory(this.root, this.io, this.options.platform);
+      operationPath = this.directory;
       privateDirectory(this.directory, this.io, this.options.platform);
+      operationPath = lock;
       try { writePrivateFile(lock, Buffer.from(String(process.pid) + '\n'), this.io, this.options.platform); locked = true; }
       catch (error) {
         if (code(error) === 'EEXIST') throw new Error('INVITE_STORE_BUSY');
@@ -324,7 +340,9 @@ export class InviteStore {
           ...(!aliasWritten && this.legacyKeys.has(this.aliasKey(record)) ? { aliasExplicit: true as const } : {}) })),
       }, this.owner, new Date(this.now()).toISOString())) + '\n');
       if (bytes.length > MAX_STORE_BYTES) throw new Error('INVITE_STORE_INVALID');
+      operationPath = temporary;
       writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
+      operationPath = this.path;
       checkPath(this.path, this.io, this.options.platform);
       this.io.renameSync(temporary, this.path); written = false;
       if (aliasWritten && prepared.size !== marks.size) this.writeAliasMarks(marks);
@@ -338,8 +356,21 @@ export class InviteStore {
       return result;
     } catch (error) {
       if (['EACCES', 'EPERM', 'EROFS'].includes(code(error) ?? '') ||
-          (error instanceof Error && error.message === 'IDENTITY_STORE_UNWRITABLE'))
-        throw new Error(`INVITE_STORE_UNWRITABLE: Cannot write invitation folder "${this.directory}". Grant the current user write access or select a writable SEALBRIDGE_DATA_DIR.\n招待フォルダ「${this.directory}」に書き込めません。現在のユーザーに書き込み権限を付けるか、書き込み可能な SEALBRIDGE_DATA_DIR を指定してください。`, { cause: error });
+          (error instanceof Error && error.message === 'IDENTITY_STORE_UNWRITABLE')) {
+        let path = (error as NodeJS.ErrnoException).path;
+        if (typeof path !== 'string' || !path) path = operationPath;
+        // OS errors can name an uncreated directory, lock or temporary file.
+        // Recovery guidance must always name an existing directory, including
+        // the parent when the failing path is an existing file.
+        while (true) {
+          try { if (this.io.lstatSync(path).isDirectory()) break; }
+          catch { /* Walk up through missing or inaccessible path components. */ }
+          const parent = dirname(path);
+          if (parent === path) break;
+          path = parent;
+        }
+        throw new Error(`INVITE_STORE_UNWRITABLE: Cannot write invitation data at "${path}". Grant the current user write access to "${path}" or select a writable SEALBRIDGE_DATA_DIR.\n招待データのパス「${path}」に書き込めません。「${path}」に現在のユーザーの書き込み権限を付けるか、書き込み可能な SEALBRIDGE_DATA_DIR を指定してください。`, { cause: error });
+      }
       if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
       throw new Error('INVITE_STORE_INVALID');
     } finally {

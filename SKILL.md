@@ -390,6 +390,8 @@ empty input or multiple non-empty lines are rejected. TTY input returns
 and a positional link are mutually exclusive. Neither stdin input nor read-error
 text is echoed. The existing token-free JSON result includes `alias`, `workerRef`,
 `agentDid`, `displayName`, and `effectiveExpiresAt`; no extra JSON flag is needed.
+In accept JSON, `aliasExplicit: false` means the explicit alias marker could not be saved; check its value for `true`, not key presence.
+accept JSON の `aliasExplicit: false` は印を保存できなかったことを示します。キーの有無ではなく値が `true` かどうかで判定してください。
 標準入力は `--stdin` でパイプ・ファイルから EOF まで読みます（68 KiB、読み取り全体で 10 秒）。
 アプリは子プロセスの stdin にリンクを書き、パイプを閉じてください。前後の空白・CRLF と空行を除き、
 空入力・複数の非空行は拒否します。TTY は `INVITE_STDIN_REQUIRES_PIPE` を返すため、

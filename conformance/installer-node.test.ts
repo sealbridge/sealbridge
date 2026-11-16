@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { windowsTestShell } from './windows-test-shell.js';
 
 const windows = process.platform === 'win32';
 // Windows can briefly retain an executable handle after process close (for
@@ -121,9 +122,7 @@ describe.skipIf(!windows)('Windows installer Node check', () => {
   beforeAll(async () => {
     dir = await realpath(await mkdtemp(join(tmpdir(), 'sealbridge-node-')));
     for (const shell of ['powershell.exe', 'pwsh']) {
-      const found = await runProcess('where.exe', [shell], process.env, 5000);
-      expectSuccess(found);
-      shells.set(shell, found.stdout.trim().split(/\r?\n/)[0]);
+      shells.set(shell, windowsTestShell(shell));
     }
     preload = join(dir, 'version.cjs');
     await writeFile(preload, `
@@ -358,9 +357,7 @@ const file = path.join(path.dirname(process.execPath), 'version.txt');
 if (fs.existsSync(file)) Object.defineProperty(process.versions, 'node', { value: fs.readFileSync(file, 'utf8') });
 `);
     for (const shell of shells) {
-      const found = windows ? await runProcess('where.exe', [shell], process.env, 5000) : null;
-      if (found) expectSuccess(found);
-      shellPaths.set(shell, found ? found.stdout.trim().split(/\r?\n/)[0] : shell);
+      shellPaths.set(shell, windows ? windowsTestShell(shell) : shell);
     }
     if (windows) {
       fixtureArchive = join(dir, 'node fixture.zip');

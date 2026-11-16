@@ -16,6 +16,14 @@ import { createRelayFetchHandler, InMemoryRelay } from '../packages/relay/src/fe
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { formatCliError } from '../cli/src/error-messages.js';
+import { childFailure, slowTestDiagnostics, SLOW_TEST_TIMEOUT } from './slow-test-diagnostics.js';
+
+vi.setConfig({ testTimeout: SLOW_TEST_TIMEOUT });
+
+let diagnostic: () => unknown = () => ({});
+let finalDiagnostic: unknown;
+const listening: Array<{ port: number; sockets: Set<net.Socket> }> = [];
+slowTestDiagnostics(() => finalDiagnostic ?? diagnostic());
 
 vi.mock('node:dns/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:dns/promises')>();
@@ -33,6 +41,9 @@ const syntheticLookup = vi.fn(async () => [{ address: '198.18.202.102', family: 
 const cleanups: Array<() => Promise<unknown> | void> = [];
 const actualConnect = tls.connect;
 beforeEach(() => {
+  finalDiagnostic = undefined;
+  listening.length = 0;
+  diagnostic = () => ({ listeners: listening.map(s => ({ port: s.port, sockets: s.sockets.size })) });
   for (const name of variables) vi.stubEnv(name, '');
   syntheticLookup.mockClear();
   // Supply only our test CA; verification and hostname checks remain enabled.
@@ -40,6 +51,7 @@ beforeEach(() => {
     actualConnect({ ...options, ca })) as typeof tls.connect);
 });
 afterEach(async () => {
+  finalDiagnostic = diagnostic();
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks(); vi.unstubAllEnvs();
 });
@@ -52,7 +64,9 @@ async function listen(server: http.Server | https.Server): Promise<number> {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>(resolve => server.close(() => resolve()));
   });
-  return (server.address() as net.AddressInfo).port;
+  const port = (server.address() as net.AddressInfo).port;
+  listening.push({ port, sockets });
+  return port;
 }
 
 async function fixture(auth = false, status = 200, secure = true, behavior?: { resetFirst?: boolean; loseAdmission?: boolean }) {
@@ -119,6 +133,8 @@ async function fixture(auth = false, status = 200, secure = true, behavior?: { r
   const proxyUrl = `http://${auth ? 'test-user:secret-pass@' : ''}127.0.0.1:${proxyPort}`;
   vi.stubEnv(secure ? 'HTTPS_PROXY' : 'HTTP_PROXY', proxyUrl);
   const url = `${secure ? 'https' : 'http'}://relay.example:${port}`;
+  diagnostic = () => ({ port, proxyPort, requests: requests.map(({ method, path }) => ({ method, path })),
+    connects: connects.length, tunnels: tunnels.size });
   return { url, port, proxyPort, requests, connects, authorizations, tunnels, upgrades, bodies, relay, posted: () => posted };
 }
 
@@ -126,13 +142,14 @@ describe('relay environment HTTP proxy conformance', () => {
   it('lets a process exit after consuming a proxied response', async () => {
     const f = await fixture(true, 200, true, {});
     const moduleUrl = new URL('../packages/relay/dist/index.js', import.meta.url).href;
+    const started = performance.now();
     const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e',
       `import { createPinnedRelayFetch } from ${JSON.stringify(moduleUrl)};
        const url = ${JSON.stringify(f.url)};
        console.log(await (await createPinnedRelayFetch(url)(url + '/agents')).text());`], {
-      timeout: 5000,
+      timeout: SLOW_TEST_TIMEOUT - 5000,
       env: { ...process.env, NODE_EXTRA_CA_CERTS: fileURLToPath(new URL('./fixtures/relay-proxy/ca.pem', import.meta.url)) },
-    });
+    }).catch(error => { throw childFailure(error, started); });
     expect(stdout.trim()).toBe('[]');
     expect(stderr).not.toMatch(/test-user|secret-pass/);
     await vi.waitFor(() => expect(f.tunnels.size).toBe(0));

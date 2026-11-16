@@ -1176,10 +1176,20 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
   );
 });
 
+it('retains a delivered minority checkpoint when final verification takes longer than 100ms', async () => {
+  const { result, outcomes } = await quorumWithBarrier('delivered', 'release', 200);
+  expect(result.status).toBe('SETTLED');
+  expect(result.incompleteReceipts).toEqual([]);
+  expect(result.receipts).toHaveLength(3);
+  for (const receipt of result.receipts) expect(verifyAudit(receipt.bundle).valid).toBe(true);
+  expect(outcomes.every(outcome => outcome.status === 'fulfilled')).toBe(true);
+});
+
 /** Hold execution or the last checkpoint until two majority delegates have returned. */
 async function quorumWithBarrier(
   ordering: 'settled' | 'delivered' | 'running',
   completion: 'release' | 'missing' | 'invalid' | 'rejected' = 'release',
+  finalVerificationDelayMs = 0,
 ) {
   const barrier = () => {
     let resolve!: () => void;
@@ -1240,6 +1250,7 @@ async function quorumWithBarrier(
           (delivery.artifact.payload.data as { tag: string }).tag === 'poison') {
         minorityReady.resolve();
         await majorityComplete.promise;
+        if (finalVerificationDelayMs) await new Promise(resolve => setTimeout(resolve, finalVerificationDelayMs));
       }
       return approvals.approve(request);
     } } });
@@ -1262,7 +1273,10 @@ async function quorumWithBarrier(
   try {
     const result = await requester.delegateMulti({
       workers: workers.map((worker) => ({ workerDid: worker.options.owner.did, inviteToken: worker.invite() })),
-      mode: 'quorum', quorumSize: 2, completionTimeoutMs: 100,
+      // A successful minority still performs final verification and signs/persists
+      // its checkpoint after the majority barrier. 100ms is not a load-safe budget.
+      // Keep the deliberately missing/invalid checkpoint paths short.
+      mode: 'quorum', quorumSize: 2, completionTimeoutMs: completion === 'release' ? 5000 : 100,
       title: 'Quorum', description: 'Agree on the tag', input: { ok: true },
       outputSchema: completion === 'rejected' ? {
         type: 'object', required: ['tag'], properties: { tag: { const: 'honest' } },
