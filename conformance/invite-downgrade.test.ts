@@ -84,8 +84,7 @@ it.each(['directory', ...(process.platform === 'win32' ? [] : ['permissions', 's
     }
     const capture = { stderr: '' };
     expect(f.cli(['accept', '--stdin', '--alias', 'buddy'], f.token + '\n', capture)).toMatchObject({ alias: 'buddy', aliasExplicit: kind === 'permissions' });
-    // Opening the store may warn about unreadable intent before the writer repairs it.
-    expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g)).toHaveLength(1);
+    expect(capture.stderr.match(/INVITE_ALIAS_METADATA_UNAVAILABLE/g) ?? []).toHaveLength(kind === 'permissions' ? 0 : 1);
     if (kind === 'permissions') {
       expect(statSync(f.store.aliasPath).mode & 0o777).toBe(0o600);
       expect(f.cli(['invites', 'list']).invites[0].aliasExplicit).toBe(true);

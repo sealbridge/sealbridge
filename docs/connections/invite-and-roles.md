@@ -341,6 +341,6 @@ both identity layouts and the two-way permission lifecycle. Desktop remains late
 work. The invite/role series does not bump the protocol version or change the
 invitation payload.
 
-Explicit invitation names are recorded as `aliasExplicit: true` only when the owner supplies an alias. Automatically generated import aliases and older entries without that marker keep display-name-derived connection defaults. Reimporting with the same alias explicitly records that choice; it never renames an existing connection.
+Explicit invitation names are recorded as `aliasExplicit: true` only when the owner supplies an alias. Automatically generated import aliases and older entries without that marker keep display-name-derived connection defaults. Reimporting with the same alias explicitly records that choice; it never renames an existing connection. In accept JSON, `aliasExplicit: false` means the intent marker could not be saved; check whether its value is `true`, rather than whether the key exists.
 
 If a saved invitation alias collides with a connection for a different DID, `delegate --to <alias>` fails with `CONNECTION_TARGET_CONFLICT`. Use `delegate --invite <alias>` to select the saved invitation explicitly; the recording notice shows the actual fallback connection name.

@@ -398,7 +398,7 @@ it.each(['new', 'duplicate'] as const)('reports false for unsaved explicit inten
   expect(new InviteStore(owner, options).list()[0].aliasExplicit).toBe(true);
 });
 
-it.skipIf(process.platform === 'win32').each([false, true])('repairs owner sidecar permissions on accept, or reports failed repair: %s', denied => {
+it.skipIf(process.platform === 'win32').each([false, true])('repairs owner sidecar permissions on accept, or reports failed repair: %s', async denied => {
   const owner = generateKeyPair(), store = new InviteStore(owner, options), token = fixture().token;
   store.import(token, 'buddy');
   fs.chmodSync(store.aliasPath, 0o644);
@@ -407,7 +407,7 @@ it.skipIf(process.platform === 'win32').each([false, true])('repairs owner sidec
     if (denied) throw Object.assign(new Error('repair denied'), { code: 'EPERM' });
     fs.fchmodSync(fd, mode);
   });
-  const writer = new InviteStore(owner, { ...options, fs: { ...fs, fchmodSync: repair } });
+  const writer = await InviteStore.open(owner, { ...options, fs: { ...fs, fchmodSync: repair } });
   expect(writer.import(token, 'buddy').aliasExplicit).toBe(!denied);
   expect(fs.statSync(store.aliasPath).mode & 0o777).toBe(denied ? 0o644 : 0o600);
   expect(warn).toHaveBeenCalledTimes(denied ? 1 : 0);
@@ -428,6 +428,38 @@ it('accept returns token-free JSON for unsaved alias intent and explains an unwr
     if (String(path) === dirname(store.path)) throw Object.assign(new Error('denied'), { code: 'EACCES' });
     return (fs.mkdirSync as any)(path, ...args);
   }) as typeof fs.mkdirSync } })).rejects.toThrow('INVITE_STORE_UNWRITABLE');
+});
+
+it.each([true, false])('reports the data root when its creation is denied (errno path: %s)', withPath => {
+  const root = options.env!.SEALBRIDGE_DATA_DIR!;
+  fs.mkdirSync(root, { mode: 0o700 });
+  const store = new InviteStore(generateKeyPair(), { ...options, fs: { ...fs, mkdirSync: ((path, ...args) => {
+    if (String(path) === root) throw Object.assign(new Error('denied'), { code: 'EACCES', ...(withPath ? { path: root } : {}) });
+    return (fs.mkdirSync as any)(path, ...args);
+  }) as typeof fs.mkdirSync } });
+  try { store.import(fixture().token, 'buddy'); throw new Error('expected failure'); }
+  catch (error) {
+    const message = (error as Error).message;
+    expect(message).toContain(`at "${root}"`);
+    expect(message).toContain(`access to "${root}"`);
+    expect(message).toContain(`「${root}」に現在のユーザーの書き込み権限`);
+    expect(message).not.toContain(join(root, 'invites'));
+  }
+});
+
+it.each(['README.md', 'README.ja.md', 'docs/connections/invite-lifecycle.md', 'docs/connections/invite-lifecycle.ja.md',
+  'docs/connections/invite-and-roles.md', 'docs/connections/invite-and-roles.ja.md', 'AGENTS.md', 'SKILL.md'])('documents boolean alias results in valid UTF-8: %s', file => {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(file));
+  expect(text).toContain('aliasExplicit: false');
+  expect(text).toContain(file.includes('.ja.') ? 'キーの有無ではなく値' : file === 'AGENTS.md' || file === 'SKILL.md' ? 'not key presence' : 'rather than whether the key exists');
+});
+
+it('falls back to the nearest existing parent when a nested data root has no errno path', () => {
+  const root = join(home, 'missing', 'nested');
+  const store = new InviteStore(generateKeyPair(), { ...options, env: { SEALBRIDGE_DATA_DIR: root }, fs: { ...fs,
+    mkdirSync: (() => { throw Object.assign(new Error('denied'), { code: 'EROFS' }); }) as typeof fs.mkdirSync,
+  } });
+  expect(() => store.import(fixture().token, 'buddy')).toThrow(`at "${home}"`);
 });
 it('retains per-entry intent from an earlier sidecar after unrelated store changes', () => {
   const owner = generateKeyPair(), store = new InviteStore(owner, options);

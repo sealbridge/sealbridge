@@ -7,7 +7,10 @@ import { createSignedAgentCard, generateKeyPair, digest } from '../packages/core
 import type { SignedEnvelope } from '../packages/core/src/index.js';
 import { ConnectionRouter, HeldRequestReview, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import { completeInspection } from './connections-fixture.js';
+import { slowTestDiagnostics } from './slow-test-diagnostics.js';
 const cleanups: Array<() => void> = [];
+let diagnostic: () => unknown = () => ({});
+slowTestDiagnostics(() => diagnostic());
 afterEach(() => {vi.restoreAllMocks();for (const fn of cleanups.splice(0)) fn();});
 function fixture(inspection = true) {
   const root = mkdtempSync(join(tmpdir(),'connections-live-control-'));cleanups.push(()=>rmSync(root,{recursive:true,force:true}));
@@ -23,6 +26,8 @@ function fixture(inspection = true) {
       onConnectionEvent:vi.fn()};
   });
   const routers = options.map(o=>new ConnectionRouter(o));
+  diagnostic = () => ({ root, queuedEvents: frames.map(f => f.payload.eventType),
+    sentFrames: options.map(o => o.relay.send.mock.calls.length) });
   const take = (i: number,type: string) => {
     const index = frames.findIndex(f=>f.payload.recipientDid===keys[i].did && f.payload.eventType===type);
     if(index<0) throw new Error('FRAME_NOT_FOUND');return frames.splice(index,1)[0];
