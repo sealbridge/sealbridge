@@ -4,6 +4,17 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
+Role-neutral invitations and named bilateral connections now work across CLI/MCP, with owner gateways, delegated workers, explicit migration and importer acceptance controls. Concurrent outbox access and Muse ↔ Grok Bot end-to-end coverage improve reliability.
+
+Invitation records retain the older signed format, so older releases can still read them after downgrade; explicit alias intent lives in a separate signed sidecar that older readers do not use. This does not make the new connection/owner-delegate features available in older releases. Previously saved unmarked aliases need re-acceptance with `--alias` before first connect. In accept JSON, `aliasExplicit: false` means explicit alias intent could not be saved; test for the value `true`, not key presence.
+
+役割に縛られない招待と名前による双方向の接続を CLI/MCP に追加し、持ち主ゲートウェイ・代理ワーカーへの明示的な移行と取り込み側の受け入れ設定に対応しました。同じ ID の outbox 同時アクセスと Muse ↔ Grok Bot の e2e 検証で信頼性を改善しました。
+
+招待の署名付きレコードは旧形式を維持するため、古い版に戻しても読み取れます。ただし、明示した別名の意図は別の署名付き sidecar に保存され、古い版はこれを使いません。新しい接続・持ち主／代理の機能まで古い版で使えるわけではありません。印のない保存済み別名は、初回接続前に `--alias` 付きで再取り込みしてください。accept JSON の `aliasExplicit: false` は、明示した別名の意図を保存できなかった意味です。キーの有無ではなく値が `true` かを確認してください。
+
+
 - Keep the outbox Windows sharing-violation test's real files under its native OS temporary directory and existing teardown; simulate only the Windows I/O policy. CI now checks for tracked changes and untracked files immediately after the full conformance suite. No product behavior changes.
 
 ### Invite and role series
