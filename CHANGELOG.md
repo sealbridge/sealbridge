@@ -6,6 +6,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Fix a CI-observed quorum fixture timing assumption: successful minority completion gets 5 seconds rather than 100ms for final verification and checkpoint signing/persistence. A 200ms final-verification regression still requires all three verified receipts; deliberately missing/invalid checkpoints retain their short negative-test budget.
+
 - Avoid premature alias-metadata warnings when accept repairs owner-held mode bits; report the actual failing path (or nearest existing parent) with bilingual write-access guidance. Document `aliasExplicit: false` and preserve old signed records and saved buddy names. Add elapsed-time and fixture diagnostics for slow exchange/proxy tests and standardize their test budget at 60 seconds without skips or retries.
 - accept が所有者の印ファイルの権限を修復できた場合は警告しません。書き込み失敗は実際の失敗パス（不明なら最も近い既存の親）と修復方法を日英で案内します。`aliasExplicit: false` の意味を明記し、旧形式と buddy の保存名を維持します。時間切れの診断を追加し、対象テストの上限を60秒にそろえます。
 
