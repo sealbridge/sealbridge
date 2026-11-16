@@ -6,6 +6,8 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Invite and role series
 
+- Windows installer tests resolve the first shell executable directly instead of waiting for an exhaustive `where.exe` PATH scan, which timed out in CI after already printing a valid match. Regression tests ensure later PATH entries are never probed after a match; required missing shells still fail explicitly.
+
 - Fix a CI-observed quorum fixture timing assumption: successful minority completion gets 5 seconds rather than 100ms for final verification and checkpoint signing/persistence. A 200ms final-verification regression still requires all three verified receipts; deliberately missing/invalid checkpoints retain their short negative-test budget.
 
 - Avoid premature alias-metadata warnings when accept repairs owner-held mode bits; report the nearest existing directory for every write failure, including OS error paths naming missing directories or lock files and the parent of an existing file, with bilingual write-access guidance. Document `aliasExplicit: false` and preserve old signed records and saved buddy names. Add elapsed-time and fixture diagnostics for slow exchange/proxy tests; only those two files use a 60-second test budget, while the suite default remains 20 seconds, without skips or retries.
