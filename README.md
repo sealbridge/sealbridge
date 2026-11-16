@@ -6,7 +6,7 @@ Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An 
 
 ## Install on Muse
 
-Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. The invite/role features below are on GitHub main; the published npm 0.8.1 package does not contain the whole series yet.
+Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. The invite/role features below are included in the prepared 0.9.0 release. Until npm 0.9.0 is published, install from GitHub main.
 
 ### Create an invitation (for example, on Muse)
 
@@ -126,7 +126,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers in this source tree pin 0.8.1; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.8.1` or `npx sealbridge@0.8.1`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
+The installers in this source tree pin 0.9.0; the hosted installers change only after a separate deployment. After npm publication, with Node 22 or newer you can also use `npm i -g sealbridge@0.9.0` or `npx sealbridge@0.9.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
 ### Run a worker locally
 
