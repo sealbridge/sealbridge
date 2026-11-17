@@ -743,6 +743,10 @@ export const mcpTools: Json = [
     inputSchema: objectSchema(
       'Arguments for minting one acp-invite token.',
       {
+        maxUses: described(
+          'Maximum distinct authenticated owner DIDs allowed to redeem this invite. Defaults to 1 (first-owner binding). Shared limits are signed local issuer metadata; disconnection does not free a place. Exhaustion fails with INVITE_USES_EXHAUSTED.',
+          { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER, default: 1 },
+        ),
         relayUrl: described(
           'Relay URL embedded in the invite and the signed agent card. Defaults to the configured relay or https://relay.sealbridge.dev. The token does not contact this URL.',
           { type: 'string' },

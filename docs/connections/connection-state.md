@@ -12,6 +12,14 @@ canonical parsed invite digest and authenticated requester owner DID and remain
 through the invite's effective expiry after disconnect/block. Binding, local
 consent and acceptance outbox publication are atomic.
 
+Shared invite limits live in optional signed v2 `inviteLimits` records, keyed by
+`connectionInviteDigest`, with `maxUses` and effective `tokenExpiresAt`.
+`recordInviteLimit(invite, maxUses)` persists policy before the token is exposed.
+Bindings are unique by `(inviteDigest, requesterOwnerDid)`; active-expiry bindings
+count toward the limit even after disconnect/block. Limits and bindings each have
+a 1000-record capacity. Absent limits preserve single-owner behavior, and reads of
+older v2 stores leave their bytes intact. Invalid metadata fails closed.
+
 These owner-local APIs are attached to live admission, control exchange and the human CLI. `StoredConnectionExchange` commits lifecycle and control outbox metadata under the same store lock. Legacy finite grants are retained as evidence and do not skip holding.
 
 Reads create no identities/files and do not rewrite or migrate stores. Only an

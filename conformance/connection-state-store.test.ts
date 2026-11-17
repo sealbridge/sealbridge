@@ -230,6 +230,49 @@ it('keeps first use atomic across competing store instances with exactly one own
   expect(read(f).payload.inviteBindings).toHaveLength(1); expect(read(f).payload.outbox).toHaveLength(1);
   expect(competing.connectionState(other.peerOwnerDid)).toBe('none');
 });
+it('persists shared limits, counts distinct owners and retains places after disconnect or block', () => {
+  const f = fixture(), parsed = invite(f).parsed;
+  f.store.recordInviteLimit(parsed, 3);
+  const peers = Array.from({ length: 4 }, () => generateKeyPair().did);
+  for (const peer of peers.slice(0, 3)) {
+    const input = { ...binding(f, parsed, peer), outbox: event(f, peer, peer) };
+    expect(f.restart().bindInviteFirstUse(input)).toBe('first');
+    expect(f.restart().bindInviteFirstUse(input)).toBe('same');
+  }
+  expect(read(f).payload.inviteBindings).toHaveLength(3);
+  f.store.disconnect(peers[0]); f.store.block(peers[1]);
+  expect(() => f.restart().bindInviteFirstUse(binding(f, parsed, peers[3]))).toThrow('INVITE_USES_EXHAUSTED');
+  expect(f.store.bindInviteFirstUse(binding(f, parsed, peers[2]))).toBe('same');
+  expect(f.store.redeemTaskInvite(parsed, { peerOwnerDid: peers[0], relayUrl: RELAY }, 'connection')).toBe('inactive');
+  f.setTime(NOW + 20 * DAY);
+  expect(() => f.store.bindInviteFirstUse(binding(f, parsed, peers[3]))).toThrow('CONNECTION_REQUEST_EXPIRED');
+  expect(() => f.store.redeemTaskInvite(parsed, { peerOwnerDid: peers[3], relayUrl: RELAY }, 'connection')).toThrow('INVITE_EXPIRED');
+});
+it.each([false, true])('serializes shared redemption across competing stores with occupied=%s', occupied => {
+  const f = fixture(), parsed = invite(f).parsed;
+  f.store.recordInviteLimit(parsed, 2);
+  if (occupied) f.store.redeemTaskInvite(parsed, { peerOwnerDid: f.peer.did, relayUrl: RELAY }, 'initial');
+  const a = generateKeyPair().did, b = generateKeyPair().did, competing = f.restart();
+  const redeem = (store: WorkerTrustStore, did: string) => store.redeemTaskInvite(parsed, { peerOwnerDid: did, relayUrl: RELAY }, did);
+  let calls = 0;
+  const io = { ...fs, renameSync: ((...args: Parameters<typeof fs.renameSync>) => {
+    calls++; expect(() => redeem(competing, b)).toThrow('INTAKE_STORE_BUSY'); return fs.renameSync(...args);
+  }) as typeof fs.renameSync };
+  expect(redeem(new WorkerTrustStore(f.owner, { ...f.options, fs: io }), a)).toBe('first');
+  expect(calls).toBe(1);
+  if (occupied) expect(() => redeem(competing, b)).toThrow('INVITE_USES_EXHAUSTED');
+  else expect(redeem(competing, b)).toBe('first');
+  expect(read(f).payload.inviteBindings).toHaveLength(2);
+  expect(redeem(competing, a)).toBe('same');
+});
+it('reads old v2 bytes without adding limits and fails closed for invalid signed limit metadata', () => {
+  const f = fixture(); seed(f); const bytes = fs.readFileSync(f.path, 'utf8');
+  f.restart().listConnections(); expect(fs.readFileSync(f.path, 'utf8')).toBe(bytes);
+  for (const maxUses of [0, 1.5, '3', Number.MAX_SAFE_INTEGER + 1]) {
+    seed(f, { inviteLimits: [{ inviteDigest: digest('invite'), maxUses, tokenExpiresAt: NOW + DAY }] });
+    expect(() => f.restart().listConnections()).toThrow('INTAKE_STORE_INVALID');
+  }
+});
 it('allows an explicitly reissued invitation after disconnect and preserves an existing connection on binding', () => {
   const f = fixture(), first = binding(f); f.store.bindInviteFirstUse(first); f.store.disconnect(f.peer.did);
   f.setTime(NOW + 1000); vi.setSystemTime(NOW + 1000);

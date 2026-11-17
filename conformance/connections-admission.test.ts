@@ -67,6 +67,24 @@ it('binds a first-use invite to one owner and retains binding after disconnect',
   const other = generateKeyPair();
   expect(connectionIdFor(f.owner.did, other.did)).toBe(connectionIdFor(other.did, f.owner.did));
 });
+it('admits two owners through a shared invite with the existing invited-only automatic policy', async () => {
+  const f = fixture({ autoAccept: { version: 1, enabled: true, from: 'invited', work: 'read-only', limits: {} } }, true);
+  const token = f.worker.invite(3600, { maxUses: 2 });
+  const { RequesterClient, PolicyAutoApprovalProvider } = await import('../packages/runtime/src/index.js');
+  const peers = [f.requester, generateKeyPair(), generateKeyPair()];
+  const running = f.worker.start();
+  try {
+    for (const peer of peers.slice(0, 2)) {
+      const client = new RequesterClient({ owner: peer, relay: f.relay, approvalProvider: new PolicyAutoApprovalProvider(peer) });
+      expect(await client.delegate({ ...f.task, to: token })).toMatchObject({ state: 'SETTLED' });
+      expect(f.store.connectionState(peer.did)).toBe('connected');
+    }
+    const extra = new RequesterClient({ owner: peers[2], relay: f.relay, approvalProvider: new PolicyAutoApprovalProvider(peers[2]) });
+    await expect(extra.delegate({ ...f.task, to: token })).rejects.toThrow('INVITE_USES_EXHAUSTED');
+    expect(await f.client.delegate({ ...f.task, to: token })).toMatchObject({ state: 'SETTLED' });
+    expect(f.execute).toHaveBeenCalledTimes(3);
+  } finally { f.worker.stop(); await running; }
+});
 it('connection state survives invitation retirement and has no expiry', async () => {
   let now = Date.now(); const f = fixture({ now: () => now });
   await expect(f.raw(f.manifest(), f.worker.invite())).rejects.toThrow('PENDING_OWNER_APPROVAL');
@@ -108,8 +126,8 @@ it.each([false,true])('attaches connection consent only after a separate owner d
   const local=new WorkerTrustStore(f.requester,{path:workerIntakePath(f.requester.did,f.identityOptions)});
   expect(local.connectionState(f.owner.did)).toBe(consent?'connected':'none');
 });
-it('binds one owner when two identities concurrently use the same invitation',async()=>{
-  const f=fixture();const token=f.worker.invite();
+it.each([1, 2])('binds at most maxUses=%s owners when two identities concurrently use the same invitation',async maxUses=>{
+  const f=fixture();const token=f.worker.invite(3600, { maxUses });
   const {RequesterClient,PolicyAutoApprovalProvider}=await import('../packages/runtime/src/index.js');
   const {readFileSync}=await import('node:fs');const {workerIntakePath}=await import('../packages/runtime/src/index.js');
   const other=generateKeyPair(),second=new RequesterClient({owner:other,relay:f.relay,approvalProvider:new PolicyAutoApprovalProvider(other)});
@@ -137,9 +155,9 @@ it('binds one owner when two identities concurrently use the same invitation',as
     f.worker.stop();
     await running;
   }
-  expect(f.store.listConnections().filter(c=>c.state==='connected')).toHaveLength(1);
-  expect(f.store.listConnections().filter(c=>c.state==='pending')).toHaveLength(1);
-  expect(JSON.parse(readFileSync(workerIntakePath(f.owner.did,f.identityOptions),'utf8')).payload.inviteBindings).toHaveLength(1);
+  expect(f.store.listConnections().filter(c=>c.state==='connected')).toHaveLength(maxUses);
+  expect(f.store.listConnections().filter(c=>c.state==='pending')).toHaveLength(2 - maxUses);
+  expect(JSON.parse(readFileSync(workerIntakePath(f.owner.did,f.identityOptions),'utf8')).payload.inviteBindings).toHaveLength(maxUses);
 });
 it('leaves invitation authority unchanged when ciphertext publication fails',async()=>{
   const f=fixture();const {vi}=await import('vitest');

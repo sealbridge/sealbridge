@@ -53,6 +53,8 @@ export interface ConnectionOutboxRecord {
 }
 export interface ConnectionData {
   connections: ConnectionRecord[]; inviteBindings: InviteBindingRecord[];
+  /** Issuer-local policy, covered by the store signature; never part of AgentInvite. */
+  inviteLimits?: Array<{ inviteDigest: string; maxUses: number; tokenExpiresAt: number }>;
   refusals: Array<{ peerOwnerDid: string; refuseUntil: number }>;
   priorApprovedPeers: PriorApprovedPeer[]; outbox: ConnectionOutboxRecord[];
 }
@@ -128,10 +130,12 @@ export function pruneConnectionData(data: ConnectionData, now: number): void {
     return !!(c.incoming || c.outgoing);
   });
   data.inviteBindings = data.inviteBindings.filter(b => b.tokenExpiresAt > now);
+  if (data.inviteLimits) data.inviteLimits = data.inviteLimits.filter(l => l.tokenExpiresAt > now);
   data.refusals = data.refusals.filter(r => r.refuseUntil > now);
   data.outbox = data.outbox.filter(e => e.deliveryDeadline > now);
 }
 export function assertConnectionCapacity(data: ConnectionData): void {
+  if ((data.inviteLimits?.length ?? 0) > 1000) throw new Error('CONNECTION_STORE_FULL');
   for (const key of Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>)
     if (data[key].length > CONNECTION_CAPACITY[key]) throw new Error('CONNECTION_STORE_FULL');
 }
@@ -175,6 +179,10 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
   if (!object(d) || !(Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>)
     .every(k => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k])) return false;
   const unique = <T>(rows: T[], key: (r: T) => string) => new Set(rows.map(key)).size === rows.length;
+  if (d.inviteLimits !== undefined && (!Array.isArray(d.inviteLimits) || d.inviteLimits.length > 1000 ||
+    d.inviteLimits.some(l => !object(l) || !keys(l, ['inviteDigest', 'maxUses', 'tokenExpiresAt']) ||
+      !hash(l.inviteDigest) || !Number.isSafeInteger(l.maxUses) || l.maxUses < 1 || !time(l.tokenExpiresAt)) ||
+    !unique(d.inviteLimits, l => l.inviteDigest))) return false;
   if (d.connections.some(c => !validConnectionPeer(c) ||
     !keys(c, ['peerOwnerDid', 'peerAgentDid', 'peerDisplayName', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest', 'acceptance']) ||
     (c.acceptance !== undefined && !['off', 'read-only', 'write'].includes(c.acceptance)) ||
@@ -197,8 +205,21 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
       !['limited', 'trusted'].includes(p.legacyTrust) || !Array.isArray(p.sourceRequestIds) || p.sourceRequestIds.length > 200 ||
       p.sourceRequestIds.some(id => !text(id, 128)) || new Set(p.sourceRequestIds).size !== p.sourceRequestIds.length) ||
     d.outbox.some(e => !validConnectionOutbox(e, owner))) return false;
-  return unique(d.connections, c => c.peerOwnerDid) && unique(d.inviteBindings, b => b.inviteDigest) &&
+  return unique(d.connections, c => c.peerOwnerDid) && unique(d.inviteBindings, b => JSON.stringify([b.inviteDigest, b.requesterOwnerDid])) &&
     unique(d.refusals, r => r.peerOwnerDid) && unique(d.priorApprovedPeers, p => p.peerOwnerDid) && unique(d.outbox, e => e.eventId);
 }
 /** Canonical parsed invitations have the same digest for each supported URI encoding. */
 export function connectionInviteDigest(invite: Invite): string { return digest(invite); }
+
+export function assertInviteMaxUses(maxUses: number): void {
+  if (!Number.isSafeInteger(maxUses) || maxUses < 1) throw new Error('INVALID_INVITE_MAX_USES');
+}
+/** Call only while holding the issuer store mutation lock, after checking expiry. */
+export function inviteBindingEligibility(data: ConnectionData, inviteDigest: string, ownerDid: string, now: number): 'first' | 'same' | 'other' {
+  const bindings = data.inviteBindings.filter(b => b.inviteDigest === inviteDigest && b.tokenExpiresAt > now);
+  if (bindings.some(b => b.requesterOwnerDid === ownerDid)) return 'same';
+  const maxUses = data.inviteLimits?.find(l => l.inviteDigest === inviteDigest)?.maxUses ?? 1;
+  if (bindings.length < maxUses) return 'first';
+  if (maxUses > 1) throw new Error('INVITE_USES_EXHAUSTED');
+  return 'other';
+}

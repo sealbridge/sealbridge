@@ -60,9 +60,26 @@ General budgets use `--max-input-tokens`, `--max-output-tokens`,
 `--max-requests-per-minute`. Settings `public` controls publication only and
 `alwaysAsk:false` returns `CONNECTION_OPENING_REQUIRED`.
 
-An invitation records inviter consent and binds to the first authenticated owner DID
-that uses it. A different owner using the same valid token is held. Binding is
-retained through token expiry after disconnect. Expired, mismatched or revoked
+An invitation records inviter consent. By default (or with `--max-uses 1`), it binds
+to the first authenticated owner DID; a different owner using that valid token is held.
+`sealbridge invite create --max-uses N` permits the first N distinct authenticated
+owners to connect with the same token. MCP `acp_create_invite` accepts `maxUses`;
+programmatic workers use `worker.invite(3600, { maxUses: N })`. N must be a positive
+safe integer. Reuse by the same owner consumes no additional place, including after
+the limit is reached. Disconnecting or blocking does not free a place or reconnect
+an inactive binding. New owners after a shared limit is reached receive terminal
+`INVITE_USES_EXHAUSTED`, rather than owner-approval pending.
+
+Limits are signed issuer-local metadata keyed by the canonical invitation digest,
+persisted with bindings under the same store lock. Missing legacy limits mean one
+owner; unreadable or invalid store metadata fails closed. Existing v2 records remain
+readable without rewriting on reads. Do not run older binaries concurrently with
+new store writers. The token shape and protocol 0.2.0 are unchanged. Share the token
+or long `/i#acp-invite:` link for reuse; short `/j` links still allow only one claim.
+Invitations select no role and grant no task execution permission; importer automatic
+acceptance remains off by default and the existing invited-only policy is unchanged.
+
+Bindings are retained through token expiry after disconnect. Expired, mismatched or revoked
 tokens remain errors before mutation. Established connections survive invitation
 expiry/revocation; use verified peer DID routing without the retired token for
 subsequent tasks. A saved `workerRef` still selects its saved invitation and checks

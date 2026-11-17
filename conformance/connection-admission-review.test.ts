@@ -19,7 +19,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); for (const root of 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'connection-admission-review-')); roots.push(root);
   const identityOptions = { env: { SEALBRIDGE_DATA_DIR: root } }, now = () => Date.now();
-  const keys = [generateKeyPair(), generateKeyPair(), generateKeyPair()];
+  const keys = [generateKeyPair(), generateKeyPair(), generateKeyPair(), generateKeyPair()];
   const frames: SignedEnvelope[] = [];
   const options = keys.map((owner, i) => ({ owner, relayUrl: RELAY, now,
     heldOptions: identityOptions,
@@ -122,6 +122,21 @@ it('retains the original binding when a different owner explicitly receives cons
   const state = JSON.parse(readFileSync(workerIntakePath(f.keys[0].did, f.identityOptions), 'utf8')).payload;
   expect(state.inviteBindings).toMatchObject([{ requesterOwnerDid: f.keys[1].did }]);
   expect(state.inviteBindings).toHaveLength(1);
+});
+it('redeems a shared invite through the signed connection exchange for both owners', async () => {
+  const f = fixture();
+  f.options[0].store.recordInviteLimit(parseAndVerifyInviteToken(f.token, EPOCH), 2);
+  const first = await f.incoming(1), second = await f.incoming(2);
+  expect(await f.queue().approve(first.requested.requestId)).toMatchObject({ status: 'connected' });
+  expect(await f.queue().approve(second.requested.requestId)).toMatchObject({ status: 'connected' });
+  const state = JSON.parse(readFileSync(workerIntakePath(f.keys[0].did, f.identityOptions), 'utf8')).payload;
+  expect(state.inviteBindings).toHaveLength(2);
+  expect(state.inviteBindings.map((b: { requesterOwnerDid: string }) => b.requesterOwnerDid).sort()).toEqual([f.keys[1].did, f.keys[2].did].sort());
+  expect(f.options[0].store.connectionState(f.keys[1].did)).toBe('connected');
+  expect(f.options[0].store.connectionState(f.keys[2].did)).toBe('connected');
+  const third = await f.incoming(3);
+  await expect(f.queue().approve(third.requested.requestId)).rejects.toThrow('INVITE_USES_EXHAUSTED');
+  expect(f.options[0].store.connectionState(f.keys[3].did)).toBe('pending');
 });
 
 it('completes ordinary connection acceptance and ACK without resolving invitation secrets', async () => {

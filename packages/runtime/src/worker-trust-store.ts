@@ -7,7 +7,7 @@ import { digest, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, TaskManifest, Json, Signed } from '@acp/core';
 import { resolveDataRoot, privateDirectory, checkPath, checkStat, inspectDirectory } from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
-import { emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
+import { assertInviteMaxUses, inviteBindingEligibility, emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
   projectConnectionState, projectConnectionTrust, validConnectionPeer, validConnectionOffer,
   validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_OFFER_TTL_MS, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
 import type { ConnectionData, ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionRecord, ConnectionPeer,
@@ -192,7 +192,7 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       } else this.state = state;
       return result;
     } catch (e) {
-      if (e instanceof Error && /^(INTAKE_|REQUEST_|CONNECTION_)/.test(e.message)) throw e;
+      if (e instanceof Error && /^(INTAKE_|REQUEST_|CONNECTION_|INVITE_|INVALID_INVITE_)/.test(e.message)) throw e;
       if (this.platform === 'win32' && ['open', 'rename'].includes((e as NodeJS.ErrnoException).syscall ?? '') &&
           ['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '')) throw new Error('INTAKE_STORE_BUSY');
       throw new Error('INTAKE_STORE_UNWRITABLE');
@@ -202,6 +202,25 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
     }
   }
   get ownerDid(): string { return this.owner.did; }
+  /** Persist policy before exposing the token. A digest's policy cannot be changed. */
+  recordInviteLimit(invite: import('@acp/core').Invite, maxUses = 1): void {
+    assertInviteMaxUses(maxUses);
+    const inviteDigest = connectionInviteDigest(invite);
+    const tokenExpiresAt = Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt));
+    if (invite.ownerDid !== this.owner.did || !Number.isFinite(tokenExpiresAt)) throw new Error('INTAKE_STORE_INVALID');
+    if (tokenExpiresAt <= this.now()) throw new Error('INVITE_EXPIRED');
+    // Preserve the default issuance path, including its lack of store I/O.
+    if (maxUses === 1) return;
+    this.mutateConnections(s => {
+      const previous = s.inviteLimits?.find(l => l.inviteDigest === inviteDigest);
+      if (previous) {
+        if (previous.maxUses !== maxUses) throw new Error('INVALID_INVITE_MAX_USES');
+        return;
+      }
+      if (s.inviteBindings.some(b => b.inviteDigest === inviteDigest)) throw new Error('INVALID_INVITE_MAX_USES');
+      (s.inviteLimits ??= []).push({ inviteDigest, maxUses, tokenExpiresAt });
+    });
+  }
   controlSnapshot(): StoredControlRecord[] {
     const s = this.read(); return s.version === 2 ? s.controls ?? [] : [];
   }
@@ -431,10 +450,11 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   redeemTaskInvite(invite: import('@acp/core').Invite, peer: ConnectionPeer, connectionId: string): 'first' | 'same' | 'other' | 'inactive' {
     return this.mutateConnections(s => {
       const inviteDigest = connectionInviteDigest(invite), deadline = Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt));
-      if (invite.ownerDid !== this.owner.did || deadline <= this.now() || !validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
-      const binding = s.inviteBindings.find(b => b.inviteDigest === inviteDigest);
-      if (binding) return binding.requesterOwnerDid !== peer.peerOwnerDid ? 'other' :
-        s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected') ? 'same' : 'inactive';
+      if (invite.ownerDid !== this.owner.did || !Number.isFinite(deadline) || !validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
+      if (deadline <= this.now()) throw new Error('INVITE_EXPIRED');
+      const eligibility = inviteBindingEligibility(s, inviteDigest, peer.peerOwnerDid, this.now());
+      if (eligibility === 'other') return 'other';
+      if (eligibility === 'same') return s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected') ? 'same' : 'inactive';
       this.assertAvailable(s, peer.peerOwnerDid);
       s.inviteBindings.push({ inviteDigest, requesterOwnerDid: peer.peerOwnerDid, boundAt: this.now(), tokenExpiresAt: deadline, connectionId });
       const previous = s.connections.find(c => c.peerOwnerDid === peer.peerOwnerDid);
@@ -476,8 +496,8 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (input.invite.ownerDid !== this.owner.did || !Number.isFinite(deadline)) throw new Error('INTAKE_STORE_INVALID');
       if (deadline <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
       if (!validConnectionPeer(input)) throw new Error('INTAKE_STORE_INVALID');
-      const existing = s.inviteBindings.find(b => b.inviteDigest === inviteDigest);
-      if (existing) return existing.requesterOwnerDid === input.peerOwnerDid ? 'same' : 'other';
+      const eligibility = inviteBindingEligibility(s, inviteDigest, input.peerOwnerDid, this.now());
+      if (eligibility !== 'first') return eligibility;
       this.assertAvailable(s, input.peerOwnerDid, true);
       assertConnectionCommit(input.connectionId, input.localConsentDigest);
       const previous = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);

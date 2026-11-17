@@ -12,6 +12,7 @@ import { generateKeyPair, parseInviteLink, parseAndVerifyInviteToken, digest, in
   decryptInviteLink, unpackInviteLinkCiphertext, deriveInviteLinkKeys, inviteLinkClaimTag,
   encryptInviteLink, packInviteLinkCiphertext } from '../packages/core/src/index.js';
 import { InviteStore } from '../packages/runtime/src/invite-store.js';
+import { WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/worker-trust-store.js';
 import { randomBytes } from 'node:crypto';
 
 const dirs: string[] = [];
@@ -30,6 +31,24 @@ function setup() {
   return { root, logs, errors, owner, key, sent, handler, options: { fetch: fetcher, identityOptions } };
 }
 const createArgs = (key: string) => ['--share','link','--key', key, '--relay','https://relay.example','--qr','none'];
+
+it('creates an offline reusable token with a persistent issuer limit', async () => {
+  const s = setup();
+  await createInviteCommand(['--key', s.key, '--max-uses', '3'], s.options);
+  const invite = parseAndVerifyInviteToken(s.logs[0]);
+  expect(invite).not.toHaveProperty('maxUses'); expect(s.sent).toHaveLength(0);
+  for (let i = 0; i < 3; i++) {
+    const store = new WorkerTrustStore(s.owner, { path: workerIntakePath(s.owner.did, s.options.identityOptions) });
+    expect(store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.sealbridge.dev' }, 'connection')).toBe('first');
+  }
+  const store = new WorkerTrustStore(s.owner, { path: workerIntakePath(s.owner.did, s.options.identityOptions) });
+  expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.sealbridge.dev' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
+});
+it.each(['0', '1.5', 'no', '9007199254740992'])('rejects invalid CLI max-uses %s before issuance', async value => {
+  const s = setup();
+  await expect(createInviteCommand(['--key', s.key, '--max-uses', value], s.options)).rejects.toThrow('INVALID_INVITE_MAX_USES');
+  expect(s.logs).toHaveLength(0); expect(s.sent).toHaveLength(0);
+});
 
 it('creates and accepts a short link with matching verification number and unconfirmed storage', async () => {
   const s = setup();
