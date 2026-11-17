@@ -44,10 +44,11 @@ it('creates an offline reusable token with a persistent issuer limit', async () 
   const store = new WorkerTrustStore(s.owner, { path: workerIntakePath(s.owner.did, s.options.identityOptions) });
   expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.sealbridge.dev' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
 });
-it.each(['0', '1.5', 'no', '1001', '9007199254740992'])('rejects invalid CLI max-uses %s before issuance', async value => {
+it.each(['0', '1.5', 'no', '1001', '9007199254740992', '1e3', '0x10', ' 5', '', '5 ', '+5', '5.0'])('rejects invalid CLI max-uses %s before issuance', async value => {
   const s = setup();
   await expect(createInviteCommand(['--key', s.key, '--max-uses', value], s.options)).rejects.toThrow('INVALID_INVITE_MAX_USES');
   expect(s.logs).toHaveLength(0); expect(s.sent).toHaveLength(0);
+  expect(fs.readdirSync(s.root)).toEqual(['worker.json']);
 });
 
 it('creates and accepts a short link with matching verification number and unconfirmed storage', async () => {
@@ -279,5 +280,22 @@ it.each(['2', '1000'])('allows reusable tokens with max-uses %s', async value =>
   const invite = parseAndVerifyInviteToken(s.logs[0]);
   const stored = JSON.parse(fs.readFileSync(workerIntakePath(s.owner.did, s.options.identityOptions), 'utf8'));
   expect(stored.payload.inviteLimits).toContainEqual(expect.objectContaining({ inviteDigest: digest(invite), maxUses: Number(value) }));
+  expect(s.sent).toHaveLength(0);
+});
+
+it('rejects a missing max-uses value with the dedicated error', async () => {
+  const s = setup();
+  await expect(createInviteCommand(['--key', s.key, '--max-uses'], s.options)).rejects.toThrow('INVALID_INVITE_MAX_USES');
+  expect(fs.readdirSync(s.root)).toEqual(['worker.json']);
+  expect(s.logs).toHaveLength(0); expect(s.sent).toHaveLength(0);
+});
+it.each(['1', '5', '005', '1000'])('accepts decimal integer max-uses %s', async value => {
+  const s = setup();
+  await createInviteCommand(['--key', s.key, '--max-uses', value], s.options);
+  expect(parseAndVerifyInviteToken(s.logs[0])).toBeDefined();
+  if (Number(value) > 1) {
+    const stored = JSON.parse(fs.readFileSync(workerIntakePath(s.owner.did, s.options.identityOptions), 'utf8'));
+    expect(stored.payload.inviteLimits[0].maxUses).toBe(Number(value));
+  }
   expect(s.sent).toHaveLength(0);
 });

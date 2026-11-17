@@ -105,14 +105,20 @@ function flags(args: string[]): Map<string, string> {
     const arg = args[i];
     if (result.has(arg) || !['--key','--relay','--name','--expires-in','--max-uses','--share','--link-expires-in','--output','--qr','--png','--svg','--allow-private-relay'].includes(arg)) throw new Error('INVALID_INVITE_OPTION');
     if (arg === '--allow-private-relay') result.set(arg, 'true');
-    else { if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('INVALID_INVITE_OPTION'); result.set(arg, args[++i]); }
+    else {
+      if (!args[i + 1] || args[i + 1].startsWith('--'))
+        throw new Error(arg === '--max-uses' ? 'INVALID_INVITE_MAX_USES' : 'INVALID_INVITE_OPTION');
+      result.set(arg, args[++i]);
+    }
   }
   return result;
 }
 export async function createInviteCommand(args: string[], options: LinkCommandOptions = {}): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) { console.log(SHORT_INVITE_USAGE); return; }
   const f = flags(args), share = f.get('--share') ?? 'token';
-  const maxUses = Number(f.get('--max-uses') ?? 1);
+  const maxUsesText = f.get('--max-uses') ?? '1';
+  if (!/^[0-9]+$/.test(maxUsesText)) throw new Error('INVALID_INVITE_MAX_USES');
+  const maxUses = Number(maxUsesText);
   assertInviteMaxUses(maxUses);
   if (share === 'link' && maxUses > 1) throw new Error('INVITE_LINK_MAX_USES_UNSUPPORTED');
   if (share !== 'token' && share !== 'link') throw new Error('INVALID_INVITE_SHARE');
