@@ -44,7 +44,7 @@ it('creates an offline reusable token with a persistent issuer limit', async () 
   const store = new WorkerTrustStore(s.owner, { path: workerIntakePath(s.owner.did, s.options.identityOptions) });
   expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.sealbridge.dev' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
 });
-it.each(['0', '1.5', 'no', '9007199254740992'])('rejects invalid CLI max-uses %s before issuance', async value => {
+it.each(['0', '1.5', 'no', '1001', '9007199254740992'])('rejects invalid CLI max-uses %s before issuance', async value => {
   const s = setup();
   await expect(createInviteCommand(['--key', s.key, '--max-uses', value], s.options)).rejects.toThrow('INVALID_INVITE_MAX_USES');
   expect(s.logs).toHaveLength(0); expect(s.sent).toHaveLength(0);
@@ -256,4 +256,28 @@ it('does not fall back when a relay advertises links but refuses create', async 
   expect(s.logs).toEqual([]); expect(s.errors).toEqual([]); expect(fetcher).toHaveBeenCalledTimes(2);
   await inviteLinksCommand(['list', '--key', s.key], s.options);
   expect(JSON.parse(s.logs[0]).links).toEqual([{ linkRef: expect.any(String), relay: 'https://relay.example', error: 'INVITE_LINK_UNAVAILABLE' }]);
+});
+
+it.each(['2', '50', '1000'])('rejects shared short links (%s) without local or relay changes', async value => {
+  const s = setup();
+  const before = fs.readdirSync(s.root);
+  const keyBefore = fs.readFileSync(s.key);
+  await expect(createInviteCommand([...createArgs(s.key), '--max-uses', value], s.options)).rejects.toThrow('INVITE_LINK_MAX_USES_UNSUPPORTED');
+  expect(fs.readdirSync(s.root)).toEqual(before);
+  expect(fs.readFileSync(s.key)).toEqual(keyBefore);
+  expect(s.sent).toHaveLength(0); expect(s.logs).toHaveLength(0);
+});
+it('allows an explicit single-claim short link', async () => {
+  const s = setup();
+  await createInviteCommand([...createArgs(s.key), '--max-uses', '1'], s.options);
+  expect(s.logs[0]).toContain('/j#');
+  expect(s.sent.some(r => r.method === 'POST')).toBe(true);
+});
+it.each(['2', '1000'])('allows reusable tokens with max-uses %s', async value => {
+  const s = setup();
+  await createInviteCommand(['--share', 'token', '--key', s.key, '--max-uses', value], s.options);
+  const invite = parseAndVerifyInviteToken(s.logs[0]);
+  const stored = JSON.parse(fs.readFileSync(workerIntakePath(s.owner.did, s.options.identityOptions), 'utf8'));
+  expect(stored.payload.inviteLimits).toContainEqual(expect.objectContaining({ inviteDigest: digest(invite), maxUses: Number(value) }));
+  expect(s.sent).toHaveLength(0);
 });

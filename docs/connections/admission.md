@@ -64,8 +64,8 @@ An invitation records inviter consent. By default (or with `--max-uses 1`), it b
 to the first authenticated owner DID; a different owner using that valid token is held.
 `sealbridge invite create --max-uses N` permits the first N distinct authenticated
 owners to connect with the same token. MCP `acp_create_invite` accepts `maxUses`;
-programmatic workers use `worker.invite(3600, { maxUses: N })`. N must be a positive
-safe integer. Reuse by the same owner consumes no additional place, including after
+programmatic workers use `worker.invite(3600, { maxUses: N })`. N must be an integer
+from 1 to 1000. Reuse by the same owner consumes no additional place, including after
 the limit is reached. Disconnecting or blocking does not free a place or reconnect
 an inactive binding. New owners after a shared limit is reached receive terminal
 `INVITE_USES_EXHAUSTED`, rather than owner-approval pending.
@@ -78,6 +78,10 @@ new store writers. The token shape and protocol 0.2.0 are unchanged. Share the t
 or long `/i#acp-invite:` link for reuse; short `/j` links still allow only one claim.
 Invitations select no role and grant no task execution permission; importer automatic
 acceptance remains off by default and the existing invited-only policy is unchanged.
+
+Maximum users must be an integer from 1 to 1000 across CLI, MCP `maxUses`, and `WorkerSession.invite` options. Shared invitations require a reusable token or long `/i` link. Short `/j` links allow one claim only; `--share link --max-uses N` is rejected when N exceeds 1, before token creation or relay access. MCP and session invitations produce tokens, not short links.
+
+Downgrade warning: after two or more owners bind the same shared invitation, 0.9.0 and earlier cannot read that connection store, even when running alone. They require one binding per invite digest: `connections list` fails with `INTAKE_STORE_INVALID`, and old workers may time out tasks or exit. Back up the data directory before reverting. Alternatively, wait until the shared invitation expires and let the current version prune and persist removal of its expired bindings (listing alone does not persist cleanup) before opening it with an older binary. Opening it with 0.9.0 before expiry fails; merely avoiding simultaneous old/new processes is insufficient. The existing #297 store format is retained to preserve signed bindings; neither the AgentInvite token nor protocol 0.2.0 changes.
 
 Bindings are retained through token expiry after disconnect. Expired, mismatched or revoked
 tokens remain errors before mutation. Established connections survive invitation

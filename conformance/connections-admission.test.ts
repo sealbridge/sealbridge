@@ -210,3 +210,12 @@ it('does not open an unknown task after completed rule inspection', async () => 
   expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'complete', state: 'reviewable' });
   expect(f.human.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
 });
+
+it.each([0, 1.5, 1001])('rejects invalid session maxUses %s', maxUses => {
+  const f = fixture();
+  expect(() => f.worker.invite(3600, { maxUses })).toThrow('INVALID_INVITE_MAX_USES');
+});
+it('allows the session maxUses capacity boundary', () => {
+  const f = fixture();
+  expect(f.worker.invite(3600, { maxUses: 1000 })).toMatch(/^acp-invite:/);
+});

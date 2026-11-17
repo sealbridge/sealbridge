@@ -43,7 +43,7 @@ it('creates shared MCP invitations with persistent issuer policy and unchanged t
   for (let i = 0; i < 2; i++) expect(store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toBe('first');
   expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
 });
-it.each([0, 1.5, '2', 'no', null])('rejects invalid MCP maxUses %s', async maxUses => {
+it.each([0, 1.5, 1001, '2', 'no', null])('rejects invalid MCP maxUses %s', async maxUses => {
   const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
   const result = await call(server, 'acp_create_invite', { maxUses });
   expect(result.error).toBeTruthy();
@@ -257,4 +257,19 @@ it('validates peerRef schemas and rejects conflicts before transport', async () 
     expect((await call(server, tool, { peerRef: 'one', workerRef: 'two', ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}) })).error).toBe(-32602);
   }
   expect(factory).not.toHaveBeenCalled();
+});
+
+it('allows the MCP maxUses capacity boundary', async () => {
+  const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
+  const result = await call(server, 'acp_create_invite', { maxUses: 1000 });
+  expect(result.error).toBe(false);
+});
+
+it('advertises the same invitation limit in the MCP catalog', async () => {
+  const server = new AcpMcpServer({ identityOptions });
+  const definitions = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) as any;
+  const schema = definitions.result.tools.find((t: any) => t.name === 'acp_create_invite').inputSchema;
+  const validate = new Ajv2020({ strict: false }).compile(schema);
+  expect(validate({ maxUses: 1000 })).toBe(true);
+  for (const maxUses of [1001, 0, 1.5, '2']) expect(validate({ maxUses })).toBe(false);
 });

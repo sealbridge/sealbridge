@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { assertInviteMaxUses } from './connection-records.js';
 import { nameInviteConnection } from './connection-aliases.js';
 import { checkInputSize, measureInput, type PreCallSizeLimits, autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
 import { connectionAutoAccept, matchesAutoAccept, WorkerAutoApprovalProvider, type AutoAcceptStateGuard } from './auto-accept.js';
@@ -717,6 +718,7 @@ export class WorkerNode {
       assertPeer: did => { this.assertPeer(did); }, onConnectionEvent: options.onConnectionEvent });
   }
   invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400, options: { maxUses?: number } = {}): string {
+    assertInviteMaxUses(options.maxUses ?? 1);
     this.refreshMonthlyCard();
     const token = createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
     this.connectionStore.recordInviteLimit(parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true }), options.maxUses ?? 1);

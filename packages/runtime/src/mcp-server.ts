@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { assertInviteMaxUses } from './connection-records.js';
 import type { ConnectedEvent } from './connection-router.js';
 import { connectionTarget, localConnectionKeys, localConnections, connectionAcceptanceWarning, connectionTargetGuidance } from './connection-target.js';
 import { connectionAutoAccept } from './auto-accept.js';
@@ -885,7 +886,7 @@ export class AcpMcpServer {
   }
   private async createInvite(args: Record<string, unknown>): Promise<Json> {
     const maxUses = args.maxUses === undefined ? 1 : args.maxUses;
-    if (typeof maxUses !== 'number' || !Number.isSafeInteger(maxUses) || maxUses < 1) throw new Error('INVALID_INVITE_MAX_USES');
+    assertInviteMaxUses(maxUses);
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
     const config = readApplicationConfig({ ...this.options.identityOptions,
       allowPrivateRelay: this.options.allowPrivateRelay });

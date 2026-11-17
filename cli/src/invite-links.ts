@@ -114,6 +114,7 @@ export async function createInviteCommand(args: string[], options: LinkCommandOp
   const f = flags(args), share = f.get('--share') ?? 'token';
   const maxUses = Number(f.get('--max-uses') ?? 1);
   assertInviteMaxUses(maxUses);
+  if (share === 'link' && maxUses > 1) throw new Error('INVITE_LINK_MAX_USES_UNSUPPORTED');
   if (share !== 'token' && share !== 'link') throw new Error('INVALID_INVITE_SHARE');
   if (share === 'token' && ['--link-expires-in','--qr','--png','--svg'].some(n => f.has(n))) throw new Error('INVITE_LINK_OPTIONS_REQUIRE_LINK');
   const output = parseInviteOutput(f.get('--output'));
