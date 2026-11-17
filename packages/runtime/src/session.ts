@@ -716,9 +716,11 @@ export class WorkerNode {
       revocations: this.revocation, allowPrivateRelay: options.allowPrivateRelay,
       assertPeer: did => { this.assertPeer(did); }, onConnectionEvent: options.onConnectionEvent });
   }
-  invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400): string {
+  invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400, options: { maxUses?: number } = {}): string {
     this.refreshMonthlyCard();
-    return createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
+    const token = createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
+    this.connectionStore.recordInviteLimit(parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true }), options.maxUses ?? 1);
+    return token;
   }
   private monthlyCounter(): MonthlyCostCounter {
     return new MonthlyCostCounter(join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
@@ -2648,6 +2650,7 @@ function safeError(e: unknown, contextGrant = false): string {
   if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH', 'MONTHLY_STATE_UNAVAILABLE', 'INPUT_SIZE_LIMIT_REACHED', 'INPUT_SIZE_UNAVAILABLE', 'INPUT_BUDGET_EXCEEDED'].includes(exact)) return exact;
   if (contextGrant && ['DELEGATION_PROOF_REQUIRED', 'DELEGATION_INVALID', 'DELEGATION_APPROVAL_REQUIRED'].includes(exact)) return exact;
   if (/^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
+  if (exact === 'INVITE_USES_EXHAUSTED') return exact;
   for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'TASK_SCOPE_REJECTED'])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
   if (s.includes('TOKEN_REVOKED')) return 'TOKEN_REVOKED';

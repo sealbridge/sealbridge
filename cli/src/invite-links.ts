@@ -11,13 +11,13 @@ import { createInviteToken, createSignedAgentCard, createRelayAuthToken, generat
   createRevocationNotice, RevocationRegistry } from '@acp/core';
 import type { KeyPair, Signed, RevocationList } from '@acp/core';
 import { HttpRelayClient } from '@acp/relay';
-import { LiveProtocol, readApplicationConfig, delegatedWorkerIdentity } from '@acp/runtime';
+import { LiveProtocol, readApplicationConfig, delegatedWorkerIdentity, WorkerTrustStore, workerIntakePath, assertInviteMaxUses } from '@acp/runtime';
 import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 import { resolveDataRoot, ensurePrivateDirectory, inspectPrivateDirectory, writePrivateFile, readPrivateFile } from '@acp/runtime/local-identity';
 import { commandIdentity } from './command-identity.js';
 import { parseInviteOutput, deliverInvite } from './invite-output.js';
 
-export const SHORT_INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--share token|link] [--key FILE] [--relay URL] [--name TEXT] [--expires-in SECONDS] [--link-expires-in 300..259200] [--output stdout|file:PATH|fd:N] [--qr terminal|none] [--png FILE] [--svg FILE] [--allow-private-relay]\n       ' + cliName + ' invite links list | cancel <linkRef> [--key FILE]';
+export const SHORT_INVITE_USAGE = 'Usage: ' + cliName + ' invite create [--share token|link] [--key FILE] [--relay URL] [--name TEXT] [--expires-in SECONDS] [--max-uses N] [--link-expires-in 300..259200] [--output stdout|file:PATH|fd:N] [--qr terminal|none] [--png FILE] [--svg FILE] [--allow-private-relay]\n       ' + cliName + ' invite links list | cancel <linkRef> [--key FILE]';
 const UNSUPPORTED = 'INVITE_LINK_UNSUPPORTED_RELAY: この relay は短いリンクを受け付けませんでした。古い relay か、わざと断っているのかは区別できません。ほかの relay を使うか、--share token を自分で選んでください';
 const UNAVAILABLE = 'INVITE_LINK_UNAVAILABLE: このリンクは使えません。期限切れ、使用済み、または途中が欠けています。送ってくれた人に、新しいリンクを頼んでください。';
 interface LinkRecord { type: 'CreatedInviteLink'; ownerDid: string; id: string; relayOrigin: string; inviteDigest: string; expiresAt: string; }
@@ -103,7 +103,7 @@ function flags(args: string[]): Map<string, string> {
   const result = new Map<string, string>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (result.has(arg) || !['--key','--relay','--name','--expires-in','--share','--link-expires-in','--output','--qr','--png','--svg','--allow-private-relay'].includes(arg)) throw new Error('INVALID_INVITE_OPTION');
+    if (result.has(arg) || !['--key','--relay','--name','--expires-in','--max-uses','--share','--link-expires-in','--output','--qr','--png','--svg','--allow-private-relay'].includes(arg)) throw new Error('INVALID_INVITE_OPTION');
     if (arg === '--allow-private-relay') result.set(arg, 'true');
     else { if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error('INVALID_INVITE_OPTION'); result.set(arg, args[++i]); }
   }
@@ -112,6 +112,8 @@ function flags(args: string[]): Map<string, string> {
 export async function createInviteCommand(args: string[], options: LinkCommandOptions = {}): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) { console.log(SHORT_INVITE_USAGE); return; }
   const f = flags(args), share = f.get('--share') ?? 'token';
+  const maxUses = Number(f.get('--max-uses') ?? 1);
+  assertInviteMaxUses(maxUses);
   if (share !== 'token' && share !== 'link') throw new Error('INVALID_INVITE_SHARE');
   if (share === 'token' && ['--link-expires-in','--qr','--png','--svg'].some(n => f.has(n))) throw new Error('INVITE_LINK_OPTIONS_REQUIRE_LINK');
   const output = parseInviteOutput(f.get('--output'));
@@ -129,6 +131,8 @@ export async function createInviteCommand(args: string[], options: LinkCommandOp
     relayEndpoint: relay, skills: [{ id: 'json-task', name: 'JSON task' }], protocolVersions: new LiveProtocol().receiveVersions(),
     now, ...(share === 'link' ? { expiresAt } : {}) }, owner, delegated?.agentKey);
   const token = createInviteToken({ agentCard: card, issuedAt: new Date(now).toISOString(), expiresInSeconds: tokenTtl }, owner);
+  if (maxUses > 1) new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, options.identityOptions) })
+    .recordInviteLimit(parseAndVerifyInviteToken(token, now, { allowPrivateRelay: true }), maxUses);
   // Token creation only signs locally; private-relay opt-in applies when dialing.
   // Link creation contacts the relay and must retain the caller's network policy.
   const inviteDigest = digest(parseAndVerifyInviteToken(token, now, { allowPrivateRelay: share === 'token' || f.has('--allow-private-relay') }));

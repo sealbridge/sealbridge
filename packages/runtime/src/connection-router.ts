@@ -98,7 +98,7 @@ export class ConnectionRouter {
     try { return await this.consume(envelope); }
     catch (error) {
       const code = error instanceof Error ? error.message.split(':')[0] : '';
-      if (!/^(?:INVALID_CONNECTION_|INVALID_AGENT_CARD$|CONNECTION_NOT_PENDING$|CONNECTION_REQUEST_EXPIRED$|CONNECTION_ALREADY_DECIDED$|CONNECTION_REQUEST_COOLDOWN$|INVITE_EXPIRED$|INVITE_WORKER_MISMATCH$|TOKEN_REVOKED$|INTAKE_RATE_LIMITED$)/.test(code)) throw error;
+      if (!/^(?:INVALID_CONNECTION_|INVALID_AGENT_CARD$|CONNECTION_NOT_PENDING$|CONNECTION_REQUEST_EXPIRED$|CONNECTION_ALREADY_DECIDED$|CONNECTION_REQUEST_COOLDOWN$|INVITE_EXPIRED$|INVITE_USES_EXHAUSTED$|INVITE_WORKER_MISMATCH$|TOKEN_REVOKED$|INTAKE_RATE_LIMITED$)/.test(code)) throw error;
       await acknowledgeRelay(this.options.relay, envelope); return true;
     }
   }

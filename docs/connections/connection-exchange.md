@@ -37,8 +37,10 @@ task role inference, audit sequence state, contracts or task settlement.
 `ConnectionService` requires owner review before outgoing consent (including
 invite confirmation) and before ordinary incoming acceptance. Incoming content
 requires the injected held-content inspection port. The issuer's verified invite
-provides issuer consent for atomic first use; another owner follows ordinary
-pending review. Same-owner reuse does not renew consent. Accepted consent is
+provides issuer consent for atomic first use; by default another owner follows ordinary
+pending review. Shared invitations (`--max-uses N`, N > 1) instead bind distinct
+owners until their issuer-local limit is reached, then return `INVITE_USES_EXHAUSTED`
+for a new owner. Same-owner reuse does not renew consent. Accepted consent is
 limited with no expiry; it does not authorize task execution. Invite expiry or
 revocation prevents future redemption without removing an established connection.
 

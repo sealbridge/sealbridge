@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { digest, verifySigned, verifyEnvelope, verifyConnectionAccepted, verifyConnectionAck } from '@acp/core';
 import type { ConnectionAccepted, Signed } from '@acp/core';
+import { inviteBindingEligibility } from './connection-records.js';
 import type { WorkerTrustStore, ConnectionTrustState } from './worker-trust-store.js';
 import type { ConnectionAcceptanceCommit, ConnectionOffer, ConnectionOutboxEntry, ConnectionPersistencePort } from './connection-service.js';
 
@@ -109,9 +110,11 @@ export class StoredConnectionExchange implements ConnectionPersistencePort {
   async accept(c: ConnectionAcceptanceCommit) { this.store.updateControls(s => this.acceptInto(s, c, 'request')); }
   async redeem(c: Parameters<ConnectionPersistencePort['redeem']>[0]) {
     return this.store.updateControls(s => {
-      const b = s.inviteBindings.find(b => b.inviteDigest === c.inviteDigest);
-      if (b) {
-        if (b.requesterOwnerDid !== c.requesterOwnerDid) return 'other' as const;
+      if (Date.parse(c.tokenExpiresAt) <= c.now) throw new Error('CONNECTION_REQUEST_EXPIRED');
+      const eligibility = inviteBindingEligibility(s, c.inviteDigest, c.requesterOwnerDid, c.now);
+      if (eligibility === 'other') return 'other' as const;
+      if (eligibility === 'same') {
+        const b = s.inviteBindings.find(b => b.inviteDigest === c.inviteDigest && b.requesterOwnerDid === c.requesterOwnerDid)!;
         const connected = s.connections.some(p => p.peerOwnerDid === b.requesterOwnerDid && p.state === 'connected' && p.connectionId === b.connectionId);
         if (!connected) return 'inactive' as const;
         this.acceptInto(s, c, 'invite');

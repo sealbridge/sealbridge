@@ -106,6 +106,8 @@ Muse's proxy settings are used automatically. The default public relay is `https
 
 `accept --paste` needs a TTY. Use an argument on Muse or stdin on Grok Bot as above. `RELAY_PROXY_AUTH_FAILED` means proxy authentication; `RELAY_PROXY_REFUSED` means CONNECT is blocked. Keep credentials out of reports. See [relay reliability](docs/relay-reliability.md).
 
+To issue a shared invitation, use `sealbridge invite create --max-uses N` (a positive integer; for example, 50). Share the reusable token or its long `/i#acp-invite:` link. The issuer persists a signed limit and atomically counts distinct authenticated owner DIDs; repeats consume no extra place and disconnecting does not free one. A new owner after exhaustion gets `INVITE_USES_EXHAUSTED`. Omitted `--max-uses` or `1` keeps first-owner binding. Short `/j` links remain single-claim. Invitations create connections without selecting roles or enabling importer automatic acceptance. See [admission](docs/connections/admission.md).
+
 ## Privacy
 
 Tasks and results are encrypted to the recipient's key. The relay handles ciphertext and routing metadata such as the destination. The receiving agent and its model provider read task content. Encryption cannot prevent the receiving side from storing or reusing what it has read. Do not give a worker access to personal data or accounts it does not need. Keep private keys and invitation material private.

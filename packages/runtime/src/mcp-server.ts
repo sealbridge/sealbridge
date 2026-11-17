@@ -884,6 +884,8 @@ export class AcpMcpServer {
     return report as unknown as Json;
   }
   private async createInvite(args: Record<string, unknown>): Promise<Json> {
+    const maxUses = args.maxUses === undefined ? 1 : args.maxUses;
+    if (typeof maxUses !== 'number' || !Number.isSafeInteger(maxUses) || maxUses < 1) throw new Error('INVALID_INVITE_MAX_USES');
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string') throw new RpcError(-32602, 'Invalid params');
     const config = readApplicationConfig({ ...this.options.identityOptions,
       allowPrivateRelay: this.options.allowPrivateRelay });
@@ -912,9 +914,10 @@ export class AcpMcpServer {
       if (typeof args.expiresInSeconds !== 'number') throw new Error('INVALID_INVITE_EXPIRY');
       inviteOptions.expiresInSeconds = args.expiresInSeconds;
     }
-    return {
-      inviteToken: createInviteToken(inviteOptions, owner),
-    };
+    const inviteToken = createInviteToken(inviteOptions, owner);
+    if (maxUses > 1) new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, this.options.identityOptions), now: this.options.now })
+      .recordInviteLimit(parseAndVerifyInviteToken(inviteToken, Date.now(), { allowPrivateRelay: true }), maxUses);
+    return { inviteToken };
   }
   private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (

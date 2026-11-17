@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createInviteToken, createRevocationNotice, createSignedAgentCard, digest, generateKeyPair, RevocationRegistry, parseAndVerifyInviteToken, signApproval } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
-import { AcpMcpServer, InviteStore, RequesterClient, WorkerNode, resolveOrCreateIdentity } from '../packages/runtime/src/index.js';
+import { AcpMcpServer, InviteStore, RequesterClient, WorkerNode, resolveOrCreateIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, ApprovalProvider } from '../packages/runtime/src/index.js';
 import { acceptCommand } from '../cli/src/accept.js';
 import { createInviteCommand } from '../cli/src/invite-links.js';
@@ -33,6 +33,21 @@ async function call(server: AcpMcpServer, name: string, args: Record<string, unk
 function approving(owner: () => KeyPair): ApprovalProvider {
   return { approve: vi.fn(async r => signApproval(r.taskId, r.gate, r.target, owner(), 'APPROVED')) };
 }
+it('creates shared MCP invitations with persistent issuer policy and unchanged token fields', async () => {
+  const owner = generateKeyPair(), server = new AcpMcpServer({ owner, identityOptions });
+  const created = await call(server, 'acp_create_invite', { relayUrl: 'https://relay.example', maxUses: 2 });
+  expect(created.error).toBe(false);
+  const invite = parseAndVerifyInviteToken(created.value.inviteToken);
+  expect(invite).not.toHaveProperty('maxUses');
+  const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, identityOptions) });
+  for (let i = 0; i < 2; i++) expect(store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toBe('first');
+  expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
+});
+it.each([0, 1.5, '2', 'no', null])('rejects invalid MCP maxUses %s', async maxUses => {
+  const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
+  const result = await call(server, 'acp_create_invite', { maxUses });
+  expect(result.error).toBeTruthy();
+});
 function invitation(ttl = 60) {
   const owner = generateKeyPair();
   const card = createSignedAgentCard({ name: 'Reviewer', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] }, owner);

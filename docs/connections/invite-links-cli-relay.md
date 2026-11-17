@@ -1,5 +1,10 @@
 # Short invitation links
 
+`invite create --max-uses N` adds an issuer-local limit for a reusable invitation
+token (or long `/i#acp-invite:` link). It does not change the relay: short `/j`
+links remain single-claim, including when their inner token is shared. Use token
+output for a shared code intended for multiple owners.
+
 [Invitations and local roles](invite-and-roles.md)
 
 

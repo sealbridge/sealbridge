@@ -4,6 +4,11 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Added
+
+- Shared invitation codes with issuer-signed persistent maximum-user limits: `invite create --max-uses N`, MCP `acp_create_invite.maxUses`, and `WorkerSession.invite(3600, { maxUses: N })`. Distinct-owner redemption is atomic; exhausted shared invites return `INVITE_USES_EXHAUSTED`. Default single-owner invitations, token format and protocol 0.2.0 are unchanged.
+- 発行側の署名付き永続メタデータで最大使用人数を制限する共用招待コードを追加しました。CLI `invite create --max-uses N`、MCP `acp_create_invite.maxUses`、`WorkerSession.invite(3600, { maxUses: N })` に対応します。異なる所有者の利用を原子的に記録し、使い切りは `INVITE_USES_EXHAUSTED` を返します。既定の1人向け招待・トークン形・プロトコル 0.2.0 は維持します。
+
 ## [0.9.0] - 2026-11-16
 
 Role-neutral invitations and named bilateral connections now work across CLI/MCP, with owner gateways, delegated workers, explicit migration and importer acceptance controls. Concurrent outbox access and Muse ↔ Grok Bot end-to-end coverage improve reliability.
