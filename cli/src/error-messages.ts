@@ -3,6 +3,8 @@ import { connectionTargetGuidance } from '@acp/runtime';
 import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
+  [/INVITE_LINK_MAX_USES_UNSUPPORTED/, '短い /j リンクの主張は1回だけです。共用招待には --share token または長い /i リンクを使ってください。'],
+  [/INVALID_INVITE_MAX_USES/, '最大使用人数は1〜1000の整数で指定してください。'],
   [/INVITE_USES_EXHAUSTED/, 'この共用招待は最大使用人数に達しました。相手に新しい招待を依頼してください。'],
   [/WORKER_TERMINAL/, '常駐ワーカーを終了します。通信を継続できない設定・鍵・証明書などの問題です。併記した理由コードを確認してください。'],
   [/RELAY_PROXY_AUTH_FAILED/, 'HTTP プロキシの認証に失敗しました。プロキシの認証設定を確認してください。'],
@@ -53,6 +55,8 @@ const reasons: [RegExp, string][] = [
 ];
 
 const nextSteps: [RegExp, string][] = [
+  [/INVITE_LINK_MAX_USES_UNSUPPORTED/, 'Short /j links support one claim only. Use --share token or a long /i link for shared invitations.'],
+  [/INVALID_INVITE_MAX_USES/, 'Maximum users must be an integer from 1 to 1000.'],
   [/INVITE_USES_EXHAUSTED/, 'This shared invitation has reached its maximum number of users. Ask the issuer for a new invitation.'],
   [/RELAY_PROXY_AUTH_FAILED/, 'HTTP proxy authentication failed. Check the configured proxy credentials.'],
   [/RELAY_PROXY_REFUSED/, 'The HTTP proxy refused CONNECT to the relay. Check proxy destination permissions.'],

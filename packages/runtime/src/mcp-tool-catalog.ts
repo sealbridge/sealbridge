@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { INVITE_MAX_USES } from './connection-records.js';
 import type { Json } from '@acp/core';
 
 /**
@@ -744,8 +745,8 @@ export const mcpTools: Json = [
       'Arguments for minting one acp-invite token.',
       {
         maxUses: described(
-          'Maximum distinct authenticated owner DIDs allowed to redeem this invite. Defaults to 1 (first-owner binding). Shared limits are signed local issuer metadata; disconnection does not free a place. Exhaustion fails with INVITE_USES_EXHAUSTED.',
-          { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER, default: 1 },
+          'Maximum distinct authenticated owner DIDs (1–1000) allowed to redeem this invite. Defaults to 1 (first-owner binding). Shared limits are signed local issuer metadata; disconnection or blocking does not free a place. Exhaustion fails with INVITE_USES_EXHAUSTED.',
+          { type: 'integer', minimum: 1, maximum: INVITE_MAX_USES, default: 1 },
         ),
         relayUrl: described(
           'Relay URL embedded in the invite and the signed agent card. Defaults to the configured relay or https://relay.sealbridge.dev. The token does not contact this URL.',

@@ -9,6 +9,16 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 - Shared invitation codes with issuer-signed persistent maximum-user limits: `invite create --max-uses N`, MCP `acp_create_invite.maxUses`, and `WorkerSession.invite(3600, { maxUses: N })`. Distinct-owner redemption is atomic; exhausted shared invites return `INVITE_USES_EXHAUSTED`. Default single-owner invitations, token format and protocol 0.2.0 are unchanged.
 - 発行側の署名付き永続メタデータで最大使用人数を制限する共用招待コードを追加しました。CLI `invite create --max-uses N`、MCP `acp_create_invite.maxUses`、`WorkerSession.invite(3600, { maxUses: N })` に対応します。異なる所有者の利用を原子的に記録し、使い切りは `INVITE_USES_EXHAUSTED` を返します。既定の1人向け招待・トークン形・プロトコル 0.2.0 は維持します。
 
+### Fixed
+
+- Reject shared `--share link` invitations before issuance or relay access: short `/j` links remain single-claim; use a token or long `/i` link. CLI, MCP and session maximum-user limits now share the 1–1000 validation rule. CLI `--max-uses` accepts decimal integer strings only; exponent, hexadecimal, whitespace and empty values are rejected. Disconnecting or blocking does not free a place.
+- 共用招待と `--share link` の併用を発行・リレー接続前に拒否します。短い `/j` は1回限りのため、トークンか長い `/i` を使ってください。CLI・MCP・session の最大使用人数を共通の1〜1000の整数に制限します。CLI の `--max-uses` は十進整数文字列だけを受け付け、指数表記・十六進表記・空白付き・空の値は拒否します。切断・ブロックでは枠は空きません。
+
+### Changed
+
+- Downgrade warning: after two or more owners bind the same shared invitation, 0.9.0 and earlier cannot read that connection store, even when running alone. They require one binding per invite digest: `connections list` fails with `INTAKE_STORE_INVALID`, and old workers may time out tasks or exit. Back up the data directory before upgrading or starting to use shared invitations. To downgrade, restore that backup. Merely avoiding simultaneous old/new processes is insufficient. The existing #297 store format is retained to preserve signed bindings; neither the AgentInvite token nor protocol 0.2.0 changes.
+- ダウングレードの注意: 同じ共用招待に2人以上の所有者が結び付いた接続ストアは、0.9.0 以前では単独起動でも読み取れません。旧版は招待ダイジェストごとに結び付きを1件に制限するため、`connections list` は `INTAKE_STORE_INVALID` となり、旧ワーカーのタスクがタイムアウトしたり、ワーカーが終了したりします。アップグレード前、または共用招待を使い始める前に、データディレクトリをバックアップしてください。ダウングレードするときは、そのバックアップを戻してください。古いバイナリと新しい書き込みの同時実行を避けるだけでは不十分です。署名付きの結び付きを失わないよう #297 の保存形式を維持し、AgentInvite トークンとプロトコル 0.2.0 は変更しません。
+
 ## [0.9.0] - 2026-11-16
 
 Role-neutral invitations and named bilateral connections now work across CLI/MCP, with owner gateways, delegated workers, explicit migration and importer acceptance controls. Concurrent outbox access and Muse ↔ Grok Bot end-to-end coverage improve reliability.

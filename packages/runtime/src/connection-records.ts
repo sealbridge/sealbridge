@@ -7,6 +7,7 @@ export const CONNECTION_OFFER_TTL_MS = 14 * CONNECTION_DAY_MS;
 export const CONNECTION_REFUSAL_TTL_MS = 7 * CONNECTION_DAY_MS;
 export const CONNECTION_CAPACITY = { connections: 1000, inviteBindings: 1000, outbox: 100,
   priorApprovedPeers: 1000, refusals: 1000 } as const;
+export const INVITE_MAX_USES = Math.min(CONNECTION_CAPACITY.inviteBindings, CONNECTION_CAPACITY.connections);
 export type ConnectionState = 'none' | 'pending' | 'connected' | 'blocked';
 /** Owner-local observation of the current connection or latest retained offer. */
 export interface ConnectionStatus {
@@ -179,6 +180,7 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
   if (!object(d) || !(Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>)
     .every(k => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k])) return false;
   const unique = <T>(rows: T[], key: (r: T) => string) => new Set(rows.map(key)).size === rows.length;
+  // Keep #297 signed limits readable, including values above the new issuance cap.
   if (d.inviteLimits !== undefined && (!Array.isArray(d.inviteLimits) || d.inviteLimits.length > 1000 ||
     d.inviteLimits.some(l => !object(l) || !keys(l, ['inviteDigest', 'maxUses', 'tokenExpiresAt']) ||
       !hash(l.inviteDigest) || !Number.isSafeInteger(l.maxUses) || l.maxUses < 1 || !time(l.tokenExpiresAt)) ||
@@ -211,8 +213,10 @@ export function validConnectionData(d: ConnectionData, owner: string): boolean {
 /** Canonical parsed invitations have the same digest for each supported URI encoding. */
 export function connectionInviteDigest(invite: Invite): string { return digest(invite); }
 
-export function assertInviteMaxUses(maxUses: number): void {
-  if (!Number.isSafeInteger(maxUses) || maxUses < 1) throw new Error('INVALID_INVITE_MAX_USES');
+/** Validate new issuer limits; legacy signed metadata remains readable without rewriting. */
+export function assertInviteMaxUses(maxUses: unknown): asserts maxUses is number {
+  if (typeof maxUses !== 'number' || !Number.isSafeInteger(maxUses) || maxUses < 1 ||
+      maxUses > INVITE_MAX_USES) throw new Error('INVALID_INVITE_MAX_USES');
 }
 /** Call only while holding the issuer store mutation lock, after checking expiry. */
 export function inviteBindingEligibility(data: ConnectionData, inviteDigest: string, ownerDid: string, now: number): 'first' | 'same' | 'other' {

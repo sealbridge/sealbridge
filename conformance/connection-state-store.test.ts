@@ -419,3 +419,19 @@ it('accepted invite task recording is durable, idempotent and never overwrites l
   expect(legacy.store.recordAcceptedInviteTask({ ...peer, peerOwnerDid: legacy.peer.did }, 'different', digest('send'), digest('accept'), task)).toBe(false);
   expect(legacy.store.listConnections()).toEqual(before);
 });
+
+it.each([0, 1.5, 1001, Number.MAX_SAFE_INTEGER + 1])('rejects invalid recorded maxUses %s without store mutation', maxUses => {
+  const f = fixture(), parsed = invite(f).parsed;
+  seed(f); const before = fs.readFileSync(f.path, 'utf8');
+  expect(() => f.store.recordInviteLimit(parsed, maxUses)).toThrow('INVALID_INVITE_MAX_USES');
+  expect(fs.readFileSync(f.path, 'utf8')).toBe(before);
+});
+it('records the capacity boundary and preserves pre-existing larger signed limits', () => {
+  const f = fixture(), parsed = invite(f).parsed;
+  f.store.recordInviteLimit(parsed, 1000);
+  expect(read(f).payload.inviteLimits[0].maxUses).toBe(1000);
+  seed(f, { inviteLimits: [{ inviteDigest: digest(parsed), maxUses: 1001, tokenExpiresAt: NOW + DAY }] });
+  const before = fs.readFileSync(f.path, 'utf8');
+  f.restart().listConnections();
+  expect(fs.readFileSync(f.path, 'utf8')).toBe(before);
+});
