@@ -4,6 +4,12 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-18
+
+Shared invitations now support atomic maximum-user limits through CLI `--max-uses`, MCP and the SDK (#297), with shared-limit guards and 1–1000 validation (#298). **Behavior change:** default unmigrated MCP invite creation now fails with `INVITE_REQUESTER_LISTENER_REQUIRED` (isError, no token or shared-limit record); #300 supersedes #299's warning-and-minting behavior. Explicit `options.owner`, `mcp-server --key` / `explicitKeyPath`, and migrated delegated identities still mint. After multiple owners bind a shared invitation, 0.9.0 and earlier cannot read that connection store; back up before upgrading or using shared invites and restore that backup to downgrade. Ubuntu conformance uses the ubuntu-24.04 runner while retaining the required check name `conformance (ubuntu-latest)` (#300).
+
+共用招待に CLI `--max-uses`・MCP・SDK から原子的な最大利用人数を設定できるようになりました（#297）。共用上限のガードと1～1000の検証を追加しました（#298）。**動作変更:** 未移行の既定 MCP 招待作成は `INVITE_REQUESTER_LISTENER_REQUIRED` で失敗し、isError を返してトークンも共用上限レコードも作成しません。#299 の警告付き発行は #300 の拒否に置き換わりました。明示した `options.owner`・`mcp-server --key` / `explicitKeyPath`・移行済みの委任 ID では引き続き発行できます。同じ共用招待に複数の所有者が結び付いたストアは 0.9.0 以前では読めません。アップグレードや共用招待の利用前にバックアップし、ダウングレード時はそれを復元してください。Ubuntu の conformance 実行環境は ubuntu-24.04 に固定し、必須チェック名 `conformance (ubuntu-latest)` は維持します（#300）。
+
 ### Added
 
 - Shared invitation codes with issuer-signed persistent maximum-user limits: `invite create --max-uses N`, MCP `acp_create_invite.maxUses`, and `WorkerSession.invite(3600, { maxUses: N })`. Distinct-owner redemption is atomic; exhausted shared invites return `INVITE_USES_EXHAUSTED`. Default single-owner invitations, token format and protocol 0.2.0 are unchanged.
