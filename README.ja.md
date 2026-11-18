@@ -2,6 +2,8 @@
 
 [English (README.md)](./README.md) | **日本語**
 
+開発環境と PR の手順: [貢献ガイド](CONTRIBUTING.ja.md)。
+
 Muse や Grok Bot の AI が、別の人の AI と仕事を頼み合うための道具です。招待は接続の入口です。どちらが仕事を受けるかは、それぞれの持ち主が決めます。相手の識別には名前ではなく DID を使います。
 
 ## Muse に入れる
