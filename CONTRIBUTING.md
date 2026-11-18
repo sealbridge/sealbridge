@@ -17,6 +17,7 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm validate:schemas
+pnpm lint
 ```
 
 Run commands from the repository root. `pnpm conformance` is an alias for
@@ -24,6 +25,13 @@ Run commands from the repository root. `pnpm conformance` is an alias for
 `pnpm exec vitest run conformance/doctor.test.ts`. Run
 `pnpm test:security-proof` for security proof tests and `pnpm sealbridge --help`
 for the source CLI. Rebuild after changing source used by built CLI tests.
+
+Run `pnpm format` to apply formatting, `pnpm format:check` to check it, and
+`pnpm lint` for type-aware Promise checks. CI requires the `lint` job on Ubuntu with Node 22 in addition to the conformance matrix.
+ESLint enables only `no-floating-promises` and `no-misused-promises`, both as errors.
+The existing tree is not fully formatted: `format:check` currently reports that backlog
+and is not required in CI. A dedicated follow-up PR should format the repository
+and then enable required `prettier --check`. Format files you change for now.
 
 ## Changes and verification
 

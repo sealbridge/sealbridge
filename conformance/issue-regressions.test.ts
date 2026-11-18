@@ -1,3 +1,4 @@
+import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
 import { mkdtemp, writeFile, rm as rmDir } from 'node:fs/promises';
 import { get, ServerResponse } from 'node:http';
@@ -144,7 +145,9 @@ describe('issue 9: concurrent delegate to one worker', () => {
       executeTask: async (context: { input: Json }): Promise<Json> => context.input,
     };
     const events: string[] = [];
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner,
       relay,
       adapter,
@@ -389,7 +392,9 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const relay = new InMemoryRelay();
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner,
       relay,
       adapter: {
@@ -444,7 +449,9 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const relay = new InMemoryRelay();
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner,
       relay,
       adapter: {
@@ -775,11 +782,14 @@ describe('issue 20: requester relay URL switch', () => {
     const servers: Awaited<ReturnType<typeof startLocalRelay>>[] = [];
     const delegates: Promise<unknown>[] = [];
     const controller = new AbortController();
-    const workerOutcomes: Array<{ status: string; reason?: { code: unknown; message: string } }> = [];
+    const workerOutcomes: Array<{ status: string; reason?: { code: unknown; message: string } }> =
+      [];
     const terminated: Promise<never>[] = [];
     function reason(error: unknown) {
-      return { code: (error as { code?: unknown } | null)?.code,
-        message: error instanceof Error ? error.message : String(error) };
+      return {
+        code: (error as { code?: unknown } | null)?.code,
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
     const workers: WorkerNode[] = [];
     const running: Array<Promise<unknown>> = [];
@@ -794,12 +804,18 @@ describe('issue 20: requester relay URL switch', () => {
       servers.push(await startLocalRelay());
       for (const [index, server] of servers.entries()) {
         let listening!: () => void;
-        const ready = new Promise<void>(resolve => { listening = resolve; });
+        const ready = new Promise<void>((resolve) => {
+          listening = resolve;
+        });
         const owner = generateKeyPair();
-        const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+        const worker = new WorkerNode({
+          autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+          checkPeer: () => 'trusted',
           owner,
           relay: server.url,
-          onStatus: status => { if (status === 'connected') listening(); },
+          onStatus: (status) => {
+            if (status === 'connected') listening();
+          },
           allowPrivateRelay: true,
           adapter: {
             id: 'echo',
@@ -813,13 +829,20 @@ describe('issue 20: requester relay URL switch', () => {
         const run = worker.start();
         running.push(run);
         workerOutcomes[index] = { status: 'running' };
-        const ended = run.then(() => {
-          workerOutcomes[index] = { status: 'fulfilled' };
-          throw new Error(`worker ${index} terminated before the expected relay event: fulfilled`);
-        }, error => {
-          workerOutcomes[index] = { status: 'rejected', reason: reason(error) };
-          throw new Error(`worker ${index} terminated before the expected relay event: ${JSON.stringify(reason(error))}`);
-        });
+        const ended = run.then(
+          () => {
+            workerOutcomes[index] = { status: 'fulfilled' };
+            throw new Error(
+              `worker ${index} terminated before the expected relay event: fulfilled`,
+            );
+          },
+          (error) => {
+            workerOutcomes[index] = { status: 'rejected', reason: reason(error) };
+            throw new Error(
+              `worker ${index} terminated before the expected relay event: ${JSON.stringify(reason(error))}`,
+            );
+          },
+        );
         void ended.catch(() => undefined);
         terminated.push(ended);
         // A completed HTTP inbox poll establishes that this worker is listening.
@@ -852,7 +875,10 @@ describe('issue 20: requester relay URL switch', () => {
         { relay: 0, state: 'SETTLED' },
         { relay: 1, state: 'SETTLED' },
       ]);
-      expect(relaySwitchFreshControl, JSON.stringify(workerOutcomes)).toEqual({ relay: 1, state: 'SETTLED' });
+      expect(relaySwitchFreshControl, JSON.stringify(workerOutcomes)).toEqual({
+        relay: 1,
+        state: 'SETTLED',
+      });
       const concurrent = await Promise.all([call(requester, 0), call(requester, 1)]);
       expect(concurrent, JSON.stringify(workerOutcomes)).toEqual([
         { relay: 0, state: 'SETTLED' },
@@ -1049,7 +1075,9 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
       const workerKey = generateKeyPair();
       const relay = new InMemoryRelay();
       let executions = 0;
-      const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+      const worker = new WorkerNode({
+        autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+        checkPeer: () => 'trusted',
         owner: workerKey,
         relay,
         timeoutMs: 1500,
@@ -1106,7 +1134,9 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
     const relay = new InMemoryRelay();
     const workers = [leftKey, rightKey].map(
       (key) =>
-        new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+        new WorkerNode({
+          autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+          checkPeer: () => 'trusted',
           owner: key,
           relay,
           timeoutMs: 5000,
@@ -1154,7 +1184,9 @@ describe('issue 28: concurrent reportProgress stays ordered', () => {
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     const steps: string[] = [];
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 5000,
@@ -1229,7 +1261,9 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
     const otherKey = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: workerKey,
       relay,
       timeoutMs: 5000,
@@ -1244,7 +1278,9 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
         },
       },
     });
-    const other = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const other = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: otherKey,
       relay,
       timeoutMs: 5000,
@@ -1413,7 +1449,9 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     let backendCalls = 0;
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 1500,
@@ -1482,7 +1520,9 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const key = generateKeyPair();
     const relay = new InMemoryRelay();
     let backendCalls = 0;
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: key,
       relay,
       timeoutMs: 5000,
@@ -1545,7 +1585,9 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: key,
       agentDid: agent.did,
@@ -1622,7 +1664,9 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const key = generateKeyPair();
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: key,
       agentDid: agent.did,
@@ -1674,7 +1718,9 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     let executions = 0;
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: key,
       agentDid: agent.did,
       agentKey: agent,
@@ -1739,7 +1785,9 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const other = generateKeyPair();
     const relay = new InMemoryRelay();
-    const alias = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const alias = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: key,
       agentDid: agent.did,
@@ -1755,7 +1803,9 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
         executeTask: async () => ({ ok: true }),
       },
     });
-    const second = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const second = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: other,
       relay,
@@ -1812,7 +1862,8 @@ describe('issue 35: invalid reportProgress poisons the session', () => {
         entered = resolve;
       });
       const send = relay.send.bind(relay);
-      relay.send = async (envelope) => {
+
+      (relay as RelayTransport).send = async (envelope) => {
         if (mode === 'gated-valid-over' && envelope.payload.eventType === 'PROGRESS')
           progressSeen = true;
         if (
@@ -1828,7 +1879,9 @@ describe('issue 35: invalid reportProgress poisons the session', () => {
         }
         return send(envelope);
       };
-      const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+      const worker = new WorkerNode({
+        autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+        checkPeer: () => 'trusted',
         owner: key,
         relay,
         timeoutMs: 1500,

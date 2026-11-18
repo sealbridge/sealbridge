@@ -4,9 +4,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateKeyPair, signEnvelope, signPayload, openEnvelope } from '../packages/core/src/index.js';
+import {
+  generateKeyPair,
+  signEnvelope,
+  signPayload,
+  openEnvelope,
+} from '../packages/core/src/index.js';
 import type { BudgetSpec, Json, KeyPair } from '../packages/core/src/index.js';
-import { InMemoryRelay, HttpRelayClient, startLocalRelay, createRelayFetchHandler, type RelayTransport } from '../packages/relay/src/index.js';
+import {
+  InMemoryRelay,
+  HttpRelayClient,
+  startLocalRelay,
+  createRelayFetchHandler,
+  type RelayTransport,
+} from '../packages/relay/src/index.js';
 import {
   PolicyAutoApprovalProvider,
   RequesterClient,
@@ -24,7 +35,7 @@ const cliRelays: (() => Promise<void>)[] = [];
 afterEach(async () => {
   // Finish every CLI worker before any key/audit directory is removed, even
   // when setup fails between creating a directory and starting another worker.
-  await Promise.all(cliRelays.splice(0).map(close => close()));
+  await Promise.all(cliRelays.splice(0).map((close) => close()));
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const fn of cleanup.splice(0).reverse()) await fn();
@@ -48,7 +59,9 @@ function workerFor(
   adapter: AgentAdapter,
   options: WorkerAcceptancePolicy = {},
 ) {
-  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  return new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner,
     relay,
     adapter,
@@ -93,22 +106,53 @@ async function delegate(
 
 describe('worker acceptance policy', () => {
   it('acks expired proposals without holding the only execution slot while rejecting them', async () => {
-    const relay = new InMemoryRelay(), bob = generateKeyPair(), alice = generateKeyPair();
+    const relay = new InMemoryRelay(),
+      bob = generateKeyPair(),
+      alice = generateKeyPair();
     const calls: Json[] = [];
     const handler = createRelayFetchHandler({ relay });
-    const workerRelay = new HttpRelayClient('https://relay.example', async (input, init) => handler(new Request(input, init)), bob);
+    const workerRelay = new HttpRelayClient(
+      'https://relay.example',
+      async (input, init) => handler(new Request(input, init)),
+      bob,
+    );
     const worker = workerFor(bob, workerRelay, echoAdapter(calls), { maxConcurrentTasks: 1 });
-    const manifest = buildTaskManifest({ ownerDid: alice.did, workerDid: bob.did,
-      agentDid: worker.agentCard.payload.agentDid, title: 'expired', description: 'expired' });
+    const manifest = buildTaskManifest({
+      ownerDid: alice.did,
+      workerDid: bob.did,
+      agentDid: worker.agentCard.payload.agentDid,
+      title: 'expired',
+      description: 'expired',
+    });
     manifest.deadline = new Date(Date.now() - 1).toISOString();
-    const stale = signEnvelope({ taskId: manifest.taskId, recipientDid: bob.did, seq: 0, eventType: 'PROPOSE',
-      payload: JSON.parse(JSON.stringify({ proposal: signPayload(manifest, alice), input: {}, capabilityChains: [] })) }, alice, { encrypt: true });
+    const stale = signEnvelope(
+      {
+        taskId: manifest.taskId,
+        recipientDid: bob.did,
+        seq: 0,
+        eventType: 'PROPOSE',
+        payload: JSON.parse(
+          JSON.stringify({
+            proposal: signPayload(manifest, alice),
+            input: {},
+            capabilityChains: [],
+          }),
+        ),
+      },
+      alice,
+      { encrypt: true },
+    );
     const send = relay.send.bind(relay);
     let release!: () => void;
-    const hold = new Promise<void>(resolve => { release = resolve; });
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let rejecting!: () => void;
-    const rejected = new Promise<void>(resolve => { rejecting = resolve; });
-    relay.send = async frame => {
+    const rejected = new Promise<void>((resolve) => {
+      rejecting = resolve;
+    });
+
+    (relay as RelayTransport).send = async (frame) => {
       if (frame.payload.taskId === manifest.taskId && frame.payload.eventType === 'ERROR') {
         expect(openEnvelope(frame, alice)).toMatchObject({ code: 'INVALID' });
         rejecting();
@@ -118,14 +162,22 @@ describe('worker acceptance policy', () => {
     };
     const ack = vi.spyOn(relay, 'acknowledge');
     const running = worker.start();
-    cleanup.push(async () => { release(); worker.stop(); await running; });
+    cleanup.push(async () => {
+      release();
+      worker.stop();
+      await running;
+    });
     await relay.send(stale);
     await rejected;
     await expect(delegate(alice, relay, worker)).resolves.toMatchObject({ state: 'SETTLED' });
     expect(calls).toHaveLength(1);
     release();
-    await vi.waitFor(() => expect(ack.mock.calls.some(args => args[1] === stale.payload.envelopeId)).toBe(true));
-    expect(await relay.receive(bob.did, 0, undefined, { lease: true, taskId: manifest.taskId })).toBeUndefined();
+    await vi.waitFor(() =>
+      expect(ack.mock.calls.some((args) => args[1] === stale.payload.envelopeId)).toBe(true),
+    );
+    expect(
+      await relay.receive(bob.did, 0, undefined, { lease: true, taskId: manifest.taskId }),
+    ).toBeUndefined();
   });
 
   it('rejects over-budget and unlisted requesters without sending ACCEPT', async () => {
@@ -157,8 +209,16 @@ describe('worker acceptance policy', () => {
         delegate(item.requester, relay, worker, item.budget),
         pending,
       ]);
-      expect(requesterResult.status, String(requesterResult.status === 'rejected' ? requesterResult.reason : requesterResult.value)).toBe('rejected');
-      expect(workerResult.status, String(workerResult.status === 'rejected' ? workerResult.reason : workerResult.value)).toBe('rejected');
+      expect(
+        requesterResult.status,
+        String(
+          requesterResult.status === 'rejected' ? requesterResult.reason : requesterResult.value,
+        ),
+      ).toBe('rejected');
+      expect(
+        workerResult.status,
+        String(workerResult.status === 'rejected' ? workerResult.reason : workerResult.value),
+      ).toBe('rejected');
       if (requesterResult.status === 'rejected') {
         const workerText =
           workerResult.status === 'rejected' ? String(workerResult.reason) : 'worker fulfilled';
@@ -170,10 +230,7 @@ describe('worker acceptance policy', () => {
       events.length = 0;
     }
     const pending = worker.start({ once: true });
-    const [ok, done] = await Promise.all([
-      delegate(alice, relay, worker),
-      pending,
-    ]);
+    const [ok, done] = await Promise.all([delegate(alice, relay, worker), pending]);
     worker.stop();
     expect(ok.state).toBe('SETTLED');
     expect(done?.state).toBe('SETTLED');
@@ -301,12 +358,7 @@ describe('worker acceptance policy', () => {
 
   it('does not register in the public directory unless publishToRegistry is set', async () => {
     const hiddenRelay = new InMemoryRelay();
-    const hidden = workerFor(
-      generateKeyPair(),
-      hiddenRelay,
-      echoAdapter([]),
-      {},
-    );
+    const hidden = workerFor(generateKeyPair(), hiddenRelay, echoAdapter([]), {});
     const hiddenRun = hidden.start();
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(hiddenRelay.discover()).toEqual([]);
@@ -340,18 +392,25 @@ describe('acp worker CLI acceptance guard', () => {
     const runs: Promise<unknown>[] = [];
     const workers = new Set<CliWorkerNode>();
     let closing: Promise<void> | undefined;
-    vi.spyOn(CliWorkerNode.prototype, 'start').mockImplementation(function (this: CliWorkerNode, options) {
+    vi.spyOn(CliWorkerNode.prototype, 'start').mockImplementation(function (
+      this: CliWorkerNode,
+      options,
+    ) {
       workers.add(this);
       if (closing) this.stop();
       return startCliWorker.call(this, options);
     });
-    const close = () => closing ??= (async () => {
-      // A raw 401 no longer terminates persistent workers. Model owner shutdown
-      // explicitly, and keep the relay open until every CLI reader has exited.
-      for (const worker of workers) worker.stop();
-      try { await Promise.allSettled(runs); }
-      finally { await server.close(); }
-    })();
+    const close = () =>
+      (closing ??= (async () => {
+        // A raw 401 no longer terminates persistent workers. Model owner shutdown
+        // explicitly, and keep the relay open until every CLI reader has exited.
+        for (const worker of workers) worker.stop();
+        try {
+          await Promise.allSettled(runs);
+        } finally {
+          await server.close();
+        }
+      })());
     function worker(args: string[]) {
       const run = networkCommand('worker', args);
       runs.push(run);
@@ -377,20 +436,23 @@ describe('acp worker CLI acceptance guard', () => {
       });
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
       let failure: unknown;
-      const pending = server.worker([
-        'start', '--allow-local-pc',
-        '--key',
-        bob.path,
-        '--relay',
-        server.url,
-        '--allow-private-relay',
-        '--adapter',
-        adapter,
-        '--auto-accept',
-        '--once',
-      ]).catch((error) => {
-        failure = error;
-      });
+      const pending = server
+        .worker([
+          'start',
+          '--allow-local-pc',
+          '--key',
+          bob.path,
+          '--relay',
+          server.url,
+          '--allow-private-relay',
+          '--adapter',
+          adapter,
+          '--auto-accept',
+          '--once',
+        ])
+        .catch((error) => {
+          failure = error;
+        });
       cleanup.push(async () => {
         await server.close().catch(() => undefined);
         await pending.catch(() => undefined);
@@ -418,27 +480,30 @@ describe('acp worker CLI acceptance guard', () => {
     });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const audit = join(bob.dir, 'worker.jsonl');
-    const pending = server.worker([
-      'start', '--allow-local-pc',
-      '--key',
-      bob.path,
-      '--contacts',
-      join(bob.dir, 'contacts.json'),
-      '--relay',
-      server.url,
-      '--allow-private-relay',
-      '--adapter',
-      'sandbox',
-      '--auto-accept',
-      '--allow-requester',
-      alice.key.did,
-      '--allow-requester',
-      carol.key.did,
-      '--audit',
-      audit,
-    ]).catch((error) => {
-      workerError = error;
-    });
+    const pending = server
+      .worker([
+        'start',
+        '--allow-local-pc',
+        '--key',
+        bob.path,
+        '--contacts',
+        join(bob.dir, 'contacts.json'),
+        '--relay',
+        server.url,
+        '--allow-private-relay',
+        '--adapter',
+        'sandbox',
+        '--auto-accept',
+        '--allow-requester',
+        alice.key.did,
+        '--allow-requester',
+        carol.key.did,
+        '--audit',
+        audit,
+      ])
+      .catch((error) => {
+        workerError = error;
+      });
     cleanup.push(async () => {
       await server.close().catch(() => undefined);
       await pending.catch(() => undefined);
@@ -467,22 +532,25 @@ describe('acp worker CLI acceptance guard', () => {
       ]),
     ).rejects.toThrow(/not allowed/);
     // The allowlist admits proposals to review; it supplies no inspection or owner opening.
-    for (const requester of [alice, carol]) await expect(networkCommand('delegate', [
-      '--key',
-      requester.path,
-      '--to',
-      invite,
-      '--allow-private-relay',
-      '--title',
-      'Review',
-      '--description',
-      'Repeated allow-requester DID',
-      '--input',
-      '{"ok":true}',
-      '--auto-approve',
-      '--audit',
-      join(requester.dir, 'review.jsonl'),
-    ])).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
+    for (const requester of [alice, carol])
+      await expect(
+        networkCommand('delegate', [
+          '--key',
+          requester.path,
+          '--to',
+          invite,
+          '--allow-private-relay',
+          '--title',
+          'Review',
+          '--description',
+          'Repeated allow-requester DID',
+          '--input',
+          '{"ok":true}',
+          '--auto-approve',
+          '--audit',
+          join(requester.dir, 'review.jsonl'),
+        ]),
+      ).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
     const commaBob = await keyFile('comma-bob.private.json');
     const commaAlice = await keyFile('comma-alice.private.json');
     const commaCarol = await keyFile('comma-carol.private.json');
@@ -491,7 +559,8 @@ describe('acp worker CLI acceptance guard', () => {
       commaLines.push(String(line));
     });
     const comma = server.worker([
-      'start', '--allow-local-pc',
+      'start',
+      '--allow-local-pc',
       '--key',
       commaBob.path,
       '--contacts',
@@ -516,22 +585,25 @@ describe('acp worker CLI acceptance guard', () => {
       if (!commaLines.some((line) => line.startsWith('acp-invite:'))) throw new Error('waiting');
     });
     const commaInvite = commaLines.find((line) => line.startsWith('acp-invite:'))!;
-    for (const requester of [commaAlice, commaCarol]) await expect(networkCommand('delegate', [
-      '--key',
-      requester.path,
-      '--to',
-      commaInvite,
-      '--allow-private-relay',
-      '--title',
-      'Comma',
-      '--description',
-      'Comma-separated allowlist',
-      '--input',
-      '{"ok":true}',
-      '--auto-approve',
-      '--audit',
-      join(requester.dir, 'review.jsonl'),
-    ])).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
+    for (const requester of [commaAlice, commaCarol])
+      await expect(
+        networkCommand('delegate', [
+          '--key',
+          requester.path,
+          '--to',
+          commaInvite,
+          '--allow-private-relay',
+          '--title',
+          'Comma',
+          '--description',
+          'Comma-separated allowlist',
+          '--input',
+          '{"ok":true}',
+          '--auto-approve',
+          '--audit',
+          join(requester.dir, 'review.jsonl'),
+        ]),
+      ).rejects.toMatchObject({ code: 'PENDING_OWNER_APPROVAL' });
     expect(workerError).toBeUndefined();
   });
 
@@ -543,17 +615,20 @@ describe('acp worker CLI acceptance guard', () => {
       lines.push(String(line));
     });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const hidden = server.worker([
-      'start', '--allow-local-pc',
-      '--key',
-      bob.path,
-      '--relay',
-      server.url,
-      '--allow-private-relay',
-      '--adapter',
-      'sandbox',
-      '--once',
-    ]).catch(() => undefined);
+    const hidden = server
+      .worker([
+        'start',
+        '--allow-local-pc',
+        '--key',
+        bob.path,
+        '--relay',
+        server.url,
+        '--allow-private-relay',
+        '--adapter',
+        'sandbox',
+        '--once',
+      ])
+      .catch(() => undefined);
     cleanup.push(async () => {
       await server.close().catch(() => undefined);
       await hidden.catch(() => undefined);
@@ -572,18 +647,21 @@ describe('acp worker CLI acceptance guard', () => {
     vi.spyOn(console, 'log').mockImplementation((line) => {
       publishedLines.push(String(line));
     });
-    const published = publishedServer.worker([
-      'start', '--allow-local-pc',
-      '--key',
-      bob.path,
-      '--relay',
-      publishedServer.url,
-      '--allow-private-relay',
-      '--adapter',
-      'sandbox',
-      '--publish',
-      '--once',
-    ]).catch(() => undefined);
+    const published = publishedServer
+      .worker([
+        'start',
+        '--allow-local-pc',
+        '--key',
+        bob.path,
+        '--relay',
+        publishedServer.url,
+        '--allow-private-relay',
+        '--adapter',
+        'sandbox',
+        '--publish',
+        '--once',
+      ])
+      .catch(() => undefined);
     cleanup.push(async () => {
       await publishedServer.close().catch(() => undefined);
       await published.catch(() => undefined);
@@ -592,7 +670,9 @@ describe('acp worker CLI acceptance guard', () => {
       if (!publishedLines.some((line) => line.startsWith('acp-invite:')))
         throw new Error('waiting');
     });
-    const cards = await new HttpRelayClient(publishedServer.url, { allowPrivateRelay: true }).discover();
+    const cards = await new HttpRelayClient(publishedServer.url, {
+      allowPrivateRelay: true,
+    }).discover();
     expect(cards.map((card) => card.payload.ownerDid)).toContain(bob.key.did);
   });
 });
