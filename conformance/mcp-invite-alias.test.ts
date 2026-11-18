@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInviteToken, createRevocationNotice, createSignedAgentCard, digest, generateKeyPair, RevocationRegistry, parseAndVerifyInviteToken, signApproval } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
+import * as core from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
 import { AcpMcpServer, InviteStore, RequesterClient, WorkerNode, resolveOrCreateIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, ApprovalProvider } from '../packages/runtime/src/index.js';
@@ -33,10 +34,23 @@ async function call(server: AcpMcpServer, name: string, args: Record<string, unk
 function approving(owner: () => KeyPair): ApprovalProvider {
   return { approve: vi.fn(async r => signApproval(r.taskId, r.gate, r.target, owner(), 'APPROVED')) };
 }
+it.each([undefined, 1, 3])('refuses implicit requester invites without minting or persisting limits; maxUses=%s', async maxUses => {
+  const mint = vi.spyOn(core, 'createInviteToken');
+  const record = vi.spyOn(WorkerTrustStore.prototype, 'recordInviteLimit');
+  const server = new AcpMcpServer({ identityOptions });
+  const result = await call(server, 'acp_create_invite', maxUses === undefined ? {} : { maxUses });
+  expect(result.error).toBe(true);
+  expect(result.value).toMatchObject({ error: 'INVITE_REQUESTER_LISTENER_REQUIRED',
+    message: expect.stringContaining('Invite creation refused'), nextStep: expect.stringContaining('mcp-server --key <file>') });
+  expect(result.value).not.toHaveProperty('inviteToken');
+  expect(mint).not.toHaveBeenCalled();
+  expect(record).not.toHaveBeenCalled();
+});
 it('creates shared MCP invitations with persistent issuer policy and unchanged token fields', async () => {
   const owner = generateKeyPair(), server = new AcpMcpServer({ owner, identityOptions });
   const created = await call(server, 'acp_create_invite', { relayUrl: 'https://relay.example', maxUses: 2 });
   expect(created.error).toBe(false);
+  expect(created.value).not.toHaveProperty('warning');
   const invite = parseAndVerifyInviteToken(created.value.inviteToken);
   expect(invite).not.toHaveProperty('maxUses');
   const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, identityOptions) });
@@ -202,11 +216,11 @@ it('locks CLI worker signing and role-free payload independently of the requeste
   expect(invite).not.toHaveProperty('role');
   expect(invite.agentCard.payload).not.toHaveProperty('role');
 });
-it('preserves unmigrated MCP owner-key worker routing; migrated CLI routing is covered in worker-identity', async () => {
+it('preserves explicitly configured unmigrated MCP owner-key worker routing; migrated CLI routing is covered in worker-identity', async () => {
   const requester = resolveOrCreateIdentity('requester', identityOptions);
   const defaultWorker = resolveOrCreateIdentity('worker', identityOptions);
   const relay = new InMemoryRelay();
-  const creator = new AcpMcpServer({ identityOptions, relay });
+  const creator = new AcpMcpServer({ owner: requester, identityOptions, relay });
   const created = await call(creator, 'acp_create_invite', { relayUrl: 'https://relay.example' });
   expect(created.error).toBe(false);
   const invite = parseAndVerifyInviteToken(created.value.inviteToken);

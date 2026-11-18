@@ -493,7 +493,7 @@ describe('embedding and application entry points', () => {
     expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
   });
 
-  it('keeps MCP initialization and discovery lazy and shares one owner across signing calls', async () => {
+  it('keeps MCP initialization and discovery lazy and shares one owner across refused invite calls', async () => {
     const { options } = fixture();
     const store = memoryStore();
     const server = new AcpMcpServer({ identityOptions: { ...options, keyStore: store },
@@ -505,7 +505,11 @@ describe('embedding and application entry points', () => {
     await call('acp_discover_workers');
     expect(store.load).not.toHaveBeenCalled();
     const responses = await Promise.all([call('acp_create_invite'), call('acp_create_invite')]);
-    expect(responses.every(value => !JSON.stringify(value).includes('"isError":true'))).toBe(true);
+    for (const response of responses) {
+      expect(JSON.stringify(response)).toContain('"isError":true');
+      expect(JSON.stringify(response)).toContain('INVITE_REQUESTER_LISTENER_REQUIRED');
+      expect(JSON.stringify(response)).not.toContain('inviteToken');
+    }
     expect(store.createIfMissing).toHaveBeenCalledTimes(1);
     expect(store.keys.has('requester')).toBe(true);
     expect(store.keys.has('worker')).toBe(false);

@@ -43,8 +43,9 @@ function auditCli(path: string) {
     expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toMatchObject({ valid: true, status: 'VALID' });
   } finally { fs.closeSync(stdout); fs.closeSync(stderr); }
 }
-async function mcpInvite() {
-  const server = new AcpMcpServer({ identityOptions });
+async function mcpInvite(explicitOwner = false) {
+  const server = new AcpMcpServer({ identityOptions,
+    ...(explicitOwner ? { owner: await resolveStoredIdentity('requester', identityOptions) } : {}) });
   const response = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
     params: { name: 'acp_create_invite', arguments: { relayUrl: 'https://relay.example' } } }) as any;
   expect(response.result.isError).toBe(false);
@@ -139,7 +140,7 @@ for (const scenario of ['MCP delegated', 'CLI unmigrated', 'CLI worker-key-only'
     const owner = (await inspectStoredIdentity('requester', identityOptions)).key;
     const legacy = await resolveStoredIdentity('worker', identityOptions);
     const oldToken = scenario === 'old CLI after migration' ? await cliInvite()
-      : scenario === 'old MCP after migration' ? await mcpInvite() : undefined;
+      : scenario === 'old MCP after migration' ? await mcpInvite(true) : undefined;
     if (!['CLI unmigrated', 'CLI worker-key-only'].includes(scenario)) await migrateWorkerIdentity(identityOptions, false);
     if (scenario === 'CLI recovered') {
       await revokeWorkerIdentity(identityOptions, false);

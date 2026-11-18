@@ -8,10 +8,19 @@ permissions:
   contents: read
 jobs:
   conformance:
+    name: conformance (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # ubuntu-latest is only the required check label; Playwright 1.56.1
+          # cannot install Chromium dependencies on Ubuntu 26.04.
+          - label: ubuntu-latest
+            os: ubuntu-24.04
+          - label: macos-latest
+            os: macos-latest
+          - label: windows-latest
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       # Commit SHAs are the objects each release tag peels to. Annotated tags use ^{}.

@@ -84,7 +84,7 @@ sealbridge connections list
 
 ## 接続確認のために MCP を登録する
 
-MCP `acp_create_invite` は通常・共用（`maxUses`）招待とも既定では requester 鍵で署名します。未移行の場合は `warning.code: INVITE_REQUESTER_LISTENER_REQUIRED` と受信先 DID・起動方法を返します。招待の owner/agent ID を扱うワーカーが必要で、通常の `worker start` は別の worker 鍵だけで待ち受けます。同じデータルート・鍵ストア設定で、通常の adapter/relay オプションに `--also-requester` を追加してください。自動受付を選ぶ場合は `--requester-auto-accept read-only` または `--requester-auto-accept write` も追加します。それ以外は所有者の承認が必要です。代わりに `sealbridge invite create` で worker 鍵の招待を発行するか、移行済み所有者ゲートウェイを使えます。発行は待受を起動・検出しません。宛先 DID に受信者がいなければ署名付きエラーを返せず、相手は `TASK_TIMEOUT` になる可能性があります。明示指定の MCP ID と移行済み経路の動作は維持します。
+MCP `acp_create_invite` は未移行の既定設定では通常・共用（`maxUses`）招待の発行を `isError: true`・`error: INVITE_REQUESTER_LISTENER_REQUIRED` で拒否し、トークンも共用上限も作成しません。通常の `worker start` は別の worker 鍵だけで待ち受けるため、requester 鍵の招待を受信できません。発行するには `options.owner` または `mcp-server --key <file>` で受信 ID を明示するか、移行済み所有者ゲートウェイを使ってください。requester ID を明示して発行した後は、同じデータルート・鍵ストア設定で通常の adapter/relay オプションに `--also-requester` を追加してワーカーを起動してください。自動受付を選ぶ場合は `--requester-auto-accept read-only` または `--requester-auto-accept write` も追加します。それ以外は所有者の承認が必要です。代わりに `sealbridge invite create` で通常の `worker start` が受信できる worker 鍵の招待を発行できます。発行は待受を起動・検出しません。署名 ID・共用上限・プロトコル版は維持します。
 
 MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録します。ホストは **確認フォームの elicitation**（`elicitation/create`）に対応し、持ち主へ接続確認を表示する必要があります。サーバーを起動しただけでは同意になりません。`acp_delegate_task`（例: `{ "peerRef": "muse", "title": "確認", "input": { "text": "hello" } }`）で依頼し、別の接続フォームで持ち主が `connect: true` に同意します。招待を取り込んだ CLI と同じ OS アカウント・データディレクトリ・鍵ストアの設定を使います。
 

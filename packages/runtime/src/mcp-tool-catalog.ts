@@ -736,7 +736,7 @@ export const mcpTools: Json = [
     name: 'acp_create_invite',
     title: 'Create an invite token',
     description:
-      'Sign a distinct local acp-invite token for this server owner (requester by default), without relay traffic or starting a listener; use sealbridge accept to import, acp_revoke_token to revoke, or acp_discover_workers to discover peers. Default unmigrated invites return warning.code INVITE_REQUESTER_LISTENER_REQUIRED: plain worker start cannot receive them; add --also-requester, optionally --requester-auto-accept read-only or write, or use sealbridge invite create for a worker-key invite. Migrated owner gateways retain receiving support. relayUrl defaults to the server relay or https://relay.sealbridge.dev, name to the server name or Sealbridge Worker, expiry to 3600 seconds, and agentDid to the migrated delegate or owner DID; another agentDid needs the matching server agent key. Signing is not idempotent; invalid arguments return JSON-RPC -32602, other failures isError true with { error: CODE }.',
+      'Sign a distinct local acp-invite token for this server owner (requester by default), without relay traffic or starting a listener; use sealbridge accept to import, acp_revoke_token to revoke, or acp_discover_workers to discover peers. Default unmigrated MCP refuses normal/shared invites with INVITE_REQUESTER_LISTENER_REQUIRED before minting or recording limits: plain worker start cannot receive them. Use options.owner or mcp-server --key <file> for an explicit receiving identity, then serve requester invites with --also-requester (optionally --requester-auto-accept read-only or write); alternatively use sealbridge invite create for a worker-key invite or a migrated owner gateway. relayUrl defaults to the server relay or https://relay.sealbridge.dev, name to the server name or Sealbridge Worker, expiry to 3600 seconds, and agentDid to the migrated delegate or owner DID; another agentDid needs the matching server agent key. Signing is not idempotent; invalid arguments return JSON-RPC -32602, other failures isError true with { error: CODE }.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -774,13 +774,6 @@ export const mcpTools: Json = [
           'Signed acp-invite token to share with a requester for user-operated sealbridge accept import.',
           { type: 'string' },
         ),
-        warning: objectSchema('Mint-time receiving prerequisite; no listener is started or detected.', {
-          code: described('Receiving prerequisite for a default unmigrated requester invite.',
-            { type: 'string', const: 'INVITE_REQUESTER_LISTENER_REQUIRED' }),
-          ownerDid: described('Owner DID whose inbox must be served.', { type: 'string' }),
-          agentDid: described('Agent DID the receiving gateway must support.', { type: 'string' }),
-          message: described('Listener startup guidance and worker-key invitation alternatives.', { type: 'string' }),
-        }, ['code', 'ownerDid', 'agentDid', 'message']),
       },
       ['inviteToken'],
     ),
