@@ -17,10 +17,22 @@ jobs:
           # cannot install Chromium dependencies on Ubuntu 26.04.
           - label: ubuntu-latest
             os: ubuntu-24.04
+            node: 22
           - label: macos-latest
             os: macos-latest
+            node: 22
           - label: windows-latest
             os: windows-latest
+            node: 22
+          - label: ubuntu-latest, Node 24
+            os: ubuntu-24.04
+            node: 24
+          - label: macos-latest, Node 24
+            os: macos-latest
+            node: 24
+          - label: windows-latest, Node 24
+            os: windows-latest
+            node: 24
     runs-on: ${{ matrix.os }}
     steps:
       # Commit SHAs are the objects each release tag peels to. Annotated tags use ^{}.
@@ -28,7 +40,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build

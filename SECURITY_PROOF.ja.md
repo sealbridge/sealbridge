@@ -135,7 +135,7 @@ HKDF-SHA256 の salt は 12 バイトの AES-GCM nonce である。info は、�
 
 この確認は `pnpm test` に含まれる。`pnpm test:security-proof` には含まれない。
 
-ビルド済みのチェックアウト（Node.js 22、pnpm 10）で、リポジトリ直下から次を実行してください。
+ビルド済みのチェックアウト（Node.js 22 以降、pnpm 10）で、リポジトリ直下から次を実行してください。
 
 ```sh
 pnpm test:security-proof

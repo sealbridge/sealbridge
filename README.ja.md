@@ -57,7 +57,7 @@ sealbridge connections disallow muse     # また持ち主の確認待ちに戻�
 
 ## Grok Bot に入れる
 
-同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 と pnpm 10 が必要です。チェックアウト内で `pnpm install --frozen-lockfile` と `pnpm build` を実行した後、POSIX シェルでは次の関数で現在のシェルからソースのコマンドを使えます。グローバルへのインストールは不要です。
+同じリポジトリリンクを貼って「これ入れて」と伝えてください。ソースの導入には Node.js 22 以降と pnpm 10 が必要です。チェックアウト内で `pnpm install --frozen-lockfile` と `pnpm build` を実行した後、POSIX シェルでは次の関数で現在のシェルからソースのコマンドを使えます。グローバルへのインストールは不要です。
 
 ```sh
 sealbridge_source="$PWD"
@@ -154,7 +154,9 @@ sealbridge worker start --adapter sandbox --allow-local-pc
 
 ### ソースから試す / 中継器を自分で持つ
 
-Node.js 22 と pnpm 10 が必要です。
+Sealbridge は Node.js 22 以降をサポートし（現在の実効的な最低バージョンは 22）、CI は Node 22 と Node 24 でテストし、公開パッケージは Node 22 でビルドし、インストーラーは Node を導入する際に 22.22.0 に固定しますが、動作する同梱 npm がある既存の Node 22 以降は再利用します。
+
+pnpm 10 が必要です。
 
 ```sh
 git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge

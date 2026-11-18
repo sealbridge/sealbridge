@@ -2,7 +2,7 @@
 
 [English (REPO_STRUCTURE.md)](./REPO_STRUCTURE.md) | **日本語**
 
-**結論**: プロトコル仕様（`spec/`）と適合性テストベクタ（`conformance/`）を言語非依存の「正（Single Source of Truth）」として最上位に置き、リファレンス実装（`packages/*`）は **TypeScript (Node.js 22 LTS + pnpm workspace)** で最小依存に構築する。最初のマイルストーン（MVP / M1）は、**「異なる鍵ペアを持つ2つのOwner Gatewayが、Untrusted Relay越しに1つのタスクを契約・Capability制限付きツール呼び出し・自動検収・双方向監査ログ記録まで完遂するE2Eデモ」** とする。
+**結論**: プロトコル仕様（`spec/`）と適合性テストベクタ（`conformance/`）を言語非依存の「正（Single Source of Truth）」として最上位に置き、リファレンス実装（`packages/*`）は **TypeScript (Node.js 22 以降 + pnpm workspace)** で最小依存に構築する。最初のマイルストーン（MVP / M1）は、**「異なる鍵ペアを持つ2つのOwner Gatewayが、Untrusted Relay越しに1つのタスクを契約・Capability制限付きツール呼び出し・自動検収・双方向監査ログ記録まで完遂するE2Eデモ」** とする。
 
 ---
 
@@ -133,7 +133,7 @@ agent-collab-platform/
 
 ### 2.1 採用スタック（MVP）
 
-- **言語・ランタイム**: **TypeScript 5.x (Strict mode) + Node.js 22 LTS**
+- **言語・ランタイム**: **TypeScript 5.x (Strict mode) + Node.js 22+**
   - **理由**: MCP SDK（`@modelcontextprotocol/sdk`）やA2A JS SDK、JSON Schemaエコシステムとの親和性が最も高く、Web/CLI/Relay/Runtimeを単一言語で高速に一気通貫実装できるため。
 - **暗号・署名プリミティブ**: **Node.js 標準 `node:crypto` (Ed25519 / X25519 / SHA-256)**
   - **理由**: 外部ネイティブアドオンや怪しい暗号ライブラリへの依存をゼロにし、サプライチェーン攻撃リスクを最小化するため。
@@ -237,7 +237,7 @@ agent-collab-platform/
 | WP-9 承認 / 隔離                | `packages/runtime/src/approval-providers.ts`、`packages/sandbox/src/container.ts`             | 対話ストリーム、署名付き Webhook、ポリシー上の機微なゲート、OCI の検出とフォールバック                        |
 | WP-10 オーケストレータ / CLI    | `packages/runtime/src/session.ts`、`session-audit.ts`、`cli/src/network.ts`                   | オーナーごとの鍵の分離、プロトコル遷移、イベントごとの AckReceipt、副署されたチェックポイント                 |
 | WP-11 ネットワーク適合性 / デモ | `conformance/network-collab.test.ts`、`examples/network-collab/run.mjs`                       | 実際の TCP セッションと分離した CLI プロセス。EPERM / EACCES のときの fetch ブリッジ                          |
-| WP-12 オンボーディング / CI     | `README.md`、`.github/workflows/conformance.yml`                                              | Node 22 と pnpm の frozen install、ビルド、スキーマ検証、テスト、元のデモ（Ubuntu、macOS、Windows）            |
+| WP-12 オンボーディング / CI     | `README.md`、`.github/workflows/conformance.yml`                                              | Node 22/24 と pnpm の frozen install、ビルド、スキーマ検証、テスト、元のデモ（Ubuntu、macOS、Windows）            |
 
 依存の向きは `adapters → runtime → relay/core/ledger/sandbox` です。`cli → adapters/runtime/relay` であり、元のサンプルもそのまま使えます。ワイルドカードの pnpm ワークスペースは `packages/adapters` を含みます。ルートの tsconfig はそのソースを含め、パッケージ自身が宣言ファイルを出すビルドを持ちます。
 

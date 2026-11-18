@@ -42,7 +42,7 @@ stderr と JSON の `connectionRecordWarning`（`CONNECTION_RECORD_FAILED`）で
 
 ## Setup / セットアップ
 
-Requires Git, Node.js 22, and pnpm 10. From a parent directory, run:
+Requires Git, Node.js 22 or later, and pnpm 10. From a parent directory, run:
 
 ```sh
 git clone https://github.com/acidnyan/agent-collab-platform.git && cd agent-collab-platform && pnpm install --frozen-lockfile && pnpm build

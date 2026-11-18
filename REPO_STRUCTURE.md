@@ -2,7 +2,7 @@
 
 **English** | [日本語 (REPO_STRUCTURE.ja.md)](./REPO_STRUCTURE.ja.md)
 
-**Conclusion**: The protocol specification (`spec/`) and the conformance test vectors (`conformance/`) sit at the top as the language-independent source of truth. The reference implementation (`packages/*`) is built with **TypeScript (Node.js 22 LTS + a pnpm workspace)** and a small dependency set. The first milestone (MVP / M1) is an **end-to-end demo in which two Owner Gateways, with different key pairs, complete one task over an untrusted Relay: contract, a capability-limited tool call, automatic acceptance, and a bilateral audit log**.
+**Conclusion**: The protocol specification (`spec/`) and the conformance test vectors (`conformance/`) sit at the top as the language-independent source of truth. The reference implementation (`packages/*`) is built with **TypeScript (Node.js 22 or later + a pnpm workspace)** and a small dependency set. The first milestone (MVP / M1) is an **end-to-end demo in which two Owner Gateways, with different key pairs, complete one task over an untrusted Relay: contract, a capability-limited tool call, automatic acceptance, and a bilateral audit log**.
 
 ---
 
@@ -133,7 +133,7 @@ agent-collab-platform/
 
 ### 2.1 Adopted stack (MVP)
 
-- **Language and runtime**: **TypeScript 5.x (strict mode) + Node.js 22 LTS**
+- **Language and runtime**: **TypeScript 5.x (strict mode) + Node.js 22+**
   - **Reason**: Closest fit to the MCP SDK (`@modelcontextprotocol/sdk`), the A2A JS SDK, and the JSON Schema ecosystem, so the web surface, CLI, Relay, and Runtime can be built in one language.
 - **Cryptographic primitives**: **Node.js built-in `node:crypto` (Ed25519 / X25519 / SHA-256)**
   - **Reason**: No native addons and no third-party cryptography libraries, which keeps the supply-chain surface small.
@@ -237,7 +237,7 @@ The mapping below is for building on existing permissive-license (Apache-2.0 / M
 | WP-9 approval/isolation        | `packages/runtime/src/approval-providers.ts`, `packages/sandbox/src/container.ts`             | Interactive streams, signed webhook, policy sensitive gates, OCI detection/fallback                               |
 | WP-10 orchestrator/CLI         | `packages/runtime/src/session.ts`, `session-audit.ts`, `cli/src/network.ts`                   | Separate-owner key custody, protocol transitions, per-event AckReceipts and countersigned checkpoint              |
 | WP-11 network conformance/demo | `conformance/network-collab.test.ts`, `examples/network-collab/run.mjs`                       | Actual TCP sessions and separate CLI processes; automatic fetch bridge under EPERM/EACCES                         |
-| WP-12 onboarding/CI            | `README.md`, `.github/workflows/conformance.yml`                                              | Node 22 + pnpm frozen install, build, schema validation, tests, and the original demo on Ubuntu, macOS, and Windows |
+| WP-12 onboarding/CI            | `README.md`, `.github/workflows/conformance.yml`                                              | Node 22/24 + pnpm frozen install, build, schema validation, tests, and the original demo on Ubuntu, macOS, and Windows |
 
 Dependency direction is `adapters → runtime → relay/core/ledger/sandbox`;
 `cli → adapters/runtime/relay` and the original examples remain supported.

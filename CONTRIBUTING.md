@@ -4,7 +4,9 @@
 
 ## Development setup
 
-Use Git, Node.js 22 and pnpm 10. The repository pins `pnpm@10.34.6` in
+Sealbridge supports Node.js 22 and later (the current effective minimum is 22); CI tests Node 22 and Node 24, published packages are built on Node 22, and the installer pins Node 22.22.0 when installing Node but reuses an existing Node 22+ runtime with working bundled npm.
+
+Use Git, Node.js 22 or later and pnpm 10. The repository pins `pnpm@10.34.6` in
 `package.json`; use that version for reproducible installs.
 
 ```sh
@@ -32,7 +34,7 @@ use synthetic fixtures and redact logs.
 
 Before opening a PR, run the setup checks above and describe any checks you
 could not run. PRs must pass the required three-OS conformance CI on macOS,
-Ubuntu and Windows using Node.js 22. CI also checks real Codex proxy routing,
+Ubuntu and Windows using Node.js 22 and 24. CI also checks real Codex proxy routing,
 static sites, security proofs and the demo; installer checks run separately.
 See [the CI workflow](.github/workflows/conformance.yml) for the exact steps.
 Local checks do not replace the required CI checks.

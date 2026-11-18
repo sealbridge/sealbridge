@@ -143,7 +143,7 @@ This check is part of `pnpm test`. It is not part of `pnpm test:security-proof`.
 
 ## Local verification
 
-From a built checkout (Node.js 22, pnpm 10):
+From a built checkout (Node.js 22 or later, pnpm 10):
 
 ```sh
 pnpm test:security-proof
