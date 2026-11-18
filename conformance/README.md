@@ -40,8 +40,13 @@ key context was altered, is rejected with `ENVELOPE_DECRYPTION_FAILED`. An
 encrypted session still settles with a `VALID` audit bundle.
 
 `p2-15-ci-hardening.test.ts` checks that `.github/workflows/conformance.yml`
-sets workflow `permissions: contents: read`, runs the conformance job on
-`ubuntu-24.04` (supported by the pinned Playwright), `macos-latest`, and `windows-latest`, and pins every `uses:`
+sets workflow `permissions: contents: read`, preserves the required check labels
+`conformance (ubuntu-latest)`, `conformance (macos-latest)`, and
+`conformance (windows-latest)` through `matrix.label`, and runs on `matrix.os`.
+The Ubuntu check uses the `ubuntu-24.04` runner: `ubuntu-latest` is only its
+check label because Playwright 1.56.1 cannot install Chromium dependencies on
+Ubuntu 26.04. The macOS and Windows runners remain `macos-latest` and
+`windows-latest`. The test also pins every `uses:`
 action to a 40-character commit SHA. It also checks that `.github/dependabot.yml`
 schedules weekly updates for the `github-actions` and `npm` ecosystems.
 
