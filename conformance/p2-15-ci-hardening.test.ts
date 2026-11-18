@@ -30,9 +30,9 @@ describe('P2-15 CI hardening', () => {
     expect(workflow).toMatch(/^permissions:\n  contents: read$/m);
     expect(workflow).toContain('strategy:');
     expect(workflow).toContain('matrix:');
-    expect(workflow).toMatch(/os:\s*\[ubuntu-latest,\s*macos-latest,\s*windows-latest\]/);
+    expect(workflow).toMatch(/os:\s*\[ubuntu-24\.04,\s*macos-latest,\s*windows-latest\]/);
     expect(workflow).toContain('runs-on: ${{ matrix.os }}');
-    for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
+    for (const os of ['ubuntu-24.04', 'macos-latest', 'windows-latest']) {
       expect(workflow).toContain(os);
     }
     const refs = actionRefs(workflow);
@@ -59,7 +59,7 @@ describe('P2-15 CI hardening', () => {
     expect(readme).toContain('p2-15-ci-hardening.test.ts');
     expect(readme).toContain('.github/workflows/conformance.yml');
     expect(readme).toContain('.github/dependabot.yml');
-    expect(readme).toContain('ubuntu-latest');
+    expect(readme).toContain('ubuntu-24.04');
     expect(readme).toContain('macos-latest');
     expect(readme).toContain('windows-latest');
     expect(readme).toContain('contents: read');

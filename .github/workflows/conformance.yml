@@ -11,7 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Playwright 1.56.1 cannot install Chromium dependencies on Ubuntu 26.04.
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       # Commit SHAs are the objects each release tag peels to. Annotated tags use ^{}.

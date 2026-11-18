@@ -41,7 +41,7 @@ encrypted session still settles with a `VALID` audit bundle.
 
 `p2-15-ci-hardening.test.ts` checks that `.github/workflows/conformance.yml`
 sets workflow `permissions: contents: read`, runs the conformance job on
-`ubuntu-latest`, `macos-latest`, and `windows-latest`, and pins every `uses:`
+`ubuntu-24.04` (supported by the pinned Playwright), `macos-latest`, and `windows-latest`, and pins every `uses:`
 action to a 40-character commit SHA. It also checks that `.github/dependabot.yml`
 schedules weekly updates for the `github-actions` and `npm` ecosystems.
 
