@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createServer } from 'node:http';
 import { decodeAdmissionError, RelayDuplicateEnvelopeError } from './admission.js';
-export { RelayAdmissionError, RelayDuplicateEnvelopeError, decodeAdmissionError } from './admission.js';
+export {
+  RelayAdmissionError,
+  RelayDuplicateEnvelopeError,
+  decodeAdmissionError,
+} from './admission.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   verifyEnvelope,
@@ -21,15 +25,30 @@ import {
   relayHttpHeaders,
   relayErrorBody,
 } from './fetch.js';
-import type { InMemoryRelayOptions, RelayAuthContext, RelayInboxRole, RelayReceiveFilter } from './fetch.js';
+import type {
+  InMemoryRelayOptions,
+  RelayAuthContext,
+  RelayInboxRole,
+  RelayReceiveFilter,
+} from './fetch.js';
 import type { SignedRelayDeliveryStatus } from './notifications.js';
 import { createPinnedRelayFetch, resolveAndValidateRelayEndpoint } from './ssrf.js';
 import { connectRelayProxy } from './proxy.js';
 import type { RelayClientSecurityOptions } from './ssrf.js';
 export * from './fetch.js';
 export * from './retry.js';
-import { isTransientRelayError, relayRetryDelay, waitForRelayRetry, relayDeadline, relayDiagnostic, relayProxyError, relayRetryCode,
-  RelayHttpError, RelayAuthRecoveryExhaustedError, validateRelayAuthRecoveryOptions } from './retry.js';
+import {
+  isTransientRelayError,
+  relayRetryDelay,
+  waitForRelayRetry,
+  relayDeadline,
+  relayDiagnostic,
+  relayProxyError,
+  relayRetryCode,
+  RelayHttpError,
+  RelayAuthRecoveryExhaustedError,
+  validateRelayAuthRecoveryOptions,
+} from './retry.js';
 import type { RelayConnectionStatus, RelayAuthOperation } from './retry.js';
 export { createPinnedRelayFetch, resolveAndValidateRelayEndpoint } from './ssrf.js';
 export { relayProxyFor, relayProxyLabel } from './proxy.js';
@@ -68,74 +87,80 @@ export async function startLocalRelay(
     allowUnboundRelayAuth: options.allowUnboundRelayAuth,
   });
   let boundOrigin = 'http://127.0.0.1';
-  const server = createServer(async (request, response) => {
-    const controller = new AbortController();
-    response.once('close', () => controller.abort());
-    try {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of request) {
-        size += (chunk as Buffer).length;
-        if (size > relay.maxEnvelopeBytes) throw new Error('BODY_TOO_LARGE');
-        chunks.push(chunk as Buffer);
-      }
-      const result = await handler(
-        new Request(new URL(request.url ?? '/', boundOrigin), {
-          method: request.method,
-          headers: Object.entries(request.headers).flatMap(([name, value]) =>
-            value === undefined
-              ? []
-              : (Array.isArray(value) ? value : [value]).map((v) => [name, v] as [string, string]),
-          ),
-          ...(chunks.length ? { body: Buffer.concat(chunks) } : {}),
-          signal: controller.signal,
-        }),
-      );
-      const kind = result.headers.get('content-type')?.startsWith('text/event-stream')
-        ? 'sse'
-        : result.body == null
-          ? 'empty'
-          : 'json';
-      response.writeHead(result.status, {
-        ...Object.fromEntries(result.headers),
-        ...relayHttpHeaders(kind),
-      });
-      if (!result.body) {
-        response.end();
-        return;
-      }
-      const reader = result.body.getReader();
+  const server = createServer((request, response) => {
+    void (async () => {
+      const controller = new AbortController();
+      response.once('close', () => controller.abort());
       try {
-        while (!response.destroyed && !response.writableEnded) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (!response.write(value)) {
-            // A disconnected client never emits drain. Close and error must unblock the write.
-            if (response.destroyed || response.writableEnded) break;
-            await new Promise<void>((resolve) => {
-              const doneWriting = () => {
-                response.off('drain', doneWriting);
-                response.off('close', doneWriting);
-                response.off('error', doneWriting);
-                resolve();
-              };
-              response.once('drain', doneWriting);
-              response.once('close', doneWriting);
-              response.once('error', doneWriting);
-              if (response.destroyed || response.writableEnded) doneWriting();
-            });
-            if (response.destroyed || response.writableEnded) break;
-          }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          size += (chunk as Buffer).length;
+          if (size > relay.maxEnvelopeBytes) throw new Error('BODY_TOO_LARGE');
+          chunks.push(chunk as Buffer);
         }
-      } finally {
-        await reader.cancel();
-        if (!response.destroyed && !response.writableEnded) response.end();
+        const result = await handler(
+          new Request(new URL(request.url ?? '/', boundOrigin), {
+            method: request.method,
+            headers: Object.entries(request.headers).flatMap(([name, value]) =>
+              value === undefined
+                ? []
+                : (Array.isArray(value) ? value : [value]).map(
+                    (v) => [name, v] as [string, string],
+                  ),
+            ),
+            ...(chunks.length ? { body: Buffer.concat(chunks) } : {}),
+            signal: controller.signal,
+          }),
+        );
+        const kind = result.headers.get('content-type')?.startsWith('text/event-stream')
+          ? 'sse'
+          : result.body == null
+            ? 'empty'
+            : 'json';
+        response.writeHead(result.status, {
+          ...Object.fromEntries(result.headers),
+          ...relayHttpHeaders(kind),
+        });
+        if (!result.body) {
+          response.end();
+          return;
+        }
+        const reader = result.body.getReader();
+        try {
+          while (!response.destroyed && !response.writableEnded) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (!response.write(value)) {
+              // A disconnected client never emits drain. Close and error must unblock the write.
+              if (response.destroyed || response.writableEnded) break;
+              await new Promise<void>((resolve) => {
+                const doneWriting = () => {
+                  response.off('drain', doneWriting);
+                  response.off('close', doneWriting);
+                  response.off('error', doneWriting);
+                  resolve();
+                };
+                response.once('drain', doneWriting);
+                response.once('close', doneWriting);
+                response.once('error', doneWriting);
+                if (response.destroyed || response.writableEnded) doneWriting();
+              });
+              if (response.destroyed || response.writableEnded) break;
+            }
+          }
+        } finally {
+          await reader.cancel();
+          if (!response.destroyed && !response.writableEnded) response.end();
+        }
+      } catch (e) {
+        const mapped = mapRelayError(e);
+        if (!response.headersSent) response.writeHead(mapped.status, relayHttpHeaders('json'));
+        if (!response.destroyed) response.end(JSON.stringify({ error: mapped.error }));
       }
-    } catch (e) {
-      const mapped = mapRelayError(e);
-      if (!response.headersSent) response.writeHead(mapped.status, relayHttpHeaders('json'));
-      if (!response.destroyed) response.end(JSON.stringify({ error: mapped.error }));
-    }
+    })().catch((error: unknown) => {
+      response.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
   });
   server.requestTimeout = 10000;
   const wsServer = new WebSocketServer({ server, path: '/ws', maxPayload: 1048576 });
@@ -269,11 +294,7 @@ export async function startLocalRelay(
 }
 export type RelayAuthSource =
   | KeyPair
-  | ((
-      recipientDid: string,
-      action: RelayAuthAction,
-      origin?: string,
-    ) => string | Promise<string>);
+  | ((recipientDid: string, action: RelayAuthAction, origin?: string) => string | Promise<string>);
 class RelayCredentials {
   private recipientKeys = new Map<string, KeyPair>();
   constructor(
@@ -285,7 +306,11 @@ class RelayCredentials {
     return this;
   }
   protected requireAuth(did: string): void {
-    if (!this.recipientKeys.has(did) && typeof this.authSource !== 'function' && this.authSource?.did !== did)
+    if (
+      !this.recipientKeys.has(did) &&
+      typeof this.authSource !== 'function' &&
+      this.authSource?.did !== did
+    )
       throw new Error('RELAY_AUTH_REQUIRED');
   }
   protected async authToken(did: string, action: RelayAuthAction): Promise<string> {
@@ -307,8 +332,15 @@ export interface RelayTransport {
   send(envelope: SignedEnvelope): void | Promise<void>;
   getDeliveryStatusPin?(envelopeId: string): string | undefined;
   restoreDeliveryStatusPin?(envelopeId: string, relayDid: string): void;
-  deliveryStatus?(envelope: SignedEnvelope, signal?: AbortSignal): SignedRelayDeliveryStatus | undefined | Promise<SignedRelayDeliveryStatus | undefined>;
-  acknowledgeDelivery?(recipientDid: string, envelopeId: string, signal?: AbortSignal): void | Promise<void>;
+  deliveryStatus?(
+    envelope: SignedEnvelope,
+    signal?: AbortSignal,
+  ): SignedRelayDeliveryStatus | undefined | Promise<SignedRelayDeliveryStatus | undefined>;
+  acknowledgeDelivery?(
+    recipientDid: string,
+    envelopeId: string,
+    signal?: AbortSignal,
+  ): void | Promise<void>;
   receive(
     recipientDid: string,
     waitMs?: number,
@@ -325,8 +357,7 @@ export interface RelayTransport {
   ): SignedEnvelope | undefined | Promise<SignedEnvelope | undefined>;
   register?(card: import('@acp/core').SignedAgentCard): void | Promise<void>;
   discover?():
-    | import('@acp/core').SignedAgentCard[]
-    | Promise<import('@acp/core').SignedAgentCard[]>;
+    import('@acp/core').SignedAgentCard[] | Promise<import('@acp/core').SignedAgentCard[]>;
 }
 const nativeFetch = globalThis.fetch;
 function isKeyPair(value: unknown): value is KeyPair {
@@ -362,7 +393,9 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
   // never a response. Unrelated successful requests cannot clear an active episode.
   private authRecoveries = new Map<string, { started: number; attempts: number; users: number }>();
   private statusPins = new Map<string, string>();
-  getDeliveryStatusPin(envelopeId: string): string | undefined { return this.statusPins.get(envelopeId); }
+  getDeliveryStatusPin(envelopeId: string): string | undefined {
+    return this.statusPins.get(envelopeId);
+  }
   restoreDeliveryStatusPin(envelopeId: string, relayDid: string): void {
     resolveDid(relayDid);
     if (this.statusPins.size >= 16384) this.statusPins.delete(this.statusPins.keys().next().value!);
@@ -411,9 +444,14 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     return createPinnedRelayFetch(resolved, this.security);
   }
   protected async authenticatedRequest<T>(
-    did: string, action: RelayAuthAction, operation: RelayAuthOperation,
-    input: string, init: RequestInit, consume: (response: Response) => Promise<T>,
-    signal?: AbortSignal, acceptedStatuses: number[] = [],
+    did: string,
+    action: RelayAuthAction,
+    operation: RelayAuthOperation,
+    input: string,
+    init: RequestInit,
+    consume: (response: Response) => Promise<T>,
+    signal?: AbortSignal,
+    acceptedStatuses: number[] = [],
   ): Promise<T> {
     const maxAttempts = this.security.maxAuthRecoveryAttempts ?? Number.MAX_SAFE_INTEGER;
     const windowMs = this.security.authRecoveryTimeoutMs ?? 120_000;
@@ -421,8 +459,13 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     let clockOffsetMs: number | undefined;
     let retryCode = 'HTTP_401';
     let episode: { started: number; attempts: number; users: number } | undefined;
-    const exhausted = () => new RelayAuthRecoveryExhaustedError(operation, episode!.attempts,
-      Math.round(performance.now() - episode!.started), clockOffsetMs);
+    const exhausted = () =>
+      new RelayAuthRecoveryExhaustedError(
+        operation,
+        episode!.attempts,
+        Math.round(performance.now() - episode!.started),
+        clockOffsetMs,
+      );
     try {
       for (;;) {
         signal?.throwIfAborted();
@@ -430,41 +473,67 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           const remaining = windowMs - (performance.now() - episode.started);
           if (episode.attempts >= maxAttempts || remaining <= 0) throw exhausted();
           this.connectionStatus = 'reconnecting';
-          console.warn('Relay authentication retry ' + (episode.attempts + 1) +
-            (this.security.maxAuthRecoveryAttempts === undefined ? '' : '/' + maxAttempts) + ' (' + retryCode + ')');
-          await waitForRelayRetry(Math.min(this.security.maxAuthRecoveryAttempts === undefined
-            ? [2000, 10000, 30000, 60000][Math.min(episode.attempts, 3)]!
-            : relayRetryDelay(episode.attempts), remaining), signal);
+          console.warn(
+            'Relay authentication retry ' +
+              (episode.attempts + 1) +
+              (this.security.maxAuthRecoveryAttempts === undefined ? '' : '/' + maxAttempts) +
+              ' (' +
+              retryCode +
+              ')',
+          );
+          await waitForRelayRetry(
+            Math.min(
+              this.security.maxAuthRecoveryAttempts === undefined
+                ? [2000, 10000, 30000, 60000][Math.min(episode.attempts, 3)]!
+                : relayRetryDelay(episode.attempts),
+              remaining,
+            ),
+            signal,
+          );
           signal?.throwIfAborted();
-          if (episode.attempts >= maxAttempts || performance.now() - episode.started >= windowMs) throw exhausted();
+          if (episode.attempts >= maxAttempts || performance.now() - episode.started >= windowMs)
+            throw exhausted();
           episode.attempts++;
         }
-        const timeout = Math.min(this.security.requestTimeoutMs ?? 45_000,
-          episode ? windowMs - (performance.now() - episode.started) : Infinity);
+        const timeout = Math.min(
+          this.security.requestTimeoutMs ?? 45_000,
+          episode ? windowMs - (performance.now() - episode.started) : Infinity,
+        );
         const controller = new AbortController();
-        const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+        const requestSignal = signal
+          ? AbortSignal.any([signal, controller.signal])
+          : controller.signal;
         try {
-          const value = await relayDeadline((async () => {
-            this.requireAuth(did);
-            const transport = await this.prepare();
-            requestSignal.throwIfAborted();
-            // Sign after preparation and backoff, immediately before dispatch.
-            const token = await this.authToken(did, action);
-            requestSignal.throwIfAborted();
-            const headers = new Headers(init.headers);
-            headers.set('authorization', 'Bearer ' + token);
-            const response = await transport(input, { ...init, headers, signal: requestSignal });
-            if (requestSignal.aborted || (!response.ok && !acceptedStatuses.includes(response.status))) {
-              void response.body?.cancel().catch(() => {});
+          const value = await relayDeadline(
+            (async () => {
+              this.requireAuth(did);
+              const transport = await this.prepare();
               requestSignal.throwIfAborted();
-              if (response.status === 401) {
-                const serverTime = Date.parse(response.headers.get('date') ?? '');
-                clockOffsetMs = Number.isFinite(serverTime) ? Math.round(serverTime - Date.now()) : undefined;
+              // Sign after preparation and backoff, immediately before dispatch.
+              const token = await this.authToken(did, action);
+              requestSignal.throwIfAborted();
+              const headers = new Headers(init.headers);
+              headers.set('authorization', 'Bearer ' + token);
+              const response = await transport(input, { ...init, headers, signal: requestSignal });
+              if (
+                requestSignal.aborted ||
+                (!response.ok && !acceptedStatuses.includes(response.status))
+              ) {
+                void response.body?.cancel().catch(() => {});
+                requestSignal.throwIfAborted();
+                if (response.status === 401) {
+                  const serverTime = Date.parse(response.headers.get('date') ?? '');
+                  clockOffsetMs = Number.isFinite(serverTime)
+                    ? Math.round(serverTime - Date.now())
+                    : undefined;
+                }
+                throw new RelayHttpError(response.status, operation);
               }
-              throw new RelayHttpError(response.status, operation);
-            }
-            return consume(response);
-          })(), timeout, requestSignal);
+              return consume(response);
+            })(),
+            timeout,
+            requestSignal,
+          );
           this.connectionStatus = 'connected';
           return value;
         } catch (error) {
@@ -474,7 +543,11 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
           if (error instanceof RelayHttpError && error.status === 401) {
             if (maxAttempts === 0) throw error;
             if (!episode) {
-              episode = this.authRecoveries.get(key) ?? { started: performance.now(), attempts: 0, users: 0 };
+              episode = this.authRecoveries.get(key) ?? {
+                started: performance.now(),
+                attempts: 0,
+                users: 0,
+              };
               episode.users++;
               this.authRecoveries.set(key, episode);
             }
@@ -497,7 +570,9 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     for (let attempt = 0; ; attempt++) {
       try {
         const result = await this.fetcher(this.url + '/envelopes', {
-          method: 'POST', body, headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          body,
+          headers: { 'content-type': 'application/json' },
         });
         if (!result.ok) {
           const error = await decodeAdmissionError(result);
@@ -509,81 +584,128 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
         const relayDid = result.headers.get('x-acp-relay-did');
         await result.arrayBuffer();
         if (relayDid) {
-          if (this.statusPins.size >= 16384) this.statusPins.delete(this.statusPins.keys().next().value!);
+          if (this.statusPins.size >= 16384)
+            this.statusPins.delete(this.statusPins.keys().next().value!);
           this.statusPins.set(envelope.payload.envelopeId, relayDid);
         }
         return;
       } catch (error) {
         // Admission refusals (especially 429), auth and TLS failures keep their
         // existing semantics. Retry only temporary proxy transport failures.
-        if (attempt >= 4 || !(error instanceof Error) ||
-            error.message !== 'RELAY_PROXY_UNAVAILABLE' || !isTransientRelayError(error)) throw error;
+        if (
+          attempt >= 4 ||
+          !(error instanceof Error) ||
+          error.message !== 'RELAY_PROXY_UNAVAILABLE' ||
+          !isTransientRelayError(error)
+        )
+          throw error;
         console.warn('Relay send retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
         await waitForRelayRetry(relayRetryDelay(attempt));
       }
     }
   }
   /** Register an operator-configured channel; null unregisters it. Startup still drains the normal inbox. */
-  async registerWake(recipientDid: string, channel: string | null, signal?: AbortSignal): Promise<string> {
+  async registerWake(
+    recipientDid: string,
+    channel: string | null,
+    signal?: AbortSignal,
+  ): Promise<string> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.authenticatedRequest(recipientDid, 'receive', 'wake',
-          this.url + '/wake?recipient=' + encodeURIComponent(recipientDid), {
-            method: 'POST', body: JSON.stringify({ channel }),
+        return await this.authenticatedRequest(
+          recipientDid,
+          'receive',
+          'wake',
+          this.url + '/wake?recipient=' + encodeURIComponent(recipientDid),
+          {
+            method: 'POST',
+            body: JSON.stringify({ channel }),
             headers: { 'content-type': 'application/json' },
-          }, async r => {
-            const value = await r.json() as { relayDid: string };
+          },
+          async (r) => {
+            const value = (await r.json()) as { relayDid: string };
             resolveDid(value.relayDid);
             return value.relayDid;
-          }, signal);
+          },
+          signal,
+        );
       } catch (error) {
         if (attempt >= 4 || !isTransientRelayError(error)) throw error;
-        console.warn('Relay wake registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
+        console.warn(
+          'Relay wake registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')',
+        );
         await waitForRelayRetry(relayRetryDelay(attempt), signal);
       }
     }
   }
-  async deliveryStatus(envelope: SignedEnvelope, signal?: AbortSignal): Promise<SignedRelayDeliveryStatus | undefined> {
+  async deliveryStatus(
+    envelope: SignedEnvelope,
+    signal?: AbortSignal,
+  ): Promise<SignedRelayDeliveryStatus | undefined> {
     const p = envelope.payload;
     const relayDid = this.statusPins.get(p.envelopeId);
     // Old relays do not advertise signed delivery status support.
     if (!relayDid) return;
-    const params = new URLSearchParams({ recipient: p.recipientDid, sender: p.senderDid, envelopeId: p.envelopeId });
-    return this.authenticatedRequest(p.senderDid, 'receive', 'delivery-status',
-      this.url + '/delivery-status?' + params, {}, async r => {
-      const notice = await r.json() as SignedRelayDeliveryStatus;
-      const value = notice.payload;
-      if (!verifySigned(notice, relayDid) || value.type !== 'RelayDeliveryStatus' ||
-          value.envelopeId !== p.envelopeId || value.senderDid !== p.senderDid ||
-          value.recipientDid !== p.recipientDid || !['pending', 'expired', 'unknown'].includes(value.state) ||
+    const params = new URLSearchParams({
+      recipient: p.recipientDid,
+      sender: p.senderDid,
+      envelopeId: p.envelopeId,
+    });
+    return this.authenticatedRequest(
+      p.senderDid,
+      'receive',
+      'delivery-status',
+      this.url + '/delivery-status?' + params,
+      {},
+      async (r) => {
+        const notice = (await r.json()) as SignedRelayDeliveryStatus;
+        const value = notice.payload;
+        if (
+          !verifySigned(notice, relayDid) ||
+          value.type !== 'RelayDeliveryStatus' ||
+          value.envelopeId !== p.envelopeId ||
+          value.senderDid !== p.senderDid ||
+          value.recipientDid !== p.recipientDid ||
+          !['pending', 'expired', 'unknown'].includes(value.state) ||
           (value.state !== 'unknown' && value.taskId !== p.taskId) ||
           value.relay !== new URL(this.url).origin ||
           (value.state !== 'unknown' && !Number.isSafeInteger(value.expiresAt)) ||
-          (value.state === 'pending' && Math.abs(Date.now() - Date.parse(notice.signature.signedAt)) > 300_000)) throw new Error('RELAY_TAMPERING_DETECTED');
-      if (value.state !== 'pending') this.statusPins.delete(p.envelopeId);
-      return notice;
-    }, signal);
+          (value.state === 'pending' &&
+            Math.abs(Date.now() - Date.parse(notice.signature.signedAt)) > 300_000)
+        )
+          throw new Error('RELAY_TAMPERING_DETECTED');
+        if (value.state !== 'pending') this.statusPins.delete(p.envelopeId);
+        return notice;
+      },
+      signal,
+    );
   }
   async register(card: import('@acp/core').SignedAgentCard): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       try {
         const timeout = this.security.requestTimeoutMs ?? 45_000;
-        await relayDeadline((async () => {
-          const r = await this.fetcher(this.url + '/agents', {
-            method: 'POST', body: JSON.stringify(card),
-            headers: { 'content-type': 'application/json' },
-            signal: AbortSignal.timeout(timeout),
-          });
-          if (!r.ok) {
-            await r.body?.cancel();
-            throw new Error('RELAY_REGISTRATION_REJECTED: ' + r.status);
-          }
-          await r.arrayBuffer();
-        })(), timeout);
+        await relayDeadline(
+          (async () => {
+            const r = await this.fetcher(this.url + '/agents', {
+              method: 'POST',
+              body: JSON.stringify(card),
+              headers: { 'content-type': 'application/json' },
+              signal: AbortSignal.timeout(timeout),
+            });
+            if (!r.ok) {
+              await r.body?.cancel();
+              throw new Error('RELAY_REGISTRATION_REJECTED: ' + r.status);
+            }
+            await r.arrayBuffer();
+          })(),
+          timeout,
+        );
         return;
       } catch (error) {
         if (attempt >= 4 || !isTransientRelayError(error)) throw error;
-        console.warn('Relay registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
+        console.warn(
+          'Relay registration retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')',
+        );
         await waitForRelayRetry(relayRetryDelay(attempt));
       }
     }
@@ -593,15 +715,23 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     for (let attempt = 0; ; attempt++) {
       try {
         const r = await this.fetcher(this.url + '/agents');
-        if (!r.ok) { await r.body?.cancel(); throw new Error('DISCOVERY_FAILED'); }
+        if (!r.ok) {
+          await r.body?.cancel();
+          throw new Error('DISCOVERY_FAILED');
+        }
         const cards = (await r.json()) as import('@acp/core').SignedAgentCard[];
         if (!Array.isArray(cards)) throw new Error('INVALID_AGENT_CARD');
         const { verifySignedAgentCard } = await import('@acp/core');
         const now = Date.now();
         return cards.filter((c) => verifySignedAgentCard(c, now));
       } catch (error) {
-        if (attempt >= 4 || !(error instanceof Error) ||
-            error.message !== 'RELAY_PROXY_UNAVAILABLE' || !isTransientRelayError(error)) throw error;
+        if (
+          attempt >= 4 ||
+          !(error instanceof Error) ||
+          error.message !== 'RELAY_PROXY_UNAVAILABLE' ||
+          !isTransientRelayError(error)
+        )
+          throw error;
         console.warn('Relay discovery retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
         await waitForRelayRetry(relayRetryDelay(attempt));
       }
@@ -618,7 +748,8 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     const bufferKey =
       recipientDid +
       '\0' +
-      (normalized.lease ? 'lease:' : '') + (normalized.role ?? '') +
+      (normalized.lease ? 'lease:' : '') +
+      (normalized.role ?? '') +
       '\0' +
       (normalized.taskIds ? [...normalized.taskIds].sort().join(',') : '');
     if (!normalized.peek) {
@@ -633,32 +764,47 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     }
     if (normalized.peek) params.set('peek', 'true');
     else if (normalized.lease) params.set('lease', 'true');
-    const values = await this.authenticatedRequest(recipientDid, 'receive', normalized.peek ? 'peek' : 'receive',
-      this.url + '/envelopes?' + params.toString(), {}, async r => {
+    const values = await this.authenticatedRequest(
+      recipientDid,
+      'receive',
+      normalized.peek ? 'peek' : 'receive',
+      this.url + '/envelopes?' + params.toString(),
+      {},
+      async (r) => {
         if (r.status === 204) return [];
         const body = (await r.json()) as SignedEnvelope | { envelopes: SignedEnvelope[] };
         const envelopes = 'envelopes' in body ? body.envelopes : [body];
-        if (!Array.isArray(envelopes) || envelopes.some(e => !verifyEnvelope(e, recipientDid)))
+        if (!Array.isArray(envelopes) || envelopes.some((e) => !verifyEnvelope(e, recipientDid)))
           throw new Error('RELAY_TAMPERING_DETECTED');
         return envelopes;
-      }, signal);
+      },
+      signal,
+    );
     if (normalized.peek) return values[0];
     const fresh: SignedEnvelope[] = [];
     for (const envelope of values)
-      if (!normalized.lease || await this.rememberDelivery(recipientDid, envelope, signal)) fresh.push(envelope);
+      if (!normalized.lease || (await this.rememberDelivery(recipientDid, envelope, signal)))
+        fresh.push(envelope);
     this.buffered.set(bufferKey, fresh);
     return fresh.shift();
   }
 
-  protected async rememberDelivery(recipientDid: string, envelope: SignedEnvelope, signal?: AbortSignal): Promise<boolean> {
+  protected async rememberDelivery(
+    recipientDid: string,
+    envelope: SignedEnvelope,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     const now = Date.now();
     for (const [id, entry] of this.delivered) if (entry.expires <= now) this.delivered.delete(id);
     const id = recipientDid + ':' + envelope.payload.envelopeId;
     const prior = this.delivered.get(id);
     if (prior) {
       if (prior.acknowledged) {
-        try { await this.acknowledgeDelivery(recipientDid, envelope.payload.envelopeId, signal); }
-        catch (error) { if (!isTransientRelayError(error)) throw error; }
+        try {
+          await this.acknowledgeDelivery(recipientDid, envelope.payload.envelopeId, signal);
+        } catch (error) {
+          if (!isTransientRelayError(error)) throw error;
+        }
       }
       return false;
     }
@@ -666,15 +812,31 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
     this.delivered.set(id, { expires: now + 10 * 60_000, acknowledged: false });
     return true;
   }
-  async acknowledgeDelivery(recipientDid: string, envelopeId: string, signal?: AbortSignal): Promise<void> {
+  async acknowledgeDelivery(
+    recipientDid: string,
+    envelopeId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const entry = this.delivered.get(recipientDid + ':' + envelopeId);
     if (!entry) return;
     // Processing has completed even if the DELETE response is lost. Redelivery retries the ack.
     entry.acknowledged = true;
-    await this.authenticatedRequest(recipientDid, 'receive', 'acknowledge',
-      this.url + '/envelopes/' + encodeURIComponent(envelopeId) +
-        '?recipient=' + encodeURIComponent(recipientDid), { method: 'DELETE' },
-      async r => { await r.arrayBuffer(); }, signal, [404]);
+    await this.authenticatedRequest(
+      recipientDid,
+      'receive',
+      'acknowledge',
+      this.url +
+        '/envelopes/' +
+        encodeURIComponent(envelopeId) +
+        '?recipient=' +
+        encodeURIComponent(recipientDid),
+      { method: 'DELETE' },
+      async (r) => {
+        await r.arrayBuffer();
+      },
+      signal,
+      [404],
+    );
   }
   async peek(
     recipientDid: string,
@@ -692,13 +854,16 @@ export class HttpRelayClient extends RelayCredentials implements RelayTransport 
 /** Persistent SSE transport. Leased frames remain on the relay until explicitly acknowledged. */
 export class SseRelayClient extends HttpRelayClient {
   maxBufferBytes = 2 * 1024 * 1024;
-  private streams = new Map<string, {
-    controller: AbortController;
-    queue: SignedEnvelope[];
-    notify: Set<() => void>;
-    error?: Error;
-    pump?: Promise<void>;
-  }>();
+  private streams = new Map<
+    string,
+    {
+      controller: AbortController;
+      queue: SignedEnvelope[];
+      notify: Set<() => void>;
+      error?: Error;
+      pump?: Promise<void>;
+    }
+  >();
   override async receive(
     recipientDid: string,
     waitMs = 30000,
@@ -708,7 +873,11 @@ export class SseRelayClient extends HttpRelayClient {
     signal?.throwIfAborted();
     if (filter?.peek) return super.receive(recipientDid, waitMs, signal, filter);
     const normalized = normalizeReceiveFilter(filter);
-    const key = recipientDid + '\0' + (normalized.role ?? '') + '\0' +
+    const key =
+      recipientDid +
+      '\0' +
+      (normalized.role ?? '') +
+      '\0' +
       (normalized.taskIds ? [...normalized.taskIds].sort().join(',') : '');
     let state = this.streams.get(key);
     if (!state) {
@@ -739,12 +908,17 @@ export class SseRelayClient extends HttpRelayClient {
             }
             this.connectionStatus = 'reconnecting';
             if (Date.now() - started > 35_000) attempt = 0;
-            try { await waitForRelayRetry(relayRetryDelay(attempt++), current.controller.signal); }
-            catch { break; }
+            try {
+              await waitForRelayRetry(relayRetryDelay(attempt++), current.controller.signal);
+            } catch {
+              break;
+            }
           }
         }
         for (const notify of [...current.notify]) notify();
-      })().finally(() => { current.pump = undefined; });
+      })().finally(() => {
+        current.pump = undefined;
+      });
     }
     const abort = () => current.controller.abort(signal?.reason);
     signal?.addEventListener('abort', abort, { once: true });
@@ -757,8 +931,14 @@ export class SseRelayClient extends HttpRelayClient {
           current.notify.delete(wake);
           signal?.removeEventListener('abort', stop);
         };
-        const wake = () => { cleanup(); resolve(); };
-        const stop = () => { cleanup(); reject(signal?.reason ?? new Error('SSE_ABORTED')); };
+        const wake = () => {
+          cleanup();
+          resolve();
+        };
+        const stop = () => {
+          cleanup();
+          reject(signal?.reason ?? new Error('SSE_ABORTED'));
+        };
         const timer = setTimeout(wake, Math.max(0, Math.min(waitMs, 30000)));
         current.notify.add(wake);
         signal?.addEventListener('abort', stop, { once: true });
@@ -766,7 +946,9 @@ export class SseRelayClient extends HttpRelayClient {
       });
       if (current.error) throw current.error;
       return current.queue.shift();
-    } finally { signal?.removeEventListener('abort', abort); }
+    } finally {
+      signal?.removeEventListener('abort', abort);
+    }
   }
   async close(): Promise<void> {
     this.connectionStatus = 'stopped';
@@ -779,7 +961,11 @@ export class SseRelayClient extends HttpRelayClient {
     }
     await Promise.all(states.map((s) => s.pump));
   }
-  async *stream(recipientDid: string, signal?: AbortSignal, filter?: RelayReceiveFilter): AsyncGenerator<SignedEnvelope> {
+  async *stream(
+    recipientDid: string,
+    signal?: AbortSignal,
+    filter?: RelayReceiveFilter,
+  ): AsyncGenerator<SignedEnvelope> {
     const params = new URLSearchParams({ recipient: recipientDid, lease: 'true' });
     const normalized = normalizeReceiveFilter(filter);
     if (normalized.role) params.set('role', normalized.role);
@@ -791,31 +977,49 @@ export class SseRelayClient extends HttpRelayClient {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const r = await this.authenticatedRequest(recipientDid, 'stream', 'stream',
-        this.url + '/stream?' + params, {}, async response => response, controller.signal);
+      const r = await this.authenticatedRequest(
+        recipientDid,
+        'stream',
+        'stream',
+        this.url + '/stream?' + params,
+        {},
+        async (response) => response,
+        controller.signal,
+      );
       if (!r.body) throw new Error('SSE_CLOSED');
       this.connectionStatus = 'connected';
       reader = r.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       while (true) {
-        timer = setTimeout(() => controller.abort(new Error('RELAY_IDLE_TIMEOUT')), this.security.socketTimeoutMs ?? 35_000);
-        const { value, done } = await relayDeadline(reader.read(), this.security.socketTimeoutMs ?? 35_000, controller.signal);
+        timer = setTimeout(
+          () => controller.abort(new Error('RELAY_IDLE_TIMEOUT')),
+          this.security.socketTimeoutMs ?? 35_000,
+        );
+        const { value, done } = await relayDeadline(
+          reader.read(),
+          this.security.socketTimeoutMs ?? 35_000,
+          controller.signal,
+        );
         clearTimeout(timer);
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         buffer = buffer.replaceAll('\r\n', '\n');
-        if (Buffer.byteLength(buffer, 'utf8') > this.maxBufferBytes) throw new Error('SSE_BUFFER_OVERFLOW');
+        if (Buffer.byteLength(buffer, 'utf8') > this.maxBufferBytes)
+          throw new Error('SSE_BUFFER_OVERFLOW');
         let index;
         while ((index = buffer.indexOf('\n\n')) >= 0) {
           const frame = buffer.slice(0, index);
           buffer = buffer.slice(index + 2);
-          const data = frame.split('\n').filter(line => line.startsWith('data:'))
-            .map(line => line.slice(5).replace(/^ /, '')).join('\n');
+          const data = frame
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).replace(/^ /, ''))
+            .join('\n');
           if (data) {
             const e = JSON.parse(data) as SignedEnvelope;
             if (!verifyEnvelope(e, recipientDid)) throw new Error('RELAY_TAMPERING_DETECTED');
-            if (!await this.rememberDelivery(recipientDid, e, controller.signal)) continue;
+            if (!(await this.rememberDelivery(recipientDid, e, controller.signal))) continue;
             yield e;
           }
         }
@@ -858,9 +1062,17 @@ export class WebSocketRelayClient extends RelayCredentials {
     if (this.stopped) return;
     const hostname = resolved.url.hostname.replace(/^\[|\]$/g, '');
     const secure = resolved.url.protocol === 'wss:';
-    const tunnel = resolved.proxy ? await connectRelayProxy(resolved.proxy, resolved.url,
-      this.security.requestTimeoutMs ?? 45_000) : undefined;
-    if (this.stopped) { tunnel?.destroy(); return; }
+    const tunnel = resolved.proxy
+      ? await connectRelayProxy(
+          resolved.proxy,
+          resolved.url,
+          this.security.requestTimeoutMs ?? 45_000,
+        )
+      : undefined;
+    if (this.stopped) {
+      tunnel?.destroy();
+      return;
+    }
     const wsOptions = {
       lookup: resolved.lookup,
       ...(tunnel ? { createConnection: () => tunnel } : {}),
@@ -874,17 +1086,21 @@ export class WebSocketRelayClient extends RelayCredentials {
     }
     if (socket.readyState === WebSocket.OPEN) return;
     await new Promise<void>((resolve, reject) => {
-      const fail = (error: Error) => reject(resolved.proxy ? relayProxyError('RELAY_PROXY_UNAVAILABLE', 'request', error) : error);
+      const fail = (error: Error) =>
+        reject(
+          resolved.proxy ? relayProxyError('RELAY_PROXY_UNAVAILABLE', 'request', error) : error,
+        );
       socket.once('open', () => {
         socket.off('error', fail);
         resolve();
       });
       socket.once('error', fail);
-      if (resolved.proxy) socket.once('unexpected-response', (_request, response) => {
-        reject(relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', response.statusCode));
-        response.destroy();
-        socket.terminate();
-      });
+      if (resolved.proxy)
+        socket.once('unexpected-response', (_request, response) => {
+          reject(relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', response.statusCode));
+          response.destroy();
+          socket.terminate();
+        });
     });
   }
   async ready(): Promise<void> {

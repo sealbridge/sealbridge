@@ -10,8 +10,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { HttpRelayClient, SseRelayClient, WebSocketRelayClient, createPinnedRelayFetch,
-  resolveAndValidateRelayEndpoint, relayProxyFor, relayProxyLabel, relayDiagnostic, relayRetryCode, relayProxyError, isTransientRelayError } from '../packages/relay/src/index.js';
+import {
+  HttpRelayClient,
+  SseRelayClient,
+  WebSocketRelayClient,
+  createPinnedRelayFetch,
+  resolveAndValidateRelayEndpoint,
+  relayProxyFor,
+  relayProxyLabel,
+  relayDiagnostic,
+  relayRetryCode,
+  relayProxyError,
+  isTransientRelayError,
+} from '../packages/relay/src/index.js';
 import { createRelayFetchHandler, InMemoryRelay } from '../packages/relay/src/fetch.js';
 import { generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { diagnose } from '../cli/src/doctor.js';
@@ -25,25 +36,45 @@ let finalDiagnostic: unknown;
 const listening: Array<{ port: number; sockets: Set<net.Socket> }> = [];
 slowTestDiagnostics(() => finalDiagnostic ?? diagnostic());
 
-vi.mock('node:dns/promises', async importOriginal => {
+vi.mock('node:dns/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:dns/promises')>();
   return { ...actual, lookup: vi.fn(actual.lookup) };
 });
 
-const variables = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy'];
+const variables = [
+  'HTTPS_PROXY',
+  'https_proxy',
+  'HTTP_PROXY',
+  'http_proxy',
+  'ALL_PROXY',
+  'all_proxy',
+  'NO_PROXY',
+  'no_proxy',
+];
 const ca = readFileSync(new URL('./fixtures/relay-proxy/ca.pem', import.meta.url));
 const key = readFileSync(new URL('./fixtures/relay-proxy/relay-key.pem', import.meta.url));
 const cert = readFileSync(new URL('./fixtures/relay-proxy/relay.pem', import.meta.url));
-const sender = generateKeyPair(), recipient = generateKeyPair();
-const envelope = signEnvelope({ taskId: 'proxy-test', recipientDid: recipient.did, seq: 0,
-  eventType: 'PROPOSE', payload: { hello: 'proxy' } }, sender);
+const sender = generateKeyPair(),
+  recipient = generateKeyPair();
+const envelope = signEnvelope(
+  {
+    taskId: 'proxy-test',
+    recipientDid: recipient.did,
+    seq: 0,
+    eventType: 'PROPOSE',
+    payload: { hello: 'proxy' },
+  },
+  sender,
+);
 const syntheticLookup = vi.fn(async () => [{ address: '198.18.202.102', family: 4 as const }]);
 const cleanups: Array<() => Promise<unknown> | void> = [];
 const actualConnect = tls.connect;
 beforeEach(() => {
   finalDiagnostic = undefined;
   listening.length = 0;
-  diagnostic = () => ({ listeners: listening.map(s => ({ port: s.port, sockets: s.sockets.size })) });
+  diagnostic = () => ({
+    listeners: listening.map((s) => ({ port: s.port, sockets: s.sockets.size })),
+  });
   for (const name of variables) vi.stubEnv(name, '');
   syntheticLookup.mockClear();
   // Supply only our test CA; verification and hostname checks remain enabled.
@@ -53,24 +84,38 @@ beforeEach(() => {
 afterEach(async () => {
   finalDiagnostic = diagnostic();
   for (const close of cleanups.splice(0).reverse()) await close();
-  vi.restoreAllMocks(); vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 async function listen(server: http.Server | https.Server): Promise<number> {
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const sockets = new Set<net.Socket>();
-  server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
   cleanups.push(async () => {
     for (const socket of sockets) socket.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
   const port = (server.address() as net.AddressInfo).port;
   listening.push({ port, sockets });
   return port;
 }
 
-async function fixture(auth = false, status = 200, secure = true, behavior?: { resetFirst?: boolean; loseAdmission?: boolean }) {
-  const requests: Array<{ method?: string; path?: string; proxyAuth?: string; connection?: string }> = [];
+async function fixture(
+  auth = false,
+  status = 200,
+  secure = true,
+  behavior?: { resetFirst?: boolean; loseAdmission?: boolean },
+) {
+  const requests: Array<{
+    method?: string;
+    path?: string;
+    proxyAuth?: string;
+    connection?: string;
+  }> = [];
   const relay = new InMemoryRelay();
   const relayHandler = createRelayFetchHandler({ relay });
   const bodies: string[] = [];
@@ -78,8 +123,19 @@ async function fixture(auth = false, status = 200, secure = true, behavior?: { r
   const upgrades: string[] = [];
   let posted: unknown;
   const handler: http.RequestListener = (req, res) => {
-    requests.push({ method: req.method, path: req.url, proxyAuth: req.headers['proxy-authorization'], connection: req.headers.connection });
-    if (behavior && (req.headers.connection === 'close' || behavior.resetFirst && requests.length === 1)) { req.socket.destroy(); return; }
+    requests.push({
+      method: req.method,
+      path: req.url,
+      proxyAuth: req.headers['proxy-authorization'],
+      connection: req.headers.connection,
+    });
+    if (
+      behavior &&
+      (req.headers.connection === 'close' || (behavior.resetFirst && requests.length === 1))
+    ) {
+      req.socket.destroy();
+      return;
+    }
     if (req.url?.startsWith('/stream')) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.flushHeaders();
@@ -87,43 +143,76 @@ async function fixture(auth = false, status = 200, secure = true, behavior?: { r
       req.on('close', () => clearTimeout(timer));
     } else if (req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', async () => {
-        posted = JSON.parse(body); bodies.push(body);
-        if (behavior) {
-          const result = await relayHandler(new Request('https://relay.example/envelopes', {
-            method: 'POST', body, headers: { 'content-type': 'application/json' },
-          }));
-          if (behavior.loseAdmission && bodies.length === 1) { req.socket.destroy(); return; }
-          res.writeHead(result.status); res.end(await result.text());
-        } else res.end('{}');
+      req.on('data', (chunk) => {
+        body += chunk;
       });
-    } else if (req.url?.startsWith('/envelopes')) res.end(JSON.stringify({ envelopes: [envelope] }));
+      req.on('end', () => {
+        void (async () => {
+          posted = JSON.parse(body);
+          bodies.push(body);
+          if (behavior) {
+            const result = await relayHandler(
+              new Request('https://relay.example/envelopes', {
+                method: 'POST',
+                body,
+                headers: { 'content-type': 'application/json' },
+              }),
+            );
+            if (behavior.loseAdmission && bodies.length === 1) {
+              req.socket.destroy();
+              return;
+            }
+            res.writeHead(result.status);
+            res.end(await result.text());
+          } else res.end('{}');
+        })().catch((error: unknown) => {
+          res.destroy(error instanceof Error ? error : new Error(String(error)));
+        });
+      });
+    } else if (req.url?.startsWith('/envelopes'))
+      res.end(JSON.stringify({ envelopes: [envelope] }));
     else res.end('[]');
   };
   const server = secure ? https.createServer({ key, cert }, handler) : http.createServer(handler);
-  server.on('upgrade', req => upgrades.push(req.headers.connection ?? ''));
+  server.on('upgrade', (req) => upgrades.push(req.headers.connection ?? ''));
   const wss = new WebSocketServer({ server, path: '/ws' });
-  wss.on('connection', socket => socket.on('message', raw => {
-    const value = JSON.parse(raw.toString());
-    if (value.method === 'send') { posted = value.envelope; socket.send('{}'); }
-    else socket.send(JSON.stringify({ envelope }));
-  }));
+  wss.on('connection', (socket) =>
+    socket.on('message', (raw) => {
+      const value = JSON.parse(raw.toString());
+      if (value.method === 'send') {
+        posted = value.envelope;
+        socket.send('{}');
+      } else socket.send(JSON.stringify({ envelope }));
+    }),
+  );
   const port = await listen(server);
   const connects: string[] = [];
   const authorizations: Array<string | undefined> = [];
   const proxy = http.createServer();
   proxy.on('connect', (req, socket, head) => {
-    tunnels.add(socket as net.Socket); socket.on('close', () => tunnels.delete(socket as net.Socket));
-    connects.push(req.url!); authorizations.push(req.headers['proxy-authorization']);
-    if (status !== 200) { socket.end(`HTTP/1.1 ${status} secret-pass\r\nProxy-Authenticate: test-user\r\n\r\nsecret-pass`); return; }
-    if (auth && req.headers['proxy-authorization'] !== 'Basic ' + Buffer.from('test-user:secret-pass').toString('base64')) {
-      socket.end('HTTP/1.1 407 Authentication Required\r\n\r\n'); return;
+    tunnels.add(socket as net.Socket);
+    socket.on('close', () => tunnels.delete(socket as net.Socket));
+    connects.push(req.url!);
+    authorizations.push(req.headers['proxy-authorization']);
+    if (status !== 200) {
+      socket.end(
+        `HTTP/1.1 ${status} secret-pass\r\nProxy-Authenticate: test-user\r\n\r\nsecret-pass`,
+      );
+      return;
+    }
+    if (
+      auth &&
+      req.headers['proxy-authorization'] !==
+        'Basic ' + Buffer.from('test-user:secret-pass').toString('base64')
+    ) {
+      socket.end('HTTP/1.1 407 Authentication Required\r\n\r\n');
+      return;
     }
     const upstream = net.connect(port, '127.0.0.1', () => {
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length) upstream.write(head);
-      upstream.pipe(socket); socket.pipe(upstream);
+      upstream.pipe(socket);
+      socket.pipe(upstream);
     });
     socket.on('error', () => upstream.destroy());
     socket.on('close', () => upstream.destroy());
@@ -133,9 +222,26 @@ async function fixture(auth = false, status = 200, secure = true, behavior?: { r
   const proxyUrl = `http://${auth ? 'test-user:secret-pass@' : ''}127.0.0.1:${proxyPort}`;
   vi.stubEnv(secure ? 'HTTPS_PROXY' : 'HTTP_PROXY', proxyUrl);
   const url = `${secure ? 'https' : 'http'}://relay.example:${port}`;
-  diagnostic = () => ({ port, proxyPort, requests: requests.map(({ method, path }) => ({ method, path })),
-    connects: connects.length, tunnels: tunnels.size });
-  return { url, port, proxyPort, requests, connects, authorizations, tunnels, upgrades, bodies, relay, posted: () => posted };
+  diagnostic = () => ({
+    port,
+    proxyPort,
+    requests: requests.map(({ method, path }) => ({ method, path })),
+    connects: connects.length,
+    tunnels: tunnels.size,
+  });
+  return {
+    url,
+    port,
+    proxyPort,
+    requests,
+    connects,
+    authorizations,
+    tunnels,
+    upgrades,
+    bodies,
+    relay,
+    posted: () => posted,
+  };
 }
 
 describe('relay environment HTTP proxy conformance', () => {
@@ -143,112 +249,170 @@ describe('relay environment HTTP proxy conformance', () => {
     const f = await fixture(true, 200, true, {});
     const moduleUrl = new URL('../packages/relay/dist/index.js', import.meta.url).href;
     const started = performance.now();
-    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e',
-      `import { createPinnedRelayFetch } from ${JSON.stringify(moduleUrl)};
+    const { stdout, stderr } = await promisify(execFile)(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { createPinnedRelayFetch } from ${JSON.stringify(moduleUrl)};
        const url = ${JSON.stringify(f.url)};
-       console.log(await (await createPinnedRelayFetch(url)(url + '/agents')).text());`], {
-      timeout: SLOW_TEST_TIMEOUT - 5000,
-      env: { ...process.env, NODE_EXTRA_CA_CERTS: fileURLToPath(new URL('./fixtures/relay-proxy/ca.pem', import.meta.url)) },
-    }).catch(error => { throw childFailure(error, started); });
+       console.log(await (await createPinnedRelayFetch(url)(url + '/agents')).text());`,
+      ],
+      {
+        timeout: SLOW_TEST_TIMEOUT - 5000,
+        env: {
+          ...process.env,
+          NODE_EXTRA_CA_CERTS: fileURLToPath(
+            new URL('./fixtures/relay-proxy/ca.pem', import.meta.url),
+          ),
+        },
+      },
+    ).catch((error) => {
+      throw childFailure(error, started);
+    });
     expect(stdout.trim()).toBe('[]');
     expect(stderr).not.toMatch(/test-user|secret-pass/);
     await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
   });
-  it.each([false, true])('uses keep-alive headers with single-use tunnels (TLS %s)', async secure => {
-    const f = await fixture(true, 200, secure, {});
-    const fetcher = createPinnedRelayFetch(f.url);
-    for (let i = 0; i < 2; i++) {
-      expect(await (await fetcher(f.url + '/agents')).json()).toEqual([]);
-      await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
-    }
-    expect(f.connects).toHaveLength(2);
-    expect(f.requests.map(r => r.connection)).toEqual(['keep-alive', 'keep-alive']);
-    expect(f.requests.every(r => r.proxyAuth === undefined)).toBe(true);
-  });
+  it.each([false, true])(
+    'uses keep-alive headers with single-use tunnels (TLS %s)',
+    async (secure) => {
+      const f = await fixture(true, 200, secure, {});
+      const fetcher = createPinnedRelayFetch(f.url);
+      for (let i = 0; i < 2; i++) {
+        expect(await (await fetcher(f.url + '/agents')).json()).toEqual([]);
+        await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+      }
+      expect(f.connects).toHaveLength(2);
+      expect(f.requests.map((r) => r.connection)).toEqual(['keep-alive', 'keep-alive']);
+      expect(f.requests.every((r) => r.proxyAuth === undefined)).toBe(true);
+    },
+  );
 
-  it.each(['resetFirst', 'loseAdmission'] as const)('retries initial POST safely after %s', async mode => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const f = await fixture(true, 200, true, { [mode]: true });
-    const client = new HttpRelayClient(f.url, sender);
-    await client.send(envelope);
-    expect(warn).toHaveBeenCalledWith('Relay send retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)');
-    expect(f.requests).toHaveLength(2);
-    expect(f.requests.every(r => r.connection === 'keep-alive')).toBe(true);
-    expect(new Set(f.bodies).size).toBe(1);
-    expect(f.relay.receive(recipient.did)).toEqual(envelope);
-    expect(f.relay.receive(recipient.did)).toBeUndefined();
-    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
-    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1/);
-    // A new explicit send retains the existing duplicate-error contract.
-    await expect(client.send(envelope)).rejects.toMatchObject({ code: 'REPLAYED_ENVELOPE' });
-  });
+  it.each(['resetFirst', 'loseAdmission'] as const)(
+    'retries initial POST safely after %s',
+    async (mode) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const f = await fixture(true, 200, true, { [mode]: true });
+      const client = new HttpRelayClient(f.url, sender);
+      await client.send(envelope);
+      expect(warn).toHaveBeenCalledWith(
+        'Relay send retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)',
+      );
+      expect(f.requests).toHaveLength(2);
+      expect(f.requests.every((r) => r.connection === 'keep-alive')).toBe(true);
+      expect(new Set(f.bodies).size).toBe(1);
+      expect(f.relay.receive(recipient.did)).toEqual(envelope);
+      expect(f.relay.receive(recipient.did)).toBeUndefined();
+      await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1/);
+      // A new explicit send retains the existing duplicate-error contract.
+      await expect(client.send(envelope)).rejects.toMatchObject({ code: 'REPLAYED_ENVELOPE' });
+    },
+  );
 
   it('retries the initial discovery GET before delegation by DID', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const f = await fixture(true, 200, true, { resetFirst: true });
     expect(await new HttpRelayClient(f.url).discover()).toEqual([]);
-    expect(warn).toHaveBeenCalledWith('Relay discovery retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)');
+    expect(warn).toHaveBeenCalledWith(
+      'Relay discovery retry 1 (RELAY_PROXY_UNAVAILABLE:request/ECONNRESET)',
+    );
     expect(f.connects).toHaveLength(2);
     await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
   });
 
   it('bounds proxy send retries without retrying permanent failures', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const error = relayProxyError('RELAY_PROXY_UNAVAILABLE', 'request', Object.assign(new Error('secret-pass'), { code: 'ECONNRESET' }));
+    const error = relayProxyError(
+      'RELAY_PROXY_UNAVAILABLE',
+      'request',
+      Object.assign(new Error('secret-pass'), { code: 'ECONNRESET' }),
+    );
     const fetcher = vi.fn<typeof fetch>().mockRejectedValue(error);
-    await expect(new HttpRelayClient('https://relay.example', fetcher).send(envelope)).rejects.toBe(error);
+    await expect(new HttpRelayClient('https://relay.example', fetcher).send(envelope)).rejects.toBe(
+      error,
+    );
     expect(fetcher).toHaveBeenCalledTimes(5);
     expect(warn).toHaveBeenCalledTimes(4);
     expect(new Set(fetcher.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
-    for (const message of ['RELAY_PROXY_AUTH_FAILED', 'RELAY_PROXY_TLS_FAILED', 'RELAY_PROXY_REFUSED']) {
+    for (const message of [
+      'RELAY_PROXY_AUTH_FAILED',
+      'RELAY_PROXY_TLS_FAILED',
+      'RELAY_PROXY_REFUSED',
+    ]) {
       fetcher.mockClear().mockRejectedValue(new Error(message));
-      await expect(new HttpRelayClient('https://relay.example', fetcher).send(envelope)).rejects.toThrow(message);
+      await expect(
+        new HttpRelayClient('https://relay.example', fetcher).send(envelope),
+      ).rejects.toThrow(message);
       expect(fetcher).toHaveBeenCalledTimes(1);
     }
     expect(JSON.stringify(warn.mock.calls)).not.toContain('secret-pass');
   });
 
-  it.each(['cancel', 'abort', 'timeout'] as const)('closes a streaming tunnel on %s', async mode => {
-    const f = await fixture(true);
-    const controller = new AbortController();
-    const response = await createPinnedRelayFetch(f.url, { socketTimeoutMs: 80 })(f.url + '/stream', { signal: controller.signal });
-    if (mode === 'cancel') await response.body!.cancel();
-    else {
-      if (mode === 'abort') controller.abort();
-      await expect(response.text()).rejects.toThrow();
-    }
-    await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
-  });
+  it.each(['cancel', 'abort', 'timeout'] as const)(
+    'closes a streaming tunnel on %s',
+    async (mode) => {
+      const f = await fixture(true);
+      const controller = new AbortController();
+      const response = await createPinnedRelayFetch(f.url, { socketTimeoutMs: 80 })(
+        f.url + '/stream',
+        { signal: controller.signal },
+      );
+      if (mode === 'cancel') await response.body!.cancel();
+      else {
+        if (mode === 'abort') controller.abort();
+        await expect(response.text()).rejects.toThrow();
+      }
+      await vi.waitFor(() => expect(f.tunnels.size).toBe(0));
+    },
+  );
 
-  it.each([false, true])('tunnels send, poll, SSE and WebSocket with verified TLS (auth %s)', async auth => {
-    const f = await fixture(auth);
-    const security = { lookup: syntheticLookup, requestTimeoutMs: 3000, socketTimeoutMs: 2000 };
-    const client = new HttpRelayClient(f.url, recipient, security);
-    await client.send(envelope);
-    expect(f.posted()).toEqual(envelope);
-    expect(await client.pollInbox(recipient.did, { waitMs: 1 })).toEqual(envelope);
-    const sse = new SseRelayClient(f.url, recipient, { ...security, requestTimeoutMs: 1000 });
-    const stream = sse.stream(recipient.did);
-    // A frame after the request deadline proves the SSE deadline is cleared at headers.
-    expect((await stream.next()).value).toEqual(envelope);
-    await stream.return(undefined);
-    const ws = new WebSocketRelayClient(f.url.replace('https:', 'wss:') + '/ws', recipient, security);
-    cleanups.push(() => ws.close());
-    await ws.send(envelope);
-    expect(await ws.receive(recipient.did)).toEqual(envelope);
-    expect(syntheticLookup).not.toHaveBeenCalled();
-    expect(f.connects.length).toBeGreaterThanOrEqual(4);
-    expect(f.upgrades).toEqual(['Upgrade']);
-    expect(f.connects.every(value => value === `relay.example:${f.port}`)).toBe(true);
-    expect(f.requests.every(value => value.proxyAuth === undefined)).toBe(true);
-    expect(f.authorizations.every(value => auth ? value?.startsWith('Basic ') : value === undefined)).toBe(true);
-  });
+  it.each([false, true])(
+    'tunnels send, poll, SSE and WebSocket with verified TLS (auth %s)',
+    async (auth) => {
+      const f = await fixture(auth);
+      const security = { lookup: syntheticLookup, requestTimeoutMs: 3000, socketTimeoutMs: 2000 };
+      const client = new HttpRelayClient(f.url, recipient, security);
+      await client.send(envelope);
+      expect(f.posted()).toEqual(envelope);
+      expect(await client.pollInbox(recipient.did, { waitMs: 1 })).toEqual(envelope);
+      const sse = new SseRelayClient(f.url, recipient, { ...security, requestTimeoutMs: 1000 });
+      const stream = sse.stream(recipient.did);
+      // A frame after the request deadline proves the SSE deadline is cleared at headers.
+      expect((await stream.next()).value).toEqual(envelope);
+      await stream.return(undefined);
+      const ws = new WebSocketRelayClient(
+        f.url.replace('https:', 'wss:') + '/ws',
+        recipient,
+        security,
+      );
+      cleanups.push(() => ws.close());
+      await ws.send(envelope);
+      expect(await ws.receive(recipient.did)).toEqual(envelope);
+      expect(syntheticLookup).not.toHaveBeenCalled();
+      expect(f.connects.length).toBeGreaterThanOrEqual(4);
+      expect(f.upgrades).toEqual(['Upgrade']);
+      expect(f.connects.every((value) => value === `relay.example:${f.port}`)).toBe(true);
+      expect(f.requests.every((value) => value.proxyAuth === undefined)).toBe(true);
+      expect(
+        f.authorizations.every((value) =>
+          auth ? value?.startsWith('Basic ') : value === undefined,
+        ),
+      ).toBe(true);
+    },
+  );
 
   it.each(['proxy_connect', 'connect_response', 'tls', 'request', 'response'] as const)(
-    'bounds %s diagnostic values and excludes arbitrary transport data', stage => {
+    'bounds %s diagnostic values and excludes arbitrary transport data',
+    (stage) => {
       const secret = 'http://test-user:secret-pass@private-proxy.example:3128/body';
       for (const code of ['ECONNRESET', secret, 'ENO_SUCH_ERRNO']) {
-        const original = Object.assign(new Error(secret), { code, hostname: secret, response: secret });
+        const original = Object.assign(new Error(secret), {
+          code,
+          hostname: secret,
+          response: secret,
+        });
         const error = relayProxyError('RELAY_PROXY_UNAVAILABLE', stage, original);
         const expected = `RELAY_PROXY_UNAVAILABLE:${stage}/${code === 'ECONNRESET' ? code : 'OTHER'}`;
         expect(error.message).toBe('RELAY_PROXY_UNAVAILABLE');
@@ -256,39 +420,72 @@ describe('relay environment HTTP proxy conformance', () => {
         expect(relayRetryCode(error)).toBe(expected);
         expect(relayDiagnostic(error).message).toBe(expected);
         expect(relayDiagnostic(relayDiagnostic(error)).message).toBe(expected);
-        const output = [String(error), JSON.stringify(error), relayRetryCode(error), relayDiagnostic(error).message, formatCliError(error)].join('\n');
+        const output = [
+          String(error),
+          JSON.stringify(error),
+          relayRetryCode(error),
+          relayDiagnostic(error).message,
+          formatCliError(error),
+        ].join('\n');
         expect(output).not.toMatch(/test-user|secret-pass|private-proxy\.example|3128|\/body/);
         expect(output).not.toContain(Buffer.from('test-user:secret-pass').toString('base64'));
       }
-      expect(relayRetryCode(Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), {
-        relayProxyFailure: { stage: secret, code: secret },
-      }))).toBe('RELAY_PROXY_UNAVAILABLE');
-      expect(relayRetryCode(Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), { relayProxyFailure: { stage, code: secret } })))
-        .toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/OTHER`);
+      expect(
+        relayRetryCode(
+          Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), {
+            relayProxyFailure: { stage: secret, code: secret },
+          }),
+        ),
+      ).toBe('RELAY_PROXY_UNAVAILABLE');
+      expect(
+        relayRetryCode(
+          Object.assign(new Error('RELAY_PROXY_UNAVAILABLE'), {
+            relayProxyFailure: { stage, code: secret },
+          }),
+        ),
+      ).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/OTHER`);
       expect(relayRetryCode(new Error(secret))).toBe('RELAY_UNAVAILABLE');
-      expect(relayRetryCode(new Error(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`))).toBe('RELAY_UNAVAILABLE');
-      const nested = new TypeError('fetch failed', { cause: relayProxyError('RELAY_PROXY_UNAVAILABLE', stage, Object.assign(new Error(secret), { code: 'EPIPE' })) });
+      expect(relayRetryCode(new Error(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`))).toBe(
+        'RELAY_UNAVAILABLE',
+      );
+      const nested = new TypeError('fetch failed', {
+        cause: relayProxyError(
+          'RELAY_PROXY_UNAVAILABLE',
+          stage,
+          Object.assign(new Error(secret), { code: 'EPIPE' }),
+        ),
+      });
       expect(relayDiagnostic(nested).message).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/EPIPE`);
-    });
+    },
+  );
 
   it('identifies TCP refusal without retaining the proxy address', async () => {
     const server = http.createServer();
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as net.AddressInfo).port;
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     vi.stubEnv('HTTPS_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
-    const error = await new HttpRelayClient('https://relay.example').discover().catch(error => error);
+    const error = await new HttpRelayClient('https://relay.example')
+      .discover()
+      .catch((error) => error);
     expect(relayRetryCode(error)).toBe('RELAY_PROXY_UNAVAILABLE:proxy_connect/ECONNREFUSED');
     expect(JSON.stringify(error)).not.toMatch(/127\.0\.0\.1|test-user|secret-pass/);
   });
 
   it.each(['connect_response', 'tls', 'request', 'response'] as const)(
-    'identifies a local proxy disconnect during %s', async stage => {
+    'identifies a local proxy disconnect during %s',
+    async (stage) => {
       const server = http.createServer();
       server.on('connect', (_req, socket) => {
-        if (stage === 'connect_response') { socket.destroy(); return; }
+        if (stage === 'connect_response') {
+          socket.destroy();
+          return;
+        }
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (stage === 'tls') { socket.destroy(); return; }
+        if (stage === 'tls') {
+          socket.destroy();
+          return;
+        }
         socket.once('data', () => {
           if (stage === 'request') socket.destroy();
           else {
@@ -298,48 +495,72 @@ describe('relay environment HTTP proxy conformance', () => {
         });
       });
       const port = await listen(server);
-      vi.stubEnv(stage === 'tls' ? 'HTTPS_PROXY' : 'HTTP_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
+      vi.stubEnv(
+        stage === 'tls' ? 'HTTPS_PROXY' : 'HTTP_PROXY',
+        `http://test-user:secret-pass@127.0.0.1:${port}`,
+      );
       const url = `${stage === 'tls' ? 'https' : 'http'}://relay.example`;
-      const error = await new HttpRelayClient(url, { requestTimeoutMs: 1000 }).discover().catch(error => error);
+      const error = await new HttpRelayClient(url, { requestTimeoutMs: 1000 })
+        .discover()
+        .catch((error) => error);
       expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`);
       if (stage !== 'response') {
         const checks = await diagnose({ relay: url, identityOptions: { keyStore: 'file' } });
         expect(checks.at(-1)?.message).toContain(`RELAY_PROXY_UNAVAILABLE:${stage}/ECONNRESET`);
       }
-      expect(error.message).toBe(stage === 'tls' ? 'RELAY_PROXY_TLS_FAILED' : 'RELAY_PROXY_UNAVAILABLE');
-      expect(JSON.stringify(error)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1|relay\.example/);
-    });
+      expect(error.message).toBe(
+        stage === 'tls' ? 'RELAY_PROXY_TLS_FAILED' : 'RELAY_PROXY_UNAVAILABLE',
+      );
+      expect(JSON.stringify(error)).not.toMatch(
+        /test-user|secret-pass|127\.0\.0\.1|relay\.example/,
+      );
+    },
+  );
 
-  it.each([false, true])('sanitizes WebSocket upgrade failures (HTTP response %s)', async response => {
-    const proxy = http.createServer();
-    proxy.on('connect', (_req, socket) => {
-      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      socket.once('data', () => {
-        if (response) socket.end('HTTP/1.1 403 secret-pass\r\nContent-Length: 9\r\n\r\ntest-user');
-        else socket.destroy();
+  it.each([false, true])(
+    'sanitizes WebSocket upgrade failures (HTTP response %s)',
+    async (response) => {
+      const proxy = http.createServer();
+      proxy.on('connect', (_req, socket) => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        socket.once('data', () => {
+          if (response)
+            socket.end('HTTP/1.1 403 secret-pass\r\nContent-Length: 9\r\n\r\ntest-user');
+          else socket.destroy();
+        });
       });
-    });
-    const port = await listen(proxy);
-    vi.stubEnv('HTTP_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
-    const ws = new WebSocketRelayClient('ws://relay.example/ws');
-    cleanups.push(() => ws.close());
-    const error = await ws.ready().catch(error => error);
-    expect(relayRetryCode(error)).toBe(response ? 'RELAY_PROXY_UNAVAILABLE:response/403' : 'RELAY_PROXY_UNAVAILABLE:request/ECONNRESET');
-    expect(JSON.stringify(error)).not.toMatch(/test-user|secret-pass|127\.0\.0\.1|relay\.example/);
-  });
+      const port = await listen(proxy);
+      vi.stubEnv('HTTP_PROXY', `http://test-user:secret-pass@127.0.0.1:${port}`);
+      const ws = new WebSocketRelayClient('ws://relay.example/ws');
+      cleanups.push(() => ws.close());
+      const error = await ws.ready().catch((error) => error);
+      expect(relayRetryCode(error)).toBe(
+        response
+          ? 'RELAY_PROXY_UNAVAILABLE:response/403'
+          : 'RELAY_PROXY_UNAVAILABLE:request/ECONNRESET',
+      );
+      expect(JSON.stringify(error)).not.toMatch(
+        /test-user|secret-pass|127\.0\.0\.1|relay\.example/,
+      );
+    },
+  );
 
-  it.each(['tls', 'request', 'response'] as const)('retains %s timeout metadata', async stage => {
+  it.each(['tls', 'request', 'response'] as const)('retains %s timeout metadata', async (stage) => {
     const proxy = http.createServer();
     proxy.on('connect', (_req, socket) => {
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      if (stage === 'response') socket.once('data', () =>
-        socket.write('HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n['));
+      if (stage === 'response')
+        socket.once('data', () =>
+          socket.write('HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n['),
+        );
     });
     const port = await listen(proxy);
     vi.stubEnv(stage === 'tls' ? 'HTTPS_PROXY' : 'HTTP_PROXY', `http://127.0.0.1:${port}`);
     const url = `${stage === 'tls' ? 'https' : 'http'}://relay.example`;
     const fetcher = createPinnedRelayFetch(url, { requestTimeoutMs: 60 });
-    const error = await fetcher(url).then(r => r.text()).catch(error => error);
+    const error = await fetcher(url)
+      .then((r) => r.text())
+      .catch((error) => error);
     expect(error.message).toBe('RELAY_REQUEST_TIMEOUT');
     expect(isTransientRelayError(error)).toBe(true);
     expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:${stage}/ETIMEDOUT`);
@@ -348,15 +569,29 @@ describe('relay environment HTTP proxy conformance', () => {
   it('uses leased HTTP polling and a separate DELETE acknowledgement through the proxy', async () => {
     const f = await fixture(true);
     const client = new HttpRelayClient(f.url, recipient);
-    expect(await client.receive(recipient.did, 1000, undefined, { role: 'requester', taskId: 'proxy-test', lease: true })).toEqual(envelope);
+    expect(
+      await client.receive(recipient.did, 1000, undefined, {
+        role: 'requester',
+        taskId: 'proxy-test',
+        lease: true,
+      }),
+    ).toEqual(envelope);
     await client.acknowledgeDelivery(recipient.did, envelope.payload.envelopeId);
     expect(f.requests).toHaveLength(2);
     const poll = new URL(f.requests[0].path!, f.url);
     expect(poll.pathname).toBe('/envelopes');
-    expect(Object.fromEntries(poll.searchParams)).toEqual({ recipient: recipient.did, waitMs: '1000', role: 'requester', taskId: 'proxy-test', lease: 'true' });
+    expect(Object.fromEntries(poll.searchParams)).toEqual({
+      recipient: recipient.did,
+      waitMs: '1000',
+      role: 'requester',
+      taskId: 'proxy-test',
+      lease: 'true',
+    });
     expect(f.requests[1].method).toBe('DELETE');
-    expect(f.requests[1].path).toContain('/envelopes/' + envelope.payload.envelopeId + '?recipient=');
-    expect(f.requests.some(r => r.path?.startsWith('/stream'))).toBe(false);
+    expect(f.requests[1].path).toContain(
+      '/envelopes/' + envelope.payload.envelopeId + '?recipient=',
+    );
+    expect(f.requests.some((r) => r.path?.startsWith('/stream'))).toBe(false);
     expect(f.connects).toHaveLength(2);
   });
 
@@ -366,15 +601,22 @@ describe('relay environment HTTP proxy conformance', () => {
     const relay = `http://127.0.0.1:${port}`;
     const options = { relay, identityOptions: { keyStore: 'file' as const } };
     expect((await diagnose(options)).at(-1)?.ok).toBe(false);
-    expect((await diagnose({ ...options, allowPrivateRelay: true })).at(-1)).toMatchObject({ ok: true, message: 'Reachable' });
+    expect((await diagnose({ ...options, allowPrivateRelay: true })).at(-1)).toMatchObject({
+      ok: true,
+      message: 'Reachable',
+    });
   });
 
   it('retains TLS trust and hostname verification', async () => {
     const f = await fixture();
-    vi.mocked(tls.connect).mockImplementation(((options: tls.ConnectionOptions) => actualConnect(options)) as typeof tls.connect);
+    vi.mocked(tls.connect).mockImplementation(((options: tls.ConnectionOptions) =>
+      actualConnect(options)) as typeof tls.connect);
     await expect(new HttpRelayClient(f.url).discover()).rejects.toThrow('RELAY_PROXY_TLS_FAILED');
-    vi.mocked(tls.connect).mockImplementation(((options: tls.ConnectionOptions) => actualConnect({ ...options, ca })) as typeof tls.connect);
-    await expect(new HttpRelayClient(f.url.replace('relay.example', 'wrong.example')).discover()).rejects.toThrow('RELAY_PROXY_TLS_FAILED');
+    vi.mocked(tls.connect).mockImplementation(((options: tls.ConnectionOptions) =>
+      actualConnect({ ...options, ca })) as typeof tls.connect);
+    await expect(
+      new HttpRelayClient(f.url.replace('relay.example', 'wrong.example')).discover(),
+    ).rejects.toThrow('RELAY_PROXY_TLS_FAILED');
   });
 
   it('also tunnels HTTP and WS through HTTP_PROXY without local destination DNS', async () => {
@@ -382,7 +624,9 @@ describe('relay environment HTTP proxy conformance', () => {
     const client = new HttpRelayClient(f.url, recipient, { lookup: syntheticLookup });
     await client.send(envelope);
     expect(await client.pollInbox(recipient.did)).toEqual(envelope);
-    const ws = new WebSocketRelayClient(f.url.replace('http:', 'ws:') + '/ws', recipient, { lookup: syntheticLookup });
+    const ws = new WebSocketRelayClient(f.url.replace('http:', 'ws:') + '/ws', recipient, {
+      lookup: syntheticLookup,
+    });
     cleanups.push(() => ws.close());
     await ws.send(envelope);
     expect(await ws.receive(recipient.did)).toEqual(envelope);
@@ -392,12 +636,25 @@ describe('relay environment HTTP proxy conformance', () => {
 
   it('skips local DNS through proxy and detects synthetic DNS on direct and NO_PROXY routes', async () => {
     const f = await fixture();
-    await expect(new HttpRelayClient(f.url, { lookup: syntheticLookup }).discover()).resolves.toEqual([]);
+    await expect(
+      new HttpRelayClient(f.url, { lookup: syntheticLookup }).discover(),
+    ).resolves.toEqual([]);
     expect(syntheticLookup).not.toHaveBeenCalled();
     vi.stubEnv('NO_PROXY', 'relay.example');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [{ address: '198.18.202.102', family: 4 }] });
-    vi.stubEnv('NO_PROXY', ''); vi.stubEnv('HTTPS_PROXY', '');
-    await expect(resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup })).resolves.toMatchObject({ syntheticDns: true, addresses: [{ address: '198.18.202.102', family: 4 }] });
+    await expect(
+      resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup }),
+    ).resolves.toMatchObject({
+      syntheticDns: true,
+      addresses: [{ address: '198.18.202.102', family: 4 }],
+    });
+    vi.stubEnv('NO_PROXY', '');
+    vi.stubEnv('HTTPS_PROXY', '');
+    await expect(
+      resolveAndValidateRelayEndpoint(f.url, { lookup: syntheticLookup }),
+    ).resolves.toMatchObject({
+      syntheticDns: true,
+      addresses: [{ address: '198.18.202.102', family: 4 }],
+    });
   });
 
   it('NO_PROXY connects directly using the validated address', async () => {
@@ -405,40 +662,78 @@ describe('relay environment HTTP proxy conformance', () => {
     vi.stubEnv('NO_PROXY', `.example:${f.port}`);
     // Direct TLS uses the same test CA without changing production trust.
     const createConnection = https.Agent.prototype.createConnection;
-    vi.spyOn(https.Agent.prototype, 'createConnection').mockImplementation(function(this: https.Agent, options, callback) {
+    vi.spyOn(https.Agent.prototype, 'createConnection').mockImplementation(function (
+      this: https.Agent,
+      options,
+      callback,
+    ) {
       return createConnection.call(this, { ...options, ca }, callback);
     });
-    await expect(new HttpRelayClient(f.url, { allowPrivateRelay: true,
-      lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).discover()).resolves.toEqual([]);
+    await expect(
+      new HttpRelayClient(f.url, {
+        allowPrivateRelay: true,
+        lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      }).discover(),
+    ).resolves.toEqual([]);
     expect(f.connects).toEqual([]);
     expect(f.requests[0]?.connection).toBe('close');
   });
 
-  it.each([403, 407])('reports safe fixed diagnostics for CONNECT %s across all transports', async status => {
-    const logs: unknown[][] = [];
-    for (const method of ['log', 'warn', 'error', 'info'] as const) vi.spyOn(console, method).mockImplementation((...values) => { logs.push(values); });
-    const f = await fixture(true, status);
-    const expected = status === 407 ? 'RELAY_PROXY_AUTH_FAILED' : 'RELAY_PROXY_REFUSED';
-    const clients = [new HttpRelayClient(f.url), new SseRelayClient(f.url, recipient),
-      new WebSocketRelayClient(f.url.replace('https:', 'wss:') + '/ws')];
-    for (const client of clients) {
-      const action = client instanceof WebSocketRelayClient ? client.ready() : client instanceof SseRelayClient
-        ? client.stream(recipient.did).next() : client.discover();
-      const error = await action.catch(error => error);
-      expect(error).toBeInstanceOf(Error); expect(error.message).toBe(expected);
-      expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:connect_response/${status}`);
-      const output = [String(error), JSON.stringify(error), formatCliError(error), relayDiagnostic(error).message].join('\n');
-      for (const secret of ['test-user', 'secret-pass', Buffer.from('test-user:secret-pass').toString('base64')]) expect(output).not.toContain(secret);
-    }
-    const checks = await diagnose({ home: process.env.HOME, identityOptions: { keyStore: 'file' } });
-    expect(checks.at(-1)?.ok).toBe(false);
-    expect(JSON.stringify(checks)).not.toMatch(/test-user|secret-pass/);
-    expect(JSON.stringify(logs)).not.toMatch(/test-user|secret-pass/);
-  });
+  it.each([403, 407])(
+    'reports safe fixed diagnostics for CONNECT %s across all transports',
+    async (status) => {
+      const logs: unknown[][] = [];
+      for (const method of ['log', 'warn', 'error', 'info'] as const)
+        vi.spyOn(console, method).mockImplementation((...values) => {
+          logs.push(values);
+        });
+      const f = await fixture(true, status);
+      const expected = status === 407 ? 'RELAY_PROXY_AUTH_FAILED' : 'RELAY_PROXY_REFUSED';
+      const clients = [
+        new HttpRelayClient(f.url),
+        new SseRelayClient(f.url, recipient),
+        new WebSocketRelayClient(f.url.replace('https:', 'wss:') + '/ws'),
+      ];
+      for (const client of clients) {
+        const action =
+          client instanceof WebSocketRelayClient
+            ? client.ready()
+            : client instanceof SseRelayClient
+              ? client.stream(recipient.did).next()
+              : client.discover();
+        const error = await action.catch((error) => error);
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toBe(expected);
+        expect(relayRetryCode(error)).toBe(`RELAY_PROXY_UNAVAILABLE:connect_response/${status}`);
+        const output = [
+          String(error),
+          JSON.stringify(error),
+          formatCliError(error),
+          relayDiagnostic(error).message,
+        ].join('\n');
+        for (const secret of [
+          'test-user',
+          'secret-pass',
+          Buffer.from('test-user:secret-pass').toString('base64'),
+        ])
+          expect(output).not.toContain(secret);
+      }
+      const checks = await diagnose({
+        home: process.env.HOME,
+        identityOptions: { keyStore: 'file' },
+      });
+      expect(checks.at(-1)?.ok).toBe(false);
+      expect(JSON.stringify(checks)).not.toMatch(/test-user|secret-pass/);
+      expect(JSON.stringify(logs)).not.toMatch(/test-user|secret-pass/);
+    },
+  );
 
   it('doctor uses the same tunnel without exposing the proxy host or port', async () => {
     const f = await fixture(true);
-    const checks = await diagnose({ home: process.env.HOME, identityOptions: { keyStore: 'file' } });
+    const checks = await diagnose({
+      home: process.env.HOME,
+      identityOptions: { keyStore: 'file' },
+    });
     expect(checks.at(-1)).toMatchObject({ ok: true, message: 'Reachable; via proxy' });
     expect(f.connects).toContain('relay.sealbridge.dev:443');
     expect(JSON.stringify(checks)).not.toMatch(/test-user|secret-pass/);
@@ -446,15 +741,19 @@ describe('relay environment HTTP proxy conformance', () => {
 
   it('doctor cannot report Reachable when the direct SSRF DNS policy blocks the relay', async () => {
     const f = await fixture();
-    vi.mocked(dnsLookup).mockImplementation(async hostname => {
-      if (String(hostname).endsWith('.invalid')) throw Object.assign(new Error('NXDOMAIN'), { code: 'ENOTFOUND' });
+    vi.mocked(dnsLookup).mockImplementation(async (hostname) => {
+      if (String(hostname).endsWith('.invalid'))
+        throw Object.assign(new Error('NXDOMAIN'), { code: 'ENOTFOUND' });
       return [{ address: '198.18.202.102', family: 4 }] as never;
     });
     const options = { home: process.env.HOME, identityOptions: { keyStore: 'file' as const } };
     expect((await diagnose(options)).at(-1)?.ok).toBe(true);
     expect(dnsLookup).not.toHaveBeenCalled();
     vi.stubEnv('NO_PROXY', 'relay.sealbridge.dev');
-    expect((await diagnose(options)).at(-1)).toMatchObject({ ok: false, message: 'Blocked (SSRF_BLOCKED_RELAY_URL)' });
+    expect((await diagnose(options)).at(-1)).toMatchObject({
+      ok: false,
+      message: 'Blocked (SSRF_BLOCKED_RELAY_URL)',
+    });
     expect(dnsLookup).toHaveBeenCalled();
     expect(f.connects).toEqual(['relay.sealbridge.dev:443']);
   });
@@ -462,11 +761,24 @@ describe('relay environment HTTP proxy conformance', () => {
   it('blocks other origins and URL-policy violations before CONNECT', async () => {
     const f = await fixture();
     const fetcher = createPinnedRelayFetch(f.url);
-    for (const target of [f.url.replace('relay.example', 'other.example'), f.url.replace('https:', 'http:'), 'https://relay.example:1'])
+    for (const target of [
+      f.url.replace('relay.example', 'other.example'),
+      f.url.replace('https:', 'http:'),
+      'https://relay.example:1',
+    ])
       await expect(fetcher(target)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
-    for (const target of ['https://localhost', 'https://service.local', 'https://service.internal', 'https://metadata.google.internal',
-      'https://169.254.169.254', 'https://198.18.1.1', 'https://127.0.0.1'])
-      await expect(resolveAndValidateRelayEndpoint(target)).rejects.toThrow('SSRF_BLOCKED_RELAY_URL');
+    for (const target of [
+      'https://localhost',
+      'https://service.local',
+      'https://service.internal',
+      'https://metadata.google.internal',
+      'https://169.254.169.254',
+      'https://198.18.1.1',
+      'https://127.0.0.1',
+    ])
+      await expect(resolveAndValidateRelayEndpoint(target)).rejects.toThrow(
+        'SSRF_BLOCKED_RELAY_URL',
+      );
     expect(f.connects).toEqual([]);
   });
 
@@ -475,18 +787,28 @@ describe('relay environment HTTP proxy conformance', () => {
     server.on('connect', () => {});
     const port = await listen(server);
     vi.stubEnv('HTTPS_PROXY', `http://127.0.0.1:${port}`);
-    const error = await new HttpRelayClient('https://relay.example', { requestTimeoutMs: 30 }).discover().catch(error => error);
+    const error = await new HttpRelayClient('https://relay.example', { requestTimeoutMs: 30 })
+      .discover()
+      .catch((error) => error);
     expect(error.message).toBe('RELAY_REQUEST_TIMEOUT');
     expect(isTransientRelayError(error)).toBe(true);
     expect(relayRetryCode(error)).toBe('RELAY_PROXY_UNAVAILABLE:connect_response/ETIMEDOUT');
-    await expect(createPinnedRelayFetch('https://relay.example')('https://relay.example', {
-      signal: AbortSignal.timeout(30) })).rejects.toThrow('ABORT');
+    await expect(
+      createPinnedRelayFetch('https://relay.example')('https://relay.example', {
+        signal: AbortSignal.timeout(30),
+      }),
+    ).rejects.toThrow('ABORT');
   });
 
   it('keeps the SSE idle timeout after headers and makes proxy network failures retryable', async () => {
     const f = await fixture();
-    const sse = new SseRelayClient(f.url, recipient, { requestTimeoutMs: 1000, socketTimeoutMs: 50 });
-    await expect(sse.stream(recipient.did).next()).rejects.toThrow(/RELAY_(?:IDLE_TIMEOUT|REQUEST_TIMEOUT|UNAVAILABLE)/);
+    const sse = new SseRelayClient(f.url, recipient, {
+      requestTimeoutMs: 1000,
+      socketTimeoutMs: 50,
+    });
+    await expect(sse.stream(recipient.did).next()).rejects.toThrow(
+      /RELAY_(?:IDLE_TIMEOUT|REQUEST_TIMEOUT|UNAVAILABLE)/,
+    );
     const { isTransientRelayError } = await import('../packages/relay/src/retry.js');
     expect(isTransientRelayError(new Error('RELAY_PROXY_UNAVAILABLE'))).toBe(true);
     expect(isTransientRelayError(new Error('RELAY_PROXY_AUTH_FAILED'))).toBe(false);
@@ -497,31 +819,61 @@ describe('relay environment HTTP proxy conformance', () => {
 
 describe('proxy selection', () => {
   it('handles protocol-specific precedence, lowercase, ALL_PROXY and safe invalid URL errors', () => {
-    const https = new URL('https://relay.example'), http = new URL('http://relay.example'), wss = new URL('wss://relay.example');
-    expect(relayProxyLabel(relayProxyFor(https, { https_proxy: 'http://lower:3128' })!)).toBe('lower:3128');
-    expect(relayProxyFor(https, { HTTPS_PROXY: 'http://upper', https_proxy: 'http://lower' })?.hostname).toBe('upper');
+    const https = new URL('https://relay.example'),
+      http = new URL('http://relay.example'),
+      wss = new URL('wss://relay.example');
+    expect(relayProxyLabel(relayProxyFor(https, { https_proxy: 'http://lower:3128' })!)).toBe(
+      'lower:3128',
+    );
+    expect(
+      relayProxyFor(https, { HTTPS_PROXY: 'http://upper', https_proxy: 'http://lower' })?.hostname,
+    ).toBe('upper');
     expect(relayProxyFor(wss, { ALL_PROXY: 'http://fallback' })?.hostname).toBe('fallback');
     expect(relayProxyFor(https, { all_proxy: 'http://fallback' })?.hostname).toBe('fallback');
-    expect(relayProxyFor(http, { http_proxy: 'http://plain', HTTPS_PROXY: 'http://secure' })?.hostname).toBe('plain');
+    expect(
+      relayProxyFor(http, { http_proxy: 'http://plain', HTTPS_PROXY: 'http://secure' })?.hostname,
+    ).toBe('plain');
     expect(relayProxyFor(http, { ALL_PROXY: 'http://fallback' })).toBeUndefined();
     expect(relayProxyFor(https, { HTTP_PROXY: 'http://plain' })).toBeUndefined();
-    expect(relayProxyFor(https, { HTTPS_PROXY: 'http://u%40ser:p%3Ass@proxy' })?.authorization)
-      .toBe('Basic ' + Buffer.from('u@ser:p:ss').toString('base64'));
-    expect(JSON.stringify(relayProxyFor(https, { HTTPS_PROXY: 'http://test-user:secret-pass@proxy' })))
-      .toBe('{"hostname":"proxy","port":80}');
-    for (const value of ['https://test-user:secret-pass@proxy', 'socks5://test-user:secret-pass@proxy', 'bad secret-pass', 'http://test-user:%zz@proxy']) {
-      expect(() => relayProxyFor(https, { HTTPS_PROXY: value })).toThrow(/^RELAY_PROXY_UNSUPPORTED$/);
+    expect(
+      relayProxyFor(https, { HTTPS_PROXY: 'http://u%40ser:p%3Ass@proxy' })?.authorization,
+    ).toBe('Basic ' + Buffer.from('u@ser:p:ss').toString('base64'));
+    expect(
+      JSON.stringify(relayProxyFor(https, { HTTPS_PROXY: 'http://test-user:secret-pass@proxy' })),
+    ).toBe('{"hostname":"proxy","port":80}');
+    for (const value of [
+      'https://test-user:secret-pass@proxy',
+      'socks5://test-user:secret-pass@proxy',
+      'bad secret-pass',
+      'http://test-user:%zz@proxy',
+    ]) {
+      expect(() => relayProxyFor(https, { HTTPS_PROXY: value })).toThrow(
+        /^RELAY_PROXY_UNSUPPORTED$/,
+      );
     }
   });
   it.each([
-    ['relay.example', 'https://relay.example', true], ['.example', 'https://relay.example', true],
-    ['.example', 'https://example', true], ['.example', 'https://badexample', false],
-    ['*', 'https://anything.example', true], ['relay.example:443', 'https://relay.example', true],
-    ['relay.example:80', 'https://relay.example', false], ['127.0.0.1', 'http://127.0.0.1', true],
-    ['::1', 'http://[::1]', true], ['[::1]:80', 'http://[::1]', true], ['[::1]:81', 'http://[::1]', false],
+    ['relay.example', 'https://relay.example', true],
+    ['.example', 'https://relay.example', true],
+    ['.example', 'https://example', true],
+    ['.example', 'https://badexample', false],
+    ['*', 'https://anything.example', true],
+    ['relay.example:443', 'https://relay.example', true],
+    ['relay.example:80', 'https://relay.example', false],
+    ['127.0.0.1', 'http://127.0.0.1', true],
+    ['::1', 'http://[::1]', true],
+    ['[::1]:80', 'http://[::1]', true],
+    ['[::1]:81', 'http://[::1]', false],
     ['0:0:0:0:0:0:0:1', 'http://[::1]', true],
-    ['other, relay.example.', 'https://relay.example', true], ['RELAY.EXAMPLE', 'https://RELAY.EXAMPLE', true],
+    ['other, relay.example.', 'https://relay.example', true],
+    ['RELAY.EXAMPLE', 'https://RELAY.EXAMPLE', true],
   ])('matches NO_PROXY %s against %s: %s', (noProxy, target, bypass) => {
-    expect(relayProxyFor(new URL(target), { HTTP_PROXY: 'http://proxy', HTTPS_PROXY: 'http://proxy', no_proxy: noProxy }) === undefined).toBe(bypass);
+    expect(
+      relayProxyFor(new URL(target), {
+        HTTP_PROXY: 'http://proxy',
+        HTTPS_PROXY: 'http://proxy',
+        no_proxy: noProxy,
+      }) === undefined,
+    ).toBe(bypass);
   });
 });

@@ -17,6 +17,8 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm validate:schemas
+pnpm format:check
+pnpm lint
 ```
 
 `pnpm conformance` と `pnpm test` は同じ Vitest のテストを実行します。
@@ -24,6 +26,13 @@ pnpm validate:schemas
 セキュリティ検証は `pnpm test:security-proof` で実行できます。
 ソースからの CLI の確認には `pnpm sealbridge --help` を使います。
 ビルド済み CLI のテストが使うソースを変更したら再ビルドしてください。
+
+`pnpm format` で整形し、`pnpm format:check` で整形を確認し、`pnpm lint` で
+型情報を使った Promise の検査を実行します。CI では conformance の行列に加え、Ubuntu・Node 22 の `lint` ジョブも必須です。
+ESLint のルールは `no-floating-promises` と `no-misused-promises` の2つだけで、どちらもエラーです。
+既存のコード全体は未整形のため、`format:check` は現時点では差分を報告し、CI の必須検査にはしません。
+専用の後続 PR でリポジトリ全体を整形してから `prettier --check` を必須化します。
+現時点では変更したファイルを整形してください。
 
 ## 変更と検証
 

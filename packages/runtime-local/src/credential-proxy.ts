@@ -102,9 +102,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function tokenCount(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 /** Later cumulative fields replace earlier ones. They are not added together. */
@@ -244,9 +242,7 @@ async function readUpstream(result: Response, response: ServerResponse): Promise
   }
   let snapshot = emptyUsage();
   try {
-    snapshot = parser
-      ? parser.finish()
-      : usageFromJson(Buffer.concat(jsonChunks).toString('utf8'));
+    snapshot = parser ? parser.finish() : usageFromJson(Buffer.concat(jsonChunks).toString('utf8'));
   } catch (caught) {
     error ??= caught;
   }
@@ -325,69 +321,77 @@ export async function startCredentialProxy(
       halted = true;
   };
 
-  const server = createServer(async (request, response) => {
-    try {
-      if (!authorized(request, token)) {
-        deny(request, response, 401);
-        return;
-      }
-      const path = new URL(request.url ?? '/', 'http://localhost');
-      if (request.method !== 'POST' || !PROVIDER_PATHS.has(path.pathname)) {
-        deny(request, response, 403);
-        return;
-      }
-      authenticatedRequests += 1;
-      const blocked = rejection();
-      if (blocked) {
-        deny(request, response, 429, blocked);
-        return;
-      }
-      forwarded += 1;
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of request) {
-        size += (chunk as Buffer).length;
-        if (size > 4194304) throw new Error('PROVIDER_REQUEST_LIMIT');
-        chunks.push(chunk as Buffer);
-      }
-      const headers: Record<string, string> = { 'content-type': 'application/json' };
-      if (options.style === 'anthropic') {
-        headers['x-api-key'] = options.apiKey;
-        headers['anthropic-version'] = String(request.headers['anthropic-version'] ?? '2023-06-01');
-        if (request.headers['anthropic-beta'])
-          headers['anthropic-beta'] = String(request.headers['anthropic-beta']);
-      } else headers.authorization = 'Bearer ' + options.apiKey;
-      const target = new URL(upstream);
-      target.pathname = upstream.pathname.replace(/\/$/, '') + path.pathname.replace(/^\/v1/, '');
-      const result = await (options.fetch ?? fetch)(target, {
-        method: 'POST',
-        headers,
-        body: Buffer.concat(chunks),
-        signal: options.signal,
-        redirect: 'error',
-      });
-      // Provider error bodies can contain account details; keep those in the host.
-      if (!result.ok) {
-        response.writeHead(result.status).end(JSON.stringify({ error: 'PROVIDER_REQUEST_FAILED' }));
-        await result.body?.cancel();
-        return;
-      }
-      response.writeHead(result.status, {
-        'content-type': result.headers.get('content-type') ?? 'application/json',
-      });
-      const upstreamBody = await readUpstream(result, response);
-      account(upstreamBody.snapshot);
-      if (upstreamBody.error) throw upstreamBody.error;
-      if (!response.writableEnded) response.end();
-    } catch {
+  const server = createServer((request, response) => {
+    void (async () => {
       try {
-        if (!response.headersSent) response.writeHead(502);
-        if (!response.writableEnded)
-          response.end(JSON.stringify({ error: 'PROVIDER_REQUEST_FAILED' }));
+        if (!authorized(request, token)) {
+          deny(request, response, 401);
+          return;
+        }
+        const path = new URL(request.url ?? '/', 'http://localhost');
+        if (request.method !== 'POST' || !PROVIDER_PATHS.has(path.pathname)) {
+          deny(request, response, 403);
+          return;
+        }
+        authenticatedRequests += 1;
+        const blocked = rejection();
+        if (blocked) {
+          deny(request, response, 429, blocked);
+          return;
+        }
+        forwarded += 1;
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          size += (chunk as Buffer).length;
+          if (size > 4194304) throw new Error('PROVIDER_REQUEST_LIMIT');
+          chunks.push(chunk as Buffer);
+        }
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (options.style === 'anthropic') {
+          headers['x-api-key'] = options.apiKey;
+          headers['anthropic-version'] = String(
+            request.headers['anthropic-version'] ?? '2023-06-01',
+          );
+          if (request.headers['anthropic-beta'])
+            headers['anthropic-beta'] = String(request.headers['anthropic-beta']);
+        } else headers.authorization = 'Bearer ' + options.apiKey;
+        const target = new URL(upstream);
+        target.pathname = upstream.pathname.replace(/\/$/, '') + path.pathname.replace(/^\/v1/, '');
+        const result = await (options.fetch ?? fetch)(target, {
+          method: 'POST',
+          headers,
+          body: Buffer.concat(chunks),
+          signal: options.signal,
+          redirect: 'error',
+        });
+        // Provider error bodies can contain account details; keep those in the host.
+        if (!result.ok) {
+          response
+            .writeHead(result.status)
+            .end(JSON.stringify({ error: 'PROVIDER_REQUEST_FAILED' }));
+          await result.body?.cancel();
+          return;
+        }
+        response.writeHead(result.status, {
+          'content-type': result.headers.get('content-type') ?? 'application/json',
+        });
+        const upstreamBody = await readUpstream(result, response);
+        account(upstreamBody.snapshot);
+        if (upstreamBody.error) throw upstreamBody.error;
+        if (!response.writableEnded) response.end();
       } catch {
-        // The client socket can already be gone when the upstream stream fails.
+        try {
+          if (!response.headersSent) response.writeHead(502);
+          if (!response.writableEnded)
+            response.end(JSON.stringify({ error: 'PROVIDER_REQUEST_FAILED' }));
+        } catch {
+          // The client socket can already be gone when the upstream stream fails.
+        }
       }
-    }
+    })().catch((error: unknown) => {
+      response.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
