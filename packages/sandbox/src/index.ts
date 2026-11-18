@@ -139,7 +139,6 @@ export async function runSandbox(options: SandboxOptions): Promise<Json> {
       // `close` means stdio and the process handle are gone, so Windows can release cwd.
       exited = new Promise((resolveExit) => {
         const finished = () => resolveExit();
-        subprocess.once('exit', finished);
         subprocess.once('close', finished);
       });
       let done = false,
@@ -195,8 +194,13 @@ export async function runSandbox(options: SandboxOptions): Promise<Json> {
           .catch((e) => finish(e as Error));
       });
       subprocess.on('error', (e) => finish(e));
-      subprocess.on('exit', (code) => {
-        if (!done) finish(new Error('SANDBOX_EXIT: ' + code + ' ' + stderr));
+      subprocess.on('close', (code) => {
+        // `exit` can precede the last IPC message. Even at `close`, received
+        // messages may still be queued behind an asynchronous tool handler.
+        // Drain them before deciding that the child failed to return a result.
+        void serial.then(() => {
+          if (!done) finish(new Error('SANDBOX_EXIT: ' + code + ' ' + stderr));
+        });
       });
     });
   } finally {
