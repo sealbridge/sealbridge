@@ -208,7 +208,11 @@ class DeliveryStoreImplementation {
       const before = stamp();
       try { return this.readOnce(kind, id); }
       catch (error) {
-        if (stamp() === before) throw error;
+        const after = stamp();
+        // Publication and pruning can both occur within this unlocked read.
+        // Even absent -> present -> absent is completed cleanup, not corruption.
+        if (after === 'absent') return;
+        if (after === before) throw error;
         if (attempt >= 7) throw deliveryError('OUTBOX_STORE_BUSY');
       }
     }
