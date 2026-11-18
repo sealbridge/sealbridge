@@ -17,7 +17,6 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm validate:schemas
-pnpm format:check
 pnpm lint
 ```
 

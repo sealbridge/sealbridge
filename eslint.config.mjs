@@ -1,4 +1,4 @@
-﻿import tseslint from 'typescript-eslint';
+import tseslint from 'typescript-eslint';
 
 export default [
   { ignores: ['**/dist/**', '**/dist-local/**', '**/node_modules/**', '**/coverage/**'] },
