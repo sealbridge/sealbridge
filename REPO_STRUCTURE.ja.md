@@ -2,7 +2,7 @@
 
 [English (REPO_STRUCTURE.md)](./REPO_STRUCTURE.md) | **日本語**
 
-**結論**: プロトコル仕様（`spec/`）と適合性テストベクタ（`conformance/`）を言語非依存の「正（Single Source of Truth）」として最上位に置き、リファレンス実装（`packages/*`）は **TypeScript (Node.js 22 ?? + pnpm workspace)** で最小依存に構築する。最初のマイルストーン（MVP / M1）は、**「異なる鍵ペアを持つ2つのOwner Gatewayが、Untrusted Relay越しに1つのタスクを契約・Capability制限付きツール呼び出し・自動検収・双方向監査ログ記録まで完遂するE2Eデモ」** とする。
+**結論**: プロトコル仕様（`spec/`）と適合性テストベクタ（`conformance/`）を言語非依存の「正（Single Source of Truth）」として最上位に置き、リファレンス実装（`packages/*`）は **TypeScript (Node.js 22 以降 + pnpm workspace)** で最小依存に構築する。最初のマイルストーン（MVP / M1）は、**「異なる鍵ペアを持つ2つのOwner Gatewayが、Untrusted Relay越しに1つのタスクを契約・Capability制限付きツール呼び出し・自動検収・双方向監査ログ記録まで完遂するE2Eデモ」** とする。
 
 ---
 
