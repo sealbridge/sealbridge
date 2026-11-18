@@ -57,6 +57,40 @@ it('treats batch marker removal during an unlocked snapshot as completed cleanup
   expect(reader.committed(batch)).toEqual([]);
 });
 
+it('treats a record published and pruned within one unlocked read as absent', () => {
+  const f = fixture(), p = f.prepare(), [id] = f.service.enqueue(p.frames, p.context);
+  const path = f.service.store.path('outbox', id), record = f.service.store.read('outbox', id)!;
+  f.service.store.transaction(() => {
+    f.service.store.remove('batches', record.batchId);
+    f.service.store.remove('outbox', id);
+  });
+  let published = false, pruned = false;
+  const reader = new DeliveryStore(f.owner, { ...f.identityOptions, fs: { ...fs,
+    lstatSync: ((file, ...args) => {
+      if (String(file) === path && !published) {
+        try { return fs.lstatSync(file, ...args); }
+        catch (error) {
+          // Publish after the first absent observation, before readOnce starts.
+          f.service.store.transaction(() => f.service.store.write('outbox', id, record));
+          published = true;
+          throw error;
+        }
+      }
+      return fs.lstatSync(file, ...args);
+    }) as typeof fs.lstatSync,
+    readSync: ((fd: number, buffer: Buffer, offset: number, length: number, position: number | null) => {
+      const count = fs.readSync(fd, buffer, offset, length, position);
+      if (count && !pruned) {
+        pruned = true;
+        f.service.store.transaction(() => f.service.store.remove('outbox', id));
+      }
+      return count;
+    }) as typeof fs.readSync,
+  } });
+  expect(reader.read('outbox', id)).toBeUndefined();
+  expect({ published, pruned }).toEqual({ published: true, pruned: true });
+});
+
 it.each(['OUTBOX_STORE_BUSY', 'OUTBOX_STORE_INVALID'])('contains %s from status enumeration and retries on the next drain', async code => {
   const f = fixture(), errors: Error[] = [];
   const service = f.restart(f.owner, { onError: error => errors.push(error) });
