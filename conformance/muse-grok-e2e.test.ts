@@ -117,7 +117,8 @@ it.each([[false, false, false], [true, false, false], [false, true, false], [tru
   const endpoint = `http://127.0.0.1:${(model.address() as import('node:net').AddressInfo).port}/v1/chat/completions`;
   const relay = await startLocalRelay({ port: 0 });
   try {
-    const am = await mcp(a, relay.url), bm = await mcp(b, relay.url);
+    const am = await mcp(a, relay.url, migrated ? undefined : join(a, 'identities', 'requester.private.json'));
+    const bm = await mcp(b, relay.url);
     const invite = cliFirst ? { inviteToken: (await cli(a, ['invite', 'create', '--relay', relay.url, '--name', 'Alpha Muse', '--allow-private-relay'])).trim().split(/\r?\n/)[0] } : await call(am.client, 'acp_create_invite', { name: 'Alpha Muse' });
     const saved = JSON.parse(await cli(b, ['accept', '--stdin', '--alias', 'buddy', '--allow-private-relay'], invite.inviteToken + '\n'));
     const aw = await worker(a, relay.url, join(root, 'muse.jsonl'), migrated);

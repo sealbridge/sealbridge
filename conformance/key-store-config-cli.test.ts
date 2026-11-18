@@ -175,7 +175,7 @@ describe('persisted identity store selection', () => {
 });
 
 describe('CLI identity stores', () => {
-  it('keeps MCP startup and listing lazy, then signs with the configured requester keychain', async () => {
+  it('keeps MCP startup and listing lazy, then refuses implicit requester keychain invites', async () => {
     offline();
     const { options, entries, root } = fixture();
     setApplicationKeyStore('keychain', options);
@@ -185,7 +185,9 @@ describe('CLI identity stores', () => {
       await call('acp_list_invites'); await call('acp_list_pending_requests');
       expect(entries.size).toBe(0);
       const result = await call('acp_create_invite');
-      expect(JSON.stringify(result)).not.toContain('"isError":true');
+      expect(JSON.stringify(result)).toContain('"isError":true');
+      expect(JSON.stringify(result)).toContain('INVITE_REQUESTER_LISTENER_REQUIRED');
+      expect(JSON.stringify(result)).not.toContain('inviteToken');
     });
     await mcpServerCommand([], options);
     expect(entries.size).toBe(1);

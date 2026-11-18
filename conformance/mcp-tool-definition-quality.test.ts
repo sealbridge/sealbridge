@@ -353,6 +353,8 @@ describe('MCP tool definition quality', () => {
       name: 'Quality Worker',
     });
     const invite = JSON.parse(created.result?.content?.[0].text ?? '') as { inviteToken: string };
+    expect(invite).not.toHaveProperty('warning');
+    expect((await outputSchema(server, 'acp_create_invite') as { properties: unknown }).properties).not.toHaveProperty('warning');
     const targetId = inviteRevocationId(invite.inviteToken);
     const revoked = await callTool(server, 'acp_revoke_token', {
       targetType: 'invite',

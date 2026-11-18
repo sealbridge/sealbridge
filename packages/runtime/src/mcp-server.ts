@@ -139,6 +139,12 @@ function rpcError(id: unknown, code: number, message: string): Json {
   return { jsonrpc: '2.0', id: (id ?? null) as Json, error: { code, message } };
 }
 
+const REQUESTER_LISTENER_NEXT_STEP = 'Build MCP with options.owner or start mcp-server --key <file> to make the receiving identity explicit. After minting in that valid configuration, run sealbridge worker start --also-requester with the same data root and key-store settings; optionally add --requester-auto-accept read-only or --requester-auto-accept write. Alternatively use sealbridge invite create for a worker-key invite served by plain worker start, or use a migrated owner gateway.';
+class InviteRequesterListenerRequiredError extends Error {
+  constructor(readonly ownerDid: string, readonly agentDid: string) {
+    super('INVITE_REQUESTER_LISTENER_REQUIRED');
+  }
+}
 function toolResult(value: Json, isError = false): Json {
   const result: { [key: string]: Json } = {
     content: [{ type: 'text', text: JSON.stringify(value) }],
@@ -473,6 +479,10 @@ export class AcpMcpServer {
           ...(pending.pendingStoreError ? { pendingStoreError: pending.pendingStoreError } : {}),
           ...(pending.originalTaskId ? { originalTaskId: pending.originalTaskId } : {}), nextStep: PENDING_NEXT_STEP }, true);
       }
+      if (error instanceof InviteRequesterListenerRequiredError)
+        return toolResult({ error: error.message, ownerDid: error.ownerDid, agentDid: error.agentDid,
+          message: 'Invite creation refused: default unmigrated MCP targets the requester identity, which a plain sealbridge worker start cannot receive. No invite token or shared-invite limit was created.',
+          nextStep: REQUESTER_LISTENER_NEXT_STEP }, true);
       if (error instanceof RpcError) throw error;
       const code = error instanceof Error ? error.message.split(':')[0] : '';
       const guidance = connectionTargetGuidance(code);
@@ -897,6 +907,10 @@ export class AcpMcpServer {
       : await delegatedWorkerIdentity(this.options.identityOptions, owner);
     const agentKey = this.options.agentKey ?? delegated?.agentKey;
     const agentDid = typeof args.agentDid === 'string' ? args.agentDid : delegated?.agentKey.did ?? owner.did;
+    // Refuse before minting or persisting shared limits for an implicit requester inbox.
+    const needsRequesterListener = !delegated && !this.options.owner &&
+      !this.options.identityOptions?.explicitKeyPath;
+    if (needsRequesterListener) throw new InviteRequesterListenerRequiredError(owner.did, agentDid);
     const card = createSignedAgentCard(
       {
         name: typeof args.name === 'string' ? args.name : (this.options.name ?? 'Sealbridge Worker'),
@@ -918,17 +932,7 @@ export class AcpMcpServer {
     const inviteToken = createInviteToken(inviteOptions, owner);
     if (maxUses > 1) new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, this.options.identityOptions), now: this.options.now })
       .recordInviteLimit(parseAndVerifyInviteToken(inviteToken, Date.now(), { allowPrivateRelay: true }), maxUses);
-    // The default MCP signer is the requester, not the plain worker listener.
-    // Preserve existing invitations/receiving paths, but surface the prerequisite
-    // before a peer sends to an inbox that may have no listener.
-    const needsRequesterListener = !delegated && !this.options.owner &&
-      !this.options.identityOptions?.explicitKeyPath;
-    return { inviteToken, ...(needsRequesterListener ? { warning: {
-      code: 'INVITE_REQUESTER_LISTENER_REQUIRED',
-      ownerDid: owner.did,
-      agentDid,
-      message: 'This MCP invite is addressed to the requester identity. A plain sealbridge worker start does not receive it. With the same data root and key-store configuration, add --also-requester; to opt into automatic acceptance, add --requester-auto-accept read-only or --requester-auto-accept write. Alternatively issue a worker-key invite with sealbridge invite create, or use a migrated owner gateway. Without a listener on the invite identity, peers can receive TASK_TIMEOUT.',
-    } } : {}) };
+    return { inviteToken };
   }
   private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (

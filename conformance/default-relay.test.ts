@@ -141,7 +141,7 @@ describe('application relay provenance', () => {
       expect(new Set(selected)).toEqual(new Set([DEFAULT_PUBLIC_RELAY]));
       const requester = resolveOrCreateIdentity('requester', identityOptions);
       expect(requester.did).not.toBe(owner.did);
-      const restarted = new AcpMcpServer({ identityOptions });
+      const restarted = new AcpMcpServer({ owner: requester, identityOptions });
       const next = await call(restarted, 'acp_create_invite');
       expect(parseAndVerifyInviteToken(next.value.inviteToken).ownerDid).toBe(requester.did);
       expect(parseAndVerifyInviteToken(next.value.inviteToken).relayUrl).toBe(DEFAULT_PUBLIC_RELAY);
