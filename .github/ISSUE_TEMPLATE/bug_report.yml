@@ -1,0 +1,41 @@
+name: Bug report / バグ報告
+description: Report a reproducible non-security bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For unpatched vulnerabilities, follow [SECURITY.md](https://github.com/sealbridge/sealbridge/blob/main/SECURITY.md), not a public issue. Never include private keys, credentials, live invite tokens or private task payloads.
+        未修正の脆弱性は [SECURITY.ja.md](https://github.com/sealbridge/sealbridge/blob/main/SECURITY.ja.md) の非公開窓口へ。秘密鍵・認証情報・有効な招待トークン・非公開の仕事の内容を含めないでください。
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit / バージョンまたはコミット
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment / 実行環境
+      description: OS/version, Node.js, pnpm and relevant host or adapter
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction / 再現手順
+      description: Minimal steps and synthetic input
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 期待する動作
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 実際の動作
+      description: Include redacted errors or logs if useful
+    validations:
+      required: true

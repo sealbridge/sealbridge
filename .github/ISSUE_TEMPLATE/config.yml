@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report / 非公開の脆弱性報告
+    url: https://github.com/sealbridge/sealbridge/security/advisories/new
+    about: Prefer the private advisory form; if unavailable, email security@sealbridge.dev. / 非公開フォームが利用できない場合は security@sealbridge.dev へ。

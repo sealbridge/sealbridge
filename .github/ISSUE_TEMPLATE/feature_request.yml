@@ -1,0 +1,25 @@
+name: Feature request / 機能要望
+description: Suggest a focused improvement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, keys, credentials, live invite tokens or private task payloads. Report vulnerabilities privately via [SECURITY.md](https://github.com/sealbridge/sealbridge/blob/main/SECURITY.md).
+        機密情報・鍵・認証情報・有効な招待トークン・非公開の仕事の内容を含めないでください。脆弱性は [SECURITY.ja.md](https://github.com/sealbridge/sealbridge/blob/main/SECURITY.ja.md) の非公開窓口へ。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case / 問題・用途
+      description: What are you trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior / 提案する動作
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and context / 代替案・背景

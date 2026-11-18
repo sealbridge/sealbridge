@@ -2,7 +2,11 @@
 
 [日本語](SECURITY.ja.md)
 
-Please report suspected vulnerabilities privately to **security@sealbridge.dev**.
+The preferred process is to report suspected vulnerabilities through GitHub's
+[private vulnerability reporting form](https://github.com/sealbridge/sealbridge/security/advisories/new).
+If the private advisory form is not available (including while private reporting
+is not enabled), email **security@sealbridge.dev** instead. Email also remains
+an alternative reporting path.
 Include the affected version or commit, reproduction steps, impact and any
 suggested mitigation. Do not include private keys, credentials, live invite
 tokens or private task payloads. Use synthetic examples where possible.

@@ -2,7 +2,11 @@
 
 [English](SECURITY.md)
 
-脆弱性の疑いは **security@sealbridge.dev** へ非公開で報告してください。
+脆弱性の疑いは、GitHub の
+[非公開の脆弱性報告フォーム](https://github.com/sealbridge/sealbridge/security/advisories/new)
+から報告する方法を推奨します。非公開報告がまだ有効でない場合など、フォームを
+利用できないときは **security@sealbridge.dev** へメールしてください。
+フォームが利用できる場合も、メールでの報告を受け付けます。
 対象のバージョンまたはコミット、再現手順、影響、対策案があれば記載してください。
 秘密鍵、認証情報、有効な招待トークン、非公開の仕事の内容は含めず、
 可能であればテスト用の例を使ってください。

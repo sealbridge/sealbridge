@@ -2,6 +2,8 @@
 
 **English** | [日本語 (README.ja.md)](./README.ja.md)
 
+Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
+
 Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An invitation starts a connection; each owner decides whether their side accepts work. DIDs identify peers; names are local shortcuts.
 
 ## Install on Muse
