@@ -10,6 +10,8 @@ Sealbridge UX-2 は、ローカル招待 QR・リンク、署名付き
 
 ## 招待共有
 
+MCP `acp_create_invite` は通常・共用（`maxUses`）招待とも既定では requester 鍵で署名します。未移行の場合は `warning.code: INVITE_REQUESTER_LISTENER_REQUIRED` と受信先 DID・起動方法を返します。招待の owner/agent ID を扱うワーカーが必要で、通常の `worker start` は別の worker 鍵だけで待ち受けます。同じデータルート・鍵ストア設定で、通常の adapter/relay オプションに `--also-requester` を追加してください。自動受付を選ぶ場合は `--requester-auto-accept read-only` または `--requester-auto-accept write` も追加します。それ以外は所有者の承認が必要です。代わりに `sealbridge invite create` で worker 鍵の招待を発行するか、移行済み所有者ゲートウェイを使えます。発行は待受を起動・検出しません。宛先 DID に受信者がいなければ署名付きエラーを返せず、相手は `TASK_TIMEOUT` になる可能性があります。明示指定の MCP ID と移行済み経路の動作は維持します。
+
 ```text
 sealbridge invite share --file invite.txt --host https://sealbridge.app/i --png invite.png --svg invite.svg
 sealbridge invite open --file received-link.txt

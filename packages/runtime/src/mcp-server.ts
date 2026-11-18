@@ -918,7 +918,17 @@ export class AcpMcpServer {
     const inviteToken = createInviteToken(inviteOptions, owner);
     if (maxUses > 1) new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, this.options.identityOptions), now: this.options.now })
       .recordInviteLimit(parseAndVerifyInviteToken(inviteToken, Date.now(), { allowPrivateRelay: true }), maxUses);
-    return { inviteToken };
+    // The default MCP signer is the requester, not the plain worker listener.
+    // Preserve existing invitations/receiving paths, but surface the prerequisite
+    // before a peer sends to an inbox that may have no listener.
+    const needsRequesterListener = !delegated && !this.options.owner &&
+      !this.options.identityOptions?.explicitKeyPath;
+    return { inviteToken, ...(needsRequesterListener ? { warning: {
+      code: 'INVITE_REQUESTER_LISTENER_REQUIRED',
+      ownerDid: owner.did,
+      agentDid,
+      message: 'This MCP invite is addressed to the requester identity. A plain sealbridge worker start does not receive it. With the same data root and key-store configuration, add --also-requester; to opt into automatic acceptance, add --requester-auto-accept read-only or --requester-auto-accept write. Alternatively issue a worker-key invite with sealbridge invite create, or use a migrated owner gateway. Without a listener on the invite identity, peers can receive TASK_TIMEOUT.',
+    } } : {}) };
   }
   private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (
