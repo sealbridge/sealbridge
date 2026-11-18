@@ -28,7 +28,7 @@ deployment is added by this route.
 
 ## Build and preview
 
-Use Node.js 22 and pnpm 10 from the repository root:
+Use Node.js 22 or later and pnpm 10 from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile

@@ -24,6 +24,6 @@
     "@acp/ledger": "workspace:*"
   },
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22"
   }
 }

@@ -21,7 +21,7 @@
     "@acp/runtime-local": "workspace:*"
   },
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22"
   },
   "description": "Sealbridge: encrypted cross-owner agent collaboration (adapters)",
   "keywords": [

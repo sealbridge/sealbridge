@@ -4,7 +4,9 @@
 
 ## 開発環境
 
-Git、Node.js 22、pnpm 10 を用意してください。`package.json` が指定する
+Sealbridge は Node.js 22 以降をサポートし（現在の実効的な最低バージョンは 22）、CI は Node 22 と Node 24 でテストし、公開パッケージは Node 22 でビルドし、インストーラーは Node を導入する際に 22.22.0 に固定しますが、動作する同梱 npm がある既存の Node 22 以降は再利用します。
+
+Git、Node.js 22 以降、pnpm 10 を用意してください。`package.json` が指定する
 `pnpm@10.34.6` を使い、リポジトリ直下で実行します。
 
 ```sh
@@ -31,7 +33,7 @@ pnpm validate:schemas
 テスト用データを使い、ログから機密情報を削除してください。
 
 PR を作る前に上記のチェックを実行し、未実行のものを明記します。
-PR は Node.js 22 を使う macOS・Ubuntu・Windows の必須 conformance CI を
+PR は Node.js 22 と 24 を使う macOS・Ubuntu・Windows の必須 conformance CI を
 すべて通過する必要があります。CI は実際の Codex のプロキシ経路、静的サイト、
 セキュリティ検証、デモも確認します。インストーラーのチェックは別途実行されます。
 正確な手順は [CI ワークフロー](.github/workflows/conformance.yml) を参照してください。

@@ -25,7 +25,7 @@
 
 ## ビルドとプレビュー
 
-Node.js 22 と pnpm 10 を使い、リポジトリ直下で実行します。
+Node.js 22 以降と pnpm 10 を使い、リポジトリ直下で実行します。
 
 ```sh
 pnpm install --frozen-lockfile

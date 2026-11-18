@@ -57,7 +57,7 @@ These choices apply only to that local peer; they do not start a worker or remov
 
 ## Install on Grok Bot
 
-Paste the same repository link and say "install this." Building from source needs Node.js 22 and pnpm 10. After `pnpm install --frozen-lockfile` and `pnpm build` in the checkout, this POSIX-shell function makes the source command available in the current shell (no global install needed):
+Paste the same repository link and say "install this." Building from source needs Node.js 22 or later and pnpm 10. After `pnpm install --frozen-lockfile` and `pnpm build` in the checkout, this POSIX-shell function makes the source command available in the current shell (no global install needed):
 
 ```sh
 sealbridge_source="$PWD"
@@ -154,7 +154,9 @@ For the local edition, run `npm i -g sealbridge-local` and use `sealbridge-local
 
 ### Try from source / run your own relay
 
-Requires Node.js 22 and pnpm 10.
+Sealbridge supports Node.js 22 and later (the current effective minimum is 22); CI tests Node 22 and Node 24, published packages are built on Node 22, and the installer pins Node 22.22.0 when installing Node but reuses an existing Node 22+ runtime with working bundled npm.
+
+Requires pnpm 10.
 
 ```sh
 git clone https://github.com/sealbridge/sealbridge.git && cd sealbridge
