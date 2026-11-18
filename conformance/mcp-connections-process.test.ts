@@ -10,6 +10,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { startLocalRelay } from '../packages/relay/src/index.js';
 import { migrateWorkerIdentity, resolveStoredIdentity, setApplicationAutoAccept } from '../packages/runtime/src/index.js';
+import { parseAndVerifyInviteToken } from '../packages/core/src/index.js';
+import { formatCliError } from '../cli/src/error-messages.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 const roots: string[] = [], children: ChildProcess[] = [], clients: Client[] = [];
 afterEach(async () => {
@@ -32,10 +34,10 @@ function cli(root: string, args: string[], stdin?: string) {
     child.once('error', fail); child.once('close', code => code === 0 ? done(stdout) : fail(new Error('CLI failed: ' + stderr.replace(/acp-invite:[\w-]+/g, '[invite]'))));
   });
 }
-async function worker(root: string, url: string, audit: string, migrated: boolean) {
+async function worker(root: string, url: string, audit: string, migrated: boolean, plain = false) {
   const child = spawn(process.execPath, [resolve('cli/dist/index.js'), 'worker', 'start', '--relay', url, '--allow-private-relay',
     '--adapter', 'sandbox', '--allow-local-pc', '--auto-accept', '--audit', audit,
-    ...(!migrated ? ['--also-requester', '--requester-auto-accept', 'write'] : [])], { env: environment(root), stdio: ['pipe', 'ignore', 'pipe'] });
+    ...(!migrated && !plain ? ['--also-requester', '--requester-auto-accept', 'write'] : [])], { env: environment(root), stdio: ['pipe', 'ignore', 'pipe'] });
   children.push(child);
   await new Promise<void>((done, fail) => {
     const timer = setTimeout(() => fail(new Error('worker readiness timeout')), 10000);
@@ -65,7 +67,37 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   expect(value.structuredContent).toEqual(payload);
   return payload;
 }
-it.each([false, true])('real MCP/CLI processes: A creates, B accepts/lists/delegates by name, reverse send settles, bilateral audits VALID; migrated=%s', async migrated => {
+it.each([1, 3])('MCP mint warns before sharing with a plain worker running; maxUses=%s', async maxUses => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-invite-listener-')); roots.push(root);
+  const options = { env: { SEALBRIDGE_DATA_DIR: root, SEALBRIDGE_KEY_STORE: 'file' } };
+  const requester = await resolveStoredIdentity('requester', options);
+  const workerKey = await resolveStoredIdentity('worker', options);
+  expect(requester.did).not.toBe(workerKey.did);
+  const relay = await startLocalRelay({ port: 0 });
+  try {
+    await worker(root, relay.url, join(root, 'worker.jsonl'), false, true);
+    const host = await mcp(root, relay.url);
+    const result = await call(host.client, 'acp_create_invite', { maxUses });
+    const invite = parseAndVerifyInviteToken(result.inviteToken, Date.now(), { allowPrivateRelay: true });
+    expect(invite.ownerDid).toBe(requester.did);
+    expect(result.warning).toMatchObject({ code: 'INVITE_REQUESTER_LISTENER_REQUIRED',
+      ownerDid: invite.ownerDid, agentDid: invite.agentDid });
+    for (const text of ['plain sealbridge worker start', '--also-requester', '--requester-auto-accept read-only',
+      '--requester-auto-accept write', 'sealbridge invite create', 'migrated owner gateway', 'TASK_TIMEOUT'])
+      expect(result.warning.message).toContain(text);
+    const guidance = formatCliError(new Error(result.warning.code));
+    expect(guidance).toContain('This MCP invite targets the requester identity.');
+    expect(guidance).toContain('この MCP 招待');
+  } finally {
+    await Promise.all(clients.splice(0).map(c => c.close()));
+    await Promise.all(children.splice(0).map(c => new Promise<void>(done => {
+      if (c.exitCode !== null || c.signalCode !== null) { done(); return; }
+      c.once('close', () => done()); c.kill('SIGKILL');
+    })));
+    await relay.close();
+  }
+}, 30000);
+it.each([[false, 1], [false, 3], [true, 1], [true, 3]] as const)('real MCP/CLI processes: A creates, B accepts/lists/delegates by name, reverse send settles, bilateral audits VALID; migrated=%s maxUses=%s', async (migrated, maxUses) => {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'mcp-peer-process-')); roots.push(root);
   const a = join(root, 'a'), b = join(root, 'b');
   for (const folder of [a, b]) {
@@ -77,7 +109,9 @@ it.each([false, true])('real MCP/CLI processes: A creates, B accepts/lists/deleg
   const relay = await startLocalRelay({ port: 0 });
   try {
     const am = await mcp(a, relay.url), bm = await mcp(b, relay.url);
-    const invite = await call(am.client, 'acp_create_invite', { name: 'Alpha' });
+    const invite = await call(am.client, 'acp_create_invite', { name: 'Alpha', maxUses });
+    if (migrated) expect(invite).not.toHaveProperty('warning');
+    else expect(invite.warning.code).toBe('INVITE_REQUESTER_LISTENER_REQUIRED');
     await cli(b, ['accept', '--stdin', '--alias', 'alpha', '--allow-private-relay'], invite.inviteToken + '\n');
     await worker(a, relay.url, join(root, 'a-worker.jsonl'), migrated);
     const first = await call(bm.client, 'acp_delegate_task', { peerRef: 'alpha', title: 'Initial connection', input: { direction: 'B to A' }, taskTimeoutMs: 10000 });

@@ -736,7 +736,7 @@ export const mcpTools: Json = [
     name: 'acp_create_invite',
     title: 'Create an invite token',
     description:
-      'Sign an acp-invite token for this server owner (requester key by default; worker migrate aligns CLI and MCP owner identity) and return it for local import with sealbridge accept; later delegation addresses this owner DID and requires a running worker with that identity, which this call does not start. Use acp_revoke_token to invalidate one or acp_discover_workers to list registered workers instead of guessing a DID. relayUrl defaults to the server relay or https://relay.sealbridge.dev, name to the server name or Sealbridge Worker, expiresInSeconds to 3600 (integer 1 to 2592000), and agentDid to the configured delegated worker DID after worker migrate, otherwise the owner DID. A different agentDid requires the matching server agent key or fails with AGENT_DELEGATION_REQUIRED. Signing uses local Ed25519 with no relay traffic and mints a distinct token each time, so it is not idempotent; bad arguments are JSON-RPC -32602 and other failures return isError true with { error: CODE }.',
+      'Sign a distinct local acp-invite token for this server owner (requester by default), without relay traffic or starting a listener; use sealbridge accept to import, acp_revoke_token to revoke, or acp_discover_workers to discover peers. Default unmigrated invites return warning.code INVITE_REQUESTER_LISTENER_REQUIRED: plain worker start cannot receive them; add --also-requester, optionally --requester-auto-accept read-only or write, or use sealbridge invite create for a worker-key invite. Migrated owner gateways retain receiving support. relayUrl defaults to the server relay or https://relay.sealbridge.dev, name to the server name or Sealbridge Worker, expiry to 3600 seconds, and agentDid to the migrated delegate or owner DID; another agentDid needs the matching server agent key. Signing is not idempotent; invalid arguments return JSON-RPC -32602, other failures isError true with { error: CODE }.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -774,6 +774,13 @@ export const mcpTools: Json = [
           'Signed acp-invite token to share with a requester for user-operated sealbridge accept import.',
           { type: 'string' },
         ),
+        warning: objectSchema('Mint-time receiving prerequisite; no listener is started or detected.', {
+          code: described('Receiving prerequisite for a default unmigrated requester invite.',
+            { type: 'string', const: 'INVITE_REQUESTER_LISTENER_REQUIRED' }),
+          ownerDid: described('Owner DID whose inbox must be served.', { type: 'string' }),
+          agentDid: described('Agent DID the receiving gateway must support.', { type: 'string' }),
+          message: described('Listener startup guidance and worker-key invitation alternatives.', { type: 'string' }),
+        }, ['code', 'ownerDid', 'agentDid', 'message']),
       },
       ['inviteToken'],
     ),

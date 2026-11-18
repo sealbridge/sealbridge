@@ -14,6 +14,8 @@ can be duplicated. Aliases are chosen and stored locally, not assigned remotely.
 
 ## What ships today
 
+MCP `acp_create_invite` (normal and shared `maxUses` invites) keeps signing with the requester owner by default. Before migration it returns `warning.code: INVITE_REQUESTER_LISTENER_REQUIRED`, with the receiving `ownerDid`/`agentDid` and startup guidance. A worker must receive on the invite's owner identity and support its agent identity; plain `worker start` uses a different worker key and cannot receive these invites. With the same data root and key-store settings, run `sealbridge worker start --also-requester` with your usual adapter/relay options. To explicitly enable automatic acceptance on that listener, add `--requester-auto-accept read-only` or `--requester-auto-accept write`; otherwise owner approval is required. Alternatively use `sealbridge invite create` for a worker-key invite, or an explicitly migrated owner gateway. Minting starts no listener and cannot detect one: if nobody listens on the addressed DID, no signed worker error is possible and the peer can still get `TASK_TIMEOUT`. Migrated gateways and explicitly configured MCP identities retain their receiving behavior.
+
 Without migration, entry points retain the separate worker and requester keys.
 CLI `invite create` signs with the worker key. MCP `acp_create_invite` signs with
 the server owner (requester by default); receiving it requires a worker with that

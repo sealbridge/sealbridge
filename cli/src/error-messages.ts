@@ -3,6 +3,7 @@ import { connectionTargetGuidance } from '@acp/runtime';
 import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
+  [/INVITE_REQUESTER_LISTENER_REQUIRED/, 'この MCP 招待は requester ID 宛てです。通常の worker start では受信しません。同じデータルート・鍵ストアで --also-requester を追加してください。自動受付を選ぶ場合は --requester-auto-accept read-only または --requester-auto-accept write も指定します。代わりに sealbridge invite create で worker 鍵の招待を発行するか、移行済み所有者ゲートウェイを使ってください。'],
   [/INVITE_LINK_MAX_USES_UNSUPPORTED/, '短い /j リンクの主張は1回だけです。共用招待には --share token または長い /i リンクを使ってください。'],
   [/INVALID_INVITE_MAX_USES/, '最大使用人数は1〜1000の整数で指定してください。'],
   [/INVITE_USES_EXHAUSTED/, 'この共用招待は最大使用人数に達しました。相手に新しい招待を依頼してください。'],
@@ -55,6 +56,7 @@ const reasons: [RegExp, string][] = [
 ];
 
 const nextSteps: [RegExp, string][] = [
+  [/INVITE_REQUESTER_LISTENER_REQUIRED/, 'This MCP invite targets the requester identity. With the same data root and key store, add --also-requester to worker start; optionally add --requester-auto-accept read-only or --requester-auto-accept write. Alternatively issue a worker-key invite with sealbridge invite create, or use a migrated owner gateway.'],
   [/INVITE_LINK_MAX_USES_UNSUPPORTED/, 'Short /j links support one claim only. Use --share token or a long /i link for shared invitations.'],
   [/INVALID_INVITE_MAX_USES/, 'Maximum users must be an integer from 1 to 1000.'],
   [/INVITE_USES_EXHAUSTED/, 'This shared invitation has reached its maximum number of users. Ask the issuer for a new invitation.'],

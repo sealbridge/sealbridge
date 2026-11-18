@@ -11,6 +11,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ### Fixed
 
+- Default unmigrated MCP normal/shared invite creation now returns `INVITE_REQUESTER_LISTENER_REQUIRED` warning metadata with receiving DIDs and explicit listener/worker-key alternatives, exposing a prerequisite that otherwise caused silent peer timeouts. Signing identity, shared limits and protocol versions are unchanged.
+- 未移行の既定 MCP 通常・共用招待の発行時に `INVITE_REQUESTER_LISTENER_REQUIRED` の警告と受信先 DID・起動方法を返し、相手側で無言のタイムアウトになる前に受信条件を案内します。署名 ID・共用上限・プロトコル版は維持します。
+
 - Reject shared `--share link` invitations before issuance or relay access: short `/j` links remain single-claim; use a token or long `/i` link. CLI, MCP and session maximum-user limits now share the 1–1000 validation rule. CLI `--max-uses` accepts decimal integer strings only; exponent, hexadecimal, whitespace and empty values are rejected. Disconnecting or blocking does not free a place.
 - 共用招待と `--share link` の併用を発行・リレー接続前に拒否します。短い `/j` は1回限りのため、トークンか長い `/i` を使ってください。CLI・MCP・session の最大使用人数を共通の1〜1000の整数に制限します。CLI の `--max-uses` は十進整数文字列だけを受け付け、指数表記・十六進表記・空白付き・空の値は拒否します。切断・ブロックでは枠は空きません。
 
