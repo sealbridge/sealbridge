@@ -4,6 +4,33 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-19
+
+Contributor onboarding and GitHub issue/PR templates are in the repository (#302). Node 22 remains the minimum, with workspace engines, CI and publish builds aligned to Node 22 and 24 (#303). Type-aware Promise lint rules are required in CI (#304). Sandbox tasks wait for IPC results before treating a child as finished, and concurrent outbox cleanup no longer reports a disappeared record as store corruption (#305). The repository is formatted with Prettier, and `format:check` is required in the lint job (#306). No breaking changes; engines stay Node >=22, and protocol 0.2.0 is unchanged.
+
+貢献者向けの案内と GitHub の issue/PR ひな型を追加しました（#302）。必要な Node はこれまでどおり 22 以上で、ワークスペースの engines・CI・公開ビルドを Node 22 と 24 に揃えました（#303）。Promise の型付き lint ルールを CI の必須チェックにしました（#304）。サンドボックスは子プロセス終了の前に IPC の結果を受け取り、並行する outbox の掃除で消えたレコードをストア破損として扱わないようにしました（#305）。リポジトリ全体を Prettier で整え、lint ジョブで `format:check` を必須にしました（#306）。破壊的変更はなく、engines は Node >=22、プロトコル 0.2.0 は維持します。
+
+### Added
+
+- Bilingual CONTRIBUTING guides, bug and feature issue forms, a PR checklist, and repository-wide CODEOWNERS. Prefer GitHub private vulnerability reporting when available; security@sealbridge.dev remains an alternative. (#302)
+- 英日の CONTRIBUTING、バグ・機能の issue フォーム、PR チェックリスト、リポジトリ全体の CODEOWNERS を追加しました。可能なときは GitHub の非公開脆弱性報告を使い、security@sealbridge.dev は代替の連絡先として残します。(#302)
+
+### Fixed
+
+- Align all workspace package engines to `>=22`, test Node 22 and 24 on Ubuntu, macOS and Windows, and build published packages on Node 22. Installers still pin Node 22.22.0 when they install Node, and reuse an existing Node 22+. (#303)
+- ワークスペースの engines をすべて `>=22` に揃え、Ubuntu・macOS・Windows で Node 22 と 24 を試験し、公開パッケージのビルドを Node 22 で行うようにしました。インストーラーが Node を入れるときは引き続き 22.22.0 を固定し、既にある Node 22 以上はそのまま使います。(#303)
+
+- Drain sandbox IPC results before handling child close, so a completed echo task is not rejected as `EXECUTION_FAILED`. Treat an outbox record that disappears during an unlocked read as completed cleanup instead of `OUTBOX_STORE_INVALID`. (#305)
+- サンドボックスは子プロセスの close を扱う前に IPC の結果を受け取り、完了した echo タスクが `EXECUTION_FAILED` で拒否されないようにしました。ロックなしの読み取り中に消えた outbox レコードは、ストア破損 `OUTBOX_STORE_INVALID` ではなく掃除完了として扱います。(#305)
+
+### Changed
+
+- Require type-aware `@typescript-eslint/no-floating-promises` and `no-misused-promises` in the lint CI job. (#304)
+- 型付きの `@typescript-eslint/no-floating-promises` と `no-misused-promises` を lint CI ジョブの必須ルールにしました。(#304)
+
+- Format the repository with Prettier and require `pnpm format:check` in the existing lint job. (#306)
+- リポジトリ全体を Prettier で整形し、既存の lint ジョブで `pnpm format:check` を必須にしました。(#306)
+
 ## [0.9.1] - 2026-11-18
 
 Shared invitations now support atomic maximum-user limits through CLI `--max-uses`, MCP and the SDK (#297), with shared-limit guards and 1–1000 validation (#298). **Behavior change:** default unmigrated MCP invite creation now fails with `INVITE_REQUESTER_LISTENER_REQUIRED` (isError, no token or shared-limit record); #300 supersedes #299's warning-and-minting behavior. Explicit `options.owner`, `mcp-server --key` / `explicitKeyPath`, and migrated delegated identities still mint. After multiple owners bind a shared invitation, 0.9.0 and earlier cannot read that connection store; back up before upgrading or using shared invites and restore that backup to downgrade. Ubuntu conformance uses the ubuntu-24.04 runner while retaining the required check name `conformance (ubuntu-latest)` (#300).
