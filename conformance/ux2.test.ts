@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { realpathSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -216,6 +217,7 @@ describe('UX-2 board', () => {
     const relay = new InMemoryRelay();
     const host = boardHost(post, owner, path, new PolicyAutoApprovalProvider(owner), () => true);
     const node = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,
@@ -272,6 +274,7 @@ describe('UX-2 persistent daily limit', () => {
         relay = new InMemoryRelay();
       let calls = 0;
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner,

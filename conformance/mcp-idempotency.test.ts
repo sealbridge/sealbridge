@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -61,6 +62,7 @@ function setup() {
     relay = new InMemoryRelay();
   const execute = vi.fn(async (context: { input: Json }) => context.input);
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     protocolPolicy,
     owner: remote,
     relay,
@@ -292,6 +294,7 @@ describe('MCP send-tool idempotency', () => {
     const f = setup();
     // The default intake path holds an unconnected peer and never invokes an adapter.
     const heldWorker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       protocolPolicy,
       owner: f.remote,
       identityOptions: f.identityOptions,
@@ -346,6 +349,7 @@ describe('MCP send-tool idempotency', () => {
     expect(body(first).status).toBe('SETTLED');
     invites.remove('reviewer');
     const another = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       protocolPolicy,
       owner: generateKeyPair(),
       relay: f.relay,
@@ -365,6 +369,7 @@ describe('MCP send-tool idempotency', () => {
       f.start();
       const otherOwner = generateKeyPair();
       const other = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         protocolPolicy,
         owner: otherOwner,
         relay: f.relay,

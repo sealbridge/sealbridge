@@ -44,8 +44,13 @@ Podman or Docker with `--network none`, `--read-only`, `--cap-drop ALL`,
 `--security-opt no-new-privileges`, and PID and memory limits.
 `ExecutionAttestation.effectiveIsolationLevel` is the path that actually ran.
 `VerificationEngine` rejects an `oci_container` contract whose attestation is not
-`oci_container` unless `sandboxPolicy.allowSubprocessFallback` is true
-(`ISOLATION_LEVEL_MISMATCH`). An unavailable container runtime falls back to
+at least `oci_container` when `verification.requireExecutionAttestation` is true,
+even with `sandboxPolicy.allowSubprocessFallback` (`ISOLATION_LEVEL_MISMATCH`).
+Required attestations must contain an explicit non-host runner level meeting the
+contract minimum. Missing levels and `host_adapter`, `workspace_process`,
+`host_http_adapter`, or `mcp_proxy` are rejected. Setting
+`requireExecutionAttestation: false` preserves legacy isolation compatibility,
+but does not waive the signed attestation itself. An unavailable container runtime falls back to
 `subprocess_restricted` and reports that level. A container that fails to start
 is not retried in the weaker sandbox. The gateway accepts the manifest's
 `subprocess_restricted`, `networkAccess: none`, ephemeral-workspace policy;

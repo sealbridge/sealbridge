@@ -477,12 +477,9 @@ it.each([
         acceptance: 'read-only',
         allowedWork: 'read-only',
       });
-      const readResult = await send();
-      expect(readResult).toMatchObject({
-        status: 'SETTLED',
-        deliverable: { ok: true },
-        auditBundle: { status: 'VALID' },
-      });
+      // Read-only admission permits execution, but the default requester rejects
+      // the OpenAI host adapter's attested lack of isolation.
+      await send('ISOLATION_LEVEL_MISMATCH');
       expect(modelCalls).toBe(1);
       if (cliFirst) {
         const before = JSON.parse(await cli(b, ['connections', 'list'])).connections;
@@ -637,7 +634,6 @@ it.each([
       const suffix = migrated ? '' : '.requester';
       for (const path of [
         join(root, `muse${cliFirst && !migrated ? '' : suffix}.jsonl`),
-        join(root, `grok${suffix}.${readResult.taskId}.jsonl`),
         join(root, `grok-write${suffix}.${writeResult.taskId}.jsonl`),
       ]) {
         expect(verifyAudit(parseJsonl(readFileSync(path, 'utf8'))).status, path).toBe('VALID');

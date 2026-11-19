@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -60,6 +61,7 @@ function workerFor(
   options: WorkerAcceptancePolicy = {},
 ) {
   return new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,

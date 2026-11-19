@@ -1,3 +1,4 @@
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
 import { mkdtemp, writeFile, rm as rmDir } from 'node:fs/promises';
@@ -146,6 +147,7 @@ describe('issue 9: concurrent delegate to one worker', () => {
     };
     const events: string[] = [];
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,
@@ -393,6 +395,7 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,
@@ -450,6 +453,7 @@ describe('issue 14: concurrent delegate from one requester', () => {
     const owner = generateKeyPair();
     const requesterKey = generateKeyPair();
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,
@@ -809,6 +813,7 @@ describe('issue 20: requester relay URL switch', () => {
         });
         const owner = generateKeyPair();
         const worker = new WorkerNode({
+          executionBackend: syntheticExecutionBackend,
           autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
           checkPeer: () => 'trusted',
           owner,
@@ -1076,6 +1081,7 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
       const relay = new InMemoryRelay();
       let executions = 0;
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner: workerKey,
@@ -1135,6 +1141,7 @@ describe('issue 27: delegateMulti counts distinct verified workers', () => {
     const workers = [leftKey, rightKey].map(
       (key) =>
         new WorkerNode({
+          executionBackend: syntheticExecutionBackend,
           autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
           checkPeer: () => 'trusted',
           owner: key,
@@ -1185,6 +1192,7 @@ describe('issue 28: concurrent reportProgress stays ordered', () => {
     const relay = new InMemoryRelay();
     const steps: string[] = [];
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: key,
@@ -1262,6 +1270,7 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
     const relay = new InMemoryRelay();
     let executions = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: workerKey,
@@ -1279,6 +1288,7 @@ describe('issue 29: delegateMulti accepts a verified JSON null deliverable', () 
       },
     });
     const other = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: otherKey,
@@ -1450,6 +1460,7 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const relay = new InMemoryRelay();
     let backendCalls = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: key,
@@ -1521,6 +1532,7 @@ describe('issue 32: over-budget progress stops the tool before the backend runs'
     const relay = new InMemoryRelay();
     let backendCalls = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: key,
@@ -1586,6 +1598,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const relay = new InMemoryRelay();
     let executions = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -1665,6 +1678,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const agent = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -1719,6 +1733,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const relay = new InMemoryRelay();
     let executions = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: key,
@@ -1786,6 +1801,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
     const other = generateKeyPair();
     const relay = new InMemoryRelay();
     const alias = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -1804,6 +1820,7 @@ describe('issue 33: owner DID and agent DID address the same worker', () => {
       },
     });
     const second = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -1880,6 +1897,7 @@ describe('issue 35: invalid reportProgress poisons the session', () => {
         return send(envelope);
       };
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner: key,

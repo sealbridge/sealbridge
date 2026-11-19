@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -543,6 +544,7 @@ it('shares status and task routing when the same DID is a worker and requester',
   const approval = new PolicyAutoApprovalProvider(f.sender),
     execute = vi.fn(async (c: { input: Json }) => c.input);
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner: f.sender,
     relay: f.transport,
     relayUrl: statusRelayUrl,
@@ -593,6 +595,7 @@ it('does not acknowledge or delete held input when status persistence fails', as
     ack = vi.fn();
   const { WorkerNode } = await import('../packages/runtime/src/index.js');
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     ...f.worker.options,
     relay: {
       send: f.transport.send,

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -118,6 +119,7 @@ it.each(['human', 'policy'] as const)(
       return summary;
     });
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: f.owner,
       relay,
       relayUrl: f.card.payload.relayEndpoint,

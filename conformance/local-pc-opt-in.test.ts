@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   existsSync,
@@ -353,6 +354,7 @@ it.each(['delegate', 'mcp-server'])(
     writeFileSync(key, JSON.stringify(owner), { mode: 0o600 });
     let executions = 0;
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: remote,
       relay,
       relayUrl: 'https://relay.example',
@@ -559,3 +561,21 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
     else delete (process.stderr as { isTTY?: boolean }).isTTY;
   }
 });
+
+it('describes the sandbox self-signed attestation accurately', () => {
+  const warning = localPcWarning(
+    'task_policy_dependent (determined at execution; hooks use host_adapter)',
+  );
+  expect(warning).not.toContain('No execution attestation');
+  expect(warning).toContain(
+    'self-signed execution attestation (subprocess_restricted, no kernel network isolation)',
+  );
+});
+it.each(['host_adapter', 'workspace_process', 'host_http_adapter', 'mcp_proxy'])(
+  'describes %s attestation without claiming isolation',
+  (level) => {
+    expect(localPcWarning(level)).toContain(
+      `An attestation is attached, but its level is ${level} (no isolation)`,
+    );
+  },
+);

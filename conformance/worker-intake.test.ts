@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -62,6 +63,7 @@ function fixture(options: Partial<WorkerNodeOptions> = {}, inspect = false) {
   const approve = vi.spyOn(provider, 'approve');
   const store = new WorkerTrustStore(owner);
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     adapter,
@@ -339,7 +341,11 @@ it('reconciles a queue-backed received checkpoint to terminal pending after rest
     notificationPending: undefined,
   });
   const events: string[] = [];
-  const restarted = new WorkerNode({ ...f.worker.options, onEvent: (event) => events.push(event) });
+  const restarted = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
+    ...f.worker.options,
+    onEvent: (event) => events.push(event),
+  });
   const controller = new AbortController();
   controller.abort();
   await restarted.start({ signal: controller.signal });

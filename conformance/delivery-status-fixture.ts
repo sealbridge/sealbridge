@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -77,6 +78,7 @@ export function statusFixture(inspect = true) {
   };
   const execute: Mock<(ctx: { input: Json }) => Promise<Json>> = vi.fn(async (ctx) => ctx.input);
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     protocolPolicy,
     owner: recipient,
     relay: transport,

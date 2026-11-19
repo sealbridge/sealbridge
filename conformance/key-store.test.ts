@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -506,6 +507,7 @@ describe('embedding and application entry points', () => {
       const relay = new InMemoryRelay(),
         workerOwner = generateKeyPair();
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner: workerOwner,
@@ -642,6 +644,7 @@ describe('embedding and application entry points', () => {
 
       const intake = new WorkerTrustStore(workerOwner);
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         owner: workerOwner,
         relay,
         relayUrl,

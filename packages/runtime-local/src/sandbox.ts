@@ -33,7 +33,8 @@ import type { Json } from '@acp/core';
  * `ExecutionAttestation.effectiveIsolationLevel` is `subprocess_restricted` or
  * `oci_container` from the path that ran. `VerificationEngine` rejects a
  * `subprocess_restricted` attestation when the contract requires `oci_container`,
- * unless `sandboxPolicy.allowSubprocessFallback` is true.
+ * when execution attestation is required, even if
+ * `sandboxPolicy.allowSubprocessFallback` is true.
  */
 export class SandboxAgentAdapter implements AgentAdapter {
   readonly id = 'sandbox';

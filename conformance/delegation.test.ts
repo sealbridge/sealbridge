@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -594,7 +595,7 @@ function delivered(f = fixture(), attachment: DelegationAttachment | null = f.at
     { ok: true },
     quota.receipt(f.b),
     f.b,
-    undefined,
+    { effectiveIsolationLevel: 'subprocess_restricted' },
     attachment ?? undefined,
   );
   quota.close();
@@ -861,6 +862,7 @@ async function liveFixture(
     reviews: ApprovalRequest[] = [],
     childInputs: Json[] = [];
   const cNode = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner: c,
     relay,
     timeoutMs: 5000,
@@ -889,6 +891,7 @@ async function liveFixture(
     }),
   });
   const bNode = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner: b,
     relay,
     now: () => Date.now() + clock.offset,
@@ -1425,6 +1428,7 @@ it.each([true, false])(
       { mode: 0o600 },
     );
     const node = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: f.b,
       relay: new InMemoryRelay(),
       adapter: {
@@ -1488,6 +1492,7 @@ it.each([true, false])(
       return send(envelope);
     });
     const node = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: f.b,
       relay,
       adapter: {

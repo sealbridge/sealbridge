@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
@@ -340,6 +341,7 @@ it.each([false, true])(
     const workerAudit = join(f.root, 'worker.jsonl'),
       requesterAudit = join(f.root, 'requester.jsonl');
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: f.owner,
       relay,
       auditPath: workerAudit,

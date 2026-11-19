@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
@@ -84,6 +85,7 @@ it('an HTTPS invitation completes an in-process diff review with unchanged signe
     };
   }
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: false, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,
@@ -241,3 +243,19 @@ it('summary approval still defaults to rejection on an empty answer', async () =
   const receipt = await pending;
   expect(receipt.payload.decision).toBe('REJECTED');
 });
+
+it.each(['subprocess_restricted', 'host_adapter', undefined])(
+  'shows attested isolation %s at final approval',
+  (level) => {
+    expect(
+      approvalSummary({
+        taskId: 'review',
+        gate: 'final_verification',
+        target: {
+          artifact: { payload: { data: 'result' } },
+          attestation: { payload: { effectiveIsolationLevel: level } },
+        },
+      }),
+    ).toContain(`Attested isolation level: ${level ?? 'unspecified (legacy)'}`);
+  },
+);

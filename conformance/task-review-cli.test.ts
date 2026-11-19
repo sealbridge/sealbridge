@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -288,7 +289,11 @@ it('distinguishes an incomplete inspection gate from missing connection consent 
     ...g.identityOptions,
     provider: cliTaskInspection(() => {}),
   });
-  const worker = new WorkerNode({ ...g.worker.options, heldReview: review });
+  const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
+    ...g.worker.options,
+    heldReview: review,
+  });
   cleanups.push(() => worker.stop());
   const client = new RequesterClient({
     owner: g.requester,
@@ -334,6 +339,7 @@ async function cliWorker(f: ReturnType<typeof fixture>, interactive: boolean, an
     { identityOptions: f.identityOptions },
   );
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     ...captured.worker!,
     intakeStore: f.store,
     connectionStore: f.store,

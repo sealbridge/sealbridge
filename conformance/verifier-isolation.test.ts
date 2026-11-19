@@ -1,3 +1,10 @@
+import { InMemoryRelay } from '../packages/relay/src/index.js';
+import { SandboxAgentAdapter } from '../packages/adapters/src/index.js';
+import {
+  WorkerNode,
+  RequesterClient,
+  PolicyAutoApprovalProvider,
+} from '../packages/runtime/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -25,6 +32,7 @@ async function verifyIsolation(
   effective?: string,
   attestationRequired = true,
   fallback = false,
+  omitAttestation = false,
 ) {
   const manifest = buildTaskManifest({
     ownerDid: owner.did,
@@ -58,6 +66,7 @@ async function verifyIsolation(
     worker,
     effective === undefined ? undefined : { effectiveIsolationLevel: effective },
   );
+  if (omitAttestation) Reflect.deleteProperty(delivery, 'attestation');
   const envelope = signEnvelope(
     {
       taskId: manifest.taskId,
@@ -158,12 +167,39 @@ describe('R1 verifier isolation', () => {
     ).toBe(false);
   });
 
+  it.each([undefined, 'host_adapter', 'workspace_process', 'host_http_adapter', 'mcp_proxy'])(
+    'requires an explicit non-host level: %s',
+    async (effective) => {
+      const strict = await verifyIsolation('subprocess_restricted', effective);
+      expect(strict.result.reason).toBe('Error: ISOLATION_LEVEL_MISMATCH');
+      expect(strict.approval).not.toHaveBeenCalled();
+      expect(
+        (await verifyIsolation('subprocess_restricted', effective, false)).result.accepted,
+      ).toBe(true);
+    },
+  );
+  it('enforces the minimum despite explicit fallback when attestation is required', async () => {
+    expect(
+      (await verifyIsolation('oci_container', 'subprocess_restricted', true, true)).result.reason,
+    ).toBe('Error: ISOLATION_LEVEL_MISMATCH');
+    expect(
+      (await verifyIsolation('oci_container', 'subprocess_restricted', false, true)).result
+        .accepted,
+    ).toBe(true);
+  });
+  it.each([true, false])('always rejects a missing attestation (required=%s)', async (required) => {
+    const { result, approval } = await verifyIsolation(
+      'subprocess_restricted',
+      'subprocess_restricted',
+      required,
+      false,
+      true,
+    );
+    expect(result.accepted).toBe(false);
+    expect(approval).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ['subprocess_restricted', undefined],
-    ['subprocess_restricted', 'host_adapter'],
-    ['subprocess_restricted', 'workspace_process'],
-    ['subprocess_restricted', 'host_http_adapter'],
-    ['subprocess_restricted', 'mcp_proxy'],
     ['subprocess_restricted', 'subprocess_restricted'],
     ['wasm', 'wasm'],
     ['wasm', 'oci_container'],
@@ -174,3 +210,64 @@ describe('R1 verifier isolation', () => {
     expect((await verifyIsolation(required!, effective)).result.accepted).toBe(true);
   });
 });
+
+it.each([
+  ['host', true, false],
+  ['host', false, true],
+  ['sandbox', true, true],
+] as const)(
+  'verifies a real %s backend with attestation required=%s',
+  async (kind, required, accepted) => {
+    const relay = new InMemoryRelay();
+    const workerNode = new WorkerNode({
+      owner: worker,
+      relay,
+      timeoutMs: 5000,
+      checkPeer: () => 'trusted',
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      approvalProvider: new PolicyAutoApprovalProvider(worker),
+      adapter:
+        kind === 'sandbox'
+          ? new SandboxAgentAdapter()
+          : {
+              id: 'host',
+              name: 'Host',
+              skills: [],
+              executeTask: async (context) => context.input,
+            },
+    });
+    const running = Promise.allSettled([workerNode.start({ once: true })]);
+    const manifest = buildTaskManifest({
+      ownerDid: owner.did,
+      workerDid: worker.did,
+      title: 'Runner',
+      description: 'Real runner regression',
+    });
+    manifest.verification.requireExecutionAttestation = required;
+    const requester = new RequesterClient({
+      owner,
+      relay,
+      timeoutMs: 5000,
+      approvalProvider: new PolicyAutoApprovalProvider(owner),
+    });
+    try {
+      const pending = requester.delegate({
+        to: workerNode.invite(),
+        title: 'Runner',
+        description: 'Real runner regression',
+        input: { ok: true },
+        manifest,
+      });
+      if (accepted) {
+        expect((await pending).state).toBe('SETTLED');
+        expect((await running)[0].status).toBe('fulfilled');
+      } else {
+        await expect(pending).rejects.toThrow('ISOLATION_LEVEL_MISMATCH');
+        expect((await running)[0].status).toBe('rejected');
+      }
+    } finally {
+      workerNode.stop();
+      await running;
+    }
+  },
+);

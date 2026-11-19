@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -63,6 +64,7 @@ function fixture() {
   };
   const execute = vi.fn(async (context) => context.input);
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     relayUrl: url,

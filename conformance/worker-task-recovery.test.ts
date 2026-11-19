@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
@@ -111,6 +112,7 @@ async function fixture(persistence: 'both' | 'audit' | 'inbox' = 'both', holdToo
   };
   function worker(executeTask = adapter.executeTask, onEvent?: WorkerNodeOptions['onEvent']) {
     const node = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,

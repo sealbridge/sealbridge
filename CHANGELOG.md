@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Changed
+
+- **Compatibility change:** Requesters requiring execution attestation now reject missing or host isolation levels (`host_adapter`, `workspace_process`, `host_http_adapter`, `mcp_proxy`) and any level below the contract minimum, including explicit subprocess fallback. Default requesters therefore reject legacy workers without an explicit runner level and host command/Claude/Codex/OpenAI/MCP workers. Setting `requireExecutionAttestation: false` preserves the previous isolation compatibility behavior; a signed attestation is still required. Standard sandbox deliveries remain supported. Final CLI approval now displays the attested isolation level, and local PC warnings describe the adapter's attached attestation accurately.
+
 ## [0.9.2] - 2026-11-19
 
 Contributor onboarding and GitHub issue/PR templates are in the repository (#302). Node 22 remains the minimum, with workspace engines, CI and publish builds aligned to Node 22 and 24 (#303). Type-aware Promise lint rules are required in CI (#304). Sandbox tasks wait for IPC results before treating a child as finished, and concurrent outbox cleanup no longer reports a disappeared record as store corruption (#305). The repository is formatted with Prettier, and `format:check` is required in the lint job (#306). No breaking changes; engines stay Node >=22, and protocol 0.2.0 is unchanged.

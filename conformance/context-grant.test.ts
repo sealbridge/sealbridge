@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -254,6 +255,7 @@ async function sessionFixture(
     return { ok: true };
   });
   const node = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     now: () => Date.now(),

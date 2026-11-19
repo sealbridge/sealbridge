@@ -233,7 +233,10 @@ export async function createSession(auditDirectory?: string) {
     'return input.artifact.summary.length > 0 && input.artifact.findings.length === 0 ? 0 : 1;',
   );
   const deliver = (data: Json, usage = worker.quota.receipt(bob)) => {
-    const delivery = createDelivery(manifest.taskId, contract.contractDigest, data, usage, bob);
+    const delivery = createDelivery(manifest.taskId, contract.contractDigest, data, usage, bob, {
+      effectiveIsolationLevel: worker.effectiveIsolationLevel,
+      ...(worker.sandboxBoundary ? { sandboxBoundary: worker.sandboxBoundary } : {}),
+    });
     return {
       delivery,
       envelope: signEnvelope(

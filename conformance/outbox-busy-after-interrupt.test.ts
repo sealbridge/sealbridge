@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -93,6 +94,7 @@ function liveFixture(auditInterruptionFormat?: 1) {
   });
   const events: { event: string; taskId: string; code?: string }[] = [];
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     relayUrl: 'https://relay.example',

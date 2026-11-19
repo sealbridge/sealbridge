@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -168,6 +169,7 @@ describe('default MCP connection discovery', () => {
     const store = new WorkerTrustStore(owner);
     const workerApproval = approving(() => owner);
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       protocolPolicy,
       owner,
       agentDid: agent.did,
@@ -275,6 +277,7 @@ describe('default MCP connection discovery', () => {
     ].map((options) => {
       const owner = generateKeyPair();
       return new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         protocolPolicy,
         owner,
         ...options,
@@ -527,6 +530,7 @@ describe('MCP DID admission compatibility', () => {
         owner = generateKeyPair(),
         executeTask = vi.fn(async (ctx) => ctx.input);
       const worker = new WorkerNode({
+        executionBackend: syntheticExecutionBackend,
         protocolPolicy,
         owner,
         relay: h.transportFactory(DEFAULT_PUBLIC_RELAY, owner),

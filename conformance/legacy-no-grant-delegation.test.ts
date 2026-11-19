@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +36,8 @@ function legacyFixture(depth = 1) {
     description: 'No grant',
   });
   manifest.permissions.maxDelegationDepth = depth;
+  // Historical deliveries intentionally omit the runner level.
+  manifest.verification.requireExecutionAttestation = false;
   const contract = createContract(manifest, signPayload(manifest, owner), worker);
   const quota = new QuotaMeter(manifest.taskId, manifest.budget, worker.did);
   const delivery = createDelivery(
@@ -196,6 +199,7 @@ it('legacy no-grant contract: sealed depth-1 recovery and outcome notification k
     { mode: 0o600 },
   );
   const node = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner: f.worker,
     relay,
     adapter: {
@@ -232,6 +236,7 @@ it('legacy no-grant contract: task errors keep origin/main diagnostics', () => {
   const f = legacyFixture(),
     onEvent = vi.fn();
   const node = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     owner: f.worker,
     relay: new InMemoryRelay(),
     onEvent,
@@ -259,6 +264,7 @@ it.each(['0.1.0', '0.2.0'])(
       reviews: unknown[] = [];
     f.manifest.protocolVersion = protocolVersion;
     const node = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       owner: f.worker,
       relay,
       timeoutMs: 5000,

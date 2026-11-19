@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile, symlink } from 'node:fs/promises';
@@ -54,6 +55,7 @@ async function fixture(
   };
   const acceptance = reject ? { allowedRequesterDids: [generateKeyPair().did] } : {};
   const worker = new WorkerNode({
+    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,

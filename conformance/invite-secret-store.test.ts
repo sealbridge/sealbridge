@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
@@ -157,6 +158,7 @@ describe('imported invitation string storage', () => {
       approve: vi.fn(async (r) => signApproval(r.taskId, r.gate, r.target, owner, 'APPROVED')),
     });
     const worker = new WorkerNode({
+      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: workerOwner,
