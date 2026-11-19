@@ -175,7 +175,9 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
     initial.set('relay:legacy:0', new Uint8Array(raw));
     const { data, state } = memoryDurableState(initial);
     const durable = new RelayDurableObject(state);
-    const res = await durable.fetch(new Request('https://acp-relay.agent-collab.workers.dev/agents'));
+    const res = await durable.fetch(
+      new Request('https://acp-relay.agent-collab.workers.dev/agents'),
+    );
     expect(res.status).toBe(200);
     const listed = (await res.json()) as SignedAgentCard[];
     expect(listed).toEqual([validCard]);
@@ -241,7 +243,9 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
       discover: async () => [expiredCard, olderValidCard, newerValidCard],
     };
 
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: workerOwner,
       agentDid: workerAgent.did,
@@ -252,7 +256,10 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
         id: 'echo',
         name: 'echo',
         skills: [],
-        executeTask: async (ctx) => ({ echoed: ctx.input, workerAgent: ctx.manifest.worker?.agentDid ?? '' }),
+        executeTask: async (ctx) => ({
+          echoed: ctx.input,
+          workerAgent: ctx.manifest.worker?.agentDid ?? '',
+        }),
       },
     });
     const workerPromise = worker.start({ once: true });
@@ -349,7 +356,9 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const grokKey = generateKeyPair();
     const dotsKey = generateKeyPair();
 
-    const grokWorker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const grokWorker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: grokKey,
       relay: server.url,
@@ -367,7 +376,9 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
       },
     });
 
-    const dotsWorker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const dotsWorker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: dotsKey,
       relay: server.url,
@@ -449,7 +460,9 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const relay = new InMemoryRelay();
     const sameKey = generateKeyPair();
 
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
 
       owner: sameKey,
       relay,

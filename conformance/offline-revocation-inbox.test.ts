@@ -35,7 +35,9 @@ function echoWorker(
   events: string[],
   revocation?: RevocationList,
 ) {
-  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  return new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner,
     relay,
     adapter: {
@@ -193,7 +195,8 @@ describe('offline revocation inbox', () => {
       expect(registry.isRevoked('invite', token)).toBe(true);
       expect(worker.revocation.isRevoked('invite', inviteRevocationId(token))).toBe(true);
       expect(rejected.status).toBe('rejected');
-      if (rejected.status === 'rejected') expect(String(rejected.reason)).toContain('TOKEN_REVOKED');
+      if (rejected.status === 'rejected')
+        expect(String(rejected.reason)).toContain('TOKEN_REVOKED');
       expect(settled.status).toBe('rejected');
       if (settled.status === 'rejected') expect(String(settled.reason)).toContain('TOKEN_REVOKED');
     },
@@ -239,7 +242,8 @@ describe('offline revocation inbox', () => {
       expect(events).not.toContain('ACCEPT');
       expect(worker.revocation.isRevoked('capability', leafId)).toBe(true);
       expect(rejected.status).toBe('rejected');
-      if (rejected.status === 'rejected') expect(String(rejected.reason)).toContain('TOKEN_REVOKED');
+      if (rejected.status === 'rejected')
+        expect(String(rejected.reason)).toContain('TOKEN_REVOKED');
       expect(settled.status).toBe('rejected');
       if (settled.status === 'rejected') expect(String(settled.reason)).toContain('TOKEN_REVOKED');
     },

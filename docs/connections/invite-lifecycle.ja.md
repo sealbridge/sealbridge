@@ -2,7 +2,6 @@
 
 [Invitations and local roles](invite-and-roles.ja.md)
 
-
 [English](invite-lifecycle.md)
 
 `InviteStore` の復旧は署名者とデータルートごとのローカル操作です。結果・エラーに秘密の文字列を含めません。

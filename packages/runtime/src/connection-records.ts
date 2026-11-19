@@ -5,9 +5,17 @@ import type { Invite, Json, Signed } from '@acp/core';
 export const CONNECTION_DAY_MS = 86_400_000;
 export const CONNECTION_OFFER_TTL_MS = 14 * CONNECTION_DAY_MS;
 export const CONNECTION_REFUSAL_TTL_MS = 7 * CONNECTION_DAY_MS;
-export const CONNECTION_CAPACITY = { connections: 1000, inviteBindings: 1000, outbox: 100,
-  priorApprovedPeers: 1000, refusals: 1000 } as const;
-export const INVITE_MAX_USES = Math.min(CONNECTION_CAPACITY.inviteBindings, CONNECTION_CAPACITY.connections);
+export const CONNECTION_CAPACITY = {
+  connections: 1000,
+  inviteBindings: 1000,
+  outbox: 100,
+  priorApprovedPeers: 1000,
+  refusals: 1000,
+} as const;
+export const INVITE_MAX_USES = Math.min(
+  CONNECTION_CAPACITY.inviteBindings,
+  CONNECTION_CAPACITY.connections,
+);
 export type ConnectionState = 'none' | 'pending' | 'connected' | 'blocked';
 /** Owner-local observation of the current connection or latest retained offer. */
 export interface ConnectionStatus {
@@ -15,7 +23,8 @@ export interface ConnectionStatus {
   /** Informational name retained in local connection or offer metadata, when known. */
   peerDisplayName?: string;
   state: ConnectionState;
-  status: 'none' | 'pending_peer' | 'pending_owner' | 'connected' | 'inactive' | 'expired' | 'blocked';
+  status:
+    'none' | 'pending_peer' | 'pending_owner' | 'connected' | 'inactive' | 'expired' | 'blocked';
   requestId?: string;
   direction?: 'incoming' | 'outgoing';
   createdAt?: number;
@@ -27,57 +36,109 @@ export interface ConnectionStatus {
 }
 export type ConnectionTrust = 'unknown' | 'limited' | 'denied';
 export interface ConnectionIncomingOffer {
-  requestId: string; requestDigest: string; receivedAt: number; expiresAt: number;
+  requestId: string;
+  requestDigest: string;
+  receivedAt: number;
+  expiresAt: number;
 }
 export interface ConnectionOutgoingOffer {
-  requestId: string; requestDigest: string; createdAt: number; expiresAt: number; ownerConsentDigest: string;
+  requestId: string;
+  requestDigest: string;
+  createdAt: number;
+  expiresAt: number;
+  ownerConsentDigest: string;
 }
 export interface ConnectionRecord {
-  peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl: string;
+  peerOwnerDid: string;
+  peerAgentDid?: string;
+  peerDisplayName?: string;
+  relayUrl: string;
   state: 'pending' | 'connected';
-  incoming?: ConnectionIncomingOffer; outgoing?: ConnectionOutgoingOffer;
-  connectionId?: string; connectedAt?: number; source?: 'request' | 'invite' | 'prior-approval';
-  localConsentDigest?: string; remoteAcceptanceDigest?: string;
+  incoming?: ConnectionIncomingOffer;
+  outgoing?: ConnectionOutgoingOffer;
+  connectionId?: string;
+  connectedAt?: number;
+  source?: 'request' | 'invite' | 'prior-approval';
+  localConsentDigest?: string;
+  remoteAcceptanceDigest?: string;
   /** Local admission override; absent preserves legacy folder policy. */
   acceptance?: 'off' | 'read-only' | 'write';
 }
 export interface InviteBindingRecord {
-  inviteDigest: string; requesterOwnerDid: string; boundAt: number; tokenExpiresAt: number; connectionId: string;
+  inviteDigest: string;
+  requesterOwnerDid: string;
+  boundAt: number;
+  tokenExpiresAt: number;
+  connectionId: string;
 }
 export interface PriorApprovedPeer {
-  peerOwnerDid: string; peerDisplayName?: string; lastApprovedAt?: number; sourceRequestIds: string[]; legacyTrust: 'limited' | 'trusted';
+  peerOwnerDid: string;
+  peerDisplayName?: string;
+  lastApprovedAt?: number;
+  sourceRequestIds: string[];
+  legacyTrust: 'limited' | 'trusted';
 }
 /** Callers supply owner-signed control data and omit invitation tokens and task input. */
 export interface ConnectionOutboxRecord {
-  eventId: string; peerOwnerDid: string; relayUrl: string; signedEvent: Signed<Json>;
-  deliveryDeadline: number; state: 'pending' | 'delivered';
+  eventId: string;
+  peerOwnerDid: string;
+  relayUrl: string;
+  signedEvent: Signed<Json>;
+  deliveryDeadline: number;
+  state: 'pending' | 'delivered';
 }
 export interface ConnectionData {
-  connections: ConnectionRecord[]; inviteBindings: InviteBindingRecord[];
+  connections: ConnectionRecord[];
+  inviteBindings: InviteBindingRecord[];
   /** Issuer-local policy, covered by the store signature; never part of AgentInvite. */
   inviteLimits?: Array<{ inviteDigest: string; maxUses: number; tokenExpiresAt: number }>;
   refusals: Array<{ peerOwnerDid: string; refuseUntil: number }>;
-  priorApprovedPeers: PriorApprovedPeer[]; outbox: ConnectionOutboxRecord[];
+  priorApprovedPeers: PriorApprovedPeer[];
+  outbox: ConnectionOutboxRecord[];
 }
 /** Peer names are informational; owner and agent DIDs determine identity. */
-export interface ConnectionPeer { peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl: string }
-export interface ConnectionSummary {
-  peerOwnerDid: string; peerAgentDid?: string; peerDisplayName?: string; relayUrl?: string; state: Exclude<ConnectionState, 'none'>;
+export interface ConnectionPeer {
+  peerOwnerDid: string;
+  peerAgentDid?: string;
+  peerDisplayName?: string;
+  relayUrl: string;
 }
-export interface RecordOutgoingConnection extends ConnectionPeer { outgoing: ConnectionOutgoingOffer }
-export interface RecordIncomingConnection extends ConnectionPeer { incoming: ConnectionIncomingOffer }
+export interface ConnectionSummary {
+  peerOwnerDid: string;
+  peerAgentDid?: string;
+  peerDisplayName?: string;
+  relayUrl?: string;
+  state: Exclude<ConnectionState, 'none'>;
+}
+export interface RecordOutgoingConnection extends ConnectionPeer {
+  outgoing: ConnectionOutgoingOffer;
+}
+export interface RecordIncomingConnection extends ConnectionPeer {
+  incoming: ConnectionIncomingOffer;
+}
 export interface ApproveConnectionInput {
-  peerOwnerDid: string; requestId: string; requestDigest: string; connectionId: string;
-  localConsentDigest: string; outbox: ConnectionOutboxRecord; source?: 'request' | 'prior-approval';
+  peerOwnerDid: string;
+  requestId: string;
+  requestDigest: string;
+  connectionId: string;
+  localConsentDigest: string;
+  outbox: ConnectionOutboxRecord;
+  source?: 'request' | 'prior-approval';
 }
 /** The exchange layer verifies remote signature and identities before calling this port. */
 export interface ApplyConnectionAcceptedInput {
-  peerOwnerDid: string; requestId: string; requestDigest: string; connectionId: string;
+  peerOwnerDid: string;
+  requestId: string;
+  requestDigest: string;
+  connectionId: string;
   remoteAcceptanceDigest: string;
 }
 /** Pass a parsed, verified, unrevoked issuer invitation and an authenticated requester owner DID. */
 export interface BindInviteFirstUseInput extends ConnectionPeer {
-  invite: Invite; connectionId: string; localConsentDigest: string; outbox: ConnectionOutboxRecord;
+  invite: Invite;
+  connectionId: string;
+  localConsentDigest: string;
+  outbox: ConnectionOutboxRecord;
 }
 /** Structural port for owner-local persistence; it has no transport or review policy. */
 export interface ConnectionPersistence {
@@ -100,129 +161,285 @@ export interface ConnectionPersistence {
 /** Explicit adapter with no store-specific fields exposed to consumers. */
 export function connectionPersistencePort(store: ConnectionPersistence): ConnectionPersistence {
   return {
-    connectionState: did => store.connectionState(did), connectionLevel: did => store.connectionLevel(did),
-    listConnections: () => store.listConnections(), listPriorApprovedPeers: () => store.listPriorApprovedPeers(),
-    recordOutgoing: input => store.recordOutgoing(input), recordIncoming: input => store.recordIncoming(input),
-    approveConnection: input => store.approveConnection(input), applyAccepted: input => store.applyAccepted(input),
-    rejectConnection: did => store.rejectConnection(did), disconnect: did => store.disconnect(did),
-    block: did => store.block(did), unblock: did => store.unblock(did),
-    bindInviteFirstUse: input => store.bindInviteFirstUse(input),
+    connectionState: (did) => store.connectionState(did),
+    connectionLevel: (did) => store.connectionLevel(did),
+    listConnections: () => store.listConnections(),
+    listPriorApprovedPeers: () => store.listPriorApprovedPeers(),
+    recordOutgoing: (input) => store.recordOutgoing(input),
+    recordIncoming: (input) => store.recordIncoming(input),
+    approveConnection: (input) => store.approveConnection(input),
+    applyAccepted: (input) => store.applyAccepted(input),
+    rejectConnection: (did) => store.rejectConnection(did),
+    disconnect: (did) => store.disconnect(did),
+    block: (did) => store.block(did),
+    unblock: (did) => store.unblock(did),
+    bindInviteFirstUse: (input) => store.bindInviteFirstUse(input),
     listConnectionOutbox: () => store.listConnectionOutbox(),
-    markConnectionEventDelivered: id => store.markConnectionEventDelivered(id),
+    markConnectionEventDelivered: (id) => store.markConnectionEventDelivered(id),
   };
 }
 export function emptyConnectionData(): ConnectionData {
   return { connections: [], inviteBindings: [], refusals: [], priorApprovedPeers: [], outbox: [] };
 }
-export function projectConnectionState(data: ConnectionData, denials: string[], peer: string, now: number): ConnectionState {
+export function projectConnectionState(
+  data: ConnectionData,
+  denials: string[],
+  peer: string,
+  now: number,
+): ConnectionState {
   if (denials.includes(peer)) return 'blocked';
-  const r = data.connections.find(c => c.peerOwnerDid === peer);
-  return r?.state === 'connected' ? 'connected' : r &&
-    ((r.incoming?.expiresAt ?? 0) > now || (r.outgoing?.expiresAt ?? 0) > now) ? 'pending' : 'none';
+  const r = data.connections.find((c) => c.peerOwnerDid === peer);
+  return r?.state === 'connected'
+    ? 'connected'
+    : r && ((r.incoming?.expiresAt ?? 0) > now || (r.outgoing?.expiresAt ?? 0) > now)
+      ? 'pending'
+      : 'none';
 }
 export function projectConnectionTrust(state: ConnectionState): ConnectionTrust {
   return state === 'blocked' ? 'denied' : state === 'connected' ? 'limited' : 'unknown';
 }
 export function pruneConnectionData(data: ConnectionData, now: number): void {
-  data.connections = data.connections.filter(c => {
+  data.connections = data.connections.filter((c) => {
     if (c.state === 'connected') return true;
     if (c.incoming && c.incoming.expiresAt <= now) delete c.incoming;
     if (c.outgoing && c.outgoing.expiresAt <= now) delete c.outgoing;
     return !!(c.incoming || c.outgoing);
   });
-  data.inviteBindings = data.inviteBindings.filter(b => b.tokenExpiresAt > now);
-  if (data.inviteLimits) data.inviteLimits = data.inviteLimits.filter(l => l.tokenExpiresAt > now);
-  data.refusals = data.refusals.filter(r => r.refuseUntil > now);
-  data.outbox = data.outbox.filter(e => e.deliveryDeadline > now);
+  data.inviteBindings = data.inviteBindings.filter((b) => b.tokenExpiresAt > now);
+  if (data.inviteLimits)
+    data.inviteLimits = data.inviteLimits.filter((l) => l.tokenExpiresAt > now);
+  data.refusals = data.refusals.filter((r) => r.refuseUntil > now);
+  data.outbox = data.outbox.filter((e) => e.deliveryDeadline > now);
 }
 export function assertConnectionCapacity(data: ConnectionData): void {
   if ((data.inviteLimits?.length ?? 0) > 1000) throw new Error('CONNECTION_STORE_FULL');
   for (const key of Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>)
     if (data[key].length > CONNECTION_CAPACITY[key]) throw new Error('CONNECTION_STORE_FULL');
 }
-const text = (v: unknown, max = 512): v is string => typeof v === 'string' && v.length > 0 && v.length <= max && !/[\p{Cc}\p{Cf}]/u.test(v);
+const text = (v: unknown, max = 512): v is string =>
+  typeof v === 'string' && v.length > 0 && v.length <= max && !/[\p{Cc}\p{Cf}]/u.test(v);
 const did = (v: unknown): v is string => text(v) && v.startsWith('did:');
 const hash = (v: unknown): v is string => typeof v === 'string' && /^sha256:[a-f0-9]{64}$/.test(v);
-const time = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 8_640_000_000_000_000;
-const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-function keys(v: object, allowed: string[]): boolean { return Object.keys(v).every(k => allowed.includes(k)); }
+const time = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 8_640_000_000_000_000;
+const object = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+function keys(v: object, allowed: string[]): boolean {
+  return Object.keys(v).every((k) => allowed.includes(k));
+}
 function relay(v: unknown): v is string {
   if (!text(v, 2048)) return false;
-  try { const u = new URL(v); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash; }
-  catch { return false; }
+  try {
+    const u = new URL(v);
+    return (
+      ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash
+    );
+  } catch {
+    return false;
+  }
 }
 export function validConnectionPeer(p: ConnectionPeer): boolean {
-  return object(p) && did(p.peerOwnerDid) && (p.peerAgentDid === undefined || did(p.peerAgentDid)) &&
-    (p.peerDisplayName === undefined || typeof p.peerDisplayName === 'string' && p.peerDisplayName.length > 0) && relay(p.relayUrl);
+  return (
+    object(p) &&
+    did(p.peerOwnerDid) &&
+    (p.peerAgentDid === undefined || did(p.peerAgentDid)) &&
+    (p.peerDisplayName === undefined ||
+      (typeof p.peerDisplayName === 'string' && p.peerDisplayName.length > 0)) &&
+    relay(p.relayUrl)
+  );
 }
 export function assertConnectionOwnerDid(peerOwnerDid: string): void {
   if (!did(peerOwnerDid)) throw new Error('INTAKE_STORE_INVALID');
 }
-export function validConnectionOffer(o: ConnectionIncomingOffer | ConnectionOutgoingOffer, outgoing: boolean): boolean {
-  if (!object(o) || !text(o.requestId, 128) || !hash(o.requestDigest) || !time(o.expiresAt)) return false;
-  const start = outgoing ? (o as ConnectionOutgoingOffer).createdAt : (o as ConnectionIncomingOffer).receivedAt;
-  return time(start) && o.expiresAt > start && o.expiresAt - start <= CONNECTION_OFFER_TTL_MS &&
-    (outgoing ? hash((o as ConnectionOutgoingOffer).ownerConsentDigest) &&
-      keys(o, ['requestId', 'requestDigest', 'createdAt', 'expiresAt', 'ownerConsentDigest']) :
-      keys(o, ['requestId', 'requestDigest', 'receivedAt', 'expiresAt']));
+export function validConnectionOffer(
+  o: ConnectionIncomingOffer | ConnectionOutgoingOffer,
+  outgoing: boolean,
+): boolean {
+  if (!object(o) || !text(o.requestId, 128) || !hash(o.requestDigest) || !time(o.expiresAt))
+    return false;
+  const start = outgoing
+    ? (o as ConnectionOutgoingOffer).createdAt
+    : (o as ConnectionIncomingOffer).receivedAt;
+  return (
+    time(start) &&
+    o.expiresAt > start &&
+    o.expiresAt - start <= CONNECTION_OFFER_TTL_MS &&
+    (outgoing
+      ? hash((o as ConnectionOutgoingOffer).ownerConsentDigest) &&
+        keys(o, ['requestId', 'requestDigest', 'createdAt', 'expiresAt', 'ownerConsentDigest'])
+      : keys(o, ['requestId', 'requestDigest', 'receivedAt', 'expiresAt']))
+  );
 }
 export function validConnectionOutbox(e: ConnectionOutboxRecord, owner: string): boolean {
-  return object(e) && keys(e, ['eventId', 'peerOwnerDid', 'relayUrl', 'signedEvent', 'deliveryDeadline', 'state']) &&
-    text(e.eventId, 128) && did(e.peerOwnerDid) && relay(e.relayUrl) && time(e.deliveryDeadline) &&
-    ['pending', 'delivered'].includes(e.state) && object(e.signedEvent) && verifySigned(e.signedEvent, owner) &&
-    Buffer.byteLength(JSON.stringify(e)) <= 8192;
+  return (
+    object(e) &&
+    keys(e, ['eventId', 'peerOwnerDid', 'relayUrl', 'signedEvent', 'deliveryDeadline', 'state']) &&
+    text(e.eventId, 128) &&
+    did(e.peerOwnerDid) &&
+    relay(e.relayUrl) &&
+    time(e.deliveryDeadline) &&
+    ['pending', 'delivered'].includes(e.state) &&
+    object(e.signedEvent) &&
+    verifySigned(e.signedEvent, owner) &&
+    Buffer.byteLength(JSON.stringify(e)) <= 8192
+  );
 }
 export function assertConnectionCommit(connectionId: string, consentDigest: string): void {
   if (!text(connectionId, 128) || !hash(consentDigest)) throw new Error('INTAKE_STORE_INVALID');
 }
 /** Validate the persisted lifecycle, including uniqueness and explicit connected consent. */
 export function validConnectionData(d: ConnectionData, owner: string): boolean {
-  if (!object(d) || !(Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>)
-    .every(k => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k])) return false;
-  const unique = <T>(rows: T[], key: (r: T) => string) => new Set(rows.map(key)).size === rows.length;
+  if (
+    !object(d) ||
+    !(Object.keys(CONNECTION_CAPACITY) as Array<keyof typeof CONNECTION_CAPACITY>).every(
+      (k) => Array.isArray(d[k]) && d[k].length <= CONNECTION_CAPACITY[k],
+    )
+  )
+    return false;
+  const unique = <T>(rows: T[], key: (r: T) => string) =>
+    new Set(rows.map(key)).size === rows.length;
   // Keep #297 signed limits readable, including values above the new issuance cap.
-  if (d.inviteLimits !== undefined && (!Array.isArray(d.inviteLimits) || d.inviteLimits.length > 1000 ||
-    d.inviteLimits.some(l => !object(l) || !keys(l, ['inviteDigest', 'maxUses', 'tokenExpiresAt']) ||
-      !hash(l.inviteDigest) || !Number.isSafeInteger(l.maxUses) || l.maxUses < 1 || !time(l.tokenExpiresAt)) ||
-    !unique(d.inviteLimits, l => l.inviteDigest))) return false;
-  if (d.connections.some(c => !validConnectionPeer(c) ||
-    !keys(c, ['peerOwnerDid', 'peerAgentDid', 'peerDisplayName', 'relayUrl', 'state', 'incoming', 'outgoing', 'connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest', 'acceptance']) ||
-    (c.acceptance !== undefined && !['off', 'read-only', 'write'].includes(c.acceptance)) ||
-    (c.incoming !== undefined && !validConnectionOffer(c.incoming, false)) ||
-    (c.outgoing !== undefined && !validConnectionOffer(c.outgoing, true)) ||
-    (c.state === 'pending' ? !(c.incoming || c.outgoing) ||
-      ['connectionId', 'connectedAt', 'source', 'localConsentDigest', 'remoteAcceptanceDigest'].some(k => Object.hasOwn(c, k)) :
-      c.state !== 'connected' || !text(c.connectionId, 128) || !time(c.connectedAt) ||
-      !['request', 'invite', 'prior-approval'].includes(c.source!) || !hash(c.localConsentDigest) ||
-      (c.source !== 'invite' && !(c.incoming || c.outgoing)) ||
-      (!c.incoming && c.source !== 'invite' && !hash(c.remoteAcceptanceDigest)) ||
-      (c.remoteAcceptanceDigest !== undefined && !hash(c.remoteAcceptanceDigest))))) return false;
-  if (d.inviteBindings.some(b => !object(b) || !keys(b, ['inviteDigest', 'requesterOwnerDid', 'boundAt', 'tokenExpiresAt', 'connectionId']) ||
-      !hash(b.inviteDigest) || !did(b.requesterOwnerDid) || !time(b.boundAt) || !time(b.tokenExpiresAt) ||
-      b.tokenExpiresAt <= b.boundAt || !text(b.connectionId, 128)) ||
-    d.refusals.some(r => !object(r) || !keys(r, ['peerOwnerDid', 'refuseUntil']) || !did(r.peerOwnerDid) || !time(r.refuseUntil)) ||
-    d.priorApprovedPeers.some(p => !object(p) || !keys(p, ['peerOwnerDid', 'peerDisplayName', 'lastApprovedAt', 'sourceRequestIds', 'legacyTrust']) ||
-      !did(p.peerOwnerDid) || (p.peerDisplayName !== undefined && (typeof p.peerDisplayName !== 'string' || !p.peerDisplayName)) ||
-      (p.lastApprovedAt !== undefined && !time(p.lastApprovedAt)) ||
-      !['limited', 'trusted'].includes(p.legacyTrust) || !Array.isArray(p.sourceRequestIds) || p.sourceRequestIds.length > 200 ||
-      p.sourceRequestIds.some(id => !text(id, 128)) || new Set(p.sourceRequestIds).size !== p.sourceRequestIds.length) ||
-    d.outbox.some(e => !validConnectionOutbox(e, owner))) return false;
-  return unique(d.connections, c => c.peerOwnerDid) && unique(d.inviteBindings, b => JSON.stringify([b.inviteDigest, b.requesterOwnerDid])) &&
-    unique(d.refusals, r => r.peerOwnerDid) && unique(d.priorApprovedPeers, p => p.peerOwnerDid) && unique(d.outbox, e => e.eventId);
+  if (
+    d.inviteLimits !== undefined &&
+    (!Array.isArray(d.inviteLimits) ||
+      d.inviteLimits.length > 1000 ||
+      d.inviteLimits.some(
+        (l) =>
+          !object(l) ||
+          !keys(l, ['inviteDigest', 'maxUses', 'tokenExpiresAt']) ||
+          !hash(l.inviteDigest) ||
+          !Number.isSafeInteger(l.maxUses) ||
+          l.maxUses < 1 ||
+          !time(l.tokenExpiresAt),
+      ) ||
+      !unique(d.inviteLimits, (l) => l.inviteDigest))
+  )
+    return false;
+  if (
+    d.connections.some(
+      (c) =>
+        !validConnectionPeer(c) ||
+        !keys(c, [
+          'peerOwnerDid',
+          'peerAgentDid',
+          'peerDisplayName',
+          'relayUrl',
+          'state',
+          'incoming',
+          'outgoing',
+          'connectionId',
+          'connectedAt',
+          'source',
+          'localConsentDigest',
+          'remoteAcceptanceDigest',
+          'acceptance',
+        ]) ||
+        (c.acceptance !== undefined && !['off', 'read-only', 'write'].includes(c.acceptance)) ||
+        (c.incoming !== undefined && !validConnectionOffer(c.incoming, false)) ||
+        (c.outgoing !== undefined && !validConnectionOffer(c.outgoing, true)) ||
+        (c.state === 'pending'
+          ? !(c.incoming || c.outgoing) ||
+            [
+              'connectionId',
+              'connectedAt',
+              'source',
+              'localConsentDigest',
+              'remoteAcceptanceDigest',
+            ].some((k) => Object.hasOwn(c, k))
+          : c.state !== 'connected' ||
+            !text(c.connectionId, 128) ||
+            !time(c.connectedAt) ||
+            !['request', 'invite', 'prior-approval'].includes(c.source!) ||
+            !hash(c.localConsentDigest) ||
+            (c.source !== 'invite' && !(c.incoming || c.outgoing)) ||
+            (!c.incoming && c.source !== 'invite' && !hash(c.remoteAcceptanceDigest)) ||
+            (c.remoteAcceptanceDigest !== undefined && !hash(c.remoteAcceptanceDigest))),
+    )
+  )
+    return false;
+  if (
+    d.inviteBindings.some(
+      (b) =>
+        !object(b) ||
+        !keys(b, [
+          'inviteDigest',
+          'requesterOwnerDid',
+          'boundAt',
+          'tokenExpiresAt',
+          'connectionId',
+        ]) ||
+        !hash(b.inviteDigest) ||
+        !did(b.requesterOwnerDid) ||
+        !time(b.boundAt) ||
+        !time(b.tokenExpiresAt) ||
+        b.tokenExpiresAt <= b.boundAt ||
+        !text(b.connectionId, 128),
+    ) ||
+    d.refusals.some(
+      (r) =>
+        !object(r) ||
+        !keys(r, ['peerOwnerDid', 'refuseUntil']) ||
+        !did(r.peerOwnerDid) ||
+        !time(r.refuseUntil),
+    ) ||
+    d.priorApprovedPeers.some(
+      (p) =>
+        !object(p) ||
+        !keys(p, [
+          'peerOwnerDid',
+          'peerDisplayName',
+          'lastApprovedAt',
+          'sourceRequestIds',
+          'legacyTrust',
+        ]) ||
+        !did(p.peerOwnerDid) ||
+        (p.peerDisplayName !== undefined &&
+          (typeof p.peerDisplayName !== 'string' || !p.peerDisplayName)) ||
+        (p.lastApprovedAt !== undefined && !time(p.lastApprovedAt)) ||
+        !['limited', 'trusted'].includes(p.legacyTrust) ||
+        !Array.isArray(p.sourceRequestIds) ||
+        p.sourceRequestIds.length > 200 ||
+        p.sourceRequestIds.some((id) => !text(id, 128)) ||
+        new Set(p.sourceRequestIds).size !== p.sourceRequestIds.length,
+    ) ||
+    d.outbox.some((e) => !validConnectionOutbox(e, owner))
+  )
+    return false;
+  return (
+    unique(d.connections, (c) => c.peerOwnerDid) &&
+    unique(d.inviteBindings, (b) => JSON.stringify([b.inviteDigest, b.requesterOwnerDid])) &&
+    unique(d.refusals, (r) => r.peerOwnerDid) &&
+    unique(d.priorApprovedPeers, (p) => p.peerOwnerDid) &&
+    unique(d.outbox, (e) => e.eventId)
+  );
 }
 /** Canonical parsed invitations have the same digest for each supported URI encoding. */
-export function connectionInviteDigest(invite: Invite): string { return digest(invite); }
+export function connectionInviteDigest(invite: Invite): string {
+  return digest(invite);
+}
 
 /** Validate new issuer limits; legacy signed metadata remains readable without rewriting. */
 export function assertInviteMaxUses(maxUses: unknown): asserts maxUses is number {
-  if (typeof maxUses !== 'number' || !Number.isSafeInteger(maxUses) || maxUses < 1 ||
-      maxUses > INVITE_MAX_USES) throw new Error('INVALID_INVITE_MAX_USES');
+  if (
+    typeof maxUses !== 'number' ||
+    !Number.isSafeInteger(maxUses) ||
+    maxUses < 1 ||
+    maxUses > INVITE_MAX_USES
+  )
+    throw new Error('INVALID_INVITE_MAX_USES');
 }
 /** Call only while holding the issuer store mutation lock, after checking expiry. */
-export function inviteBindingEligibility(data: ConnectionData, inviteDigest: string, ownerDid: string, now: number): 'first' | 'same' | 'other' {
-  const bindings = data.inviteBindings.filter(b => b.inviteDigest === inviteDigest && b.tokenExpiresAt > now);
-  if (bindings.some(b => b.requesterOwnerDid === ownerDid)) return 'same';
-  const maxUses = data.inviteLimits?.find(l => l.inviteDigest === inviteDigest)?.maxUses ?? 1;
+export function inviteBindingEligibility(
+  data: ConnectionData,
+  inviteDigest: string,
+  ownerDid: string,
+  now: number,
+): 'first' | 'same' | 'other' {
+  const bindings = data.inviteBindings.filter(
+    (b) => b.inviteDigest === inviteDigest && b.tokenExpiresAt > now,
+  );
+  if (bindings.some((b) => b.requesterOwnerDid === ownerDid)) return 'same';
+  const maxUses = data.inviteLimits?.find((l) => l.inviteDigest === inviteDigest)?.maxUses ?? 1;
   if (bindings.length < maxUses) return 'first';
   if (maxUses > 1) throw new Error('INVITE_USES_EXHAUSTED');
   return 'other';

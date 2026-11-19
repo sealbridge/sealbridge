@@ -25,7 +25,9 @@ function echoWorker(
   tag: string,
   delayMs = 0,
 ) {
-  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  return new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner: ownerDidKey,
     relay,
     adapter: {
@@ -71,7 +73,9 @@ describe('progress streaming and multi-worker delegation', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -113,7 +117,9 @@ describe('progress streaming and multi-worker delegation', () => {
     expect(result.deliverable).toEqual({ ok: true });
     expect(result.bundle.entries.some((entry) => entry.body.eventType === 'PROGRESS')).toBe(true);
 
-    const limited = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const limited = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -231,19 +237,24 @@ describe('Sealbridge MCP server', () => {
         serverInfo: { name: 'sealbridge-mcp-server', version: '0.9.1' },
       },
     });
-    expect((init as { result: { instructions: string } }).result.instructions.length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      (init as { result: { instructions: string } }).result.instructions.length,
+    ).toBeGreaterThan(0);
     expect(
       await server.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }),
     ).toBeUndefined();
     const listed = await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    const tools = (listed as { result: { tools: Array<{
-      name: string; inputSchema: { properties: Record<string, unknown> };
-    }> } }).result.tools;
-    const names = tools.map(
-      (tool) => tool.name,
-    );
+    const tools = (
+      listed as {
+        result: {
+          tools: Array<{
+            name: string;
+            inputSchema: { properties: Record<string, unknown> };
+          }>;
+        };
+      }
+    ).result.tools;
+    const names = tools.map((tool) => tool.name);
     expect(names).toEqual([
       'acp_delegate_task',
       'acp_delegate_multi',
@@ -260,9 +271,11 @@ describe('Sealbridge MCP server', () => {
       'acp_remove_invite',
       'acp_message_status',
     ]);
-    expect(Object.keys(tools.find(tool => tool.name === 'acp_discover_workers')!.inputSchema.properties)).toEqual([
-      'skillId', 'taskType', 'relayUrl',
-    ]);
+    expect(
+      Object.keys(
+        tools.find((tool) => tool.name === 'acp_discover_workers')!.inputSchema.properties,
+      ),
+    ).toEqual(['skillId', 'taskType', 'relayUrl']);
     for (const tool of tools) expect(tool.inputSchema.properties).not.toHaveProperty('relays');
     const created = await server.handle({
       jsonrpc: '2.0',

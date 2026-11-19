@@ -8,32 +8,52 @@ const bytes = Uint8Array.from([0, 255, 2, 128, 4, 5, 6, 7, 8, 9]);
 const etag = '"demo-v1"';
 // Read the source policy independently: the asset stub deliberately supplies none of it.
 const policy = (await readFile(new URL('../_headers', import.meta.url), 'utf8'))
-  .split('\n\n')[0].split('\n').slice(1).map(line => {
+  .split('\n\n')[0]
+  .split('\n')
+  .slice(1)
+  .map((line) => {
     const colon = line.indexOf(':');
     return [line.slice(0, colon).trim(), line.slice(colon + 1).trim()];
   });
 
-async function serve({ method = 'GET', range, ifRange, type = 'video/mp4', status = 200,
-  assetEtag = etag, data = bytes, includeContentLength = true, extraHeaders = {} } = {}) {
+async function serve({
+  method = 'GET',
+  range,
+  ifRange,
+  type = 'video/mp4',
+  status = 200,
+  assetEtag = etag,
+  data = bytes,
+  includeContentLength = true,
+  extraHeaders = {},
+} = {}) {
   const headers = new Headers(extraHeaders);
   if (range !== undefined) headers.set('Range', range);
   if (ifRange !== undefined) headers.set('If-Range', ifRange);
   const request = new Request('https://sealbridge.dev/media/demo.mp4', { method, headers });
-  const response = await worker.fetch(request, { ASSETS: {
-    async fetch(assetRequest) {
-      assert.equal(assetRequest.method, 'GET');
-      assert.equal(assetRequest.url, request.url);
-      assert.equal(assetRequest.headers.get('Range'), null);
-      assert.equal(assetRequest.headers.get('If-Range'), null);
-      assert.equal(assetRequest.headers.get('Accept-Encoding'), 'identity');
-      for (const [name, value] of Object.entries(extraHeaders)) assert.equal(assetRequest.headers.get(name), value);
-      return new Response(status === 304 ? null : data, { status, headers: {
-        'Content-Type': type, ...(assetEtag === null ? {} : { 'ETag': assetEtag }),
-        ...(includeContentLength ? { 'Content-Length': String(data.length) } : {}),
-        'Cache-Control': 'public, max-age=0, must-revalidate', 'X-Asset-Metadata': 'preserved',
-      } });
+  const response = await worker.fetch(request, {
+    ASSETS: {
+      async fetch(assetRequest) {
+        assert.equal(assetRequest.method, 'GET');
+        assert.equal(assetRequest.url, request.url);
+        assert.equal(assetRequest.headers.get('Range'), null);
+        assert.equal(assetRequest.headers.get('If-Range'), null);
+        assert.equal(assetRequest.headers.get('Accept-Encoding'), 'identity');
+        for (const [name, value] of Object.entries(extraHeaders))
+          assert.equal(assetRequest.headers.get(name), value);
+        return new Response(status === 304 ? null : data, {
+          status,
+          headers: {
+            'Content-Type': type,
+            ...(assetEtag === null ? {} : { ETag: assetEtag }),
+            ...(includeContentLength ? { 'Content-Length': String(data.length) } : {}),
+            'Cache-Control': 'public, max-age=0, must-revalidate',
+            'X-Asset-Metadata': 'preserved',
+          },
+        });
+      },
     },
-  } });
+  });
   for (const [name, value] of policy) assert.equal(response.headers.get(name), value, name);
   assert.equal(response.headers.get('Content-Type'), type);
   assert.equal(response.headers.get('ETag'), assetEtag);
@@ -74,8 +94,16 @@ const cases = [
   { name: 'large start', range: 'bytes=999999999999999999999999-', status: 416 },
   { name: 'large end', range: 'bytes=8-999999999999999999999999', status: 206, start: 8, end: 9 },
   { name: 'large suffix', range: 'bytes=-999999999999999999999999', status: 206, start: 0, end: 9 },
-  ...['bytes=0-1,4-5', 'bytes=', 'bytes=-', 'bytes=4-2', 'items=0-1', 'bytes=a-b', 'bytes=1.5-2', 'bytes=1-2junk']
-    .map(range => ({ name: `fallback ${range}`, range, status: 200 })),
+  ...[
+    'bytes=0-1,4-5',
+    'bytes=',
+    'bytes=-',
+    'bytes=4-2',
+    'items=0-1',
+    'bytes=a-b',
+    'bytes=1.5-2',
+    'bytes=1-2junk',
+  ].map((range) => ({ name: `fallback ${range}`, range, status: 200 })),
 ];
 
 for (const { name, range, status, start, end } of cases) {
@@ -86,10 +114,13 @@ for (const { name, range, status, start, end } of cases) {
     assert.equal(head.status, status);
     assert.deepEqual([...head.headers], [...get.headers]);
     assert.equal(get.headers.get('Accept-Ranges'), 'bytes');
-    const expected = status === 416 ? new Uint8Array() : status === 206 ? bytes.slice(start, end + 1) : bytes;
+    const expected =
+      status === 416 ? new Uint8Array() : status === 206 ? bytes.slice(start, end + 1) : bytes;
     assert.equal(get.headers.get('Content-Length'), String(expected.length));
-    assert.equal(get.headers.get('Content-Range'), status === 416 ? 'bytes */10'
-      : status === 206 ? `bytes ${start}-${end}/10` : null);
+    assert.equal(
+      get.headers.get('Content-Range'),
+      status === 416 ? 'bytes */10' : status === 206 ? `bytes ${start}-${end}/10` : null,
+    );
     assert.deepEqual(new Uint8Array(await get.arrayBuffer()), expected);
     assert.equal(head.body, null);
     assert.equal((await head.arrayBuffer()).byteLength, 0);
@@ -98,16 +129,23 @@ for (const { name, range, status, start, end } of cases) {
 
 test('If-Range honors only an exact strong ETag; other validators return the full asset', async () => {
   for (const [ifRange, assetEtag, status] of [
-    [etag, etag, 206], ['"old"', etag, 200], [`W/${etag}`, etag, 200],
+    [etag, etag, 206],
+    ['"old"', etag, 200],
+    [`W/${etag}`, etag, 200],
     [etag, null, 200],
-    [`W/${etag}`, `W/${etag}`, 200], ['Wed, 21 Oct 2015 07:28:00 GMT', etag, 200],
-  ]) for (const method of ['GET', 'HEAD']) {
-    const response = await serve({ method, range: 'bytes=0-1', ifRange, assetEtag });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get('Content-Length'), status === 206 ? '2' : '10');
-    assert.equal(response.headers.get('Content-Range'), status === 206 ? 'bytes 0-1/10' : null);
-    assert.equal((await response.arrayBuffer()).byteLength, method === 'HEAD' ? 0 : status === 206 ? 2 : 10);
-  }
+    [`W/${etag}`, `W/${etag}`, 200],
+    ['Wed, 21 Oct 2015 07:28:00 GMT', etag, 200],
+  ])
+    for (const method of ['GET', 'HEAD']) {
+      const response = await serve({ method, range: 'bytes=0-1', ifRange, assetEtag });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get('Content-Length'), status === 206 ? '2' : '10');
+      assert.equal(response.headers.get('Content-Range'), status === 206 ? 'bytes 0-1/10' : null);
+      assert.equal(
+        (await response.arrayBuffer()).byteLength,
+        method === 'HEAD' ? 0 : status === 206 ? 2 : 10,
+      );
+    }
   const response = await serve({ range: 'bytes=99999999-', ifRange: '"old"' });
   assert.equal(response.status, 200);
 });
@@ -121,12 +159,21 @@ test('WebM and other /media/* representations retain the asset Content-Type', as
 });
 
 test('missing assets and conditional responses keep status, policy, validators, and HEAD semantics', async () => {
-  for (const status of [404, 304]) for (const method of ['GET', 'HEAD']) {
-    const response = await serve({ status, method, range: 'bytes=0-1', extraHeaders: { 'If-None-Match': etag } });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get('Content-Range'), null);
-    assert.equal((await response.arrayBuffer()).byteLength, method === 'HEAD' || status === 304 ? 0 : 10);
-  }
+  for (const status of [404, 304])
+    for (const method of ['GET', 'HEAD']) {
+      const response = await serve({
+        status,
+        method,
+        range: 'bytes=0-1',
+        extraHeaders: { 'If-None-Match': etag },
+      });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get('Content-Range'), null);
+      assert.equal(
+        (await response.arrayBuffer()).byteLength,
+        method === 'HEAD' || status === 304 ? 0 : 10,
+      );
+    }
 });
 
 test('empty assets have no satisfiable ranges', async () => {
@@ -143,10 +190,19 @@ test('empty assets have no satisfiable ranges', async () => {
 });
 
 test('non-media requests pass through unchanged, including Range and conditional headers', async () => {
-  const request = new Request('https://sealbridge.dev/en/', { headers: { Range: 'bytes=0-1', 'If-None-Match': etag } });
+  const request = new Request('https://sealbridge.dev/en/', {
+    headers: { Range: 'bytes=0-1', 'If-None-Match': etag },
+  });
   const asset = new Response('landing');
-  assert.equal(await worker.fetch(request, { ASSETS: { fetch(received) {
-    assert.equal(received, request);
-    return asset;
-  } } }), asset);
+  assert.equal(
+    await worker.fetch(request, {
+      ASSETS: {
+        fetch(received) {
+          assert.equal(received, request);
+          return asset;
+        },
+      },
+    }),
+    asset,
+  );
 });

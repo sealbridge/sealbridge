@@ -6,9 +6,9 @@
 site also includes a small Worker for `/media/*` byte ranges. Nothing is deployed
 by a build or CI. There is no analytics, external font, CDN script, or remote QR service.
 
-| Intended host | Assets | Configuration |
-| --- | --- | --- |
-| sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc` (`sealbridge-site`) |
+| Intended host  | Assets              | Configuration                                       |
+| -------------- | ------------------- | --------------------------------------------------- |
+| sealbridge.dev | `sites/dist/site`   | `sites/wrangler.site.jsonc` (`sealbridge-site`)     |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc` (`sealbridge-invite`) |
 
 The English and Japanese landing pages include a 30-second code-review demo

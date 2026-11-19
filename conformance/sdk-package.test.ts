@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -11,91 +23,172 @@ import * as source from '../cli/src/sdk.js';
 const repository = fileURLToPath(new URL('../', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8'));
 const run = promisify(execFile);
-describe.each(['sealbridge', 'sealbridge-local'])('%s standalone package', packageName => {
-const packageRoot = packageName === 'sealbridge' ? repository : join(repository, 'dist-local');
-let fixture: string, installed: string;
-function write(path: string, value: string) {
-  writeFileSync(path + '.tmp', value, { mode: 0o600, flag: 'wx' });
-  renameSync(path + '.tmp', path);
-}
-beforeAll(async () => {
-  // Use the same preparation as prepack without creating a tarball or publishing.
-  await run(process.execPath, ['scripts/package-cli.mjs'], { cwd: repository, timeout: 60_000 });
-  fixture = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-sdk-package-'));
-  installed = join(fixture, 'node_modules', packageName);
-  mkdirSync(installed, { recursive: true, mode: 0o700 });
-  const packagedManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
-  expect(packagedManifest.bin).toEqual(packageName === 'sealbridge' ? manifest.bin : { 'sealbridge-local': './dist/cli/dist/index.js' });
-  write(join(installed, 'package.json'), JSON.stringify(packagedManifest));
-  for (const entry of manifest.files) cpSync(join(packageRoot, entry), join(installed, entry), { recursive: true });
-  // Only published dependencies are available; workspace @acp packages are absent.
-  for (const name of [...Object.keys(manifest.dependencies), '@types/node']) {
-    const target = join(fixture, 'node_modules', name);
-    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-    symlinkSync(realpathSync(join(repository, 'node_modules', name)), target, 'junction');
+describe.each(['sealbridge', 'sealbridge-local'])('%s standalone package', (packageName) => {
+  const packageRoot = packageName === 'sealbridge' ? repository : join(repository, 'dist-local');
+  let fixture: string, installed: string;
+  function write(path: string, value: string) {
+    writeFileSync(path + '.tmp', value, { mode: 0o600, flag: 'wx' });
+    renameSync(path + '.tmp', path);
   }
-  write(join(fixture, 'package.json'), JSON.stringify({ type: 'module' }));
-}, 60_000);
-afterAll(() => { if (fixture) rmSync(fixture, { recursive: true, force: true }); });
+  beforeAll(async () => {
+    // Use the same preparation as prepack without creating a tarball or publishing.
+    await run(process.execPath, ['scripts/package-cli.mjs'], { cwd: repository, timeout: 60_000 });
+    fixture = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-sdk-package-'));
+    installed = join(fixture, 'node_modules', packageName);
+    mkdirSync(installed, { recursive: true, mode: 0o700 });
+    const packagedManifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+    expect(packagedManifest.bin).toEqual(
+      packageName === 'sealbridge'
+        ? manifest.bin
+        : { 'sealbridge-local': './dist/cli/dist/index.js' },
+    );
+    write(join(installed, 'package.json'), JSON.stringify(packagedManifest));
+    for (const entry of manifest.files)
+      cpSync(join(packageRoot, entry), join(installed, entry), { recursive: true });
+    // Only published dependencies are available; workspace @acp packages are absent.
+    for (const name of [...Object.keys(manifest.dependencies), '@types/node']) {
+      const target = join(fixture, 'node_modules', name);
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+      symlinkSync(realpathSync(join(repository, 'node_modules', name)), target, 'junction');
+    }
+    write(join(fixture, 'package.json'), JSON.stringify({ type: 'module' }));
+  }, 60_000);
+  afterAll(() => {
+    if (fixture) rmSync(fixture, { recursive: true, force: true });
+  });
 
-it('starts both CLI entry points and passes npm publication preflight', async () => {
-  const cli = join(installed, 'dist/cli/dist/index.js');
-  expect((await run(process.execPath, [cli, '--version'], { cwd: fixture })).stdout.trim()).toBe(manifest.version);
-  for (const command of [[], ['worker', 'start'], ['config'], ['doctor'], ['invite', 'create'], ['tasks'], ['delegate']]) {
-    const help = (await run(process.execPath, [cli, ...command, '--help'], { cwd: fixture })).stdout;
-    expect(help).toMatch(new RegExp('^Usage: ' + packageName + ' '));
-    if (packageName === 'sealbridge-local') expect(help).not.toContain('Usage: sealbridge ');
-  }
-  // pnpm's npm-compatible publish command could contact the registry: use npm's CLI.
-  const { execPath } = process;
-  const npm = process.platform === 'win32' ? join(dirname(execPath), 'node_modules/npm/bin/npm-cli.js') : undefined;
-  if (npm && existsSync(npm)) {
-    await run(execPath, [npm, 'publish', '--dry-run', '--ignore-scripts', '--access', 'public', '--offline', '--registry', 'https://package-preflight.invalid'], { cwd: installed, timeout: 60_000 });
-  } else {
-    await run('npm', ['publish', '--dry-run', '--ignore-scripts', '--access', 'public', '--offline', '--registry', 'https://package-preflight.invalid'], { cwd: installed, timeout: 60_000 });
-  }
-}, 60_000);
+  it('starts both CLI entry points and passes npm publication preflight', async () => {
+    const cli = join(installed, 'dist/cli/dist/index.js');
+    expect((await run(process.execPath, [cli, '--version'], { cwd: fixture })).stdout.trim()).toBe(
+      manifest.version,
+    );
+    for (const command of [
+      [],
+      ['worker', 'start'],
+      ['config'],
+      ['doctor'],
+      ['invite', 'create'],
+      ['tasks'],
+      ['delegate'],
+    ]) {
+      const help = (await run(process.execPath, [cli, ...command, '--help'], { cwd: fixture }))
+        .stdout;
+      expect(help).toMatch(new RegExp('^Usage: ' + packageName + ' '));
+      if (packageName === 'sealbridge-local') expect(help).not.toContain('Usage: sealbridge ');
+    }
+    // pnpm's npm-compatible publish command could contact the registry: use npm's CLI.
+    const { execPath } = process;
+    const npm =
+      process.platform === 'win32'
+        ? join(dirname(execPath), 'node_modules/npm/bin/npm-cli.js')
+        : undefined;
+    if (npm && existsSync(npm)) {
+      await run(
+        execPath,
+        [
+          npm,
+          'publish',
+          '--dry-run',
+          '--ignore-scripts',
+          '--access',
+          'public',
+          '--offline',
+          '--registry',
+          'https://package-preflight.invalid',
+        ],
+        { cwd: installed, timeout: 60_000 },
+      );
+    } else {
+      await run(
+        'npm',
+        [
+          'publish',
+          '--dry-run',
+          '--ignore-scripts',
+          '--access',
+          'public',
+          '--offline',
+          '--registry',
+          'https://package-preflight.invalid',
+        ],
+        { cwd: installed, timeout: 60_000 },
+      );
+    }
+  }, 60_000);
 
-it('uses the same data root and worker identity but grants saved permission only to local', async () => {
-  const dataRoot = join(fixture, 'shared-data');
-  const env = { ...process.env, SEALBRIDGE_DATA_DIR: dataRoot, SEALBRIDGE_KEY_STORE: 'file' };
-  write(join(fixture, 'seed.mjs'), `
+  it('uses the same data root and worker identity but grants saved permission only to local', async () => {
+    const dataRoot = join(fixture, 'shared-data');
+    const env = { ...process.env, SEALBRIDGE_DATA_DIR: dataRoot, SEALBRIDGE_KEY_STORE: 'file' };
+    write(
+      join(fixture, 'seed.mjs'),
+      `
     import { resolveStoredIdentity } from '${packageName}/sdk';
     import { setApplicationLocalPcExecution } from '${packageName}/dist/packages/runtime/dist/application-config.js';
     import { writeFileSync } from 'node:fs';
     const identity = await resolveStoredIdentity('worker');
     setApplicationLocalPcExecution(true);
     writeFileSync('existing-did', identity.did);
-  `);
-  await run(process.execPath, ['seed.mjs'], { cwd: fixture, env });
-  const cli = join(installed, 'dist/cli/dist/index.js');
-  const args = [cli, 'worker', 'start', '--adapter', 'sandbox', '--preview', '--relay', 'https://relay.example'];
-  if (packageName === 'sealbridge') {
-    await expect(run(process.execPath, args, { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN') });
-    args.push('--allow-local-pc');
-  }
-  const preview = await run(process.execPath, args, { cwd: fixture, env });
-  expect(preview.stdout).toContain(readFileSync(join(fixture, 'existing-did'), 'utf8'));
-  if (packageName === 'sealbridge-local') {
-    await run(process.execPath, [cli, 'config', 'local-pc', 'off'], { cwd: fixture, env });
-    await expect(run(process.execPath, args, { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN') });
-    await expect(run(process.execPath, [cli, 'config', 'local-pc', 'on'], { cwd: fixture, env })).rejects.toMatchObject({ stderr: expect.stringContaining('LOCAL_PC_CONSENT_REQUIRES_TERMINAL') });
-    expect(JSON.parse(readFileSync(join(dataRoot, 'config.json'), 'utf8')).localPcExecution).toBe(false);
-    try { await run(process.execPath, args, { cwd: fixture, env }); throw new Error('Expected opt-in refusal'); }
-    catch (error) {
-      const stderr = (error as { stderr: string }).stderr;
-      expect(stderr).toContain('--allow-local-pc');
-      expect(stderr).not.toMatch(/mainline sealbridge|npm i -g sealbridge-local/);
+  `,
+    );
+    await run(process.execPath, ['seed.mjs'], { cwd: fixture, env });
+    const cli = join(installed, 'dist/cli/dist/index.js');
+    const args = [
+      cli,
+      'worker',
+      'start',
+      '--adapter',
+      'sandbox',
+      '--preview',
+      '--relay',
+      'https://relay.example',
+    ];
+    if (packageName === 'sealbridge') {
+      await expect(run(process.execPath, args, { cwd: fixture, env })).rejects.toMatchObject({
+        stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN'),
+      });
+      args.push('--allow-local-pc');
     }
-    expect((await run(process.execPath, [...args, '--allow-local-pc'], { cwd: fixture, env })).stdout).toContain(readFileSync(join(fixture, 'existing-did'), 'utf8'));
-  }
-});
+    const preview = await run(process.execPath, args, { cwd: fixture, env });
+    expect(preview.stdout).toContain(readFileSync(join(fixture, 'existing-did'), 'utf8'));
+    if (packageName === 'sealbridge-local') {
+      await run(process.execPath, [cli, 'config', 'local-pc', 'off'], { cwd: fixture, env });
+      await expect(run(process.execPath, args, { cwd: fixture, env })).rejects.toMatchObject({
+        stderr: expect.stringContaining('LOCAL_PC_EXECUTION_REQUIRES_OPT_IN'),
+      });
+      await expect(
+        run(process.execPath, [cli, 'config', 'local-pc', 'on'], { cwd: fixture, env }),
+      ).rejects.toMatchObject({
+        stderr: expect.stringContaining('LOCAL_PC_CONSENT_REQUIRES_TERMINAL'),
+      });
+      expect(JSON.parse(readFileSync(join(dataRoot, 'config.json'), 'utf8')).localPcExecution).toBe(
+        false,
+      );
+      try {
+        await run(process.execPath, args, { cwd: fixture, env });
+        throw new Error('Expected opt-in refusal');
+      } catch (error) {
+        const stderr = (error as { stderr: string }).stderr;
+        expect(stderr).toContain('--allow-local-pc');
+        expect(stderr).not.toMatch(/mainline sealbridge|npm i -g sealbridge-local/);
+      }
+      expect(
+        (await run(process.execPath, [...args, '--allow-local-pc'], { cwd: fixture, env })).stdout,
+      ).toContain(readFileSync(join(fixture, 'existing-did'), 'utf8'));
+    }
+  });
 
-it('resolves the SDK and legacy paths from the prepared package without import side effects', async () => {
-  expect(manifest.exports['./sdk']).toEqual({ types: './dist/cli/dist/sdk.d.ts', import: './dist/cli/dist/sdk.js' });
-  for (const target of Object.values(manifest.exports['./sdk']) as string[]) expect(existsSync(join(installed, target))).toBe(true);
-  for (const target of Object.values(manifest.bin) as string[]) expect(existsSync(join(installed, target))).toBe(true);
-  write(join(fixture, 'consumer.mjs'), `
+  it('resolves the SDK and legacy paths from the prepared package without import side effects', async () => {
+    expect(manifest.exports['./sdk']).toEqual({
+      types: './dist/cli/dist/sdk.d.ts',
+      import: './dist/cli/dist/sdk.js',
+    });
+    for (const target of Object.values(manifest.exports['./sdk']) as string[])
+      expect(existsSync(join(installed, target))).toBe(true);
+    for (const target of Object.values(manifest.bin) as string[])
+      expect(existsSync(join(installed, target))).toBe(true);
+    write(
+      join(fixture, 'consumer.mjs'),
+      `
     import { existsSync, writeFileSync, renameSync } from 'node:fs';
     globalThis.fetch = () => { throw new Error('Unexpected network call'); };
     const sdk = await import('${packageName}/sdk');
@@ -151,24 +244,42 @@ it('resolves the SDK and legacy paths from the prepared package without import s
 
     writeFileSync('sdk-exports.json.tmp', JSON.stringify(Object.keys(sdk).sort()), { mode: 0o600, flag: 'wx' });
     renameSync('sdk-exports.json.tmp', 'sdk-exports.json');
-  `);
-  await run(process.execPath, ['consumer.mjs'], { cwd: fixture, encoding: 'utf8', timeout: 60_000,
-    env: { ...process.env, SEALBRIDGE_DATA_DIR: join(fixture, 'unused-data') } });
-  expect(JSON.parse(readFileSync(join(fixture, 'sdk-exports.json'), 'utf8'))).toEqual(Object.keys(source).sort());
-  for (const target of Object.values(manifest.bin) as string[]) {
-    await run(process.execPath, [join(installed, target), '--help'], { cwd: fixture, timeout: 60_000,
-      env: { ...process.env, SEALBRIDGE_DATA_DIR: join(fixture, 'unused-data') } });
-  }
-  expect(existsSync(join(fixture, 'unused-data'))).toBe(false);
-});
-
-it('resolves SDK declarations and their workspace references for a downstream TypeScript consumer', async () => {
-  const declarations = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    const path = join(directory, entry.name);
-    return entry.isDirectory() ? declarations(path) : entry.name.endsWith('.d.ts') ? [path] : [];
+  `,
+    );
+    await run(process.execPath, ['consumer.mjs'], {
+      cwd: fixture,
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, SEALBRIDGE_DATA_DIR: join(fixture, 'unused-data') },
+    });
+    expect(JSON.parse(readFileSync(join(fixture, 'sdk-exports.json'), 'utf8'))).toEqual(
+      Object.keys(source).sort(),
+    );
+    for (const target of Object.values(manifest.bin) as string[]) {
+      await run(process.execPath, [join(installed, target), '--help'], {
+        cwd: fixture,
+        timeout: 60_000,
+        env: { ...process.env, SEALBRIDGE_DATA_DIR: join(fixture, 'unused-data') },
+      });
+    }
+    expect(existsSync(join(fixture, 'unused-data'))).toBe(false);
   });
-  for (const path of declarations(join(installed, 'dist'))) expect(readFileSync(path, 'utf8')).not.toMatch(/['"]@acp\//);
-  write(join(fixture, 'consumer.mts'), `
+
+  it('resolves SDK declarations and their workspace references for a downstream TypeScript consumer', async () => {
+    const declarations = (directory: string): string[] =>
+      readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(directory, entry.name);
+        return entry.isDirectory()
+          ? declarations(path)
+          : entry.name.endsWith('.d.ts')
+            ? [path]
+            : [];
+      });
+    for (const path of declarations(join(installed, 'dist')))
+      expect(readFileSync(path, 'utf8')).not.toMatch(/['"]@acp\//);
+    write(
+      join(fixture, 'consumer.mts'),
+      `
     import {
       AcpMcpServer, ConnectionService, ConnectionRouter, StoredConnectionExchange, ConnectionAdmissionReview, InviteStore,
       WorkerTrustStore, HeldRequestReview, inspectRuleContent, createRuleBasedContentReviewProvider,
@@ -267,13 +378,27 @@ it('resolves SDK declarations and their workspace references for a downstream Ty
       const invalid: IdentityStoreOptions = { keyStore: 'other' };
       return { listed, connections, server };
     }
-  `);
-  write(join(fixture, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
-    target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true,
-    noEmit: true, skipLibCheck: true, types: ['node'],
-  }, files: ['consumer.mts'] }));
-  await run(process.execPath, [join(repository, 'node_modules/typescript/bin/tsc'), '-p', join(fixture, 'tsconfig.json')],
-    { cwd: fixture, encoding: 'utf8', timeout: 60_000 });
-}, 60_000);
-
+  `,
+    );
+    write(
+      join(fixture, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2023',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          strict: true,
+          noEmit: true,
+          skipLibCheck: true,
+          types: ['node'],
+        },
+        files: ['consumer.mts'],
+      }),
+    );
+    await run(
+      process.execPath,
+      [join(repository, 'node_modules/typescript/bin/tsc'), '-p', join(fixture, 'tsconfig.json')],
+      { cwd: fixture, encoding: 'utf8', timeout: 60_000 },
+    );
+  }, 60_000);
 });

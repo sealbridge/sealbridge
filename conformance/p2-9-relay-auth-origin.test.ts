@@ -42,7 +42,9 @@ describe('P2-9 RelayAuth origin binding', () => {
 
   it('accepts a token only on the origin it was signed for', async () => {
     const token = createRelayAuthToken(bob, { origin: 'wss://Relay-A.Example/socket' });
-    expect(verifyRelayAuthToken(token, bob.did, { expectedOrigin: 'https://relay-a.example' })).toMatchObject({
+    expect(
+      verifyRelayAuthToken(token, bob.did, { expectedOrigin: 'https://relay-a.example' }),
+    ).toMatchObject({
       valid: true,
       action: 'receive',
     });

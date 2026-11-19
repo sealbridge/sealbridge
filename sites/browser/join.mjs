@@ -5,11 +5,21 @@ document.querySelector('#open-app').addEventListener('click', () => {
   location.href = 'sealbridge://join' + location.hash;
 });
 document.querySelector('#copy-link').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText('https://sealbridge.app/j' + location.hash); status.textContent = 'リンクをコピーしました。'; }
-  catch { status.textContent = 'アドレス欄からリンクをコピーしてください。'; }
+  try {
+    await navigator.clipboard.writeText('https://sealbridge.app/j' + location.hash);
+    status.textContent = 'リンクをコピーしました。';
+  } catch {
+    status.textContent = 'アドレス欄からリンクをコピーしてください。';
+  }
 });
 document.querySelector('#share-link').addEventListener('click', async () => {
-  if (!navigator.share) { status.textContent = 'リンクをコピーして PC に送ってください。'; return; }
-  try { await navigator.share({ url: 'https://sealbridge.app/j' + location.hash }); }
-  catch { status.textContent = '共有を閉じました。'; }
+  if (!navigator.share) {
+    status.textContent = 'リンクをコピーして PC に送ってください。';
+    return;
+  }
+  try {
+    await navigator.share({ url: 'https://sealbridge.app/j' + location.hash });
+  } catch {
+    status.textContent = '共有を閉じました。';
+  }
 });

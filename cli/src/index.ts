@@ -31,9 +31,14 @@ function parseAuditJson(text: string): unknown {
     throw new SyntaxError('Invalid JSON');
   }
 }
-const USAGE = 'Usage: ' + cliName + ' <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
+const USAGE =
+  'Usage: ' +
+  cliName +
+  ' <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
-  'Usage: ' + cliName + ' audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
+  'Usage: ' +
+  cliName +
+  ' audit-verify <audit.jsonl|bundle.json> [trust-anchor.json] ' +
   '[--expect-final-state <state>] [--expect-last-hash <hash>] [--expect-entry-count <n>] [--expect-closure-kind bilateral|interruption] [--expect-interruption-hash <hash>]\n' +
   'Exit codes: 0 bilateral VALID; 2 UNILATERALLY_CLOSED (valid:false); 1 invalid or unreadable.';
 function auditVerifyFlag(args: string[], index: number, name: string): string {
@@ -73,7 +78,8 @@ function parseAuditVerifyArgs(args: string[]): {
     if (arg === '--expect-closure-kind') {
       if (expectedClosureKind !== undefined) throw new Error('Duplicate option: ' + arg);
       const value = auditVerifyFlag(args, i++, arg);
-      if (value !== 'bilateral' && value !== 'interruption') throw new Error('INVALID_EXPECT_CLOSURE_KIND');
+      if (value !== 'bilateral' && value !== 'interruption')
+        throw new Error('INVALID_EXPECT_CLOSURE_KIND');
       expectedClosureKind = value;
       continue;
     }
@@ -126,11 +132,17 @@ async function main(args: string[]) {
       break;
     case '--version':
     case '-v':
-      console.log(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
+      console.log(
+        JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version,
+      );
       break;
     case 'doctor':
       if (rest.includes('--help') || rest.includes('-h'))
-        console.log('Usage: ' + cliName + ' doctor [--offline] [--key <file>] [--relay <url>] [--allow-private-relay]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.');
+        console.log(
+          'Usage: ' +
+            cliName +
+            ' doctor [--offline] [--key <file>] [--relay <url>] [--allow-private-relay]\nReports identity backend, selection source, and presence without creating keys. Use config key-store file|keychain to persist selection; SEALBRIDGE_KEY_STORE overrides it, and --key selects a file. --offline skips the relay health request.',
+        );
       else await doctorCommand(parseDoctorArgs(rest));
       break;
     case 'setup':
@@ -159,7 +171,8 @@ async function main(args: string[]) {
       break;
     case 'accept':
     case 'invites':
-      if (command === 'invites' && rest[0] === 'migrate') await invitesMigrateCommand(rest.slice(1));
+      if (command === 'invites' && rest[0] === 'migrate')
+        await invitesMigrateCommand(rest.slice(1));
       else await acceptCommand(command, rest);
       break;
     case 'receipt':
@@ -194,20 +207,27 @@ async function main(args: string[]) {
       }
       const schema = rest.length === 1 ? 'task-manifest' : rest[0],
         path = rest.length === 1 ? rest[0] : rest[1];
-      if (!schema || !path) throw new Error('Usage: ' + cliName + ' validate [schema-name] <file.json>');
+      if (!schema || !path)
+        throw new Error('Usage: ' + cliName + ' validate [schema-name] <file.json>');
       validateSchema(schema, read(path));
       console.log('VALID');
       break;
     }
     case 'approve': {
       if (rest.includes('--help') || rest.includes('-h')) {
-        console.log('Usage: ' + cliName + ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>');
+        console.log(
+          'Usage: ' +
+            cliName +
+            ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
+        );
         break;
       }
       const [keyFile, gate, taskId, targetFile, outputFile] = rest;
       if (rest.length !== 5 || !keyFile || !gate || !taskId || !targetFile || !outputFile)
         throw new Error(
-          'Usage: ' + cliName + ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
+          'Usage: ' +
+            cliName +
+            ' approve <key.private.json> <gate> <taskId> <target.json> <approval.json>',
         );
       if (
         ![
@@ -239,14 +259,23 @@ async function main(args: string[]) {
       const input = readFileSync(parsed.input, 'utf8');
       // Detect evidence by content, including historic *.jsonl.legacy paths.
       let bundle: unknown;
-      try { bundle = JSON.parse(input); }
-      catch { bundle = parseAuditJsonl(input); }
-      if (bundle && typeof bundle === 'object' && !('entries' in bundle) &&
-          ('entry' in bundle || 'checkpoint' in bundle || 'interruption' in bundle))
+      try {
+        bundle = JSON.parse(input);
+      } catch {
+        bundle = parseAuditJsonl(input);
+      }
+      if (
+        bundle &&
+        typeof bundle === 'object' &&
+        !('entries' in bundle) &&
+        ('entry' in bundle || 'checkpoint' in bundle || 'interruption' in bundle)
+      )
         bundle = parseAuditJsonl(input);
       const options: AuditEvidenceVerificationOptions = {};
       if (parsed.anchorPath) {
-        const file = parseAuditJson(readFileSync(parsed.anchorPath, 'utf8')) as AuditEvidenceVerificationOptions;
+        const file = parseAuditJson(
+          readFileSync(parsed.anchorPath, 'utf8'),
+        ) as AuditEvidenceVerificationOptions;
         if (!file || typeof file !== 'object' || Array.isArray(file))
           throw new Error('INVALID_TRUST_ANCHOR');
         // A positional trust-anchor file still pins taskId and actors, as before.
@@ -272,7 +301,9 @@ async function main(args: string[]) {
         parsed.anchorPath !== undefined ||
         parsed.expectedFinalState !== undefined ||
         parsed.expectedLastEntryHash !== undefined ||
-        parsed.expectedEntryCount !== undefined || parsed.expectedClosureKind !== undefined || parsed.expectedInterruptionHash !== undefined;
+        parsed.expectedEntryCount !== undefined ||
+        parsed.expectedClosureKind !== undefined ||
+        parsed.expectedInterruptionHash !== undefined;
       const result = verifyAuditEvidence(bundle, anchored ? options : undefined);
       console.log(JSON.stringify(result));
       if (!result.valid) process.exitCode = result.status === 'UNILATERALLY_CLOSED' ? 2 : 1;
@@ -285,7 +316,8 @@ async function main(args: string[]) {
       }
       if (rest.length && rest[0] !== '--audit-dir') throw new Error('Unknown option: ' + rest[0]);
       const directory = rest[1];
-      if (rest.length && (!directory || directory.startsWith('-'))) throw new Error('Missing --audit-dir value');
+      if (rest.length && (!directory || directory.startsWith('-')))
+        throw new Error('Missing --audit-dir value');
       if (rest.length > 2) throw new Error('Usage: ' + cliName + ' demo [--audit-dir <directory>]');
       if (directory) mkdirSync(directory, { recursive: true, mode: 0o700 });
       console.log(JSON.stringify(await runDemo(directory), null, 2));
@@ -301,6 +333,7 @@ main(process.argv.slice(2)).catch((error) => {
   process.stderr.write(formatCliError(error) + '\n', () => {
     // A rejected stdin import must exit even if the producer keeps its pipe open.
     // Wait for the diagnostic to flush before forcing exit.
-    if (process.argv[2] === 'accept' && process.argv.slice(3).includes('--stdin')) process.exit(exitCode);
+    if (process.argv[2] === 'accept' && process.argv.slice(3).includes('--stdin'))
+      process.exit(exitCode);
   });
 });

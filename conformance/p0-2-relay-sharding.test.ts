@@ -67,7 +67,11 @@ describe('P0-2 per-inbox byte cap', () => {
       }),
     );
     expect(denied.status).toBe(429);
-    expect(await denied.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
+    expect(await denied.json()).toEqual({
+      error: 'RELAY_RETRY_LATER',
+      retryable: true,
+      retryAfterMs: 60000,
+    });
     expect(Number(denied.headers.get('retry-after'))).toBeGreaterThan(0);
 
     expect(relay.receive(bob.did)).toEqual(first);
@@ -86,9 +90,7 @@ describe('P0-2 per-inbox byte cap', () => {
     capped.send(held);
     expect(() => capped.send(other)).toThrow('RELAY_RETRY_LATER');
     const staleId = capped.snapshot().queues[0]![1][0]!.payload.envelopeId;
-    expect(
-      capped.acknowledge(bob.did, staleId, createRelayAuthToken(bob)),
-    ).toBe(true);
+    expect(capped.acknowledge(bob.did, staleId, createRelayAuthToken(bob))).toBe(true);
     expect(() => capped.send(other)).not.toThrow();
 
     const expiringEnvelope = envelope(alice, bob.did, { n: 7 });
@@ -99,9 +101,7 @@ describe('P0-2 per-inbox byte cap', () => {
       now: () => now,
     });
     expiring.send(expiringEnvelope);
-    expect(() => expiring.send(envelope(alice, bob.did, { n: 8 }))).toThrow(
-      'RELAY_RETRY_LATER',
-    );
+    expect(() => expiring.send(envelope(alice, bob.did, { n: 8 }))).toThrow('RELAY_RETRY_LATER');
     now += 501;
     expect(() => expiring.send(envelope(alice, bob.did, { n: 9 }))).not.toThrow();
     expect(expiring.snapshot().queues[0]?.[1]).toHaveLength(1);
@@ -238,7 +238,9 @@ describe('P0-2 O(1) durable writes', () => {
     const saved: SignedEnvelope[] = [];
     for (let i = 0; i < 24; i++) {
       storage.puts.length = 0;
-      const message = envelope(alice, bob.did, { marker: 'ACPITEM' + String(i).padStart(4, '0') + 'END' });
+      const message = envelope(alice, bob.did, {
+        marker: 'ACPITEM' + String(i).padStart(4, '0') + 'END',
+      });
       saved.push(message);
       const response = await object.fetch(
         new Request('https://relay.example/envelopes', {
@@ -339,9 +341,7 @@ describe('P0-2 edge sharding', () => {
       env,
     );
     await relayWorker.fetch(
-      new Request(
-        'https://relay.example/v1/envelopes?recipient=' + encodeURIComponent(alice.did),
-      ),
+      new Request('https://relay.example/v1/envelopes?recipient=' + encodeURIComponent(alice.did)),
       env,
     );
     await relayWorker.fetch(

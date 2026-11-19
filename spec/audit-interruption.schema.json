@@ -4,10 +4,7 @@
   "title": "audit-interruption",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "payload",
-    "signature"
-  ],
+  "required": ["payload", "signature"],
   "properties": {
     "payload": {
       "type": "object",
@@ -56,12 +53,7 @@
         "acknowledgedPrefix": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "count",
-            "lastSeq",
-            "head",
-            "entriesDigest"
-          ],
+          "required": ["count", "lastSeq", "head", "entriesDigest"],
           "properties": {
             "count": {
               "type": "integer",
@@ -84,10 +76,7 @@
           }
         },
         "phase": {
-          "enum": [
-            "OWNER_APPROVAL",
-            "ACCEPT_ACK_WAIT"
-          ]
+          "enum": ["OWNER_APPROVAL", "ACCEPT_ACK_WAIT"]
         },
         "reason": {
           "enum": [

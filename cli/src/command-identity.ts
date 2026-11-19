@@ -10,8 +10,14 @@ export function readCommandKey(path: string): KeyPair {
   return JSON.parse(readFileSync(path, 'utf8')) as KeyPair;
 }
 
-export async function commandIdentity(role: IdentityRole, path: string | undefined,
-  options: IdentityStoreOptions, create = true): Promise<KeyPair | undefined> {
+export async function commandIdentity(
+  role: IdentityRole,
+  path: string | undefined,
+  options: IdentityStoreOptions,
+  create = true,
+): Promise<KeyPair | undefined> {
   if (path !== undefined) return readCommandKey(path);
-  return create ? resolveStoredIdentity(role, options) : (await inspectStoredIdentity(role, options)).key;
+  return create
+    ? resolveStoredIdentity(role, options)
+    : (await inspectStoredIdentity(role, options)).key;
 }

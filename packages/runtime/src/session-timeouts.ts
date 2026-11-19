@@ -15,11 +15,21 @@ export interface SessionTimeoutOptions {
   /** Worker liveness interval, independent of usage accounting. Default 15000. */
   heartbeatIntervalMs?: number;
 }
-const timeoutKeys = ['timeoutMs', 'executionTimeoutMs', 'taskTimeoutMs', 'waitTimeoutMs',
-  'connectTimeoutMs', 'transportIdleTimeoutMs', 'heartbeatIntervalMs'] as const;
+const timeoutKeys = [
+  'timeoutMs',
+  'executionTimeoutMs',
+  'taskTimeoutMs',
+  'waitTimeoutMs',
+  'connectTimeoutMs',
+  'transportIdleTimeoutMs',
+  'heartbeatIntervalMs',
+] as const;
 
-export function resolveSessionTimeouts(defaults: SessionTimeoutOptions, overrides: SessionTimeoutOptions): SessionTimeoutOptions {
-  return Object.fromEntries(timeoutKeys.map(key => [key, overrides[key] ?? defaults[key]]));
+export function resolveSessionTimeouts(
+  defaults: SessionTimeoutOptions,
+  overrides: SessionTimeoutOptions,
+): SessionTimeoutOptions {
+  return Object.fromEntries(timeoutKeys.map((key) => [key, overrides[key] ?? defaults[key]]));
 }
 
 export function validateSessionTimeouts(options: SessionTimeoutOptions): void {
@@ -28,11 +38,16 @@ export function validateSessionTimeouts(options: SessionTimeoutOptions): void {
     if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647))
       throw new Error('INVALID_TIMEOUT: ' + name);
   }
-  if (options.executionTimeoutMs !== undefined && options.taskTimeoutMs !== undefined &&
-      options.executionTimeoutMs > options.taskTimeoutMs)
+  if (
+    options.executionTimeoutMs !== undefined &&
+    options.taskTimeoutMs !== undefined &&
+    options.executionTimeoutMs > options.taskTimeoutMs
+  )
     throw new Error('INCOMPATIBLE_TIMEOUTS: executionTimeoutMs exceeds taskTimeoutMs');
   if ((options.heartbeatIntervalMs ?? 15_000) >= (options.transportIdleTimeoutMs ?? 90_000))
-    throw new Error('INCOMPATIBLE_TIMEOUTS: heartbeatIntervalMs must be below transportIdleTimeoutMs');
+    throw new Error(
+      'INCOMPATIBLE_TIMEOUTS: heartbeatIntervalMs must be below transportIdleTimeoutMs',
+    );
 }
 
 /** Phase timers never renew the absolute task deadline or the contractual quota. */
@@ -42,20 +57,28 @@ export class SessionTimeouts {
   private readonly overall: ReturnType<typeof setTimeout>;
   private phase?: ReturnType<typeof setTimeout>;
   private idle?: ReturnType<typeof setTimeout>;
-  constructor(readonly options: SessionTimeoutOptions, deadline: string, parent?: AbortSignal) {
+  constructor(
+    readonly options: SessionTimeoutOptions,
+    deadline: string,
+    parent?: AbortSignal,
+  ) {
     validateSessionTimeouts(options);
     this.signal = AbortSignal.any([this.controller.signal, ...(parent ? [parent] : [])]);
     const remaining = Math.max(1, Date.parse(deadline) - Date.now());
-    this.overall = setTimeout(() => this.controller.abort(new Error('TASK_TIMEOUT')),
-      Math.min(options.taskTimeoutMs ?? options.timeoutMs ?? 600_000, remaining));
+    this.overall = setTimeout(
+      () => this.controller.abort(new Error('TASK_TIMEOUT')),
+      Math.min(options.taskTimeoutMs ?? options.timeoutMs ?? 600_000, remaining),
+    );
     this.overall.unref();
     this.wait();
   }
   wait(): void {
     clearTimeout(this.phase);
     clearTimeout(this.idle);
-    this.phase = setTimeout(() => this.controller.abort(new Error('PEER_WAIT_TIMEOUT')),
-      this.options.waitTimeoutMs ?? 600_000);
+    this.phase = setTimeout(
+      () => this.controller.abort(new Error('PEER_WAIT_TIMEOUT')),
+      this.options.waitTimeoutMs ?? 600_000,
+    );
     this.phase.unref();
   }
   running(): void {
@@ -64,15 +87,19 @@ export class SessionTimeouts {
   }
   executing(budgetMs: number): void {
     this.running();
-    this.phase = setTimeout(() => this.controller.abort(new Error('EXECUTION_TIMEOUT')),
-      Math.min(budgetMs, 2_147_483_647));
+    this.phase = setTimeout(
+      () => this.controller.abort(new Error('EXECUTION_TIMEOUT')),
+      Math.min(budgetMs, 2_147_483_647),
+    );
     this.phase.unref();
     this.activity();
   }
   activity(): void {
     clearTimeout(this.idle);
-    this.idle = setTimeout(() => this.controller.abort(new Error('PEER_IDLE_TIMEOUT')),
-      this.options.transportIdleTimeoutMs ?? 90_000);
+    this.idle = setTimeout(
+      () => this.controller.abort(new Error('PEER_IDLE_TIMEOUT')),
+      this.options.transportIdleTimeoutMs ?? 90_000,
+    );
     this.idle.unref();
   }
   close(): void {

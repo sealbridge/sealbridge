@@ -2,64 +2,116 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createSignedAgentCard, digest, generateKeyPair, signPayload, RevocationRegistry, createRevocationNotice } from '../packages/core/src/index.js';
+import {
+  createSignedAgentCard,
+  digest,
+  generateKeyPair,
+  signPayload,
+  RevocationRegistry,
+  createRevocationNotice,
+} from '../packages/core/src/index.js';
 import { connectionIdFor } from '../packages/runtime/src/connection-service.js';
 import { createRuleBasedContentReviewProvider } from '../packages/runtime/src/index.js';
 import { admissionFixture } from './connections-fixture.js';
 const cleanups: Array<() => void> = [];
 // Admission checks use a fixed wall clock while relay polling and the test timeout use real timers.
-beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); });
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+});
 afterEach(() => {
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.useRealTimers();
 });
-function fixture(...args: Parameters<typeof admissionFixture>) { const f = admissionFixture(...args); cleanups.push(f.cleanup); return f; }
-it.each([false, true])('holds unknown tasks on published=%s workers without owner or adapter calls', async published => {
-  const f = fixture({ publishToRegistry: published });
-  if (published) await f.worker.register();
-  const results = await f.attempt();
-  expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
-  expect(f.execute).not.toHaveBeenCalled(); expect(f.approve).not.toHaveBeenCalled(); expect(f.human.approve).not.toHaveBeenCalled();
-  expect(f.review.list()).toHaveLength(1); expect(f.review.list()[0].inspectionStatus).toBe('unavailable');
-  expect(f.store.list()[0]).not.toHaveProperty('title'); expect(f.store.connectionState(f.requester.did)).toBe('pending');
-});
-it.each(['llm','non-llm'] as const)('requires inspection and owner opening for connected %s tasks', async adapterKind => {
-  const f = fixture({ adapterKind, automaticApproval: true }, true);
-  await f.worker.register();
-  const results = await f.attempt(f.worker.invite());
-  expect(results[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
-  expect(f.store.connectionLevel(f.requester.did)).toBe('limited');
-  expect(f.human.approve).toHaveBeenCalledOnce(); expect(f.approve).toHaveBeenCalledOnce();
-  expect(f.review.list()).toEqual([]);
-});
+function fixture(...args: Parameters<typeof admissionFixture>) {
+  const f = admissionFixture(...args);
+  cleanups.push(f.cleanup);
+  return f;
+}
+it.each([false, true])(
+  'holds unknown tasks on published=%s workers without owner or adapter calls',
+  async (published) => {
+    const f = fixture({ publishToRegistry: published });
+    if (published) await f.worker.register();
+    const results = await f.attempt();
+    expect(results[0]).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'PENDING_OWNER_APPROVAL' },
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.approve).not.toHaveBeenCalled();
+    expect(f.human.approve).not.toHaveBeenCalled();
+    expect(f.review.list()).toHaveLength(1);
+    expect(f.review.list()[0].inspectionStatus).toBe('unavailable');
+    expect(f.store.list()[0]).not.toHaveProperty('title');
+    expect(f.store.connectionState(f.requester.did)).toBe('pending');
+  },
+);
+it.each(['llm', 'non-llm'] as const)(
+  'requires inspection and owner opening for connected %s tasks',
+  async (adapterKind) => {
+    const f = fixture({ adapterKind, automaticApproval: true }, true);
+    await f.worker.register();
+    const results = await f.attempt(f.worker.invite());
+    expect(results[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+    expect(f.store.connectionLevel(f.requester.did)).toBe('limited');
+    expect(f.human.approve).toHaveBeenCalledOnce();
+    expect(f.approve).toHaveBeenCalledOnce();
+    expect(f.review.list()).toEqual([]);
+  },
+);
 it('keeps connected input held when inspection is unavailable and emits no plaintext inbox record', async () => {
-  const f = fixture(); const inbox = join(f.root, 'inbox.jsonl'); f.worker.options.inboxPath = inbox;
-  expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  const f = fixture();
+  const inbox = join(f.root, 'inbox.jsonl');
+  f.worker.options.inboxPath = inbox;
+  expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({
+    status: 'rejected',
+    reason: { code: 'PENDING_OWNER_APPROVAL' },
+  });
   expect(f.store.connectionState(f.requester.did)).toBe('connected');
-  expect(f.execute).not.toHaveBeenCalled(); expect(f.human.approve).not.toHaveBeenCalled(); expect(existsSync(inbox)).toBe(false);
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.human.approve).not.toHaveBeenCalled();
+  expect(existsSync(inbox)).toBe(false);
 });
-it.each([false, true])('keeps 0.1.0 tasks held even from a connected peer with token=%s', async withToken => {
-  const f = fixture({}, true);
-  const token = f.worker.invite();
-  await f.attempt(token);
-  await expect(f.raw(f.manifest('0.1.0'), withToken ? token : undefined)).rejects.toThrow('PENDING_OWNER_APPROVAL');
-  expect(f.execute).toHaveBeenCalledOnce();
-});
+it.each([false, true])(
+  'keeps 0.1.0 tasks held even from a connected peer with token=%s',
+  async (withToken) => {
+    const f = fixture({}, true);
+    const token = f.worker.invite();
+    await f.attempt(token);
+    await expect(f.raw(f.manifest('0.1.0'), withToken ? token : undefined)).rejects.toThrow(
+      'PENDING_OWNER_APPROVAL',
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+  },
+);
 it('silently excludes blocked peers before holding content', async () => {
-  const f = fixture(); f.store.block(f.requester.did);
+  const f = fixture();
+  f.store.block(f.requester.did);
   await expect(f.raw()).rejects.toThrow('REQUEST_DENIED');
-  expect(f.review.list()).toEqual([]); expect(f.store.list()).toEqual([]); expect(f.relay.snapshot().queues).toEqual([]);
+  expect(f.review.list()).toEqual([]);
+  expect(f.store.list()).toEqual([]);
+  expect(f.relay.snapshot().queues).toEqual([]);
 });
-it.each(['budget','scope','capability'] as const)('checks %s before hold or invite redemption', async kind => {
-  const f = fixture({ maxInputTokens: 100 }); const m = f.manifest();
-  if (kind === 'budget') m.budget.maxInputTokens = 101;
-  else { m.budget.maxInputTokens = 100; if (kind === 'scope') m.task.skillId = 'missing'; else m.permissions.maxDelegationDepth = -1; }
-  await expect(f.raw(m, f.worker.invite())).rejects.toThrow();
-  expect(f.review.list()).toEqual([]); expect(f.store.connectionState(f.requester.did)).toBe('none');
-});
+it.each(['budget', 'scope', 'capability'] as const)(
+  'checks %s before hold or invite redemption',
+  async (kind) => {
+    const f = fixture({ maxInputTokens: 100 });
+    const m = f.manifest();
+    if (kind === 'budget') m.budget.maxInputTokens = 101;
+    else {
+      m.budget.maxInputTokens = 100;
+      if (kind === 'scope') m.task.skillId = 'missing';
+      else m.permissions.maxDelegationDepth = -1;
+    }
+    await expect(f.raw(m, f.worker.invite())).rejects.toThrow();
+    expect(f.review.list()).toEqual([]);
+    expect(f.store.connectionState(f.requester.did)).toBe('none');
+  },
+);
 it('binds a first-use invite to one owner and retains binding after disconnect', async () => {
-  const f = fixture(), token = f.worker.invite();
+  const f = fixture(),
+    token = f.worker.invite();
   await expect(f.raw(f.manifest(), token)).rejects.toThrow('PENDING_OWNER_APPROVAL');
   f.store.disconnect(f.requester.did);
   await expect(f.raw(f.manifest(), token)).rejects.toThrow('PENDING_OWNER_APPROVAL');
@@ -68,150 +120,309 @@ it('binds a first-use invite to one owner and retains binding after disconnect',
   expect(connectionIdFor(f.owner.did, other.did)).toBe(connectionIdFor(other.did, f.owner.did));
 });
 it('admits two owners through a shared invite with the existing invited-only automatic policy', async () => {
-  const f = fixture({ autoAccept: { version: 1, enabled: true, from: 'invited', work: 'read-only', limits: {} } }, true);
+  const f = fixture(
+    { autoAccept: { version: 1, enabled: true, from: 'invited', work: 'read-only', limits: {} } },
+    true,
+  );
   const token = f.worker.invite(3600, { maxUses: 2 });
-  const { RequesterClient, PolicyAutoApprovalProvider } = await import('../packages/runtime/src/index.js');
+  const { RequesterClient, PolicyAutoApprovalProvider } =
+    await import('../packages/runtime/src/index.js');
   const peers = [f.requester, generateKeyPair(), generateKeyPair()];
   const running = f.worker.start();
   try {
     for (const peer of peers.slice(0, 2)) {
-      const client = new RequesterClient({ owner: peer, relay: f.relay, approvalProvider: new PolicyAutoApprovalProvider(peer) });
+      const client = new RequesterClient({
+        owner: peer,
+        relay: f.relay,
+        approvalProvider: new PolicyAutoApprovalProvider(peer),
+      });
       expect(await client.delegate({ ...f.task, to: token })).toMatchObject({ state: 'SETTLED' });
       expect(f.store.connectionState(peer.did)).toBe('connected');
     }
-    const extra = new RequesterClient({ owner: peers[2], relay: f.relay, approvalProvider: new PolicyAutoApprovalProvider(peers[2]) });
+    const extra = new RequesterClient({
+      owner: peers[2],
+      relay: f.relay,
+      approvalProvider: new PolicyAutoApprovalProvider(peers[2]),
+    });
     await expect(extra.delegate({ ...f.task, to: token })).rejects.toThrow('INVITE_USES_EXHAUSTED');
     expect(await f.client.delegate({ ...f.task, to: token })).toMatchObject({ state: 'SETTLED' });
     expect(f.execute).toHaveBeenCalledTimes(3);
-  } finally { f.worker.stop(); await running; }
+  } finally {
+    f.worker.stop();
+    await running;
+  }
 });
 it('connection state survives invitation retirement and has no expiry', async () => {
-  let now = Date.now(); const f = fixture({ now: () => now });
+  let now = Date.now();
+  const f = fixture({ now: () => now });
   await expect(f.raw(f.manifest(), f.worker.invite())).rejects.toThrow('PENDING_OWNER_APPROVAL');
   now += 365 * 86400000;
   expect(f.store.connectionState(f.requester.did)).toBe('connected');
   expect(f.store.connectionLevel(f.requester.did)).toBe('limited');
 });
-it.each(['expiry', 'revocation'] as const)('retains live connection admission after invitation %s', async retirement => {
-  let now = Date.now(); const revocation = new RevocationRegistry();
-  const f = fixture({ now: () => now, revocation }), token = f.worker.invite(1);
-  await expect(f.raw(f.manifest(), token)).rejects.toThrow('PENDING_OWNER_APPROVAL');
-  const connection = f.store.listConnections()[0];
-  if (retirement === 'expiry') now += 2000;
-  else revocation.revoke(createRevocationNotice({ targetType: 'invite', targetId: token, reason: 'owner decision' }, f.owner));
-  await expect(f.raw(f.manifest(), token)).rejects.toThrow(retirement === 'expiry' ? 'INVITE_EXPIRED' : 'TOKEN_REVOKED');
-  expect(f.store.listConnections()[0]).toEqual(connection);
-  await expect(f.raw()).rejects.toThrow('PENDING_OWNER_APPROVAL');
-  expect(f.store.connectionState(f.requester.did)).toBe('connected');
-  expect(f.store.connectionLevel(f.requester.did)).toBe('limited');
-  expect(f.human.approve).not.toHaveBeenCalled();
-});
+it.each(['expiry', 'revocation'] as const)(
+  'retains live connection admission after invitation %s',
+  async (retirement) => {
+    let now = Date.now();
+    const revocation = new RevocationRegistry();
+    const f = fixture({ now: () => now, revocation }),
+      token = f.worker.invite(1);
+    await expect(f.raw(f.manifest(), token)).rejects.toThrow('PENDING_OWNER_APPROVAL');
+    const connection = f.store.listConnections()[0];
+    if (retirement === 'expiry') now += 2000;
+    else
+      revocation.revoke(
+        createRevocationNotice(
+          { targetType: 'invite', targetId: token, reason: 'owner decision' },
+          f.owner,
+        ),
+      );
+    await expect(f.raw(f.manifest(), token)).rejects.toThrow(
+      retirement === 'expiry' ? 'INVITE_EXPIRED' : 'TOKEN_REVOKED',
+    );
+    expect(f.store.listConnections()[0]).toEqual(connection);
+    await expect(f.raw()).rejects.toThrow('PENDING_OWNER_APPROVAL');
+    expect(f.store.connectionState(f.requester.did)).toBe('connected');
+    expect(f.store.connectionLevel(f.requester.did)).toBe('limited');
+    expect(f.human.approve).not.toHaveBeenCalled();
+  },
+);
 it('keeps original legacy card fields signed and gives them no admission authority', () => {
   const owner = generateKeyPair();
-  const card = createSignedAgentCard({ agentDid: owner.did, relayEndpoint: 'https://relay.example', name: 'Legacy', skills: [] }, owner);
-  const legacy = signPayload({ ...card.payload, accessMode: 'open', openPolicy: { obsolete: 1 } }, owner);
+  const card = createSignedAgentCard(
+    { agentDid: owner.did, relayEndpoint: 'https://relay.example', name: 'Legacy', skills: [] },
+    owner,
+  );
+  const legacy = signPayload(
+    { ...card.payload, accessMode: 'open', openPolicy: { obsolete: 1 } },
+    owner,
+  );
   expect(digest(legacy)).not.toBe(digest(card));
 });
-it.each([false,true])('attaches connection consent only after a separate owner decision (%s)', async consent => {
-  const f=fixture({},true);await f.worker.register();
-  const {WorkerTrustStore,workerIntakePath}=await import('../packages/runtime/src/index.js');
-  const {openEnvelope}=await import('../packages/core/src/index.js');
-  let asked=0;f.client.options.identityOptions=f.identityOptions;
-  f.client.options.connectionReview={kind:'human',review:async context=>{asked++;expect(context.localOwnerDid).toBe(f.requester.did);return consent;}};
-  const sent: any[]=[];const send=f.relay.send.bind(f.relay);
-  f.relay.send=envelope=>{if(envelope.payload.eventType==='PROPOSE')sent.push(openEnvelope(envelope,f.owner));return send(envelope);};
-  const result=await f.attempt(f.worker.invite());
-  expect(result[0]).toMatchObject({status:'fulfilled',value:{state:'SETTLED'}});
-  expect(asked).toBe(1);expect(Boolean(sent[0].connectionRequest)).toBe(consent);
-  const local=new WorkerTrustStore(f.requester,{path:workerIntakePath(f.requester.did,f.identityOptions)});
-  expect(local.connectionState(f.owner.did)).toBe(consent?'connected':'none');
-});
-it.each([1, 2])('binds at most maxUses=%s owners when two identities concurrently use the same invitation',async maxUses=>{
-  const f=fixture();const token=f.worker.invite(3600, { maxUses });
-  const {RequesterClient,PolicyAutoApprovalProvider}=await import('../packages/runtime/src/index.js');
-  const {readFileSync}=await import('node:fs');const {workerIntakePath}=await import('../packages/runtime/src/index.js');
-  const other=generateKeyPair(),second=new RequesterClient({owner:other,relay:f.relay,approvalProvider:new PolicyAutoApprovalProvider(other)});
-  // Both proposals must be held before either can redeem the invitation.
-  let release!: () => void;
-  const bothHeld = new Promise<void>(resolve => { release = resolve; });
-  const inspect = f.review.inspect.bind(f.review);
-  let inspections = 0;
-  vi.spyOn(f.review, 'inspect').mockImplementation(async id => {
-    if (++inspections === 2) release();
-    await bothHeld;
-    return inspect(id);
+it.each([false, true])(
+  'attaches connection consent only after a separate owner decision (%s)',
+  async (consent) => {
+    const f = fixture({}, true);
+    await f.worker.register();
+    const { WorkerTrustStore, workerIntakePath } = await import('../packages/runtime/src/index.js');
+    const { openEnvelope } = await import('../packages/core/src/index.js');
+    let asked = 0;
+    f.client.options.identityOptions = f.identityOptions;
+    f.client.options.connectionReview = {
+      kind: 'human',
+      review: async (context) => {
+        asked++;
+        expect(context.localOwnerDid).toBe(f.requester.did);
+        return consent;
+      },
+    };
+    const sent: any[] = [];
+    const send = f.relay.send.bind(f.relay);
+    f.relay.send = (envelope) => {
+      if (envelope.payload.eventType === 'PROPOSE') sent.push(openEnvelope(envelope, f.owner));
+      return send(envelope);
+    };
+    const result = await f.attempt(f.worker.invite());
+    expect(result[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+    expect(asked).toBe(1);
+    expect(Boolean(sent[0].connectionRequest)).toBe(consent);
+    const local = new WorkerTrustStore(f.requester, {
+      path: workerIntakePath(f.requester.did, f.identityOptions),
+    });
+    expect(local.connectionState(f.owner.did)).toBe(consent ? 'connected' : 'none');
+  },
+);
+it.each([1, 2])(
+  'binds at most maxUses=%s owners when two identities concurrently use the same invitation',
+  async (maxUses) => {
+    const f = fixture();
+    const token = f.worker.invite(3600, { maxUses });
+    const { RequesterClient, PolicyAutoApprovalProvider } =
+      await import('../packages/runtime/src/index.js');
+    const { readFileSync } = await import('node:fs');
+    const { workerIntakePath } = await import('../packages/runtime/src/index.js');
+    const other = generateKeyPair(),
+      second = new RequesterClient({
+        owner: other,
+        relay: f.relay,
+        approvalProvider: new PolicyAutoApprovalProvider(other),
+      });
+    // Both proposals must be held before either can redeem the invitation.
+    let release!: () => void;
+    const bothHeld = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inspect = f.review.inspect.bind(f.review);
+    let inspections = 0;
+    vi.spyOn(f.review, 'inspect').mockImplementation(async (id) => {
+      if (++inspections === 2) release();
+      await bothHeld;
+      return inspect(id);
+    });
+    const running = f.worker.start();
+    try {
+      const results = await Promise.allSettled([
+        f.client.delegate({ ...f.task, to: token }),
+        second.delegate({ ...f.task, to: token }),
+      ]);
+      for (const result of results)
+        expect(result).toMatchObject({
+          status: 'rejected',
+          reason: { code: 'PENDING_OWNER_APPROVAL' },
+        });
+      expect(inspections).toBe(2);
+      expect(f.review.list()).toHaveLength(2);
+    } finally {
+      release();
+      f.worker.stop();
+      await running;
+    }
+    expect(f.store.listConnections().filter((c) => c.state === 'connected')).toHaveLength(maxUses);
+    expect(f.store.listConnections().filter((c) => c.state === 'pending')).toHaveLength(
+      2 - maxUses,
+    );
+    expect(
+      JSON.parse(readFileSync(workerIntakePath(f.owner.did, f.identityOptions), 'utf8')).payload
+        .inviteBindings,
+    ).toHaveLength(maxUses);
+  },
+);
+it('leaves invitation authority unchanged when ciphertext publication fails', async () => {
+  const f = fixture();
+  const { vi } = await import('vitest');
+  vi.spyOn(f.review, 'hold').mockImplementation(() => {
+    throw new Error('QUARANTINE_UNWRITABLE');
   });
-  const running = f.worker.start();
-  try {
-    const results = await Promise.allSettled([
-      f.client.delegate({ ...f.task, to: token }), second.delegate({ ...f.task, to: token }),
-    ]);
-    for (const result of results)
-      expect(result).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
-    expect(inspections).toBe(2);
-    expect(f.review.list()).toHaveLength(2);
-  } finally {
-    release();
-    f.worker.stop();
-    await running;
-  }
-  expect(f.store.listConnections().filter(c=>c.state==='connected')).toHaveLength(maxUses);
-  expect(f.store.listConnections().filter(c=>c.state==='pending')).toHaveLength(2 - maxUses);
-  expect(JSON.parse(readFileSync(workerIntakePath(f.owner.did,f.identityOptions),'utf8')).payload.inviteBindings).toHaveLength(maxUses);
+  await expect(f.raw(f.manifest(), f.worker.invite())).rejects.toThrow('QUARANTINE_UNWRITABLE');
+  expect(f.store.connectionState(f.requester.did)).toBe('none');
+  expect(f.execute).not.toHaveBeenCalled();
 });
-it('leaves invitation authority unchanged when ciphertext publication fails',async()=>{
-  const f=fixture();const {vi}=await import('vitest');
-  vi.spyOn(f.review,'hold').mockImplementation(()=>{throw new Error('QUARANTINE_UNWRITABLE');});
-  await expect(f.raw(f.manifest(),f.worker.invite())).rejects.toThrow('QUARANTINE_UNWRITABLE');
-  expect(f.store.connectionState(f.requester.did)).toBe('none');expect(f.execute).not.toHaveBeenCalled();
-});
-it('rejects a mismatched attached consent before invitation binding and preserves its exact error code',async()=>{
-  const f=fixture();const m=f.manifest(),token=f.worker.invite();
-  const {signConnectionRequest,signEnvelope,openEnvelope}=await import('../packages/core/src/index.js');
-  const {sealConnectionFrame}=await import('../packages/runtime/src/connection-transport.js');
-  const card=createSignedAgentCard({name:'Requester',agentDid:f.requester.did,relayEndpoint:'https://relay.example',skills:[],protocolVersions:['0.2.0']},f.requester);
-  const request=signConnectionRequest({type:'ConnectionRequest',v:1,protocolVersion:'0.2.0',requestId:'attached',fromOwnerDid:f.requester.did,toOwnerDid:f.owner.did,agentCard:card,message:'',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString(),originProposalDigest:digest('different proposal')},f.requester);
-  const connectionRequest=sealConnectionFrame({requestId:'attached',event:request},f.requester,Date.now());
-  f.relay.send(signEnvelope({taskId:m.taskId,recipientDid:f.owner.did,seq:0,eventType:'PROPOSE',payload:{proposal:signPayload(m,f.requester),input:f.task.input,capabilityChains:[],inviteToken:token,connectionRequest} as never},f.requester,{encrypt:true}));
+it('rejects a mismatched attached consent before invitation binding and preserves its exact error code', async () => {
+  const f = fixture();
+  const m = f.manifest(),
+    token = f.worker.invite();
+  const { signConnectionRequest, signEnvelope, openEnvelope } =
+    await import('../packages/core/src/index.js');
+  const { sealConnectionFrame } = await import('../packages/runtime/src/connection-transport.js');
+  const card = createSignedAgentCard(
+    {
+      name: 'Requester',
+      agentDid: f.requester.did,
+      relayEndpoint: 'https://relay.example',
+      skills: [],
+      protocolVersions: ['0.2.0'],
+    },
+    f.requester,
+  );
+  const request = signConnectionRequest(
+    {
+      type: 'ConnectionRequest',
+      v: 1,
+      protocolVersion: '0.2.0',
+      requestId: 'attached',
+      fromOwnerDid: f.requester.did,
+      toOwnerDid: f.owner.did,
+      agentCard: card,
+      message: '',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      originProposalDigest: digest('different proposal'),
+    },
+    f.requester,
+  );
+  const connectionRequest = sealConnectionFrame(
+    { requestId: 'attached', event: request },
+    f.requester,
+    Date.now(),
+  );
+  f.relay.send(
+    signEnvelope(
+      {
+        taskId: m.taskId,
+        recipientDid: f.owner.did,
+        seq: 0,
+        eventType: 'PROPOSE',
+        payload: {
+          proposal: signPayload(m, f.requester),
+          input: f.task.input,
+          capabilityChains: [],
+          inviteToken: token,
+          connectionRequest,
+        } as never,
+      },
+      f.requester,
+      { encrypt: true },
+    ),
+  );
   await expect(f.worker.runOnce()).rejects.toThrow('INVALID_CONNECTION_REQUEST');
-  expect(f.store.connectionState(f.requester.did)).toBe('none');expect(f.review.list()).toEqual([]);
-  expect(openEnvelope(f.relay.receive(f.requester.did)!,f.requester)).toMatchObject({code:'INVALID_CONNECTION_REQUEST'});
+  expect(f.store.connectionState(f.requester.did)).toBe('none');
+  expect(f.review.list()).toEqual([]);
+  expect(openEnvelope(f.relay.receive(f.requester.did)!, f.requester)).toMatchObject({
+    code: 'INVALID_CONNECTION_REQUEST',
+  });
 });
 
-it.each(['ordinary text', 'system prompt', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]).toString('base64')])('requires live human opening after an actual rule scan: %s', async input => {
-  const onReport = vi.fn(), provider = createRuleBasedContentReviewProvider({ onReport });
-  const f = fixture({}, false, provider); await f.worker.register();
+it.each([
+  'ordinary text',
+  'system prompt',
+  Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]).toString('base64'),
+])('requires live human opening after an actual rule scan: %s', async (input) => {
+  const onReport = vi.fn(),
+    provider = createRuleBasedContentReviewProvider({ onReport });
+  const f = fixture({}, false, provider);
+  await f.worker.register();
   let reached!: () => void, release!: () => void;
-  const asked = new Promise<void>(resolve => { reached = resolve; });
-  const decision = new Promise<void>(resolve => { release = resolve; });
+  const asked = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const decision = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const original = f.human.approve.getMockImplementation()!;
-  f.human.approve.mockImplementation(async request => {
-    expect(request.gate).toBe('contract_acceptance'); reached(); await decision; return original(request);
+  f.human.approve.mockImplementation(async (request) => {
+    expect(request.gate).toBe('contract_acceptance');
+    reached();
+    await decision;
+    return original(request);
   });
   const pending = f.attempt(f.worker.invite(), { input });
   try {
     await asked;
     expect(onReport).toHaveBeenCalledOnce();
-    expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'complete', state: 'reviewable' });
+    expect(f.worker.heldReview.list()[0]).toMatchObject({
+      inspectionStatus: 'complete',
+      state: 'reviewable',
+    });
     expect(f.execute).not.toHaveBeenCalled();
-  } finally { release(); }
+  } finally {
+    release();
+  }
   expect((await pending)[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
-  expect(f.human.approve).toHaveBeenCalledOnce(); expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.human.approve).toHaveBeenCalledOnce();
+  expect(f.execute).toHaveBeenCalledOnce();
 });
 it('leaves rule-inspection errors held without a human-opening or adapter call', async () => {
   const f = fixture({}, false, createRuleBasedContentReviewProvider({ limits: { maxBytes: 10 } }));
-  expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({ status: 'rejected', reason: { code: 'PENDING_OWNER_APPROVAL' } });
+  expect((await f.attempt(f.worker.invite()))[0]).toMatchObject({
+    status: 'rejected',
+    reason: { code: 'PENDING_OWNER_APPROVAL' },
+  });
   expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'error', state: 'held' });
-  expect(f.human.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
+  expect(f.human.approve).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
 });
 it('does not open an unknown task after completed rule inspection', async () => {
   const f = fixture({}, false, createRuleBasedContentReviewProvider());
   await expect(f.raw()).rejects.toThrow('PENDING_OWNER_APPROVAL');
-  expect(f.worker.heldReview.list()[0]).toMatchObject({ inspectionStatus: 'complete', state: 'reviewable' });
-  expect(f.human.approve).not.toHaveBeenCalled(); expect(f.execute).not.toHaveBeenCalled();
+  expect(f.worker.heldReview.list()[0]).toMatchObject({
+    inspectionStatus: 'complete',
+    state: 'reviewable',
+  });
+  expect(f.human.approve).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
 });
 
-it.each([0, 1.5, 1001])('rejects invalid session maxUses %s', maxUses => {
+it.each([0, 1.5, 1001])('rejects invalid session maxUses %s', (maxUses) => {
   const f = fixture();
   expect(() => f.worker.invite(3600, { maxUses })).toThrow('INVALID_INVITE_MAX_USES');
 });

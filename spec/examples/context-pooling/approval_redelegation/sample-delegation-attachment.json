@@ -52,26 +52,13 @@
         "filesystemScope": "ephemeral_workspace_only"
       },
       "hitlPolicy": {
-        "requiredGates": [
-          "GATE_CONTRACT_ACCEPT",
-          "GATE_DELIVERY_ACCEPT",
-          "GATE_SUB_DELEGATION"
-        ]
+        "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT", "GATE_SUB_DELEGATION"]
       },
       "contextGrant": {
         "deliveryMode": "approval_redelegation",
-        "selectors": [
-          "dimensions",
-          "material"
-        ],
-        "fieldsAllowed": [
-          "width",
-          "height",
-          "material"
-        ],
-        "fieldsDenied": [
-          "customerName"
-        ],
+        "selectors": ["dimensions", "material"],
+        "fieldsAllowed": ["width", "height", "material"],
+        "fieldsDenied": ["customerName"],
         "angle": "Review feasibility of the selection.",
         "expiresAt": "2030-01-02T00:00:00.000Z",
         "maxBytes": 65536,
@@ -132,26 +119,13 @@
           "filesystemScope": "ephemeral_workspace_only"
         },
         "hitlPolicy": {
-          "requiredGates": [
-            "GATE_CONTRACT_ACCEPT",
-            "GATE_DELIVERY_ACCEPT",
-            "GATE_SUB_DELEGATION"
-          ]
+          "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT", "GATE_SUB_DELEGATION"]
         },
         "contextGrant": {
           "deliveryMode": "approval_redelegation",
-          "selectors": [
-            "dimensions",
-            "material"
-          ],
-          "fieldsAllowed": [
-            "width",
-            "height",
-            "material"
-          ],
-          "fieldsDenied": [
-            "customerName"
-          ],
+          "selectors": ["dimensions", "material"],
+          "fieldsAllowed": ["width", "height", "material"],
+          "fieldsDenied": ["customerName"],
           "angle": "Review feasibility of the selection.",
           "expiresAt": "2030-01-02T00:00:00.000Z",
           "maxBytes": 65536,
@@ -283,22 +257,12 @@
             "filesystemScope": "ephemeral_workspace_only"
           },
           "hitlPolicy": {
-            "requiredGates": [
-              "GATE_CONTRACT_ACCEPT",
-              "GATE_DELIVERY_ACCEPT"
-            ]
+            "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT"]
           },
           "contextGrant": {
-            "selectors": [
-              "dimensions"
-            ],
-            "fieldsAllowed": [
-              "width",
-              "height"
-            ],
-            "fieldsDenied": [
-              "customerName"
-            ],
+            "selectors": ["dimensions"],
+            "fieldsAllowed": ["width", "height"],
+            "fieldsDenied": ["customerName"],
             "angle": "Review feasibility of the dimensions.",
             "expiresAt": "2030-01-02T00:00:00.000Z",
             "deliveryMode": "view_only",
@@ -360,22 +324,12 @@
               "filesystemScope": "ephemeral_workspace_only"
             },
             "hitlPolicy": {
-              "requiredGates": [
-                "GATE_CONTRACT_ACCEPT",
-                "GATE_DELIVERY_ACCEPT"
-              ]
+              "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT"]
             },
             "contextGrant": {
-              "selectors": [
-                "dimensions"
-              ],
-              "fieldsAllowed": [
-                "width",
-                "height"
-              ],
-              "fieldsDenied": [
-                "customerName"
-              ],
+              "selectors": ["dimensions"],
+              "fieldsAllowed": ["width", "height"],
+              "fieldsDenied": ["customerName"],
               "angle": "Review feasibility of the dimensions.",
               "expiresAt": "2030-01-02T00:00:00.000Z",
               "deliveryMode": "view_only",

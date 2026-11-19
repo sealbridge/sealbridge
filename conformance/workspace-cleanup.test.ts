@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair } from '../packages/core/src/index.js';
 import { verifyAudit } from '../packages/ledger/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
-import { PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
+import {
+  PolicyAutoApprovalProvider,
+  RequesterClient,
+  WorkerNode,
+} from '../packages/runtime/src/index.js';
 import type { WorkspaceCleanupFailure } from '../packages/runtime/src/index.js';
 
 const removal = vi.hoisted(() => ({ code: '', paths: [] as string[], options: [] as unknown[] }));
@@ -16,7 +20,8 @@ vi.mock('node:fs/promises', async () => {
       if (String(path).includes('acp-adapter-')) {
         removal.paths.push(String(path));
         removal.options.push(options);
-        if (removal.code) throw Object.assign(new Error('workspace is busy'), { code: removal.code });
+        if (removal.code)
+          throw Object.assign(new Error('workspace is busy'), { code: removal.code });
       }
       return actual.rm(path, options);
     },
@@ -43,9 +48,15 @@ describe('worker workspace cleanup', () => {
         const executionError = new Error('adapter execution failed');
         const reports: WorkspaceCleanupFailure[] = [];
         let started!: () => void;
-        const ready = new Promise<void>((resolve) => { started = resolve; });
-        const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
-          owner: bob, relay, timeoutMs: 5000,
+        const ready = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        const worker = new WorkerNode({
+          autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+          checkPeer: () => 'trusted',
+          owner: bob,
+          relay,
+          timeoutMs: 5000,
           approvalProvider: new PolicyAutoApprovalProvider(bob),
           onWorkspaceCleanupError: (failure) => {
             reports.push(failure);
@@ -54,45 +65,73 @@ describe('worker workspace cleanup', () => {
             throw new Error('reporter failed');
           },
           adapter: {
-            id: 'cleanup', name: 'cleanup', skills: [],
+            id: 'cleanup',
+            name: 'cleanup',
+            skills: [],
             executeTask: async (context) => {
               started();
               if (outcome === 'failed') throw executionError;
-              if (outcome === 'cancelled') await new Promise<never>((_, reject) => {
-                context.signal.addEventListener('abort', () => reject(context.signal.reason), { once: true });
-              });
+              if (outcome === 'cancelled')
+                await new Promise<never>((_, reject) => {
+                  context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+                    once: true,
+                  });
+                });
               return { ok: true };
             },
           },
         });
-        const requester = new RequesterClient({ owner: alice, relay, timeoutMs: 5000,
-          approvalProvider: new PolicyAutoApprovalProvider(alice) });
+        const requester = new RequesterClient({
+          owner: alice,
+          relay,
+          timeoutMs: 5000,
+          approvalProvider: new PolicyAutoApprovalProvider(alice),
+        });
         const workerPending = Promise.allSettled([worker.start({ once: true })]);
-        const requesterPending = Promise.allSettled([requester.delegate({
-          to: worker.invite(), title: 'Cleanup', description: 'Preserve the task outcome', input: {},
-          signal: controller.signal,
-        })]);
+        const requesterPending = Promise.allSettled([
+          requester.delegate({
+            to: worker.invite(),
+            title: 'Cleanup',
+            description: 'Preserve the task outcome',
+            input: {},
+            signal: controller.signal,
+          }),
+        ]);
         try {
           await ready;
           if (outcome === 'cancelled') controller.abort('owner cancelled');
           const [workerResult] = await workerPending;
           const [requesterResult] = await requesterPending;
-          expect(reports).toEqual([{ taskId: expect.any(String), workspaceDir: expect.any(String), code }]);
-          expect(removal.options.at(-1)).toEqual({ recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+          expect(reports).toEqual([
+            { taskId: expect.any(String), workspaceDir: expect.any(String), code },
+          ]);
+          expect(removal.options.at(-1)).toEqual({
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 50,
+          });
           if (outcome === 'failed') {
             expect(workerResult).toMatchObject({ status: 'rejected', reason: executionError });
-            if (workerResult.status === 'rejected') expect(workerResult.reason).toBe(executionError);
+            if (workerResult.status === 'rejected')
+              expect(workerResult.reason).toBe(executionError);
             expect(worker.lastResult).toBeUndefined();
             expect(requesterResult.status).toBe('rejected');
           } else {
             expect(workerResult.status).toBe('fulfilled');
             if (workerResult.status === 'fulfilled') {
-              expect(workerResult.value?.state).toBe(outcome === 'settled' ? 'SETTLED' : 'CANCELLED');
+              expect(workerResult.value?.state).toBe(
+                outcome === 'settled' ? 'SETTLED' : 'CANCELLED',
+              );
               expect(worker.lastResult).toBe(workerResult.value);
               expect(verifyAudit(workerResult.value!.bundle).valid).toBe(true);
             }
             if (outcome === 'settled') expect(requesterResult.status).toBe('fulfilled');
-            else expect(requesterResult).toMatchObject({ status: 'rejected', reason: { message: 'CANCELLED' } });
+            else
+              expect(requesterResult).toMatchObject({
+                status: 'rejected',
+                reason: { message: 'CANCELLED' },
+              });
           }
         } finally {
           controller.abort('test finished');

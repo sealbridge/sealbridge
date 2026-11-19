@@ -5,8 +5,12 @@ import { join } from 'node:path';
 import { generateKeyPair, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair } from '@acp/core';
 import {
-  inspectLocalIdentity, resolveOrCreateIdentity, resolveDataRoot,
-  ensurePrivateDirectory, checkPrivatePath, checkPrivateStat,
+  inspectLocalIdentity,
+  resolveOrCreateIdentity,
+  resolveDataRoot,
+  ensurePrivateDirectory,
+  checkPrivatePath,
+  checkPrivateStat,
 } from './local-identity.js';
 import type { IdentityRole, LocalIdentityOptions, LocalIdentity } from './local-identity.js';
 
@@ -30,7 +34,11 @@ export interface KeyringEntry {
   deletePassword?(): boolean | void;
 }
 export interface KeyringModule {
-  Entry: new (service: string, account: string, options?: { linux: { store: 'secret-service' } }) => KeyringEntry;
+  Entry: new (
+    service: string,
+    account: string,
+    options?: { linux: { store: 'secret-service' } },
+  ) => KeyringEntry;
 }
 export interface IdentityStoreOptions extends LocalIdentityOptions {
   /** Precedence: option, environment, application config, then file. */
@@ -46,20 +54,35 @@ const failure = (code: string) => new Error(code);
 
 function validateKey(key: KeyPair): KeyPair {
   try {
-    if (!key || typeof key.did !== 'string' || typeof key.privateKey !== 'string' ||
-        createPrivateKey(key.privateKey).asymmetricKeyType !== 'ed25519' ||
-        !verifySigned(signPayload({ type: 'LocalIdentityCheck' }, key,
-          '2026-01-01T00:00:00.000Z'), key.did)) throw failure('IDENTITY_INVALID');
+    if (
+      !key ||
+      typeof key.did !== 'string' ||
+      typeof key.privateKey !== 'string' ||
+      createPrivateKey(key.privateKey).asymmetricKeyType !== 'ed25519' ||
+      !verifySigned(
+        signPayload({ type: 'LocalIdentityCheck' }, key, '2026-01-01T00:00:00.000Z'),
+        key.did,
+      )
+    )
+      throw failure('IDENTITY_INVALID');
     return key;
-  } catch { throw failure('IDENTITY_INVALID'); }
+  } catch {
+    throw failure('IDENTITY_INVALID');
+  }
 }
 
 /** File paths, legacy selection, validation and publication retain their existing implementation. */
 export class FileKeyStore implements KeyStore {
   constructor(readonly options: LocalIdentityOptions = {}) {}
-  load(role: IdentityRole): KeyPair | undefined { return inspectLocalIdentity(role, this.options).key; }
-  createIfMissing(role: IdentityRole): KeyPair { return resolveOrCreateIdentity(role, this.options); }
-  exists(role: IdentityRole): boolean { return this.load(role) !== undefined; }
+  load(role: IdentityRole): KeyPair | undefined {
+    return inspectLocalIdentity(role, this.options).key;
+  }
+  createIfMissing(role: IdentityRole): KeyPair {
+    return resolveOrCreateIdentity(role, this.options);
+  }
+  exists(role: IdentityRole): boolean {
+    return this.load(role) !== undefined;
+  }
   describe(role: IdentityRole): KeyStoreDescription {
     const selected = inspectLocalIdentity(role, this.options);
     return { backend: 'file', location: selected.path, source: selected.source };
@@ -73,7 +96,10 @@ export function keychainService(options: LocalIdentityOptions = {}): string {
 
 export class KeychainKeyStore implements KeyStore {
   private readonly service: string;
-  constructor(private readonly module: KeyringModule, readonly options: LocalIdentityOptions = {}) {
+  constructor(
+    private readonly module: KeyringModule,
+    readonly options: LocalIdentityOptions = {},
+  ) {
     this.service = keychainService(options);
   }
   describe(role: IdentityRole): KeyStoreDescription {
@@ -83,22 +109,35 @@ export class KeychainKeyStore implements KeyStore {
     return new this.module.Entry(this.service, role, { linux: { store: 'secret-service' } });
   }
   private secret(role: IdentityRole): string | null {
-    try { return this.entry(role).getPassword(); }
-    catch { throw failure('KEY_STORE_UNAVAILABLE'); }
+    try {
+      return this.entry(role).getPassword();
+    } catch {
+      throw failure('KEY_STORE_UNAVAILABLE');
+    }
   }
-  exists(role: IdentityRole): boolean { return this.secret(role) !== null; }
+  exists(role: IdentityRole): boolean {
+    return this.secret(role) !== null;
+  }
   load(role: IdentityRole): KeyPair | undefined {
     const secret = this.secret(role);
     if (secret === null) return undefined;
     try {
       if (Buffer.byteLength(secret) > 16 * 1024) throw failure('IDENTITY_INVALID');
       const jwk = JSON.parse(secret);
-      if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || typeof jwk.d !== 'string' ||
-          typeof jwk.kid !== 'string') throw failure('IDENTITY_INVALID');
+      if (
+        jwk.kty !== 'OKP' ||
+        jwk.crv !== 'Ed25519' ||
+        typeof jwk.d !== 'string' ||
+        typeof jwk.kid !== 'string'
+      )
+        throw failure('IDENTITY_INVALID');
       const privateKey = createPrivateKey({ key: jwk, format: 'jwk' })
-        .export({ type: 'pkcs8', format: 'pem' }).toString();
+        .export({ type: 'pkcs8', format: 'pem' })
+        .toString();
       return validateKey({ did: jwk.kid, privateKey });
-    } catch { throw failure('IDENTITY_INVALID'); }
+    } catch {
+      throw failure('IDENTITY_INVALID');
+    }
   }
   createIfMissing(role: IdentityRole): KeyPair {
     const existing = this.load(role);
@@ -112,15 +151,24 @@ export class KeychainKeyStore implements KeyStore {
       ensurePrivateDirectory(root, io, platform);
       checkPrivatePath(lock, io, platform);
       // The lock contains no key material and coordinates Sealbridge writers across processes.
-      fd = io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-        (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+      fd = io.openSync(
+        lock,
+        fs.constants.O_WRONLY |
+          fs.constants.O_CREAT |
+          fs.constants.O_EXCL |
+          (fs.constants.O_NOFOLLOW ?? 0),
+        0o600,
+      );
       checkPrivateStat(io.fstatSync(fd));
       const winner = this.load(role);
       if (winner) return winner;
       const key = generateKeyPair();
       const jwk = createPrivateKey(key.privateKey).export({ format: 'jwk' });
-      try { this.entry(role).setPassword(JSON.stringify({ ...jwk, kid: key.did })); }
-      catch { throw failure('KEY_STORE_UNAVAILABLE'); }
+      try {
+        this.entry(role).setPassword(JSON.stringify({ ...jwk, kid: key.did }));
+      } catch {
+        throw failure('KEY_STORE_UNAVAILABLE');
+      }
       const stored = this.load(role);
       if (!stored || stored.did !== key.did) throw failure('KEY_STORE_CONFLICT');
       return stored;
@@ -129,16 +177,24 @@ export class KeychainKeyStore implements KeyStore {
       if (error instanceof Error && /^(IDENTITY_|KEY_STORE_)/.test(error.message)) throw error;
       throw failure('IDENTITY_STORE_UNWRITABLE');
     } finally {
-      if (fd !== undefined) { io.closeSync(fd); io.unlinkSync(lock); }
+      if (fd !== undefined) {
+        io.closeSync(fd);
+        io.unlinkSync(lock);
+      }
     }
   }
 }
 
-export async function optionalKeyring(options: IdentityStoreOptions, required: boolean): Promise<KeyringModule | undefined> {
+export async function optionalKeyring(
+  options: IdentityStoreOptions,
+  required: boolean,
+): Promise<KeyringModule | undefined> {
   // A variable specifier keeps the native package optional for TypeScript and packaging.
   const name = '@napi-rs/keyring';
   try {
-    const module: KeyringModule = await (options.keyringLoader ? options.keyringLoader() : import(name));
+    const module: KeyringModule = await (options.keyringLoader
+      ? options.keyringLoader()
+      : import(name));
     if (typeof module.Entry !== 'function') throw failure('KEY_STORE_UNAVAILABLE');
     return module;
   } catch {
@@ -146,4 +202,3 @@ export async function optionalKeyring(options: IdentityStoreOptions, required: b
     return undefined;
   }
 }
-

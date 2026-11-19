@@ -2,7 +2,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,13 +23,16 @@ const temporaryDirectory = () => {
   directories.push(directory);
   return directory;
 };
-const run = (keyPath: string) => spawnSync(process.execPath, [helper, keyPath], {
-  encoding: 'utf8', timeout: 15000,
-});
+const run = (keyPath: string) =>
+  spawnSync(process.execPath, [helper, keyPath], {
+    encoding: 'utf8',
+    timeout: 15000,
+  });
 const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 afterEach(() => {
-  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
 });
 
 it('declares persistent storage and non-root runtime startup in the image', () => {
@@ -79,13 +90,16 @@ describe.skipIf(process.platform === 'win32')('Docker runtime identity', () => {
     const keyPath = join(data, 'owner.private.json');
     try {
       const result = spawnSync(process.execPath, [helper, keyPath], {
-        encoding: 'utf8', timeout: 15000,
+        encoding: 'utf8',
+        timeout: 15000,
         ...(process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
       });
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('Mount a persistent volume at /data writable by the container user');
+      expect(result.stderr).toContain(
+        'Mount a persistent volume at /data writable by the container user',
+      );
       expect(result.stderr).toContain('SEALBRIDGE_KEY_PATH');
       expect(existsSync(keyPath)).toBe(false);
     } finally {
@@ -104,9 +118,14 @@ describe.skipIf(process.platform === 'win32')('Docker runtime identity', () => {
   it('starts MCP with the configured runtime identity and clean stdout', () => {
     const keyPath = join(temporaryDirectory(), 'owner identity.private.json');
     const result = spawnSync('sh', [entrypoint, 'mcp-server'], {
-      env: { ...process.env, SEALBRIDGE_KEY_PATH: keyPath, SEALBRIDGE_RELAY_URL: 'https://relay.example' },
+      env: {
+        ...process.env,
+        SEALBRIDGE_KEY_PATH: keyPath,
+        SEALBRIDGE_RELAY_URL: 'https://relay.example',
+      },
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n',
-      encoding: 'utf8', timeout: 15000,
+      encoding: 'utf8',
+      timeout: 15000,
     });
     expect(result.error).toBeUndefined();
     // Keep the original tmpdir spelling: macOS commonly exposes /var via /private/var.
@@ -120,9 +139,15 @@ describe.skipIf(process.platform === 'win32')('Docker runtime identity', () => {
 
   it('preserves explicit container commands without creating an identity', () => {
     const keyPath = join(temporaryDirectory(), 'owner.private.json');
-    const result = spawnSync('sh', [entrypoint, process.execPath, '-e', 'process.stdout.write("ready")'], {
-      env: { ...process.env, SEALBRIDGE_KEY_PATH: keyPath }, encoding: 'utf8', timeout: 15000,
-    });
+    const result = spawnSync(
+      'sh',
+      [entrypoint, process.execPath, '-e', 'process.stdout.write("ready")'],
+      {
+        env: { ...process.env, SEALBRIDGE_KEY_PATH: keyPath },
+        encoding: 'utf8',
+        timeout: 15000,
+      },
+    );
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('ready');
     expect(existsSync(keyPath)).toBe(false);

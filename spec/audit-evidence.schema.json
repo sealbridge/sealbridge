@@ -6,10 +6,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "entries",
-        "checkpoint"
-      ],
+      "required": ["entries", "checkpoint"],
       "properties": {
         "entries": {
           "type": "array",
@@ -20,29 +17,17 @@
         "checkpoint": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "actor",
-            "receiver"
-          ],
+          "required": ["actor", "receiver"],
           "properties": {
             "actor": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "payload",
-                "signature"
-              ],
+              "required": ["payload", "signature"],
               "properties": {
                 "payload": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "taskId",
-                    "count",
-                    "head",
-                    "actors"
-                  ],
+                  "required": ["type", "taskId", "count", "head", "actors"],
                   "properties": {
                     "type": {
                       "const": "AuditCheckpoint"
@@ -85,29 +70,17 @@
             "receiver": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "payload",
-                "signature"
-              ],
+              "required": ["payload", "signature"],
               "properties": {
                 "payload": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "payload",
-                    "signature"
-                  ],
+                  "required": ["payload", "signature"],
                   "properties": {
                     "payload": {
                       "type": "object",
                       "additionalProperties": false,
-                      "required": [
-                        "type",
-                        "taskId",
-                        "count",
-                        "head",
-                        "actors"
-                      ],
+                      "required": ["type", "taskId", "count", "head", "actors"],
                       "properties": {
                         "type": {
                           "const": "AuditCheckpoint"
@@ -159,10 +132,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "entries",
-        "interruption"
-      ],
+      "required": ["entries", "interruption"],
       "properties": {
         "entries": {
           "type": "array",

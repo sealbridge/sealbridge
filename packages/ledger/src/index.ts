@@ -55,7 +55,9 @@ export interface InterruptedAuditBundle {
   interruption: Signed<AuditInterruption>;
 }
 export type AuditEvidence = AuditBundle | InterruptedAuditBundle;
-export type AuditFileRecord = { entry: AuditEntry } | { checkpoint: AuditBundle['checkpoint'] }
+export type AuditFileRecord =
+  | { entry: AuditEntry }
+  | { checkpoint: AuditBundle['checkpoint'] }
   | { interruption: Signed<AuditInterruption> };
 export interface InterruptionStore {
   /** Idempotent only for exactly the same signed terminal record and prefix.
@@ -71,10 +73,15 @@ function persistInterruptionIntent(beforeWrite?: () => void): void {
 }
 // Source locations are diagnostic metadata only: never serialize them into a bundle.
 const jsonlLocations = new WeakMap<AuditBundle, { entryLines: number[]; checkpointLine: number }>();
-type AuditRecord = { entry?: AuditEntry; checkpoint?: AuditBundle['checkpoint']; interruption?: Signed<AuditInterruption> };
+type AuditRecord = {
+  entry?: AuditEntry;
+  checkpoint?: AuditBundle['checkpoint'];
+  interruption?: Signed<AuditInterruption>;
+};
 function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 function diagnosticText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -83,16 +90,26 @@ function diagnosticText(value: unknown): string | undefined {
 }
 function diagnosticJson(value: unknown): string {
   // JSON escaping covers C0 controls; also escape DEL, C1 and Unicode display controls.
-  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
-    char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+  return JSON.stringify(value).replace(
+    /[\u007f-\uffff]/g,
+    (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'),
+  );
 }
-function entryLocation(entry: unknown, locationKind: 'entry' | 'last-entry', index?: number, line?: number) {
-  const e = object(entry), body = object(e?.body);
+function entryLocation(
+  entry: unknown,
+  locationKind: 'entry' | 'last-entry',
+  index?: number,
+  line?: number,
+) {
+  const e = object(entry),
+    body = object(e?.body);
   return {
     locationKind,
     taskId: diagnosticText(body?.taskId),
-    seq: typeof body?.seq === 'number' && Number.isSafeInteger(body.seq) && body.seq >= 0
-      ? body.seq : undefined,
+    seq:
+      typeof body?.seq === 'number' && Number.isSafeInteger(body.seq) && body.seq >= 0
+        ? body.seq
+        : undefined,
     entryHash: diagnosticText(e?.entryHash),
     line,
     index,
@@ -100,7 +117,8 @@ function entryLocation(entry: unknown, locationKind: 'entry' | 'last-entry', ind
   };
 }
 function checkpointLocation(bundle: AuditBundle) {
-  const checkpoint = object(bundle?.checkpoint), payload = object(object(checkpoint?.actor)?.payload);
+  const checkpoint = object(bundle?.checkpoint),
+    payload = object(object(checkpoint?.actor)?.payload);
   const entries = Array.isArray(bundle?.entries) ? bundle.entries : [];
   const source = jsonlLocations.get(bundle);
   return {
@@ -109,7 +127,8 @@ function checkpointLocation(bundle: AuditBundle) {
     head: diagnosticText(payload?.head),
     line: source?.checkpointLine,
     lastEntry: entries.length
-      ? entryLocation(entries.at(-1), 'last-entry', entries.length - 1, source?.entryLines.at(-1)) : undefined,
+      ? entryLocation(entries.at(-1), 'last-entry', entries.length - 1, source?.entryLines.at(-1))
+      : undefined,
     verified: false,
   };
 }
@@ -117,18 +136,23 @@ function parseRecords(text: string): Array<{ record: AuditRecord; line: number }
   // Keep the existing trim/filter rules while counting physical lines before filtering.
   const start = text.length - text.trimStart().length;
   const firstLine = text.slice(0, start).split('\n').length;
-  return text.trim().split('\n').flatMap((line, index) => {
-    if (!line) return [];
-    const physicalLine = firstLine + index;
-    let record: AuditRecord;
-    try {
-      record = JSON.parse(line) as AuditRecord;
-    } catch {
-      // Engine JSON errors can quote the input, including task payloads or invitations.
-      throw new SyntaxError('Invalid JSON; auditLocation=' + diagnosticJson({ line: physicalLine, verified: false }));
-    }
-    return [{ record, line: physicalLine }];
-  });
+  return text
+    .trim()
+    .split('\n')
+    .flatMap((line, index) => {
+      if (!line) return [];
+      const physicalLine = firstLine + index;
+      let record: AuditRecord;
+      try {
+        record = JSON.parse(line) as AuditRecord;
+      } catch {
+        // Engine JSON errors can quote the input, including task payloads or invitations.
+        throw new SyntaxError(
+          'Invalid JSON; auditLocation=' + diagnosticJson({ line: physicalLine, verified: false }),
+        );
+      }
+      return [{ record, line: physicalLine }];
+    });
 }
 export interface AuditStore {
   read(): AuditEntry[];
@@ -151,19 +175,31 @@ export class MemoryStore implements AuditStore, InterruptionStore {
   seal(checkpoint: AuditBundle['checkpoint']): void {
     if (this.#closing) throw new Error('LEDGER_BUSY');
     if (this.#interruption) throw new Error('LEDGER_SEALED');
-    if (this.#checkpoint && digest(this.#checkpoint.actor.payload) !== digest(checkpoint.actor.payload)) throw new Error('LEDGER_SEALED');
+    if (
+      this.#checkpoint &&
+      digest(this.#checkpoint.actor.payload) !== digest(checkpoint.actor.payload)
+    )
+      throw new Error('LEDGER_SEALED');
     this.#checkpoint = structuredClone(checkpoint);
   }
   closeInterrupted(bundle: InterruptedAuditBundle, beforeWrite?: () => void): void {
     if (this.#closing) throw new Error('LEDGER_BUSY');
     bundle = structuredClone(bundle);
     if (this.#checkpoint) throw new Error('LEDGER_SEALED');
-    if (digest(this.#entries) !== digest(bundle.entries) ||
-        verifyAuditEvidence(bundle).status !== 'UNILATERALLY_CLOSED') throw new Error('INVALID_AUDIT_INTERRUPTION');
-    if (this.#interruption && digest(this.#interruption) !== digest(bundle.interruption)) throw new Error('LEDGER_SEALED');
+    if (
+      digest(this.#entries) !== digest(bundle.entries) ||
+      verifyAuditEvidence(bundle).status !== 'UNILATERALLY_CLOSED'
+    )
+      throw new Error('INVALID_AUDIT_INTERRUPTION');
+    if (this.#interruption && digest(this.#interruption) !== digest(bundle.interruption))
+      throw new Error('LEDGER_SEALED');
     this.#closing = true;
-    try { persistInterruptionIntent(beforeWrite); this.#interruption = bundle.interruption; }
-    finally { this.#closing = false; }
+    try {
+      persistInterruptionIntent(beforeWrite);
+      this.#interruption = bundle.interruption;
+    } finally {
+      this.#closing = false;
+    }
   }
 }
 export class JsonlStore implements AuditStore, InterruptionStore {
@@ -173,13 +209,18 @@ export class JsonlStore implements AuditStore, InterruptionStore {
   private exclusive<T>(operation: () => T): T {
     const path = resolve(this.path) + '.lock';
     let fd: number;
-    try { fd = openSync(path, 'wx', 0o600); }
-    catch (error) {
+    try {
+      fd = openSync(path, 'wx', 0o600);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('LEDGER_BUSY');
       throw error;
     }
-    try { return operation(); }
-    finally { closeSync(fd); unlinkSync(path); }
+    try {
+      return operation();
+    } finally {
+      closeSync(fd);
+      unlinkSync(path);
+    }
   }
   private records(): AuditRecord[] {
     try {
@@ -196,17 +237,19 @@ export class JsonlStore implements AuditStore, InterruptionStore {
   }
   append(entry: AuditEntry): void {
     this.exclusive(() => {
-      if (this.records().some((r) => r.checkpoint || Object.hasOwn(r, 'interruption'))) throw new Error('LEDGER_SEALED');
+      if (this.records().some((r) => r.checkpoint || Object.hasOwn(r, 'interruption')))
+        throw new Error('LEDGER_SEALED');
       appendFileSync(this.path, JSON.stringify({ entry }) + '\n', { mode: 0o600 });
     });
   }
   seal(checkpoint: AuditBundle['checkpoint']): void {
     this.exclusive(() => {
       const records = this.records();
-      if (records.some(r => Object.hasOwn(r, 'interruption'))) throw new Error('LEDGER_SEALED');
+      if (records.some((r) => Object.hasOwn(r, 'interruption'))) throw new Error('LEDGER_SEALED');
       const old = records.at(-1)?.checkpoint;
       if (old) {
-        if (digest(old.actor.payload) !== digest(checkpoint.actor.payload)) throw new Error('LEDGER_SEALED');
+        if (digest(old.actor.payload) !== digest(checkpoint.actor.payload))
+          throw new Error('LEDGER_SEALED');
         return;
       }
       appendFileSync(this.path, JSON.stringify({ checkpoint }) + '\n', { mode: 0o600 });
@@ -215,15 +258,21 @@ export class JsonlStore implements AuditStore, InterruptionStore {
   closeInterrupted(bundle: InterruptedAuditBundle, beforeWrite?: () => void): void {
     bundle = structuredClone(bundle);
     this.exclusive(() => {
-      if (verifyAuditEvidence(bundle).status !== 'UNILATERALLY_CLOSED') throw new Error('INVALID_AUDIT_INTERRUPTION');
-      const text = readFileSync(this.path, 'utf8'), records = parseRecords(text);
+      if (verifyAuditEvidence(bundle).status !== 'UNILATERALLY_CLOSED')
+        throw new Error('INVALID_AUDIT_INTERRUPTION');
+      const text = readFileSync(this.path, 'utf8'),
+        records = parseRecords(text);
       const terminal = records.at(-1)?.record.interruption;
       if (terminal) {
         const existing = parseAuditJsonl(text);
         if (digest(existing) !== digest(bundle)) throw new Error('LEDGER_SEALED');
       } else {
-        if (records.some(({ record }) => !object(record) || Object.keys(record).length !== 1 || !record.entry) ||
-            digest(records.map(({ record }) => record.entry)) !== digest(bundle.entries))
+        if (
+          records.some(
+            ({ record }) => !object(record) || Object.keys(record).length !== 1 || !record.entry,
+          ) ||
+          digest(records.map(({ record }) => record.entry)) !== digest(bundle.entries)
+        )
           throw new Error('AUDIT_PREFIX_MISMATCH');
       }
       persistInterruptionIntent(beforeWrite);
@@ -231,13 +280,25 @@ export class JsonlStore implements AuditStore, InterruptionStore {
       if (readFileSync(this.path, 'utf8') !== text) throw new Error('AUDIT_PREFIX_MISMATCH');
       const fd = openSync(this.path, 'a');
       try {
-        if (!terminal) appendFileSync(fd, (text.endsWith('\n') ? '' : '\n') + JSON.stringify({ interruption: bundle.interruption }) + '\n');
+        if (!terminal)
+          appendFileSync(
+            fd,
+            (text.endsWith('\n') ? '' : '\n') +
+              JSON.stringify({ interruption: bundle.interruption }) +
+              '\n',
+          );
         // Includes the original acknowledged prefix, and also retries a failed sync after append.
         fsyncSync(fd);
-      } finally { closeSync(fd); }
+      } finally {
+        closeSync(fd);
+      }
       if (process.platform !== 'win32') {
         const dir = openSync(dirname(this.path), 'r');
-        try { fsyncSync(dir); } finally { closeSync(dir); }
+        try {
+          fsyncSync(dir);
+        } finally {
+          closeSync(dir);
+        }
       }
     });
   }
@@ -245,26 +306,57 @@ export class JsonlStore implements AuditStore, InterruptionStore {
 export function parseJsonl(text: string): AuditBundle {
   const records = parseRecords(text);
   const last = records.at(-1);
-  const misplaced = records.slice(0, -1).find(({ record }) => !object(record)?.entry || object(record)?.checkpoint || Object.hasOwn(record, 'interruption'));
-  if (!object(last?.record)?.checkpoint || object(last?.record)?.entry || Object.hasOwn(last!.record, 'interruption') || misplaced) {
+  const misplaced = records
+    .slice(0, -1)
+    .find(
+      ({ record }) =>
+        !object(record)?.entry ||
+        object(record)?.checkpoint ||
+        Object.hasOwn(record, 'interruption'),
+    );
+  if (
+    !object(last?.record)?.checkpoint ||
+    object(last?.record)?.entry ||
+    Object.hasOwn(last!.record, 'interruption') ||
+    misplaced
+  ) {
     const offending = misplaced ?? last;
     const entry = object(offending?.record)?.entry;
     const checkpoint = object(offending?.record)?.checkpoint;
     const payload = object(object(object(checkpoint)?.actor)?.payload);
-    const lastEntry = !entry && !checkpoint
-      ? records.findLast(({ record }) => object(record)?.entry) : undefined;
+    const lastEntry =
+      !entry && !checkpoint ? records.findLast(({ record }) => object(record)?.entry) : undefined;
     const location = entry
-      ? entryLocation(entry, !misplaced && !object(last?.record)?.checkpoint ? 'last-entry' : 'entry')
-      : { locationKind: checkpoint ? 'checkpoint' : 'record', taskId: diagnosticText(payload?.taskId),
-        head: diagnosticText(payload?.head), verified: false };
-    throw new Error('MISSING_OR_MISPLACED_CHECKPOINT; auditLocation=' + diagnosticJson({
-      ...location, line: offending?.line,
-      lastEntry: lastEntry ? { ...entryLocation(lastEntry.record.entry, 'last-entry'), line: lastEntry.line } : undefined,
-    }));
+      ? entryLocation(
+          entry,
+          !misplaced && !object(last?.record)?.checkpoint ? 'last-entry' : 'entry',
+        )
+      : {
+          locationKind: checkpoint ? 'checkpoint' : 'record',
+          taskId: diagnosticText(payload?.taskId),
+          head: diagnosticText(payload?.head),
+          verified: false,
+        };
+    throw new Error(
+      'MISSING_OR_MISPLACED_CHECKPOINT; auditLocation=' +
+        diagnosticJson({
+          ...location,
+          line: offending?.line,
+          lastEntry: lastEntry
+            ? { ...entryLocation(lastEntry.record.entry, 'last-entry'), line: lastEntry.line }
+            : undefined,
+        }),
+    );
   }
   const entryRecords = records.slice(0, -1);
-  const bundle = { entries: entryRecords.map(({ record }) => record.entry!), checkpoint: last!.record.checkpoint! };
-  jsonlLocations.set(bundle, { entryLines: entryRecords.map(({ line }) => line), checkpointLine: last!.line });
+  const bundle = {
+    entries: entryRecords.map(({ record }) => record.entry!),
+    checkpoint: last!.record.checkpoint!,
+  };
+  jsonlLocations.set(bundle, {
+    entryLines: entryRecords.map(({ line }) => line),
+    checkpointLine: last!.line,
+  });
   return bundle;
 }
 export class BilateralLedger {
@@ -357,8 +449,7 @@ export interface AuditVerificationResult {
  * Intact chain with no external anchor. A hash chain cannot tell a complete
  * older log from the current one, so tail truncation is not checked.
  */
-export const AUDIT_VALID_WITHOUT_TRUST_ANCHOR =
-  'VALID (no trust anchor: truncation not checked)';
+export const AUDIT_VALID_WITHOUT_TRUST_ANCHOR = 'VALID (no trust anchor: truncation not checked)';
 function hasText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
@@ -469,8 +560,11 @@ function auditResult(supplied: boolean, error?: unknown): AuditVerificationResul
 }
 function verificationError(error: unknown): string {
   // Retain existing verifier codes and schema explanations, without forwarding arbitrary exceptions.
-  if (error instanceof Error && (/^(checkpoint|trust anchor|entry \d+|[A-Z][A-Z0-9_]{0,79})$/.test(error.message)
-    || error.message.startsWith('SCHEMA_VIOLATION: '))) {
+  if (
+    error instanceof Error &&
+    (/^(checkpoint|trust anchor|entry \d+|[A-Z][A-Z0-9_]{0,79})$/.test(error.message) ||
+      error.message.startsWith('SCHEMA_VIOLATION: '))
+  ) {
     const message = error.message;
     const bounded = message.length > 1024 ? message.slice(0, 1024) + '...' : message;
     return 'Error: ' + diagnosticJson(bounded).slice(1, -1);
@@ -487,7 +581,8 @@ export function verifyAudit(
     if (object(bundle) && Object.hasOwn(bundle, 'interruption')) throw new Error('checkpoint');
     const { entries, checkpoint } = bundle,
       c = checkpoint.actor.payload;
-    const selfDelegated = Array.isArray(c?.actors) && c.actors.length === 2 && c.actors[0] === c.actors[1];
+    const selfDelegated =
+      Array.isArray(c?.actors) && c.actors.length === 2 && c.actors[0] === c.actors[1];
     if (
       c.type !== 'AuditCheckpoint' ||
       c.actors.length !== 2 ||
@@ -528,7 +623,10 @@ export function verifyAudit(
     }
     return auditResult(supplied);
   } catch (e) {
-    return auditResult(supplied, verificationError(e) + '; auditLocation=' + diagnosticJson(location));
+    return auditResult(
+      supplied,
+      verificationError(e) + '; auditLocation=' + diagnosticJson(location),
+    );
   }
 }
 
@@ -552,19 +650,34 @@ export interface InterruptedAuditVerificationResult {
   truncationChecked: boolean;
   closureKind: 'interruption';
 }
-export type AuditEvidenceVerificationResult = AuditVerificationResult | InterruptedAuditVerificationResult;
-const interruptionLocations = new WeakMap<InterruptedAuditBundle, { entryLines: number[]; terminalLine: number }>();
+export type AuditEvidenceVerificationResult =
+  AuditVerificationResult | InterruptedAuditVerificationResult;
+const interruptionLocations = new WeakMap<
+  InterruptedAuditBundle,
+  { entryLines: number[]; terminalLine: number }
+>();
 function interruptionLocation(bundle: InterruptedAuditBundle) {
-  const signed = object(bundle?.interruption), p = object(signed?.payload);
+  const signed = object(bundle?.interruption),
+    p = object(signed?.payload);
   const source = interruptionLocations.get(bundle);
   const entries = Array.isArray(bundle?.entries) ? bundle.entries : [];
   let interruptionHash: string | undefined;
-  try { if (p) interruptionHash = digest(p); } catch { /* Only expose a computed digest. */ }
+  try {
+    if (p) interruptionHash = digest(p);
+  } catch {
+    /* Only expose a computed digest. */
+  }
   return {
-    locationKind: 'interruption', taskId: diagnosticText(p?.taskId),
-    seq: typeof p?.seq === 'number' && Number.isSafeInteger(p.seq) && p.seq >= 0 ? p.seq : undefined,
-    interruptionHash, line: source?.terminalLine, verified: false,
-    lastEntry: entries.length ? entryLocation(entries.at(-1), 'last-entry', entries.length - 1, source?.entryLines.at(-1)) : undefined,
+    locationKind: 'interruption',
+    taskId: diagnosticText(p?.taskId),
+    seq:
+      typeof p?.seq === 'number' && Number.isSafeInteger(p.seq) && p.seq >= 0 ? p.seq : undefined,
+    interruptionHash,
+    line: source?.terminalLine,
+    verified: false,
+    lastEntry: entries.length
+      ? entryLocation(entries.at(-1), 'last-entry', entries.length - 1, source?.entryLines.at(-1))
+      : undefined,
   };
 }
 /** Read either terminal form, retaining physical JSONL locations out of band. */
@@ -573,68 +686,139 @@ export function parseAuditJsonl(text: string): AuditEvidence {
   // Keep the bilateral parser's diagnostics for old files, including missing checkpoints.
   if (!records.some(({ record }) => object(record) && Object.hasOwn(record, 'interruption'))) {
     const bilateral = parseJsonl(text);
-    const malformed = records.find(({ record }) => !object(record) || Object.keys(record).length !== 1 ||
-      !['entry', 'checkpoint'].includes(Object.keys(record)[0]));
+    const malformed = records.find(
+      ({ record }) =>
+        !object(record) ||
+        Object.keys(record).length !== 1 ||
+        !['entry', 'checkpoint'].includes(Object.keys(record)[0]),
+    );
     if (!malformed) return bilateral;
-    throw new Error('INVALID_AUDIT_RECORD; auditLocation=' + diagnosticJson({ line: malformed.line, verified: false }));
+    throw new Error(
+      'INVALID_AUDIT_RECORD; auditLocation=' +
+        diagnosticJson({ line: malformed.line, verified: false }),
+    );
   }
   const bad = records.find(({ record }, index) => {
     const r = object(record);
-    return !r || Object.keys(r).length !== 1 ||
-      (index === records.length - 1 ? !Object.hasOwn(r, 'interruption') : !Object.hasOwn(r, 'entry'));
+    return (
+      !r ||
+      Object.keys(r).length !== 1 ||
+      (index === records.length - 1
+        ? !Object.hasOwn(r, 'interruption')
+        : !Object.hasOwn(r, 'entry'))
+    );
   });
-  if (bad) throw new Error('MISPLACED_AUDIT_TERMINAL; auditLocation=' + diagnosticJson({ line: bad.line, verified: false }));
-  const bundle = { entries: records.slice(0, -1).map(({ record }) => record.entry!), interruption: records.at(-1)!.record.interruption! };
-  interruptionLocations.set(bundle, { entryLines: records.slice(0, -1).map(({ line }) => line), terminalLine: records.at(-1)!.line });
+  if (bad)
+    throw new Error(
+      'MISPLACED_AUDIT_TERMINAL; auditLocation=' +
+        diagnosticJson({ line: bad.line, verified: false }),
+    );
+  const bundle = {
+    entries: records.slice(0, -1).map(({ record }) => record.entry!),
+    interruption: records.at(-1)!.record.interruption!,
+  };
+  interruptionLocations.set(bundle, {
+    entryLines: records.slice(0, -1).map(({ line }) => line),
+    terminalLine: records.at(-1)!.line,
+  });
   return bundle;
 }
 
 /** Verify a PROPOSE-only acknowledged prefix, including offline manifest roles/signature. */
-function assertInterruptionPrefix(entries: AuditEntry[], taskId: string, actors: [string, string]): void {
-  if (!Array.isArray(entries) || entries.length !== 1 || actors.length !== 2 || actors[0] === actors[1])
+function assertInterruptionPrefix(
+  entries: AuditEntry[],
+  taskId: string,
+  actors: [string, string],
+): void {
+  if (
+    !Array.isArray(entries) ||
+    entries.length !== 1 ||
+    actors.length !== 2 ||
+    actors[0] === actors[1]
+  )
     throw new Error('INTERRUPTION_SCOPE');
   const e = entries[0];
   validateSchema('audit-entry', e);
-  const b = e.body, a = e.counterSignature;
-  if (b.eventType !== 'PROPOSE' || b.taskId !== taskId || b.seq !== 0 || b.prevEntryHash !== null ||
-      b.actorDid !== actors[0] || b.receiverDid !== actors[1] || e.entryHash !== digest(b) ||
-      !verifySignature(b, e.actorSignature, actors[0]) || !verifySigned(a, actors[1]) ||
-      a.payload.type !== 'AckReceipt' || a.payload.taskId !== taskId || a.payload.entryHash !== e.entryHash ||
-      a.payload.actorDid !== actors[0] || a.payload.receiverDid !== actors[1]) throw new Error('entry 0');
+  const b = e.body,
+    a = e.counterSignature;
+  if (
+    b.eventType !== 'PROPOSE' ||
+    b.taskId !== taskId ||
+    b.seq !== 0 ||
+    b.prevEntryHash !== null ||
+    b.actorDid !== actors[0] ||
+    b.receiverDid !== actors[1] ||
+    e.entryHash !== digest(b) ||
+    !verifySignature(b, e.actorSignature, actors[0]) ||
+    !verifySigned(a, actors[1]) ||
+    a.payload.type !== 'AckReceipt' ||
+    a.payload.taskId !== taskId ||
+    a.payload.entryHash !== e.entryHash ||
+    a.payload.actorDid !== actors[0] ||
+    a.payload.receiverDid !== actors[1]
+  )
+    throw new Error('entry 0');
   const proposal = object(b.payload)?.proposal as Signed<TaskManifest> | undefined;
   if (!proposal) throw new Error('INTERRUPTION_MANIFEST');
   validateManifest(proposal.payload);
-  if (!verifySigned(proposal, actors[0]) || proposal.payload.taskId !== taskId ||
-      proposal.payload.requester.ownerDid !== actors[0] || proposal.payload.worker?.ownerDid !== actors[1])
+  if (
+    !verifySigned(proposal, actors[0]) ||
+    proposal.payload.taskId !== taskId ||
+    proposal.payload.requester.ownerDid !== actors[0] ||
+    proposal.payload.worker?.ownerDid !== actors[1]
+  )
     throw new Error('INTERRUPTION_MANIFEST');
   // Deliberately no live expiry, retirement clock, or peer-floor policy in offline verification.
 }
 function evidencePins(options?: AuditEvidenceVerificationOptions): AuditEvidenceTrustAnchor {
   const base = resolveAnchor(options);
   for (const key of ['expectedClosureKind', 'expectedInterruptionHash'] as const) {
-    if (!sameAnchorField(options?.[key], options?.trustAnchor?.[key])) throw new Error('trust anchor');
+    if (!sameAnchorField(options?.[key], options?.trustAnchor?.[key]))
+      throw new Error('trust anchor');
   }
-  return { ...base,
+  return {
+    ...base,
     expectedClosureKind: options?.expectedClosureKind ?? options?.trustAnchor?.expectedClosureKind,
-    expectedInterruptionHash: options?.expectedInterruptionHash ?? options?.trustAnchor?.expectedInterruptionHash };
+    expectedInterruptionHash:
+      options?.expectedInterruptionHash ?? options?.trustAnchor?.expectedInterruptionHash,
+  };
 }
 function assertInterruptionPins(options?: AuditEvidenceVerificationOptions): void {
   if (options !== undefined && !object(options)) throw new Error('trust anchor');
-  if (options?.trustAnchor !== undefined && !object(options.trustAnchor)) throw new Error('trust anchor');
+  if (options?.trustAnchor !== undefined && !object(options.trustAnchor))
+    throw new Error('trust anchor');
   for (const part of [options, options?.trustAnchor]) {
     if (!part) continue;
-    for (const key of ['taskId', 'head', 'expectedLastEntryHash', 'expectedFinalState', 'expectedInterruptionHash'] as const)
+    for (const key of [
+      'taskId',
+      'head',
+      'expectedLastEntryHash',
+      'expectedFinalState',
+      'expectedInterruptionHash',
+    ] as const)
       if (part[key] !== undefined && !hasText(part[key])) throw new Error('trust anchor');
-    if (part.expectedClosureKind !== undefined && !['bilateral', 'interruption'].includes(part.expectedClosureKind))
+    if (
+      part.expectedClosureKind !== undefined &&
+      !['bilateral', 'interruption'].includes(part.expectedClosureKind)
+    )
       throw new Error('trust anchor');
-    if (part.actors !== undefined && (!Array.isArray(part.actors) || part.actors.length !== 2 || !part.actors.every(hasText)))
+    if (
+      part.actors !== undefined &&
+      (!Array.isArray(part.actors) || part.actors.length !== 2 || !part.actors.every(hasText))
+    )
       throw new Error('trust anchor');
-    if (part.expectedEntryCount !== undefined && (!Number.isSafeInteger(part.expectedEntryCount) || part.expectedEntryCount < 0))
+    if (
+      part.expectedEntryCount !== undefined &&
+      (!Number.isSafeInteger(part.expectedEntryCount) || part.expectedEntryCount < 0)
+    )
       throw new Error('trust anchor');
   }
 }
 /** Both formats are verified locally. A worker-only observation never becomes VALID. */
-export function verifyAuditEvidence(bundle: unknown, expected?: AuditEvidenceVerificationOptions): AuditEvidenceVerificationResult {
+export function verifyAuditEvidence(
+  bundle: unknown,
+  expected?: AuditEvidenceVerificationOptions,
+): AuditEvidenceVerificationResult {
   const value = object(bundle);
   if (!value || !Object.hasOwn(value, 'interruption')) {
     const bilateral = bundle as AuditBundle;
@@ -643,38 +827,83 @@ export function verifyAuditEvidence(bundle: unknown, expected?: AuditEvidenceVer
     try {
       validateSchema('audit-evidence', bundle);
       const pins = evidencePins(expected);
-      if (pins.expectedClosureKind !== undefined && pins.expectedClosureKind !== 'bilateral' ||
-          pins.expectedInterruptionHash !== undefined) throw new Error('trust anchor');
-      return pins.expectedClosureKind === 'bilateral' ? { ...result, trustAnchorVerified: true } : result;
+      if (
+        (pins.expectedClosureKind !== undefined && pins.expectedClosureKind !== 'bilateral') ||
+        pins.expectedInterruptionHash !== undefined
+      )
+        throw new Error('trust anchor');
+      return pins.expectedClosureKind === 'bilateral'
+        ? { ...result, trustAnchorVerified: true }
+        : result;
     } catch (error) {
-      return auditResult(anchorSupplied(expected), verificationError(error) + '; auditLocation=' + diagnosticJson(checkpointLocation(bilateral)));
+      return auditResult(
+        anchorSupplied(expected),
+        verificationError(error) +
+          '; auditLocation=' +
+          diagnosticJson(checkpointLocation(bilateral)),
+      );
     }
   }
   const interrupted = bundle as InterruptedAuditBundle;
-  let prefixVerified = false, terminalSignatureVerified = false, truncationChecked = false;
+  let prefixVerified = false,
+    terminalSignatureVerified = false,
+    truncationChecked = false;
   let location: unknown = interruptionLocation(interrupted);
   try {
     // Exclusive object shape and terminal schema before interpreting its fields.
-    if (Object.keys(value).length !== 2 || !Object.hasOwn(value, 'entries')) throw new Error('INVALID_AUDIT_EVIDENCE');
+    if (Object.keys(value).length !== 2 || !Object.hasOwn(value, 'entries'))
+      throw new Error('INVALID_AUDIT_EVIDENCE');
     validateSchema('audit-interruption', interrupted.interruption);
-    const { entries, interruption } = interrupted, p = interruption.payload;
-    location = entryLocation(entries?.[0], 'entry', 0, interruptionLocations.get(interrupted)?.entryLines[0]);
+    const { entries, interruption } = interrupted,
+      p = interruption.payload;
+    location = entryLocation(
+      entries?.[0],
+      'entry',
+      0,
+      interruptionLocations.get(interrupted)?.entryLines[0],
+    );
     assertInterruptionPrefix(entries, p.taskId, p.actors);
     prefixVerified = true;
     location = interruptionLocation(interrupted);
-    const prefix = p.acknowledgedPrefix, head = entries[0].entryHash;
-    if (p.formatVersion !== 1 || p.seq !== 1 || prefix.count !== 1 || prefix.lastSeq !== 0 ||
-        p.prevEntryHash !== head || prefix.head !== head || prefix.entriesDigest !== digest(entries) ||
-        !Number.isSafeInteger(p.seq) || !Number.isSafeInteger(prefix.count) || !Number.isSafeInteger(prefix.lastSeq) ||
-        p.observedAt !== interruption.signature.signedAt || !Number.isFinite(Date.parse(p.observedAt)) ||
-        !verifySigned(interruption, p.actors[1])) throw new Error('INVALID_AUDIT_INTERRUPTION');
+    const prefix = p.acknowledgedPrefix,
+      head = entries[0].entryHash;
+    if (
+      p.formatVersion !== 1 ||
+      p.seq !== 1 ||
+      prefix.count !== 1 ||
+      prefix.lastSeq !== 0 ||
+      p.prevEntryHash !== head ||
+      prefix.head !== head ||
+      prefix.entriesDigest !== digest(entries) ||
+      !Number.isSafeInteger(p.seq) ||
+      !Number.isSafeInteger(prefix.count) ||
+      !Number.isSafeInteger(prefix.lastSeq) ||
+      p.observedAt !== interruption.signature.signedAt ||
+      !Number.isFinite(Date.parse(p.observedAt)) ||
+      !verifySigned(interruption, p.actors[1])
+    )
+      throw new Error('INVALID_AUDIT_INTERRUPTION');
     terminalSignatureVerified = true;
     assertInterruptionPins(expected);
     const pins = evidencePins(expected);
-    const prefixCheckpoint: Checkpoint = { type: 'AuditCheckpoint', taskId: p.taskId, actors: p.actors, count: 1, head };
+    const prefixCheckpoint: Checkpoint = {
+      type: 'AuditCheckpoint',
+      taskId: p.taskId,
+      actors: p.actors,
+      count: 1,
+      head,
+    };
     assertTrustAnchor({ taskId: pins.taskId, actors: pins.actors }, prefixCheckpoint, entries);
-    if (pins.expectedClosureKind !== undefined && pins.expectedClosureKind !== 'interruption') throw new Error('trust anchor');
-    if ([pins.head, pins.expectedLastEntryHash, pins.expectedFinalState, pins.expectedEntryCount].some(v => v !== undefined)) {
+    if (pins.expectedClosureKind !== undefined && pins.expectedClosureKind !== 'interruption')
+      throw new Error('trust anchor');
+    if (
+      [
+        pins.head,
+        pins.expectedLastEntryHash,
+        pins.expectedFinalState,
+        pins.expectedEntryCount,
+      ].some((v) => v !== undefined)
+    ) {
       truncationChecked = true;
       assertTrustAnchor(pins, prefixCheckpoint, entries);
     }
@@ -682,30 +911,68 @@ export function verifyAuditEvidence(bundle: unknown, expected?: AuditEvidenceVer
       truncationChecked = true;
       if (pins.expectedInterruptionHash !== digest(p)) throw new Error('trust anchor');
     }
-    const supplied = anchorSupplied(expected) || pins.expectedClosureKind !== undefined || pins.expectedInterruptionHash !== undefined;
-    return { valid: false, status: 'UNILATERALLY_CLOSED',
-      statusLabel: 'UNILATERALLY_CLOSED (worker-only terminal; no peer terminal signature)', reason: 'WORKER_ONLY_INTERRUPTION',
-      prefixVerified, terminalSignatureVerified, bilateralCheckpointVerified: false,
-      trustAnchorVerified: supplied, truncationChecked, closureKind: 'interruption' };
+    const supplied =
+      anchorSupplied(expected) ||
+      pins.expectedClosureKind !== undefined ||
+      pins.expectedInterruptionHash !== undefined;
+    return {
+      valid: false,
+      status: 'UNILATERALLY_CLOSED',
+      statusLabel: 'UNILATERALLY_CLOSED (worker-only terminal; no peer terminal signature)',
+      reason: 'WORKER_ONLY_INTERRUPTION',
+      prefixVerified,
+      terminalSignatureVerified,
+      bilateralCheckpointVerified: false,
+      trustAnchorVerified: supplied,
+      truncationChecked,
+      closureKind: 'interruption',
+    };
   } catch (error) {
-    return { valid: false, status: 'INVALID', statusLabel: 'INVALID',
+    return {
+      valid: false,
+      status: 'INVALID',
+      statusLabel: 'INVALID',
       reason: verificationError(error) + '; auditLocation=' + diagnosticJson(location),
-      prefixVerified, terminalSignatureVerified, bilateralCheckpointVerified: false,
-      trustAnchorVerified: false, truncationChecked, closureKind: 'interruption' };
+      prefixVerified,
+      terminalSignatureVerified,
+      bilateralCheckpointVerified: false,
+      trustAnchorVerified: false,
+      truncationChecked,
+      closureKind: 'interruption',
+    };
   }
 }
 /** Creates a worker observation; callers must preserve the original prefix and journal the intent before writing. */
-export function createAuditInterruption(entries: AuditEntry[], worker: KeyPair,
-  phase: AuditInterruption['phase'], reason: AuditInterruption['reason'], observedAt = new Date().toISOString()): Signed<AuditInterruption> {
+export function createAuditInterruption(
+  entries: AuditEntry[],
+  worker: KeyPair,
+  phase: AuditInterruption['phase'],
+  reason: AuditInterruption['reason'],
+  observedAt = new Date().toISOString(),
+): Signed<AuditInterruption> {
   const first = entries[0];
   if (!first) throw new Error('INTERRUPTION_SCOPE');
   const actors: [string, string] = [first.body.actorDid, worker.did];
   assertInterruptionPrefix(entries, first.body.taskId, actors);
-  const payload: AuditInterruption = { type: 'AuditInterruption', formatVersion: 1,
-    taskId: first.body.taskId, actors, seq: 1, prevEntryHash: first.entryHash,
-    acknowledgedPrefix: { count: 1, lastSeq: 0, head: first.entryHash, entriesDigest: digest(entries) },
-    phase, reason, observedAt };
+  const payload: AuditInterruption = {
+    type: 'AuditInterruption',
+    formatVersion: 1,
+    taskId: first.body.taskId,
+    actors,
+    seq: 1,
+    prevEntryHash: first.entryHash,
+    acknowledgedPrefix: {
+      count: 1,
+      lastSeq: 0,
+      head: first.entryHash,
+      entriesDigest: digest(entries),
+    },
+    phase,
+    reason,
+    observedAt,
+  };
   const interruption = signPayload(payload, worker, observedAt);
-  if (verifyAuditEvidence({ entries, interruption }).status !== 'UNILATERALLY_CLOSED') throw new Error('INVALID_AUDIT_INTERRUPTION');
+  if (verifyAuditEvidence({ entries, interruption }).status !== 'UNILATERALLY_CLOSED')
+    throw new Error('INVALID_AUDIT_INTERRUPTION');
   return interruption;
 }

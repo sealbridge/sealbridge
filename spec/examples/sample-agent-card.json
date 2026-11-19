@@ -3,9 +3,7 @@
     "type": "AgentCard",
     "version": "0.2.0",
     "description": "Signed agent card with an agent-key delegation",
-    "costModes": [
-      "worker_byok"
-    ],
+    "costModes": ["worker_byok"],
     "name": "Example Worker",
     "skills": [
       {

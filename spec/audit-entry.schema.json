@@ -4,12 +4,7 @@
   "title": "audit-entry",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "body",
-    "entryHash",
-    "actorSignature",
-    "counterSignature"
-  ],
+  "required": ["body", "entryHash", "actorSignature", "counterSignature"],
   "properties": {
     "body": {
       "type": "object",
@@ -89,13 +84,7 @@
     "actorSignature": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "signerDid",
-        "canonicalization",
-        "payloadDigest",
-        "signedAt",
-        "signature"
-      ],
+      "required": ["signerDid", "canonicalization", "payloadDigest", "signedAt", "signature"],
       "properties": {
         "signerDid": {
           "type": "string",

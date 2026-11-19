@@ -121,8 +121,13 @@ export class VerificationEngine {
       input.approval,
       input.recipient,
       input.ownerDecision === undefined
-        ? input.allowUnencryptedEnvelopes === undefined ? undefined : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes }
-        : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes, ownerDecision: input.ownerDecision },
+        ? input.allowUnencryptedEnvelopes === undefined
+          ? undefined
+          : { allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes }
+        : {
+            allowUnencryptedEnvelopes: input.allowUnencryptedEnvelopes,
+            ownerDecision: input.ownerDecision,
+          },
     );
   }
   async verify(
@@ -131,7 +136,11 @@ export class VerificationEngine {
     gate: ApprovalGate,
     approval?: ApprovalReceipt | (() => Promise<ApprovalReceipt>),
     recipient?: KeyPair,
-    verifyOptions?: { allowUnencryptedEnvelopes?: boolean; onVerifiedDelivery?: () => void | Promise<void>; ownerDecision?: true },
+    verifyOptions?: {
+      allowUnencryptedEnvelopes?: boolean;
+      onVerifiedDelivery?: () => void | Promise<void>;
+      ownerDecision?: true;
+    },
   ): Promise<VerificationResult> {
     const stages: string[] = [];
     try {
@@ -172,16 +181,19 @@ export class VerificationEngine {
         verifyDelegationAttachment(d.delegation, contract);
         if (m.permissions.maxDelegationDepth === 1) {
           stages.push('delegation_chain');
-          if (verifyOptions?.ownerDecision !== true) throw new Error('DELEGATION_APPROVAL_REQUIRED');
+          if (verifyOptions?.ownerDecision !== true)
+            throw new Error('DELEGATION_APPROVAL_REQUIRED');
         }
       }
       // Only the signed runner level counts; sandboxBoundary cannot upgrade it.
-      if (!satisfiesIsolation(
-        m.sandboxPolicy.isolationLevel,
-        d.attestation.payload.effectiveIsolationLevel,
-        m.verification.requireExecutionAttestation,
-        m.sandboxPolicy.allowSubprocessFallback === true,
-      ))
+      if (
+        !satisfiesIsolation(
+          m.sandboxPolicy.isolationLevel,
+          d.attestation.payload.effectiveIsolationLevel,
+          m.verification.requireExecutionAttestation,
+          m.sandboxPolicy.allowSubprocessFallback === true,
+        )
+      )
         throw new Error('ISOLATION_LEVEL_MISMATCH');
       stages.push('crypto_budget');
       if (!validateOutput(m.io.outputSchema, d.artifact.payload.data))

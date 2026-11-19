@@ -30,7 +30,9 @@ export interface ProtocolEnvelope<T> {
 }
 export interface AgentTaskContext {
   preCallSizeLimits?: import('@acp/core').PreCallSizeLimits;
-  redelegate?: (request: import('./session.js').ChildDelegationRequest) => Promise<import('./session.js').SessionResult>;
+  redelegate?: (
+    request: import('./session.js').ChildDelegationRequest,
+  ) => Promise<import('./session.js').SessionResult>;
   taskId: string;
   manifest: TaskManifest;
   input: Json;

@@ -16,24 +16,38 @@ export interface HeldTaskContent {
  * grants no execution permission and checks neither capability authority nor
  * current deadline/grant usability, so terminal attempts remain reviewable.
  */
-export function taskContent(envelope: SignedEnvelope, owner: KeyPair,
-  contentDigest: string, envelopeDigest?: string): HeldTaskContent {
-  if (!verifyEnvelope(envelope, owner.did) ||
-      envelopeDigest !== undefined && digest(envelope) !== envelopeDigest)
+export function taskContent(
+  envelope: SignedEnvelope,
+  owner: KeyPair,
+  contentDigest: string,
+  envelopeDigest?: string,
+): HeldTaskContent {
+  if (
+    !verifyEnvelope(envelope, owner.did) ||
+    (envelopeDigest !== undefined && digest(envelope) !== envelopeDigest)
+  )
     throw new Error('INVALID_PROPOSAL');
   // openEnvelope requires encryption and returns fixed decryption error codes.
   const body = openEnvelope<Json>(envelope, owner) as unknown as {
-    proposal: Signed<TaskManifest>; input: Json; capabilityChains?: Json;
+    proposal: Signed<TaskManifest>;
+    input: Json;
+    capabilityChains?: Json;
   };
   try {
     if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.hasOwn(body, 'input'))
       throw new Error('INVALID_PROPOSAL');
     const manifest = body.proposal?.payload;
     validateManifest(manifest);
-    if (envelope.payload.eventType !== 'PROPOSE' || envelope.payload.seq !== 0 ||
-        manifest.taskId !== envelope.payload.taskId || manifest.worker?.ownerDid !== owner.did ||
-        manifest.requester.ownerDid !== envelope.payload.senderDid || !verifySigned(body.proposal, manifest.requester.ownerDid) ||
-        heldContentDigest('task', { manifest: manifest as unknown as Json, input: body.input }) !== contentDigest)
+    if (
+      envelope.payload.eventType !== 'PROPOSE' ||
+      envelope.payload.seq !== 0 ||
+      manifest.taskId !== envelope.payload.taskId ||
+      manifest.worker?.ownerDid !== owner.did ||
+      manifest.requester.ownerDid !== envelope.payload.senderDid ||
+      !verifySigned(body.proposal, manifest.requester.ownerDid) ||
+      heldContentDigest('task', { manifest: manifest as unknown as Json, input: body.input }) !==
+        contentDigest
+    )
       throw new Error('INVALID_PROPOSAL');
     return { manifest, input: body.input, capabilityChains: body.capabilityChains ?? [] };
   } catch {

@@ -93,7 +93,14 @@ In an MCP-capable host, register the stdio command `sealbridge mcp-server`. The 
 For a source checkout, a common host configuration looks like this (replace the absolute paths; the host's settings format may differ):
 
 ```json
-{"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
+{
+  "mcpServers": {
+    "sealbridge": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/sealbridge/cli/dist/index.js", "mcp-server"]
+    }
+  }
+}
 ```
 
 On Windows, use paths such as `C:/path/to/node.exe` and `C:/path/to/sealbridge/cli/dist/index.js`. Add `--allow-private-relay` to `args` only when your relay environment requires it. Reload the host, check that `acp_list_invites` sees the imported alias, then send the first task and accept the connection form. Muse/Grok Bot support for registering this stdio server and displaying elicitation forms has not been verified here; check your host's MCP settings. If MCP is unavailable, use the non-interactive CLI flow above. In a TTY, the owner still answers the separate connection prompt.
@@ -170,16 +177,16 @@ Agent playbooks are in [AGENTS.md](AGENTS.md) and [SKILL.md](SKILL.md).
 
 ## Documents
 
-| Document | Contents |
-| :--- | :--- |
-| [Automatic acceptance](docs/auto-accept.md) | Read-only vs write, audience, daily and monthly caps |
-| [Relay reliability](docs/relay-reliability.md) | Retries, deadlines, proxies, relay operations |
-| [Connection exchange](docs/connections/connection-exchange.md) | Connection offers and status |
-| [Audit interruption](docs/audit-interruption.md) | Audit records when a task is interrupted |
-| [SDK](docs/sdk.md) | Embedding API |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System shape and trust boundaries |
-| [spec/README.md](spec/README.md) | Protocol |
-| [SECURITY_PROOF.md](SECURITY_PROOF.md) | Adversarial test suite |
+| Document                                                       | Contents                                             |
+| :------------------------------------------------------------- | :--------------------------------------------------- |
+| [Automatic acceptance](docs/auto-accept.md)                    | Read-only vs write, audience, daily and monthly caps |
+| [Relay reliability](docs/relay-reliability.md)                 | Retries, deadlines, proxies, relay operations        |
+| [Connection exchange](docs/connections/connection-exchange.md) | Connection offers and status                         |
+| [Audit interruption](docs/audit-interruption.md)               | Audit records when a task is interrupted             |
+| [SDK](docs/sdk.md)                                             | Embedding API                                        |
+| [ARCHITECTURE.md](ARCHITECTURE.md)                             | System shape and trust boundaries                    |
+| [spec/README.md](spec/README.md)                               | Protocol                                             |
+| [SECURITY_PROOF.md](SECURITY_PROOF.md)                         | Adversarial test suite                               |
 
 All CLI subcommands are listed in `sealbridge --help`, and each command has `--help`.
 

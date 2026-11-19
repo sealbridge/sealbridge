@@ -11,11 +11,11 @@ peer floors, and release clocks retain their current formats and values.
 32-byte random key K (43 characters). `deriveInviteLinkKeys(k)` uses HKDF-SHA256
 with K as input key material, an empty salt, and these exact UTF-8 info labels:
 
-| Output | Bytes | Info |
-| --- | ---: | --- |
-| id | 16 | `sealbridge/invite-link/v1/id` |
-| encKey | 32 | `sealbridge/invite-link/v1/enc-key` |
-| accessKey | 32 | `sealbridge/invite-link/v1/access-key` |
+| Output    | Bytes | Info                                   |
+| --------- | ----: | -------------------------------------- |
+| id        |    16 | `sealbridge/invite-link/v1/id`         |
+| encKey    |    32 | `sealbridge/invite-link/v1/enc-key`    |
+| accessKey |    32 | `sealbridge/invite-link/v1/access-key` |
 
 `inviteLinkClaimTag(accessKey, id)` computes
 `HMAC-SHA256(accessKey, UTF8("claim") || rawId)` (32 bytes). For later relay

@@ -38,7 +38,6 @@ Invitation records retain the older signed format, so older releases can still r
 
 招待の署名付きレコードは旧形式を維持するため、古い版に戻しても読み取れます。ただし、明示した別名の意図は別の署名付き sidecar に保存され、古い版はこれを使いません。新しい接続・持ち主／代理の機能まで古い版で使えるわけではありません。印のない保存済み別名は、初回接続前に `--alias` 付きで再取り込みしてください。accept JSON の `aliasExplicit: false` は、明示した別名の意図を保存できなかった意味です。キーの有無ではなく値が `true` かを確認してください。
 
-
 - Keep the outbox Windows sharing-violation test's real files under its native OS temporary directory and existing teardown; simulate only the Windows I/O policy. CI now checks for tracked changes and untracked files immediately after the full conformance suite. No product behavior changes.
 
 ### Invite and role series

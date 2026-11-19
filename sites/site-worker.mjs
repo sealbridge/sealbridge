@@ -3,7 +3,8 @@ import { parseByteRange } from './media-range.mjs';
 // _headers is not automatically applied to Worker-generated responses.
 // Keep these equal to its /* block; the Node tests assert parity on actual responses.
 const policy = {
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
@@ -24,7 +25,9 @@ export default {
       assetRequest.headers.set('Accept-Encoding', 'identity');
     }
     // Fetch GET metadata for HEAD so range status/headers follow the same path.
-    const asset = await env.ASSETS.fetch(isHead ? new Request(assetRequest, { method: 'GET' }) : assetRequest);
+    const asset = await env.ASSETS.fetch(
+      isHead ? new Request(assetRequest, { method: 'GET' }) : assetRequest,
+    );
     const headers = new Headers(asset.headers);
     for (const [name, value] of Object.entries(policy)) headers.set(name, value);
     let status = asset.status;

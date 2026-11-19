@@ -2,7 +2,6 @@
 
 [Invitations and local roles](connections/invite-and-roles.md)
 
-
 [日本語](auto-accept.ja.md)
 
 All workers support the same rule. A new installation automatically accepts only
@@ -222,7 +221,7 @@ For missing, corrupt or truncated storage (`MONTHLY_STATE_UNAVAILABLE`):
    from `packages/runtime/dist/index.js`, then instantiate `MonthlyCostCounter`
    from `packages/runtime/dist/monthly-limit.js` with that key and exact path.
    Call `counter.reconcileTask(taskId, {maxInputTokens, maxOutputTokens},
-   {inputTokens, outputTokens})` using authenticated original bounds and provider
+{inputTokens, outputTokens})` using authenticated original bounds and provider
    counts. Omit the third argument if usage is unavailable: it charges the maximum.
    This appends signed records and is idempotent for already settled task IDs.
    It also repairs pre-release v1 unfinished rows whose budgets were not saved.

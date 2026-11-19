@@ -3,27 +3,47 @@ import { cliName } from './distribution.js';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { resolveDataRoot,
-  ensurePrivateDirectory, checkPrivatePath } from '@acp/runtime/local-identity';
+import {
+  resolveDataRoot,
+  ensurePrivateDirectory,
+  checkPrivatePath,
+} from '@acp/runtime/local-identity';
 import type { IdentityRole } from '@acp/runtime/local-identity';
 import { inspectStoredIdentity, resolveStoredIdentity } from '@acp/runtime/key-store';
 import type { IdentityStoreOptions } from '@acp/runtime/key-store';
-import { readApplicationConfig, validateApplicationConfig, createApplicationConfig } from '@acp/runtime/application-config';
+import {
+  readApplicationConfig,
+  validateApplicationConfig,
+  createApplicationConfig,
+} from '@acp/runtime/application-config';
 import { selectApplicationRelay } from '@acp/runtime/relay-selection';
 import { detectedHosts, hostDestination, runtimeEntry } from './setup-hosts.js';
 import type { SetupHost, HostDestination } from './setup-hosts.js';
 import { snapshot, strictObject, hostChange, assertUnchanged, publish } from './setup-files.js';
 
-export const SETUP_USAGE = 'Usage: ' + cliName + ' setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
-const ENTRY_CONFLICT_HELP = 'An existing Sealbridge entry differs from the proposed entry. Review with --update-existing --dry-run or --update-existing --print, then use --update-existing to replace only that entry with a backup. Use --no-require-approval to select the previous plain mcp-server mode.';
+export const SETUP_USAGE =
+  'Usage: ' +
+  cliName +
+  ' setup [--host NAME ... | --all-detected] [--project ABS] [--worker] [--relay URL] [--no-require-approval] [--update-existing] [--dry-run | --print]';
+const ENTRY_CONFLICT_HELP =
+  'An existing Sealbridge entry differs from the proposed entry. Review with --update-existing --dry-run or --update-existing --print, then use --update-existing to replace only that entry with a backup. Use --no-require-approval to select the previous plain mcp-server mode.';
 export interface SetupOptions extends IdentityStoreOptions {
-  hosts?: string[]; allDetected?: boolean; project?: string; worker?: boolean;
-  relay?: string; dryRun?: boolean; print?: boolean; execPath?: string; entryPath?: string;
-  requireApproval?: boolean; updateExisting?: boolean;
+  hosts?: string[];
+  allDetected?: boolean;
+  project?: string;
+  worker?: boolean;
+  relay?: string;
+  dryRun?: boolean;
+  print?: boolean;
+  execPath?: string;
+  entryPath?: string;
+  requireApproval?: boolean;
+  updateExisting?: boolean;
   chooseHost?: (hosts: readonly SetupHost[]) => Promise<SetupHost | undefined>;
 }
 export function parseSetupArgs(args: string[]): SetupOptions {
-  const result: SetupOptions = {}, seen = new Set<string>();
+  const result: SetupOptions = {},
+    seen = new Set<string>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg !== '--host' && seen.has(arg)) throw new Error('SETUP_INVALID_ARGUMENT');
@@ -46,51 +66,90 @@ export function parseSetupArgs(args: string[]): SetupOptions {
   return result;
 }
 function validateOptions(options: SetupOptions) {
-  if ((options.hosts?.length && options.allDetected) || (options.dryRun && options.print) ||
-      (options.project !== undefined && !options.hosts?.includes('claude-code')) ||
-      options.hosts?.length === 0) throw new Error('SETUP_INVALID_ARGUMENT');
+  if (
+    (options.hosts?.length && options.allDetected) ||
+    (options.dryRun && options.print) ||
+    (options.project !== undefined && !options.hosts?.includes('claude-code')) ||
+    options.hosts?.length === 0
+  )
+    throw new Error('SETUP_INVALID_ARGUMENT');
 }
 export async function selectSetupHosts(options: SetupOptions): Promise<HostDestination[]> {
   validateOptions(options);
-  if (options.hosts) return [...new Set(options.hosts)].map(host => hostDestination(host, options));
+  if (options.hosts)
+    return [...new Set(options.hosts)].map((host) => hostDestination(host, options));
   const detected = detectedHosts(options);
   if (detected.length === 1 || (options.allDetected && detected.length)) return detected;
   if (!options.allDetected && detected.length > 1 && options.chooseHost) {
-    const selected = await options.chooseHost(detected.map(host => host.host));
-    const host = detected.find(host => host.host === selected);
+    const selected = await options.chooseHost(detected.map((host) => host.host));
+    const host = detected.find((host) => host.host === selected);
     if (host) return [host];
   }
   throw new Error('SETUP_HOST_REQUIRED');
 }
 export function setupExitCode(code: string): number {
-  if (['SETUP_INVALID_ARGUMENT', 'SETUP_HOST_REQUIRED', 'SETUP_HOST_UNSUPPORTED'].includes(code)) return 2;
-  if (['SETUP_ENTRY_CONFLICT', 'SETUP_APPROVAL_MODE_CONFLICT', 'SETUP_CONFIG_CONFLICT', 'SETUP_CONFIG_INVALID', 'SETUP_RUNTIME_UNSTABLE'].includes(code)) return 3;
+  if (['SETUP_INVALID_ARGUMENT', 'SETUP_HOST_REQUIRED', 'SETUP_HOST_UNSUPPORTED'].includes(code))
+    return 2;
+  if (
+    [
+      'SETUP_ENTRY_CONFLICT',
+      'SETUP_APPROVAL_MODE_CONFLICT',
+      'SETUP_CONFIG_CONFLICT',
+      'SETUP_CONFIG_INVALID',
+      'SETUP_RUNTIME_UNSTABLE',
+    ].includes(code)
+  )
+    return 3;
   return 1;
 }
 function errorCode(error: unknown): string {
   const code = error instanceof Error ? error.message : '';
   if (/^(SETUP_|IDENTITY_|DATA_DIR_|KEY_STORE_)[A-Z_]+$/.test(code)) return code;
   if (code === 'APP_CONFIG_BUSY') return 'SETUP_CONFIG_CHANGED';
-  if (/^APP_CONFIG_/.test(code)) return code === 'APP_CONFIG_UNWRITABLE' ? 'SETUP_WRITE_FAILED' : 'SETUP_CONFIG_INVALID';
+  if (/^APP_CONFIG_/.test(code))
+    return code === 'APP_CONFIG_UNWRITABLE' ? 'SETUP_WRITE_FAILED' : 'SETUP_CONFIG_INVALID';
   return 'SETUP_WRITE_FAILED';
 }
 
 /** Local preflight and apply; never starts a host, MCP server, or relay connection. */
 export async function runSetup(options: SetupOptions = {}) {
-  const io = options.fs ?? fs, platform = options.platform ?? process.platform;
-  const hosts = await selectSetupHosts(options), root = resolveDataRoot(options);
+  const io = options.fs ?? fs,
+    platform = options.platform ?? process.platform;
+  const hosts = await selectSetupHosts(options),
+    root = resolveDataRoot(options);
   const entry = runtimeEntry(root, options);
-  const alternateEntry = { ...entry, args: options.requireApproval === false
-    ? [...entry.args, '--require-approval'] : entry.args.slice(0, -1) };
-  const approval = options.requireApproval === false
-    ? { approvalMode: 'automatic', approvalNote: 'The host can send without per-request confirmation and accept final results automatically.' }
-    : { approvalMode: 'host-mediated', approvalNote: 'Host form elicitation is required before sending and for final verification. Hosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending.' };
+  const alternateEntry = {
+    ...entry,
+    args:
+      options.requireApproval === false
+        ? [...entry.args, '--require-approval']
+        : entry.args.slice(0, -1),
+  };
+  const approval =
+    options.requireApproval === false
+      ? {
+          approvalMode: 'automatic',
+          approvalNote:
+            'The host can send without per-request confirmation and accept final results automatically.',
+        }
+      : {
+          approvalMode: 'host-mediated',
+          approvalNote:
+            'Host form elicitation is required before sending and for final verification. Hosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending.',
+        };
   const roles: IdentityRole[] = options.worker ? ['requester', 'worker'] : ['requester'];
-  const identities = await Promise.all(roles.map(async role => {
-    const selected = await inspectStoredIdentity(role, options);
-    return { role, path: selected.location, source: selected.source,
-      status: selected.key ? 'reused' : 'created on apply', did: selected.key?.did };
-  }));
+  const identities = await Promise.all(
+    roles.map(async (role) => {
+      const selected = await inspectStoredIdentity(role, options);
+      return {
+        role,
+        path: selected.location,
+        source: selected.source,
+        status: selected.key ? 'reused' : 'created on apply',
+        did: selected.key?.did,
+      };
+    }),
+  );
   const configOriginal = snapshot(join(root, 'config.json'), io, platform);
   if (configOriginal.bytes) strictObject(configOriginal.bytes);
   let config;
@@ -98,23 +157,54 @@ export async function runSetup(options: SetupOptions = {}) {
     config = readApplicationConfig(options);
     if (options.relay !== undefined) {
       const proposed = validateApplicationConfig({ version: 1, relays: [options.relay] }, options);
-      if (configOriginal.bytes && proposed.relays[0] !== config.relays[0]) throw new Error('SETUP_CONFIG_CONFLICT');
+      if (configOriginal.bytes && proposed.relays[0] !== config.relays[0])
+        throw new Error('SETUP_CONFIG_CONFLICT');
       if (!configOriginal.bytes) config = proposed;
     }
-  } catch (error) { throw new Error(errorCode(error) === 'SETUP_WRITE_FAILED' ? 'SETUP_CONFIG_INVALID' : errorCode(error)); }
+  } catch (error) {
+    throw new Error(
+      errorCode(error) === 'SETUP_WRITE_FAILED' ? 'SETUP_CONFIG_INVALID' : errorCode(error),
+    );
+  }
   const selected = selectApplicationRelay({ fallbackCandidates: config.relays });
-  const changes = hosts.map(host => ({ host, change: hostChange(snapshot(host.path, io, platform), entry,
-    { updateExisting: options.updateExisting, alternateEntry }) }));
-  if (options.print) return { snippets: hosts.map(({ host, path }) => ({ host, path, ...approval, mcpServers: { sealbridge: entry } })) };
+  const changes = hosts.map((host) => ({
+    host,
+    change: hostChange(snapshot(host.path, io, platform), entry, {
+      updateExisting: options.updateExisting,
+      alternateEntry,
+    }),
+  }));
+  if (options.print)
+    return {
+      snippets: hosts.map(({ host, path }) => ({
+        host,
+        path,
+        ...approval,
+        mcpServers: { sealbridge: entry },
+      })),
+    };
   const summary = {
-    mode: options.dryRun ? 'dry-run' : 'apply', identities,
-    config: { path: configOriginal.path, previous: configOriginal.bytes ? 'existing' : 'previously absent',
+    mode: options.dryRun ? 'dry-run' : 'apply',
+    identities,
+    config: {
+      path: configOriginal.path,
+      previous: configOriginal.bytes ? 'existing' : 'previously absent',
       status: configOriginal.bytes ? 'reused' : 'created on apply',
-      relay: selected.relay, source: configOriginal.bytes ? 'local-default' : options.relay ? 'setup --relay' : 'built-in default' },
-    destinations: changes.map(({ host, change }) => ({ host: host.host, path: host.path,
+      relay: selected.relay,
+      source: configOriginal.bytes
+        ? 'local-default'
+        : options.relay
+          ? 'setup --relay'
+          : 'built-in default',
+    },
+    destinations: changes.map(({ host, change }) => ({
+      host: host.host,
+      path: host.path,
       ...approval,
       previous: change.bytes ? 'existing' : 'previously absent',
-      status: change.bytes?.equals(change.next) ? 'unchanged' : 'planned', backup: undefined as string | undefined })),
+      status: change.bytes?.equals(change.next) ? 'unchanged' : 'planned',
+      backup: undefined as string | undefined,
+    })),
     next: 'Reload the selected host, then check its MCP tools. Setup does not check host readiness or grant task approval.',
     error: undefined as string | undefined,
   };
@@ -124,8 +214,15 @@ export async function runSetup(options: SetupOptions = {}) {
   try {
     ensurePrivateDirectory(root, io, platform);
     checkPrivatePath(lockPath, io, platform);
-    try { lock = io.openSync(lockPath, 'wx', 0o600); }
-    catch (error) { throw new Error((error as NodeJS.ErrnoException).code === 'EEXIST' ? 'SETUP_CONFIG_BUSY' : 'SETUP_WRITE_FAILED'); }
+    try {
+      lock = io.openSync(lockPath, 'wx', 0o600);
+    } catch (error) {
+      throw new Error(
+        (error as NodeJS.ErrnoException).code === 'EEXIST'
+          ? 'SETUP_CONFIG_BUSY'
+          : 'SETUP_WRITE_FAILED',
+      );
+    }
     // One exclusive lock attempt is bounded. Revalidate every destination after acquiring it.
     assertUnchanged(configOriginal, io, platform);
     for (const { change } of changes) assertUnchanged(change, io, platform);
@@ -139,22 +236,37 @@ export async function runSetup(options: SetupOptions = {}) {
       summary.config.status = 'created';
     }
     for (let i = 0; i < changes.length; i++) {
-      const { change } = changes[i], destination = summary.destinations[i];
+      const { change } = changes[i],
+        destination = summary.destinations[i];
       try {
         publish(change, root, io, platform);
         destination.status = destination.status === 'unchanged' ? 'unchanged' : 'configured';
-      } catch (error) { destination.status = 'failed'; throw error; }
-      finally { destination.backup = change.backup; }
+      } catch (error) {
+        destination.status = 'failed';
+        throw error;
+      } finally {
+        destination.backup = change.backup;
+      }
     }
-  } catch (error) { summary.error = errorCode(error); }
-  finally {
+  } catch (error) {
+    summary.error = errorCode(error);
+  } finally {
     if (lock !== undefined) {
       try {
-        const owned = io.fstatSync(lock), current = io.lstatSync(lockPath);
-        if (current.dev === owned.dev && current.ino === owned.ino && !current.isSymbolicLink()) io.unlinkSync(lockPath);
+        const owned = io.fstatSync(lock),
+          current = io.lstatSync(lockPath);
+        if (current.dev === owned.dev && current.ino === owned.ino && !current.isSymbolicLink())
+          io.unlinkSync(lockPath);
         else summary.error = 'SETUP_CONFIG_CHANGED';
-      } catch { summary.error ??= 'SETUP_WRITE_FAILED'; }
-      finally { try { io.closeSync(lock); } catch { summary.error ??= 'SETUP_WRITE_FAILED'; } }
+      } catch {
+        summary.error ??= 'SETUP_WRITE_FAILED';
+      } finally {
+        try {
+          io.closeSync(lock);
+        } catch {
+          summary.error ??= 'SETUP_WRITE_FAILED';
+        }
+      }
     }
   }
   return summary;
@@ -162,18 +274,30 @@ export async function runSetup(options: SetupOptions = {}) {
 
 export async function setupCommand(args: string[]) {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(SETUP_USAGE + '\nHosts: claude-desktop (macOS/Windows), cursor, claude-code (explicit --project only).\nLocal only. Close host settings before applying; reload the host afterward.\nDefault: mcp-server --require-approval requests host form elicitation before sending and for final verification.\nHosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending; support cannot be detected offline.\n--no-require-approval selects automatic approval: the host can send without per-request confirmation and accept final results automatically.\n--update-existing replaces only a differing Sealbridge entry, retaining a backup of the original file.\n--dry-run reads and validates; --print outputs proposed entries. Neither writes files.\nUse a persistent installation or a built checkout; setup does not install dependencies.');
+    console.log(
+      SETUP_USAGE +
+        '\nHosts: claude-desktop (macOS/Windows), cursor, claude-code (explicit --project only).\nLocal only. Close host settings before applying; reload the host afterward.\nDefault: mcp-server --require-approval requests host form elicitation before sending and for final verification.\nHosts without form support return APPROVAL_CHANNEL_UNAVAILABLE before sending; support cannot be detected offline.\n--no-require-approval selects automatic approval: the host can send without per-request confirmation and accept final results automatically.\n--update-existing replaces only a differing Sealbridge entry, retaining a backup of the original file.\n--dry-run reads and validates; --print outputs proposed entries. Neither writes files.\nUse a persistent installation or a built checkout; setup does not install dependencies.',
+    );
     return;
   }
   try {
     const options = parseSetupArgs(args);
-    if (process.stdin.isTTY && process.stderr.isTTY) options.chooseHost = async hosts => {
-      const prompt = createInterface({ input: process.stdin, output: process.stderr });
-      try {
-        const answer = await prompt.question('Choose host (' + hosts.map((host, i) => `${i + 1}: ${host}`).join(', ') + '), or Enter to cancel: ');
-        return /^\d+$/.test(answer.trim()) ? hosts[Number(answer.trim()) - 1] : undefined;
-      } catch { return undefined; } finally { prompt.close(); }
-    };
+    if (process.stdin.isTTY && process.stderr.isTTY)
+      options.chooseHost = async (hosts) => {
+        const prompt = createInterface({ input: process.stdin, output: process.stderr });
+        try {
+          const answer = await prompt.question(
+            'Choose host (' +
+              hosts.map((host, i) => `${i + 1}: ${host}`).join(', ') +
+              '), or Enter to cancel: ',
+          );
+          return /^\d+$/.test(answer.trim()) ? hosts[Number(answer.trim()) - 1] : undefined;
+        } catch {
+          return undefined;
+        } finally {
+          prompt.close();
+        }
+      };
     const result = await runSetup(options);
     console.log(JSON.stringify(result, null, 2));
     if ('error' in result && result.error) {
@@ -182,8 +306,10 @@ export async function setupCommand(args: string[]) {
     }
   } catch (error) {
     const code = errorCode(error);
-    if (code === 'SETUP_APPROVAL_MODE_CONFLICT') console.error('Existing Sealbridge entry uses a different approval mode.');
-    if (code === 'SETUP_APPROVAL_MODE_CONFLICT' || code === 'SETUP_ENTRY_CONFLICT') console.error(ENTRY_CONFLICT_HELP);
+    if (code === 'SETUP_APPROVAL_MODE_CONFLICT')
+      console.error('Existing Sealbridge entry uses a different approval mode.');
+    if (code === 'SETUP_APPROVAL_MODE_CONFLICT' || code === 'SETUP_ENTRY_CONFLICT')
+      console.error(ENTRY_CONFLICT_HELP);
     console.error(code);
     process.exitCode = setupExitCode(code);
   }

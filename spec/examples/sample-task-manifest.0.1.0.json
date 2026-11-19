@@ -34,9 +34,7 @@
   "io": {
     "inputSchema": {
       "type": "object",
-      "required": [
-        "docUris"
-      ],
+      "required": ["docUris"],
       "properties": {
         "docUris": {
           "type": "array",
@@ -48,10 +46,7 @@
     },
     "outputSchema": {
       "type": "object",
-      "required": [
-        "summary",
-        "findings"
-      ],
+      "required": ["summary", "findings"],
       "properties": {
         "summary": {
           "type": "string"
@@ -60,23 +55,14 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "id",
-              "severity",
-              "sourceDigest"
-            ],
+            "required": ["id", "severity", "sourceDigest"],
             "properties": {
               "id": {
                 "type": "string"
               },
               "severity": {
                 "type": "string",
-                "enum": [
-                  "LOW",
-                  "MEDIUM",
-                  "HIGH",
-                  "CRITICAL"
-                ]
+                "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
               },
               "sourceDigest": {
                 "type": "string",
@@ -129,14 +115,10 @@
       {
         "capabilityId": "cap_read_docs_01",
         "resource": "mcp://alice-gateway/docs/spec-draft.md",
-        "allowedTools": [
-          "resources/read"
-        ],
+        "allowedTools": ["resources/read"],
         "argConstraints": {
           "type": "object",
-          "required": [
-            "uri"
-          ],
+          "required": ["uri"],
           "properties": {
             "uri": {
               "const": "mcp://alice-gateway/docs/spec-draft.md"

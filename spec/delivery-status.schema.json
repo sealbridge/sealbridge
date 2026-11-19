@@ -4,10 +4,7 @@
   "title": "delivery-status",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "payload",
-    "signature"
-  ],
+  "required": ["payload", "signature"],
   "properties": {
     "payload": {
       "type": "object",
@@ -49,12 +46,7 @@
           "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{32,128}$"
         },
         "state": {
-          "enum": [
-            "received_held",
-            "opened",
-            "handed_to_agent",
-            "closed"
-          ]
+          "enum": ["received_held", "opened", "handed_to_agent", "closed"]
         },
         "revision": {
           "type": "integer",
@@ -73,13 +65,7 @@
     "signature": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "signerDid",
-        "canonicalization",
-        "payloadDigest",
-        "signedAt",
-        "signature"
-      ],
+      "required": ["signerDid", "canonicalization", "payloadDigest", "signedAt", "signature"],
       "properties": {
         "signerDid": {
           "type": "string",

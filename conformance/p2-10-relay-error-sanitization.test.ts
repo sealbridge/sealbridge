@@ -207,15 +207,20 @@ describe('P2-10 relay error sanitization', () => {
     expect(await did.json()).toEqual({ error: 'INVALID_DID' });
 
     const queryAuth = await handler(
-      new Request('https://relay.example/envelopes?recipient=' + encodeURIComponent(bob.did) + '&auth=tok'),
+      new Request(
+        'https://relay.example/envelopes?recipient=' + encodeURIComponent(bob.did) + '&auth=tok',
+      ),
     );
     expect(queryAuth.status).toBe(401);
     expect(await queryAuth.json()).toEqual({ error: 'RELAY_QUERY_AUTH_DISABLED' });
 
     const badPercent = await handler(
-      new Request('https://relay.example/envelopes/%E0%A4%A?recipient=' + encodeURIComponent(bob.did), {
-        method: 'DELETE',
-      }),
+      new Request(
+        'https://relay.example/envelopes/%E0%A4%A?recipient=' + encodeURIComponent(bob.did),
+        {
+          method: 'DELETE',
+        },
+      ),
     );
     expect(badPercent.status).toBe(400);
     expect(await badPercent.json()).toEqual({ error: 'INVALID_REQUEST' });
@@ -240,7 +245,11 @@ describe('P2-10 relay error sanitization', () => {
     expect((await postEnvelope(cappedHandler, envelope())).status).toBe(202);
     const full = await postEnvelope(cappedHandler, envelope());
     expect(full.status).toBe(429);
-    expect(await full.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
+    expect(await full.json()).toEqual({
+      error: 'RELAY_RETRY_LATER',
+      retryable: true,
+      retryAfterMs: 60000,
+    });
 
     const first = envelope();
     const replayRelay = new InMemoryRelay();
@@ -257,12 +266,13 @@ describe('P2-10 relay error sanitization', () => {
       maxEnvelopesPerSender: 10,
     });
     budgetRelay.send(budgeted);
-    const budget = await postEnvelope(
-      createRelayFetchHandler({ relay: budgetRelay }),
-      envelope(),
-    );
+    const budget = await postEnvelope(createRelayFetchHandler({ relay: budgetRelay }), envelope());
     expect(budget.status).toBe(429);
-    expect(await budget.json()).toEqual({ error: 'RELAY_RETRY_LATER', retryable: true, retryAfterMs: 60000 });
+    expect(await budget.json()).toEqual({
+      error: 'RELAY_RETRY_LATER',
+      retryable: true,
+      retryAfterMs: 60000,
+    });
     expect(budget.headers.get('retry-after')).toBeTruthy();
 
     const registered = createSignedAgentCard(
@@ -276,11 +286,7 @@ describe('P2-10 relay error sanitization', () => {
     );
     const fresh = new InMemoryRelay();
     fresh.register(registered);
-    const older = signPayload(
-      registered.payload,
-      bob,
-      new Date(Date.now() - 60_000).toISOString(),
-    );
+    const older = signPayload(registered.payload, bob, new Date(Date.now() - 60_000).toISOString());
     const staleCard = await createRelayFetchHandler({ relay: fresh })(
       new Request('https://relay.example/agents', {
         method: 'POST',
@@ -312,9 +318,10 @@ describe('P2-10 relay error sanitization', () => {
     const frame = await wsRequest(socket, { method: 'send', envelope: envelope() });
     expect(frame).toEqual({ ok: false, error: 'RELAY_INTERNAL_ERROR' });
     expectNoLeak(JSON.stringify(frame));
-    expect(
-      await wsRequest(socket, { method: 'receive', recipientDid: bob.did }),
-    ).toEqual({ ok: false, error: 'RELAY_UNAUTHORIZED' });
+    expect(await wsRequest(socket, { method: 'receive', recipientDid: bob.did })).toEqual({
+      ok: false,
+      error: 'RELAY_UNAUTHORIZED',
+    });
     expect(await wsRequest(socket, { method: 'nope' })).toEqual({
       ok: false,
       error: 'INVALID_REQUEST',

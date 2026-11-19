@@ -1,4 +1,10 @@
 {
-  "requiredGates": ["contract_acceptance", "external_side_effect", "budget_increase", "redelegation", "final_verification"],
+  "requiredGates": [
+    "contract_acceptance",
+    "external_side_effect",
+    "budget_increase",
+    "redelegation",
+    "final_verification"
+  ],
   "autoApprove": []
 }

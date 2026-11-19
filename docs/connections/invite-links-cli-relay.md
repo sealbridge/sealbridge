@@ -7,7 +7,6 @@ output for a shared code intended for multiple owners.
 
 [Invitations and local roles](invite-and-roles.md)
 
-
 `sealbridge invite create` still prints an offline `acp-invite:` token by
 default. To create a short link, use a relay with `inviteLinks: 1` capability:
 

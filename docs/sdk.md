@@ -30,21 +30,21 @@ approval requirements and defaults. No relay deployment is required.
 
 All values are direct re-exports of existing implementations, without wrappers.
 
-| Area | Values |
-| --- | --- |
-| Saved invitations | `InviteStore` |
-| Invitation strings | `KeychainSecretStore`, `openKeychainSecretStore` |
-| Identity selection | `FileKeyStore`, `KeychainKeyStore`, `inspectStoredIdentity`, `resolveStoredIdentity`, `selectKeyStore`, `keyStoreSelection`, `keychainService`, `resolveDataRoot` |
-| Application config | `readApplicationConfig`, `setApplicationKeyStore` |
-| Connection metadata | `WorkerTrustStore` (including `listConnections`), `workerIntakePath` |
-| Connection exchange | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
-| Owner confirmation command | `connectionsCommand`, `connectionHumanReview` |
-| Held review | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider` |
-| Verified task content | `taskContent` |
-| Discovery and invitations | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
-| Key creation | `generateKeyPair` |
-| MCP hosting | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
-| Content rules | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS` |
+| Area                       | Values                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Saved invitations          | `InviteStore`                                                                                                                                                                               |
+| Invitation strings         | `KeychainSecretStore`, `openKeychainSecretStore`                                                                                                                                            |
+| Identity selection         | `FileKeyStore`, `KeychainKeyStore`, `inspectStoredIdentity`, `resolveStoredIdentity`, `selectKeyStore`, `keyStoreSelection`, `keychainService`, `resolveDataRoot`                           |
+| Application config         | `readApplicationConfig`, `setApplicationKeyStore`                                                                                                                                           |
+| Connection metadata        | `WorkerTrustStore` (including `listConnections`), `workerIntakePath`                                                                                                                        |
+| Connection exchange        | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections`                                                                                                      |
+| Owner confirmation command | `connectionsCommand`, `connectionHumanReview`                                                                                                                                               |
+| Held review                | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider`                                                            |
+| Verified task content      | `taskContent`                                                                                                                                                                               |
+| Discovery and invitations  | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
+| Key creation               | `generateKeyPair`                                                                                                                                                                           |
+| MCP hosting                | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs`                                                                                                        |
+| Content rules              | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS`                                    |
 
 Named type exports:
 
@@ -190,7 +190,11 @@ rules and traversal; runtime owns the child process. The edge entry is unchanged
 For held tasks, inject the provider explicitly:
 
 ```ts
-import { HeldRequestReview, WorkerNode, createRuleBasedContentReviewProvider } from 'sealbridge/sdk';
+import {
+  HeldRequestReview,
+  WorkerNode,
+  createRuleBasedContentReviewProvider,
+} from 'sealbridge/sdk';
 
 const inspectionTimeoutMs = 5000;
 const heldReview = new HeldRequestReview(owner, {

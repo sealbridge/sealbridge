@@ -167,8 +167,12 @@ export interface ContextGrant {
 }
 export type ContextGrantOptions = Pick<ContextGrant, 'selectors' | 'angle'> &
   Partial<Omit<ContextGrant, 'selectors' | 'angle'>>;
-export type ContextGrantAuditEventType = 'CONTEXT_GRANT' | 'CONTEXT_OPENED' | 'CONTEXT_DISCARDED' |
-  'CONTEXT_DELETION_ATTEMPTED' | 'CONTEXT_MODE';
+export type ContextGrantAuditEventType =
+  | 'CONTEXT_GRANT'
+  | 'CONTEXT_OPENED'
+  | 'CONTEXT_DISCARDED'
+  | 'CONTEXT_DELETION_ATTEMPTED'
+  | 'CONTEXT_MODE';
 export interface ContextGrantAuditPayload {
   grantDigest: string;
   deliveryMode: DeliveryMode;

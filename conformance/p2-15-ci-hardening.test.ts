@@ -32,8 +32,9 @@ describe('P2-15 CI hardening', () => {
     expect(workflow).toContain('matrix:');
     expect(workflow).toContain('name: conformance (${{ matrix.label }})');
     expect(workflow).toContain('include:');
-    const runners = [...workflow.matchAll(/^\s*- label: (\S+)\n\s+os: (\S+)$/gm)]
-      .map(([, label, os]) => ({ label, os }));
+    const runners = [...workflow.matchAll(/^\s*- label: (\S+)\n\s+os: (\S+)$/gm)].map(
+      ([, label, os]) => ({ label, os }),
+    );
     expect(runners).toEqual([
       { label: 'ubuntu-latest', os: 'ubuntu-24.04' },
       { label: 'macos-latest', os: 'macos-latest' },

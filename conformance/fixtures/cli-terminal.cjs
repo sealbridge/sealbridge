@@ -6,7 +6,7 @@ if (process.env.SEALBRIDGE_TEST_TERMINAL === '1') {
 }
 // Windows child.kill(SIGTERM) terminates forcibly; dispatch the same handler via
 // IPC there. Unix tests send an actual OS SIGTERM. IPC must not hold Node open.
-process.on('message', message => {
+process.on('message', (message) => {
   if (message === 'SIGTERM' && process.platform === 'win32') process.emit('SIGTERM');
 });
 process.channel?.unref();

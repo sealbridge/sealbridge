@@ -51,8 +51,12 @@ export interface ParsedInviteLink {
 }
 
 function decodeBase64url(value: unknown, minBytes: number, maxBytes = minBytes): Buffer {
-  if (typeof value !== 'string' || value.length > Math.ceil(maxBytes * 4 / 3) ||
-      !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('INVALID_INVITE_LINK_ENCODING');
+  if (
+    typeof value !== 'string' ||
+    value.length > Math.ceil((maxBytes * 4) / 3) ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  )
+    throw new Error('INVALID_INVITE_LINK_ENCODING');
   const bytes = Buffer.from(value, 'base64url');
   if (bytes.length < minBytes || bytes.length > maxBytes || bytes.toString('base64url') !== value)
     throw new Error('INVALID_INVITE_LINK_ENCODING');
@@ -66,24 +70,42 @@ function assertBytes(value: Uint8Array, length: number): void {
 
 /** Expiries on the storage boundary must be UTC ISO strings with milliseconds. */
 function canonicalExpiry(expiresAt: string): string {
-  if (typeof expiresAt !== 'string' || expiresAt.length !== 24 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(expiresAt) ||
-      !Number.isFinite(Date.parse(expiresAt)) || new Date(expiresAt).toISOString() !== expiresAt)
+  if (
+    typeof expiresAt !== 'string' ||
+    expiresAt.length !== 24 ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(expiresAt) ||
+    !Number.isFinite(Date.parse(expiresAt)) ||
+    new Date(expiresAt).toISOString() !== expiresAt
+  )
     throw new Error('INVALID_INVITE_LINK_EXPIRY');
   return expiresAt;
 }
 
 /** Returns the link deadline and the inner token deadline (link + 24 hours). */
-export function inviteLinkExpiry(now = Date.now(), ttlMs = INVITE_LINK_DEFAULT_TTL_MS): {
-  expiresAt: string; tokenExpiresAt: string;
+export function inviteLinkExpiry(
+  now = Date.now(),
+  ttlMs = INVITE_LINK_DEFAULT_TTL_MS,
+): {
+  expiresAt: string;
+  tokenExpiresAt: string;
 } {
-  if (!Number.isSafeInteger(now) || !Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > INVITE_LINK_MAX_TTL_MS)
+  if (
+    !Number.isSafeInteger(now) ||
+    !Number.isSafeInteger(ttlMs) ||
+    ttlMs <= 0 ||
+    ttlMs > INVITE_LINK_MAX_TTL_MS
+  )
     throw new Error('INVALID_INVITE_LINK_EXPIRY');
   try {
     return {
       expiresAt: canonicalExpiry(new Date(now + ttlMs).toISOString()),
-      tokenExpiresAt: canonicalExpiry(new Date(now + ttlMs + INVITE_LINK_TOKEN_GRACE_MS).toISOString()),
+      tokenExpiresAt: canonicalExpiry(
+        new Date(now + ttlMs + INVITE_LINK_TOKEN_GRACE_MS).toISOString(),
+      ),
     };
-  } catch { throw new Error('INVALID_INVITE_LINK_EXPIRY'); }
+  } catch {
+    throw new Error('INVALID_INVITE_LINK_EXPIRY');
+  }
 }
 
 /** The returned k is exactly 43 unpadded base64url characters encoding 32 random bytes. */
@@ -93,7 +115,8 @@ export function generateInviteLinkKey(): string {
 
 export function deriveInviteLinkKeys(k: string): InviteLinkKeys {
   const key = decodeBase64url(k, 32);
-  const derive = (info: string, length: number) => Buffer.from(hkdfSync('sha256', key, Buffer.alloc(0), info, length));
+  const derive = (info: string, length: number) =>
+    Buffer.from(hkdfSync('sha256', key, Buffer.alloc(0), info, length));
   return {
     id: derive(INVITE_LINK_HKDF_INFO.id, 16),
     encKey: derive(INVITE_LINK_HKDF_INFO.encKey, 32),
@@ -115,19 +138,25 @@ export function inviteLinkClaimTag(accessKey: Uint8Array, id: Uint8Array): Buffe
  */
 export function inviteLinkAad(id: Uint8Array, relayOrigin: string, expiresAt: string): Buffer {
   assertBytes(id, 16);
-  return Buffer.concat([Buffer.from(INVITE_LINK_CONTEXT), id,
-    Buffer.from(normalizeRelayOrigin(relayOrigin)), Buffer.from(canonicalExpiry(expiresAt))]);
+  return Buffer.concat([
+    Buffer.from(INVITE_LINK_CONTEXT),
+    id,
+    Buffer.from(normalizeRelayOrigin(relayOrigin)),
+    Buffer.from(canonicalExpiry(expiresAt)),
+  ]);
 }
 
 /** Four-byte big-endian UTF-8 byte length, token bytes, then zero padding. */
 export function padInviteLinkToken(token: string): Buffer {
-  if (typeof token !== 'string' || !token)
-    throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
+  if (typeof token !== 'string' || !token) throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
   if (token.length > INVITE_LINK_MAX_PADDED_BYTES - 4) throw new Error('INVITE_LINK_TOO_LARGE');
   const size = Buffer.byteLength(token, 'utf8');
   if (size > INVITE_LINK_MAX_PADDED_BYTES - 4) throw new Error('INVITE_LINK_TOO_LARGE');
-  if (Buffer.from(token, 'utf8').toString('utf8') !== token) throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
-  const padded = Buffer.alloc(Math.ceil((size + 4) / INVITE_LINK_PAD_BLOCK_BYTES) * INVITE_LINK_PAD_BLOCK_BYTES);
+  if (Buffer.from(token, 'utf8').toString('utf8') !== token)
+    throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
+  const padded = Buffer.alloc(
+    Math.ceil((size + 4) / INVITE_LINK_PAD_BLOCK_BYTES) * INVITE_LINK_PAD_BLOCK_BYTES,
+  );
   padded.writeUInt32BE(size);
   padded.write(token, 4, size, 'utf8');
   return padded;
@@ -136,24 +165,38 @@ export function padInviteLinkToken(token: string): Buffer {
 export function unpadInviteLinkToken(padded: Uint8Array): string {
   if (!(padded instanceof Uint8Array) || !validPaddedSize(padded.byteLength))
     throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
-  const bytes = Buffer.from(padded), size = bytes.readUInt32BE();
-  if (!size || size > bytes.length - 4 ||
-      Math.ceil((size + 4) / INVITE_LINK_PAD_BLOCK_BYTES) * INVITE_LINK_PAD_BLOCK_BYTES !== bytes.length ||
-      bytes.subarray(4 + size).some(byte => byte !== 0)) throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
-  const tokenBytes = bytes.subarray(4, 4 + size), token = tokenBytes.toString('utf8');
-  if (!Buffer.from(token, 'utf8').equals(tokenBytes)) throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
+  const bytes = Buffer.from(padded),
+    size = bytes.readUInt32BE();
+  if (
+    !size ||
+    size > bytes.length - 4 ||
+    Math.ceil((size + 4) / INVITE_LINK_PAD_BLOCK_BYTES) * INVITE_LINK_PAD_BLOCK_BYTES !==
+      bytes.length ||
+    bytes.subarray(4 + size).some((byte) => byte !== 0)
+  )
+    throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
+  const tokenBytes = bytes.subarray(4, 4 + size),
+    token = tokenBytes.toString('utf8');
+  if (!Buffer.from(token, 'utf8').equals(tokenBytes))
+    throw new Error('INVALID_INVITE_LINK_PLAINTEXT');
   return token;
 }
 
 function validPaddedSize(size: number): boolean {
-  return size >= INVITE_LINK_PAD_BLOCK_BYTES && size <= INVITE_LINK_MAX_PADDED_BYTES &&
-    size % INVITE_LINK_PAD_BLOCK_BYTES === 0;
+  return (
+    size >= INVITE_LINK_PAD_BLOCK_BYTES &&
+    size <= INVITE_LINK_MAX_PADDED_BYTES &&
+    size % INVITE_LINK_PAD_BLOCK_BYTES === 0
+  );
 }
 
 function validateCiphertext(value: InviteLinkCiphertext): void {
   assertBytes(value.id, 16);
   assertBytes(value.nonce, NONCE_BYTES);
-  if (!(value.ciphertext instanceof Uint8Array) || !validPaddedSize(value.ciphertext.byteLength - AUTH_TAG_BYTES))
+  if (
+    !(value.ciphertext instanceof Uint8Array) ||
+    !validPaddedSize(value.ciphertext.byteLength - AUTH_TAG_BYTES)
+  )
     throw new Error('INVALID_INVITE_LINK_CIPHERTEXT');
   canonicalExpiry(value.expiresAt);
 }
@@ -170,15 +213,22 @@ export function packInviteLinkCiphertext(value: InviteLinkCiphertext): InviteLin
 
 /** Strict local decoding of an untrusted relay response, without contacting a relay. */
 export function unpackInviteLinkCiphertext(value: unknown): InviteLinkCiphertext {
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).length !== 4 ||
-      !['id', 'ciphertext', 'nonce', 'expiresAt'].every(key => Object.hasOwn(value, key)))
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 4 ||
+    !['id', 'ciphertext', 'nonce', 'expiresAt'].every((key) => Object.hasOwn(value, key))
+  )
     throw new Error('INVALID_INVITE_LINK_STORAGE');
   const record = value as InviteLinkStorage;
   const decoded = {
     id: decodeBase64url(record.id, 16),
-    ciphertext: decodeBase64url(record.ciphertext, INVITE_LINK_PAD_BLOCK_BYTES + AUTH_TAG_BYTES,
-      INVITE_LINK_MAX_PADDED_BYTES + AUTH_TAG_BYTES),
+    ciphertext: decodeBase64url(
+      record.ciphertext,
+      INVITE_LINK_PAD_BLOCK_BYTES + AUTH_TAG_BYTES,
+      INVITE_LINK_MAX_PADDED_BYTES + AUTH_TAG_BYTES,
+    ),
     nonce: decodeBase64url(record.nonce, NONCE_BYTES),
     expiresAt: canonicalExpiry(record.expiresAt),
   };
@@ -187,20 +237,39 @@ export function unpackInviteLinkCiphertext(value: unknown): InviteLinkCiphertext
 }
 
 /** Opaque token wrapping only. Signature/card/relay verification remains the caller's next step. */
-export function encryptInviteLink(token: string, k: string, options: {
-  relayOrigin: string; expiresAt: string; now?: number;
-}): InviteLinkCiphertext {
-  const now = options.now ?? Date.now(), deadline = Date.parse(canonicalExpiry(options.expiresAt));
+export function encryptInviteLink(
+  token: string,
+  k: string,
+  options: {
+    relayOrigin: string;
+    expiresAt: string;
+    now?: number;
+  },
+): InviteLinkCiphertext {
+  const now = options.now ?? Date.now(),
+    deadline = Date.parse(canonicalExpiry(options.expiresAt));
   if (!Number.isSafeInteger(now) || deadline <= now || deadline - now > INVITE_LINK_MAX_TTL_MS)
     throw new Error('INVALID_INVITE_LINK_EXPIRY');
-  const keys = deriveInviteLinkKeys(k), nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv('aes-256-gcm', keys.encKey, nonce, { authTagLength: AUTH_TAG_BYTES });
+  const keys = deriveInviteLinkKeys(k),
+    nonce = randomBytes(NONCE_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', keys.encKey, nonce, {
+    authTagLength: AUTH_TAG_BYTES,
+  });
   cipher.setAAD(inviteLinkAad(keys.id, options.relayOrigin, options.expiresAt));
-  const ciphertext = Buffer.concat([cipher.update(padInviteLinkToken(token)), cipher.final(), cipher.getAuthTag()]);
+  const ciphertext = Buffer.concat([
+    cipher.update(padInviteLinkToken(token)),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]);
   return { id: keys.id, nonce, ciphertext, expiresAt: options.expiresAt };
 }
 
-export function decryptInviteLink(value: InviteLinkCiphertext, k: string, relayOrigin: string, now = Date.now()): string {
+export function decryptInviteLink(
+  value: InviteLinkCiphertext,
+  k: string,
+  relayOrigin: string,
+  now = Date.now(),
+): string {
   try {
     validateCiphertext(value);
     if (!Number.isSafeInteger(now) || Date.parse(value.expiresAt) <= now - DEFAULT_CLOCK_SKEW_MS)
@@ -208,11 +277,17 @@ export function decryptInviteLink(value: InviteLinkCiphertext, k: string, relayO
     const keys = deriveInviteLinkKeys(k);
     if (!keys.id.equals(value.id)) throw new Error();
     const ciphertext = Buffer.from(value.ciphertext);
-    const decipher = createDecipheriv('aes-256-gcm', keys.encKey, value.nonce, { authTagLength: AUTH_TAG_BYTES });
+    const decipher = createDecipheriv('aes-256-gcm', keys.encKey, value.nonce, {
+      authTagLength: AUTH_TAG_BYTES,
+    });
     decipher.setAAD(inviteLinkAad(value.id, relayOrigin, value.expiresAt));
     decipher.setAuthTag(ciphertext.subarray(-AUTH_TAG_BYTES));
-    return unpadInviteLinkToken(Buffer.concat([decipher.update(ciphertext.subarray(0, -AUTH_TAG_BYTES)), decipher.final()]));
-  } catch { throw new Error('INVITE_LINK_DECRYPTION_FAILED'); }
+    return unpadInviteLinkToken(
+      Buffer.concat([decipher.update(ciphertext.subarray(0, -AUTH_TAG_BYTES)), decipher.final()]),
+    );
+  } catch {
+    throw new Error('INVITE_LINK_DECRYPTION_FAILED');
+  }
 }
 
 function normalizeAllowlistUrl(value: string, policy: RelayEndpointPolicy): string {
@@ -241,17 +316,25 @@ export function parseInviteLink(uri: string, policy: InviteLinkRelayPolicy = {})
   let relayOrigin = DEFAULT_RELAY;
   if (fields.has('r')) {
     let host: string;
-    try { host = decodeURIComponent(fields.get('r')!); }
-    catch { throw new Error('INVALID_INVITE_LINK'); }
+    try {
+      host = decodeURIComponent(fields.get('r')!);
+    } catch {
+      throw new Error('INVALID_INVITE_LINK');
+    }
     // r is a host[:port], including bracketed IPv6, never a URL or a path.
-    if (/\s/.test(host) || !/^[A-Za-z0-9.\[\]:-]+$/.test(host)) throw new Error('INVALID_INVITE_LINK');
+    if (/\s/.test(host) || !/^[A-Za-z0-9.\[\]:-]+$/.test(host))
+      throw new Error('INVALID_INVITE_LINK');
     const relay = 'https://' + host;
     validateRelayEndpointUrl(relay, policy);
     relayOrigin = normalizeRelayOrigin(relay);
   }
   validateRelayEndpointUrl(relayOrigin, policy);
-  if (policy.allowedRelayUrls !== undefined &&
-      !policy.allowedRelayUrls.map(value => normalizeAllowlistUrl(value, policy)).includes(relayOrigin))
+  if (
+    policy.allowedRelayUrls !== undefined &&
+    !policy.allowedRelayUrls
+      .map((value) => normalizeAllowlistUrl(value, policy))
+      .includes(relayOrigin)
+  )
     throw new Error('INVITE_LINK_RELAY_NOT_ALLOWED');
   return { v: 1, k, relayOrigin };
 }

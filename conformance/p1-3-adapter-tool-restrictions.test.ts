@@ -195,9 +195,9 @@ describe('P1-3 adapter tool restrictions', () => {
       command: '/bin/true',
       args: [],
     });
-    expect(new CodexCliAdapter({ command: ['/bin/true', '--version'] }).resolvedInvocation()).toEqual(
-      { command: '/bin/true', args: ['--version'] },
-    );
+    expect(
+      new CodexCliAdapter({ command: ['/bin/true', '--version'] }).resolvedInvocation(),
+    ).toEqual({ command: '/bin/true', args: ['--version'] });
   });
 
   it('spawns mock claude and codex executables with the restricted flags', async () => {

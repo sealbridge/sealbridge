@@ -12,8 +12,7 @@ startCommand:
       relayUrl:
         type: string
         description: Optional untrusted E2EE Blind Relay endpoint URL; omit to use the CLI relay selection.
-  commandFunction:
-    |-
+  commandFunction: |-
     (config) => ({
       command: 'node',
       args: [

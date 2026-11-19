@@ -3,27 +3,20 @@
     "type": "AgentCard",
     "version": "0.2.0",
     "description": "Manifest receive capabilities",
-    "costModes": [
-      "worker_byok"
-    ],
+    "costModes": ["worker_byok"],
     "name": "Example Worker",
     "skills": [
       {
         "id": "json-task",
         "name": "JSON task",
-        "taskTypes": [
-          "transform"
-        ]
+        "taskTypes": ["transform"]
       }
     ],
     "ownerDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",
     "agentDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",
     "relayEndpoint": "https://relay.example",
     "expiresAt": "2030-01-02T00:00:00.000Z",
-    "protocolVersions": [
-      "0.2.0",
-      "0.1.0"
-    ]
+    "protocolVersions": ["0.2.0", "0.1.0"]
   },
   "signature": {
     "signerDid": "did:key:z6Mkqk42hhxz1Ws5Cch5DRt9XNRUhsCPGw8X25WZSGArfoLX",

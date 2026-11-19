@@ -2,15 +2,11 @@
   "description": "Apply patch to parent bounds. Child issuer must equal parent audience and parentHash must reference signed parent.",
   "parent": {
     "resource": "mcp://alice/docs/*",
-    "allowedTools": [
-      "docs/read"
-    ],
+    "allowedTools": ["docs/read"],
     "argConstraints": {
       "docs/read": {
         "type": "object",
-        "required": [
-          "uri"
-        ],
+        "required": ["uri"],
         "additionalProperties": false,
         "properties": {
           "uri": {
@@ -61,10 +57,7 @@
     {
       "name": "tool_added",
       "patch": {
-        "allowedTools": [
-          "docs/read",
-          "docs/delete"
-        ],
+        "allowedTools": ["docs/read", "docs/delete"],
         "maxDepth": 1
       },
       "valid": false

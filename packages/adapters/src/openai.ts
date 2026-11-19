@@ -13,7 +13,9 @@ export interface OpenAICompatibleOptions {
   apiStyle?: 'openai' | 'anthropic';
 }
 export class OpenAICompatibleAdapter implements AgentAdapter {
-  get billingModel(): string { return this.options.model; }
+  get billingModel(): string {
+    return this.options.model;
+  }
   readonly taskAccess = 'read-only' as const;
   readonly id = 'openai';
   readonly name = 'OpenAI Compatible';
@@ -22,7 +24,9 @@ export class OpenAICompatibleAdapter implements AgentAdapter {
   constructor(readonly options: OpenAICompatibleOptions) {
     this.#key = options.apiKey ?? process.env[options.apiKeyEnv ?? 'OPENAI_API_KEY'];
   }
-  validateInput(manifest: TaskManifest, input: Json): void { checkModelInputBudget(manifest, input); }
+  validateInput(manifest: TaskManifest, input: Json): void {
+    checkModelInputBudget(manifest, input);
+  }
   async executeTask(context: AgentTaskContext): Promise<Json> {
     checkInputSize(context.input, context.preCallSizeLimits);
     const started = Date.now(),
@@ -47,9 +51,7 @@ export class OpenAICompatibleAdapter implements AgentAdapter {
         headers,
         body: JSON.stringify({
           model: this.options.model,
-          messages: [
-            { role: 'user', content: prompt },
-          ],
+          messages: [{ role: 'user', content: prompt }],
           ...(anthropic
             ? { max_tokens: context.manifest.budget.maxOutputTokens }
             : {

@@ -183,15 +183,17 @@ describe('restricted subprocess and CapGuard', () => {
     ).rejects.toThrow(/TIMEOUT|timed out|EXIT/);
   });
   it('keeps a completed result while an earlier tool handler is still draining', async () => {
-    await expect(runSandbox({
-      code: "callTool('slow', {}); return input;",
-      input: { ok: true },
-      timeoutMs: 2000,
-      onTool: async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return null;
-      },
-    })).resolves.toEqual({ ok: true });
+    await expect(
+      runSandbox({
+        code: "callTool('slow', {}); return input;",
+        input: { ok: true },
+        timeoutMs: 2000,
+        onTool: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return null;
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
   });
   it('physically intercepts a subprocess tool call before executing a handler', async () => {
     let calls = 0;

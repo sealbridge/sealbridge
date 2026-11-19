@@ -3,9 +3,23 @@
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { digest, digestBytes, inviteTokenFromUri, parseAndVerifyInviteToken, signPayload, verifySigned } from '../../packages/core/src/index.js';
+import {
+  digest,
+  digestBytes,
+  inviteTokenFromUri,
+  parseAndVerifyInviteToken,
+  signPayload,
+  verifySigned,
+} from '../../packages/core/src/index.js';
 import type { Invite, KeyPair, Signed } from '../../packages/core/src/index.js';
-import { checkPath, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot, writePrivateFile } from '../../packages/runtime/src/local-identity.js';
+import {
+  checkPath,
+  inspectDirectory,
+  privateDirectory,
+  readPrivateFile,
+  resolveDataRoot,
+  writePrivateFile,
+} from '../../packages/runtime/src/local-identity.js';
 import { keyStoreSelection } from '../../packages/runtime/src/key-store.js';
 import type { IdentityStoreOptions } from '../../packages/runtime/src/key-store.js';
 import { openKeychainSecretStore } from '../../packages/runtime/src/secret-store.js';
@@ -75,8 +89,11 @@ export class InviteStore {
   /** Loads the optional backend; the constructor and synchronous methods remain available. */
   static async open(owner: KeyPair, options: InviteStoreOptions = {}): Promise<InviteStore> {
     const store = new InviteStore(owner, options);
-    if (!options.secretStore && (store.selection() === 'keychain' ||
-        store.readMetadata().some(e => e.inviteSecret !== undefined))) {
+    if (
+      !options.secretStore &&
+      (store.selection() === 'keychain' ||
+        store.readMetadata().some((e) => e.inviteSecret !== undefined))
+    ) {
       store.secretStore = await openKeychainSecretStore(options);
     }
     return store;
@@ -85,7 +102,10 @@ export class InviteStore {
     // An explicit identity file chooses the signer, independently of invitation storage.
     return keyStoreSelection({ ...this.options, explicitKeyPath: undefined }).keyStore;
   }
-  constructor(private readonly owner: KeyPair, private readonly options: InviteStoreOptions = {}) {
+  constructor(
+    private readonly owner: KeyPair,
+    private readonly options: InviteStoreOptions = {},
+  ) {
     this.root = resolveDataRoot(options);
     this.directory = join(this.root, 'invites');
     this.path = join(this.directory, digestBytes(owner.did).slice(7) + '.json');
@@ -95,7 +115,8 @@ export class InviteStore {
   }
   private verify(token: string, now: number, allowExpired = false, historical = false): Invite {
     const invite = parseAndVerifyInviteToken(token, now, {
-      allowExpired, allowPrivateRelay: historical || this.options.relayPolicy?.allowPrivateRelay,
+      allowExpired,
+      allowPrivateRelay: historical || this.options.relayPolicy?.allowPrivateRelay,
     });
     if (invite.ownerDid === this.owner.did) throw new Error('SELF_DELEGATION_NOT_ALLOWED');
     return invite;
@@ -103,43 +124,81 @@ export class InviteStore {
   private entry(token: string, alias: string, importedAt: string, invite: Invite): StoredInvite {
     const inviteDigest = digest(invite);
     return {
-      id: digest({ localOwnerDid: this.owner.did, inviteDigest }).slice(7), alias,
-      displayName: invite.agentCard.payload.name, ownerDid: invite.ownerDid,
-      agentDid: invite.agentDid, relayUrl: invite.relayUrl, inviteToken: token, inviteDigest, importedAt,
-      effectiveExpiresAt: new Date(Math.min(Date.parse(invite.expiresAt),
-        Date.parse(invite.agentCard.payload.expiresAt))).toISOString(),
+      id: digest({ localOwnerDid: this.owner.did, inviteDigest }).slice(7),
+      alias,
+      displayName: invite.agentCard.payload.name,
+      ownerDid: invite.ownerDid,
+      agentDid: invite.agentDid,
+      relayUrl: invite.relayUrl,
+      inviteToken: token,
+      inviteDigest,
+      importedAt,
+      effectiveExpiresAt: new Date(
+        Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)),
+      ).toISOString(),
     };
   }
   private readMetadata(): StoredInvite[] {
     try {
       for (const path of [this.root, this.directory]) {
-        try { inspectDirectory(path, this.io, this.options.platform); }
-        catch (error) { if (code(error) !== 'ENOENT') throw error; }
+        try {
+          inspectDirectory(path, this.io, this.options.platform);
+        } catch (error) {
+          if (code(error) !== 'ENOENT') throw error;
+        }
       }
       const contents = readPrivateFile(this.path, this.io, MAX_STORE_BYTES, this.options.platform);
       if (contents === undefined) return [];
       const signed = JSON.parse(contents) as Signed<StoredInvites>;
       const p = signed.payload;
-      if (!exactKeys(signed, 'payload,signature') || !verifySigned(signed, this.owner.did) ||
-          !exactKeys(p, 'type,version,localOwnerDid,entries') || p.type !== 'StoredInvites' ||
-          p.version !== 1 || p.localOwnerDid !== this.owner.did || !Array.isArray(p.entries)) throw new Error();
-      const ids = new Set<string>(), aliases = new Set<string>();
+      if (
+        !exactKeys(signed, 'payload,signature') ||
+        !verifySigned(signed, this.owner.did) ||
+        !exactKeys(p, 'type,version,localOwnerDid,entries') ||
+        p.type !== 'StoredInvites' ||
+        p.version !== 1 ||
+        p.localOwnerDid !== this.owner.did ||
+        !Array.isArray(p.entries)
+      )
+        throw new Error();
+      const ids = new Set<string>(),
+        aliases = new Set<string>();
       for (const e of p.entries) {
         const external = e?.inviteSecret !== undefined;
-        const fields = 'id,alias,displayName,ownerDid,agentDid,relayUrl,inviteDigest,importedAt,effectiveExpiresAt,';
-        if (!e || !exactKeys(e, fields + (external ? 'inviteSecret,tokenDigest' : 'inviteToken') +
-            (e.importState !== undefined ? ',importState' : '')) ||
-            (e.importState !== undefined && e.importState !== 'unconfirmed') ||
-            Object.values(e).some(v => typeof v !== 'string') || !aliasPattern.test(e.alias) ||
-            !Number.isFinite(Date.parse(e.importedAt)) || Date.parse(e.importedAt) > this.now() ||
-            ids.has(e.id) || aliases.has(e.alias)) throw new Error();
-        if (external && (e.inviteSecret !== 'invite:' + e.id || !/^[a-f0-9]{64}$/.test(e.id) ||
-            !/^sha256:[a-f0-9]{64}$/.test(e.tokenDigest!))) throw new Error();
+        const fields =
+          'id,alias,displayName,ownerDid,agentDid,relayUrl,inviteDigest,importedAt,effectiveExpiresAt,';
+        if (
+          !e ||
+          !exactKeys(
+            e,
+            fields +
+              (external ? 'inviteSecret,tokenDigest' : 'inviteToken') +
+              (e.importState !== undefined ? ',importState' : ''),
+          ) ||
+          (e.importState !== undefined && e.importState !== 'unconfirmed') ||
+          Object.values(e).some((v) => typeof v !== 'string') ||
+          !aliasPattern.test(e.alias) ||
+          !Number.isFinite(Date.parse(e.importedAt)) ||
+          Date.parse(e.importedAt) > this.now() ||
+          ids.has(e.id) ||
+          aliases.has(e.alias)
+        )
+          throw new Error();
+        if (
+          external &&
+          (e.inviteSecret !== 'invite:' + e.id ||
+            !/^[a-f0-9]{64}$/.test(e.id) ||
+            !/^sha256:[a-f0-9]{64}$/.test(e.tokenDigest!))
+        )
+          throw new Error();
         if (!external) this.validateToken(e, e.inviteToken!);
-        ids.add(e.id); aliases.add(e.alias);
+        ids.add(e.id);
+        aliases.add(e.alias);
       }
       return p.entries;
-    } catch { throw new Error('INVITE_STORE_INVALID'); }
+    } catch {
+      throw new Error('INVITE_STORE_INVALID');
+    }
   }
   private validateToken(e: StoredInvite, token: string): void {
     try {
@@ -153,14 +212,19 @@ export class InviteStore {
       }
       if (e.importState !== undefined) expected.importState = e.importState;
       if (token !== inviteTokenFromUri(token) || digest(e) !== digest(expected)) throw new Error();
-    } catch { throw new Error('INVITE_STORE_INVALID'); }
+    } catch {
+      throw new Error('INVITE_STORE_INVALID');
+    }
   }
   private token(e: StoredInvite): string {
     if (e.inviteToken !== undefined) return e.inviteToken;
     if (!this.secretStore) throw new Error('KEY_STORE_UNAVAILABLE');
     let token: string | undefined;
-    try { token = this.secretStore.get(e.inviteSecret!); }
-    catch { throw new Error('KEY_STORE_UNAVAILABLE'); }
+    try {
+      token = this.secretStore.get(e.inviteSecret!);
+    } catch {
+      throw new Error('KEY_STORE_UNAVAILABLE');
+    }
     if (token === undefined) throw new Error('INVITE_SECRET_MISSING');
     if (digestBytes(token) !== e.tokenDigest) throw new Error('INVITE_SECRET_MISMATCH');
     this.validateToken(e, token);
@@ -173,7 +237,8 @@ export class InviteStore {
   }
   private externalize(e: StoredInvite): StoredInvite {
     if (!this.secretStore) throw new Error('KEY_STORE_UNAVAILABLE');
-    const token = this.token(e), id = 'invite:' + e.id;
+    const token = this.token(e),
+      id = 'invite:' + e.id;
     try {
       const existing = this.secretStore.get(id);
       if (existing !== undefined && existing !== token) throw new Error('INVITE_SECRET_CONFLICT');
@@ -188,11 +253,23 @@ export class InviteStore {
   }
   private publicEntry(e: StoredInvite): SavedInvite {
     const { alias, displayName, ownerDid, agentDid, relayUrl, importedAt, effectiveExpiresAt } = e;
-    return { peerRef: 'saved:' + e.id, workerRef: 'saved:' + e.id, alias, displayName, ownerDid, agentDid, relayUrl,
-      importedAt, effectiveExpiresAt, ...(e.importState ? { importState: e.importState } : {}),
-      status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current' };
+    return {
+      peerRef: 'saved:' + e.id,
+      workerRef: 'saved:' + e.id,
+      alias,
+      displayName,
+      ownerDid,
+      agentDid,
+      relayUrl,
+      importedAt,
+      effectiveExpiresAt,
+      ...(e.importState ? { importState: e.importState } : {}),
+      status: Date.parse(effectiveExpiresAt) <= this.now() ? 'expired' : 'current',
+    };
   }
-  list(): SavedInvite[] { return this.read().map(e => this.publicEntry(e)); }
+  list(): SavedInvite[] {
+    return this.read().map((e) => this.publicEntry(e));
+  }
   /** Strict validation occurs on every resolution; an expired invite never becomes a DID target. */
   resolve(workerRef: string): { inviteToken: string; invite: Invite } {
     const e = this.find(this.read(), workerRef);
@@ -204,32 +281,60 @@ export class InviteStore {
     return { inviteToken: token, invite };
   }
   private find(entries: StoredInvite[], ref: string): StoredInvite | undefined {
-    return entries.find(e => ref === 'saved:' + e.id || ref === e.alias);
+    return entries.find((e) => ref === 'saved:' + e.id || ref === e.alias);
   }
-  private mutate<T>(change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean }, metadataOnly = false): T {
+  private mutate<T>(
+    change: (entries: StoredInvite[]) => { entries: StoredInvite[]; result: T; changed: boolean },
+    metadataOnly = false,
+  ): T {
     const lock = this.path + '.lock';
     const temporary = join(this.directory, '.' + randomUUID() + '.tmp');
-    let locked = false, written = false;
+    let locked = false,
+      written = false;
     try {
       privateDirectory(this.root, this.io, this.options.platform);
       privateDirectory(this.directory, this.io, this.options.platform);
-      try { writePrivateFile(lock, Buffer.from(String(process.pid) + '\n'), this.io, this.options.platform); locked = true; }
-      catch (error) {
+      try {
+        writePrivateFile(
+          lock,
+          Buffer.from(String(process.pid) + '\n'),
+          this.io,
+          this.options.platform,
+        );
+        locked = true;
+      } catch (error) {
         if (code(error) === 'EEXIST') throw new Error('INVITE_STORE_BUSY');
         throw error;
       }
       const { entries, result, changed } = change(metadataOnly ? this.readMetadata() : this.read());
       if (!changed) return result;
-      const bytes = Buffer.from(JSON.stringify(signPayload<StoredInvites>({
-        type: 'StoredInvites', version: 1, localOwnerDid: this.owner.did, entries,
-      }, this.owner, new Date(this.now()).toISOString())) + '\n');
+      const bytes = Buffer.from(
+        JSON.stringify(
+          signPayload<StoredInvites>(
+            {
+              type: 'StoredInvites',
+              version: 1,
+              localOwnerDid: this.owner.did,
+              entries,
+            },
+            this.owner,
+            new Date(this.now()).toISOString(),
+          ),
+        ) + '\n',
+      );
       if (bytes.length > MAX_STORE_BYTES) throw new Error('INVITE_STORE_INVALID');
-      writePrivateFile(temporary, bytes, this.io, this.options.platform); written = true;
+      writePrivateFile(temporary, bytes, this.io, this.options.platform);
+      written = true;
       checkPath(this.path, this.io, this.options.platform);
-      this.io.renameSync(temporary, this.path); written = false;
+      this.io.renameSync(temporary, this.path);
+      written = false;
       return result;
     } catch (error) {
-      if (error instanceof Error && /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)) throw error;
+      if (
+        error instanceof Error &&
+        /^(INVITE_|ALIAS_|INVALID_ALIAS|KEY_STORE_)/.test(error.message)
+      )
+        throw error;
       throw new Error('INVITE_STORE_INVALID');
     } finally {
       if (written) this.io.unlinkSync(temporary);
@@ -242,30 +347,47 @@ export class InviteStore {
     selectApplicationRelay({ ...this.options.relayPolicy, inviteRelay: invite.relayUrl });
     if (alias !== undefined && !aliasPattern.test(alias)) throw new Error('INVALID_ALIAS');
     const suffix = digest(invite).slice(7, 19);
-    const slug = invite.agentCard.payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'worker';
-    const entry = this.entry(inviteTokenFromUri(link), alias ?? slug + '-' + suffix, new Date(now).toISOString(), invite);
+    const slug =
+      invite.agentCard.payload.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 48) || 'worker';
+    const entry = this.entry(
+      inviteTokenFromUri(link),
+      alias ?? slug + '-' + suffix,
+      new Date(now).toISOString(),
+      invite,
+    );
     if (options.pendingConfirmation) entry.importState = 'unconfirmed';
-    return this.mutate(entries => {
-      const duplicate = entries.find(e => e.inviteDigest === entry.inviteDigest);
+    return this.mutate((entries) => {
+      const duplicate = entries.find((e) => e.inviteDigest === entry.inviteDigest);
       if (duplicate) {
         if (alias !== undefined && alias !== duplicate.alias) throw new Error('ALIAS_EXISTS');
         const changed = !options.pendingConfirmation && duplicate.importState === 'unconfirmed';
         if (changed) delete duplicate.importState;
         return { entries, result: this.publicEntry(duplicate), changed };
       }
-      if (entries.some(e => e.alias === entry.alias)) throw new Error('ALIAS_EXISTS');
-      const stored = this.options.secretStore || this.selection() === 'keychain' ? this.externalize(entry) : entry;
+      if (entries.some((e) => e.alias === entry.alias)) throw new Error('ALIAS_EXISTS');
+      const stored =
+        this.options.secretStore || this.selection() === 'keychain'
+          ? this.externalize(entry)
+          : entry;
       return { entries: [...entries, stored], result: this.publicEntry(entry), changed: true };
     });
   }
   /** Explicit migration publishes only after all external strings have been read back. */
   migrateToKeychain(dryRun = false): { count: number; dryRun: boolean } {
     if (!this.secretStore) throw new Error('KEY_STORE_UNAVAILABLE');
-    if (dryRun) return { count: this.read().filter(e => e.inviteToken !== undefined).length, dryRun };
-    return this.mutate(entries => {
-      const count = entries.filter(e => e.inviteToken !== undefined).length;
-      return { entries: entries.map(e => e.inviteToken === undefined ? e : this.externalize(e)),
-        result: { count, dryRun }, changed: count > 0 };
+    if (dryRun)
+      return { count: this.read().filter((e) => e.inviteToken !== undefined).length, dryRun };
+    return this.mutate((entries) => {
+      const count = entries.filter((e) => e.inviteToken !== undefined).length;
+      return {
+        entries: entries.map((e) => (e.inviteToken === undefined ? e : this.externalize(e))),
+        result: { count, dryRun },
+        changed: count > 0,
+      };
     });
   }
   /** Keeps an import permanently outside unconfirmed cleanup; grants no connection or task consent. */
@@ -273,7 +395,7 @@ export class InviteStore {
     const current = this.find(this.read(), workerRef);
     if (!current) throw new Error('INVITE_NOT_FOUND');
     if (current.importState !== 'unconfirmed') return this.publicEntry(current);
-    return this.mutate(entries => {
+    return this.mutate((entries) => {
       const entry = this.find(entries, workerRef);
       if (!entry) throw new Error('INVITE_NOT_FOUND');
       const changed = entry.importState === 'unconfirmed';
@@ -283,17 +405,25 @@ export class InviteStore {
   }
   /** Token-free metadata remains available even after interrupted secret deletion. */
   listUnconfirmed(): SavedInvite[] {
-    return this.readMetadata().filter(e => e.importState === 'unconfirmed').map(e => this.publicEntry(e));
+    return this.readMetadata()
+      .filter((e) => e.importState === 'unconfirmed')
+      .map((e) => this.publicEntry(e));
   }
   /** Deletes only explicitly pending imports strictly older than the supplied timestamp. */
   removeUnconfirmed(options: { olderThan: string }): { removed: number } {
     const cutoff = Date.parse(options.olderThan);
-    if (!Number.isFinite(cutoff) || cutoff > this.now()) throw new Error('INVITE_CLEANUP_INVALID_CUTOFF');
-    return this.mutate(entries => {
-      const selected = entries.filter(e => e.importState === 'unconfirmed' && Date.parse(e.importedAt) < cutoff);
+    if (!Number.isFinite(cutoff) || cutoff > this.now())
+      throw new Error('INVITE_CLEANUP_INVALID_CUTOFF');
+    return this.mutate((entries) => {
+      const selected = entries.filter(
+        (e) => e.importState === 'unconfirmed' && Date.parse(e.importedAt) < cutoff,
+      );
       for (const entry of selected) this.deleteSecret(entry);
-      return { entries: entries.filter(e => !selected.includes(e)), result: { removed: selected.length },
-        changed: selected.length > 0 };
+      return {
+        entries: entries.filter((e) => !selected.includes(e)),
+        result: { removed: selected.length },
+        changed: selected.length > 0,
+      };
     }, true);
   }
   private deleteSecret(entry: StoredInvite): void {
@@ -302,14 +432,16 @@ export class InviteStore {
       if (!this.secretStore) throw new Error();
       this.secretStore.delete(entry.inviteSecret);
       if (this.secretStore.get(entry.inviteSecret) !== undefined) throw new Error();
-    } catch { throw new Error('INVITE_SECRET_DELETE_FAILED'); }
+    } catch {
+      throw new Error('INVITE_SECRET_DELETE_FAILED');
+    }
   }
   /** Secret deletion precedes metadata publication, so either step can be retried with the same reference. */
   remove(workerRef: string): boolean {
-    return this.mutate(entries => {
+    return this.mutate((entries) => {
       const entry = this.find(entries, workerRef);
       if (entry) this.deleteSecret(entry);
-      return { entries: entries.filter(e => e !== entry), result: !!entry, changed: !!entry };
+      return { entries: entries.filter((e) => e !== entry), result: !!entry, changed: !!entry };
     }, true);
   }
 }

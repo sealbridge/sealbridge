@@ -35,21 +35,21 @@ Release, workflow dispatch, environment approval, site or relay deployment.
 ## Future publication checklist / 将来の公開時の確認
 
 - [ ] An operator must verify `sealbridge-local`'s npm Trusted Publisher on
-  npmjs.com before future 0.9.1 publication: repository `sealbridge/sealbridge`,
-  workflow filename `publish.yml` (filename only), environment name exactly
-  `npm-publish`, and Allowed actions including **npm publish**. Configurations
-  created after 2026-09-03 default to `npm stage publish` only.
-  `sealbridge` OIDC Trusted Publishing works; `sealbridge-local` failed CI OIDC
-  with E403 "OIDC permission denied for this action" on both 0.8.1 and 0.9.0 and
-  was published manually. This is a separate operator prerequisite.
+      npmjs.com before future 0.9.1 publication: repository `sealbridge/sealbridge`,
+      workflow filename `publish.yml` (filename only), environment name exactly
+      `npm-publish`, and Allowed actions including **npm publish**. Configurations
+      created after 2026-09-03 default to `npm stage publish` only.
+      `sealbridge` OIDC Trusted Publishing works; `sealbridge-local` failed CI OIDC
+      with E403 "OIDC permission denied for this action" on both 0.8.1 and 0.9.0 and
+      was published manually. This is a separate operator prerequisite.
 - [ ] Verify both packages' Trusted Publisher settings and environment approval.
-  This preparation does not inspect or change npm credentials or configuration.
+      This preparation does not inspect or change npm credentials or configuration.
 - [ ] Use the unchanged paired preflight in `publish.yml`: frozen install, build,
-  typecheck, schema validation, tests, `check:protocol-release`, package generation,
-  then freeze both tarballs and dry-run both before any future registry write.
-  Dry-runs do not establish Trusted Publisher/OIDC authorization.
+      typecheck, schema validation, tests, `check:protocol-release`, package generation,
+      then freeze both tarballs and dry-run both before any future registry write.
+      Dry-runs do not establish Trusted Publisher/OIDC authorization.
 - [ ] Obtain separate owner authorization for tagging, publication, GitHub Release
-  creation and any site/relay deployment. Never change the protocol version here.
+      creation and any site/relay deployment. Never change the protocol version here.
 
 今回は PR と CI の確認までです。日付・npm の認証設定・公開サイトへの反映は、
 将来の公開時に別途確認してください。

@@ -4,23 +4,12 @@
   "title": "approval-receipt",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "payload",
-    "signature"
-  ],
+  "required": ["payload", "signature"],
   "properties": {
     "payload": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "receiptId",
-        "taskId",
-        "gate",
-        "targetDigest",
-        "decision",
-        "approvedAt"
-      ],
+      "required": ["type", "receiptId", "taskId", "gate", "targetDigest", "decision", "approvedAt"],
       "properties": {
         "type": {
           "const": "ApprovalReceipt"
@@ -47,10 +36,7 @@
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
         "decision": {
-          "enum": [
-            "APPROVED",
-            "REJECTED"
-          ]
+          "enum": ["APPROVED", "REJECTED"]
         },
         "approvedAt": {
           "type": "string",
@@ -59,11 +45,7 @@
         "authorization": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "kind",
-            "ruleVersion",
-            "ruleDigest"
-          ],
+          "required": ["kind", "ruleVersion", "ruleDigest"],
           "properties": {
             "kind": {
               "const": "auto-policy"
@@ -83,13 +65,7 @@
     "signature": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "signerDid",
-        "canonicalization",
-        "payloadDigest",
-        "signedAt",
-        "signature"
-      ],
+      "required": ["signerDid", "canonicalization", "payloadDigest", "signedAt", "signature"],
       "properties": {
         "signerDid": {
           "type": "string",

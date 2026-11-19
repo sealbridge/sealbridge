@@ -86,7 +86,9 @@ export interface RelayKeyValueStorage {
 
 export function emptyCursor(seenMod: number, authMod: number): JournalCursor {
   return {
-    operationHead: 0, operationTail: 0, operationSeq: new Map(),
+    operationHead: 0,
+    operationTail: 0,
+    operationSeq: new Map(),
     head: 0,
     tail: 0,
     seqById: new Map(),
@@ -125,7 +127,9 @@ function registryKey(card: SignedAgentCard): string {
 
 function cloneCursor(cursor: JournalCursor): JournalCursor {
   return {
-    operationHead: cursor.operationHead, operationTail: cursor.operationTail, operationSeq: new Map(cursor.operationSeq),
+    operationHead: cursor.operationHead,
+    operationTail: cursor.operationTail,
+    operationSeq: new Map(cursor.operationSeq),
     head: cursor.head,
     tail: cursor.tail,
     seqById: new Map(cursor.seqById),
@@ -275,7 +279,9 @@ export function planJournal(
     deletes,
     meta: {
       v: 2,
-      ...(nextCursor.operationTail ? { operationHead: nextCursor.operationHead, operationTail: nextCursor.operationTail } : {}),
+      ...(nextCursor.operationTail
+        ? { operationHead: nextCursor.operationHead, operationTail: nextCursor.operationTail }
+        : {}),
       head: nextCursor.head,
       tail: nextCursor.tail,
       seenTail: nextCursor.seenTail,
@@ -306,7 +312,12 @@ async function readLegacy(
   now: number,
 ): Promise<{ snapshot: RelaySnapshot; generation: string; count: number } | undefined> {
   const head = await storage.get<{ generation: string; count: number }>('relay-head');
-  if (!head || typeof head.generation !== 'string' || !Number.isSafeInteger(head.count) || head.count < 1)
+  if (
+    !head ||
+    typeof head.generation !== 'string' ||
+    !Number.isSafeInteger(head.count) ||
+    head.count < 1
+  )
     return undefined;
   const chunks: Uint8Array[] = [];
   for (let i = 0; i < head.count; i++) {

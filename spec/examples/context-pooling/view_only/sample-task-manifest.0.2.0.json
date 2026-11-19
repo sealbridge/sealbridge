@@ -26,10 +26,7 @@
     "inputSchema": {},
     "outputSchema": {
       "type": "object",
-      "required": [
-        "feasible",
-        "missingDimensions"
-      ],
+      "required": ["feasible", "missingDimensions"],
       "additionalProperties": false,
       "properties": {
         "feasible": {
@@ -68,23 +65,13 @@
     "filesystemScope": "ephemeral_workspace_only"
   },
   "hitlPolicy": {
-    "requiredGates": [
-      "GATE_CONTRACT_ACCEPT",
-      "GATE_DELIVERY_ACCEPT"
-    ]
+    "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT"]
   },
   "contextGrant": {
     "deliveryMode": "view_only",
-    "selectors": [
-      "$.items[*]"
-    ],
-    "fieldsAllowed": [
-      "dimensions",
-      "material"
-    ],
-    "fieldsDenied": [
-      "customerName"
-    ],
+    "selectors": ["$.items[*]"],
+    "fieldsAllowed": ["dimensions", "material"],
+    "fieldsDenied": ["customerName"],
     "angle": "Report production feasibility and missing dimensions.",
     "expiresAt": "2030-01-02T00:00:00Z",
     "maxBytes": 65536,

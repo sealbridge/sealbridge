@@ -1,17 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import { nameInviteConnection } from './connection-aliases.js';
-import { checkInputSize, measureInput, type PreCallSizeLimits, autoAcceptPolicy, type AutoAcceptPolicy } from '@acp/core';
-import { connectionAutoAccept, matchesAutoAccept, WorkerAutoApprovalProvider, type AutoAcceptStateGuard } from './auto-accept.js';
+import {
+  checkInputSize,
+  measureInput,
+  type PreCallSizeLimits,
+  autoAcceptPolicy,
+  type AutoAcceptPolicy,
+} from '@acp/core';
+import {
+  connectionAutoAccept,
+  matchesAutoAccept,
+  WorkerAutoApprovalProvider,
+  type AutoAcceptStateGuard,
+} from './auto-accept.js';
 import { privateDirectory } from './local-identity.js';
 import * as autoAcceptFs from 'node:fs';
 import { dirname } from 'node:path';
 import { readApplicationConfig } from './application-config.js';
 import { ApprovalGate } from './policy.js';
 import { requiresStrongIsolation } from './isolation.js';
-import { assembleDelegation, redelegationTarget, requireOwnerDecision, verifyRecoveredDelegation, verifyDelegationAttachment } from './delegation.js';
+import {
+  assembleDelegation,
+  redelegationTarget,
+  requireOwnerDecision,
+  verifyRecoveredDelegation,
+  verifyDelegationAttachment,
+} from './delegation.js';
 import type { ChildDelegationAttempt, TaskDelegationState } from './delegation.js';
-import { IdempotencyStore, runtimeIdempotencyAction, unwrapIdempotency, validateIdempotencyKey } from './idempotency-store.js';
+import {
+  IdempotencyStore,
+  runtimeIdempotencyAction,
+  unwrapIdempotency,
+  validateIdempotencyKey,
+} from './idempotency-store.js';
 import type { IdempotencyOperation, IdempotencyStoreOptions } from './idempotency-store.js';
 import type { IdempotencyAuthorization } from './delivery-records.js';
 import { RecipientDeliveryCoordinator } from './delivery-status.js';
@@ -24,7 +46,15 @@ import type { ExecutionBackend } from './execution-backend.js';
 import { consumeDailyTask } from './daily-limit.js';
 import { MonthlyCostCounter, monthlyResetAt } from './monthly-limit.js';
 import {
-  existsSync, openSync, closeSync, fstatSync, fchmodSync, appendFileSync, constants, fsyncSync, readFileSync,
+  existsSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  fchmodSync,
+  appendFileSync,
+  constants,
+  fsyncSync,
+  readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -82,11 +112,34 @@ import type {
   ContextGrantOptions,
   ApprovalReceipt,
 } from '@acp/core';
-import { CONTEXT_GRANT_AUDIT_EVENTS, proposalAuditDigest, verifyContextAcceptanceAudit } from './context-grant-audit.js';
-import { parseJsonl, verifyAudit, createAuditInterruption, JsonlStore,
-  type AuditInterruption, type AuditBundle, type AuditEntry } from '@acp/ledger';
-import { HttpRelayClient, waitForRelayRetry, relayDiagnostic, relayDeadline, validateRelayAuthRecoveryOptions, isTransientRelayError } from '@acp/relay';
-import type { RelayAuthRecoveryOptions, RelayClientSecurityOptions, RelayTransport, RelayConnectionStatus } from '@acp/relay';
+import {
+  CONTEXT_GRANT_AUDIT_EVENTS,
+  proposalAuditDigest,
+  verifyContextAcceptanceAudit,
+} from './context-grant-audit.js';
+import {
+  parseJsonl,
+  verifyAudit,
+  createAuditInterruption,
+  JsonlStore,
+  type AuditInterruption,
+  type AuditBundle,
+  type AuditEntry,
+} from '@acp/ledger';
+import {
+  HttpRelayClient,
+  waitForRelayRetry,
+  relayDiagnostic,
+  relayDeadline,
+  validateRelayAuthRecoveryOptions,
+  isTransientRelayError,
+} from '@acp/relay';
+import type {
+  RelayAuthRecoveryOptions,
+  RelayClientSecurityOptions,
+  RelayTransport,
+  RelayConnectionStatus,
+} from '@acp/relay';
 import type {
   AgentAdapter,
   AgentTaskContext,
@@ -104,8 +157,18 @@ import { MCPProxy } from './mcp.js';
 import type { ToolBackend, ToolDefinition } from './mcp.js';
 import { VerificationEngine, createDelivery } from './verifier.js';
 import type { Delivery, VerificationResult } from './verifier.js';
-import { asJson, receiveRelay, acknowledgeRelay, PeerRejectedError, SessionWire } from './session-audit.js';
-import { SessionTimeouts, validateSessionTimeouts, resolveSessionTimeouts } from './session-timeouts.js';
+import {
+  asJson,
+  receiveRelay,
+  acknowledgeRelay,
+  PeerRejectedError,
+  SessionWire,
+} from './session-audit.js';
+import {
+  SessionTimeouts,
+  validateSessionTimeouts,
+  resolveSessionTimeouts,
+} from './session-timeouts.js';
 import type { SessionTimeoutOptions } from './session-timeouts.js';
 export type { SessionTimeoutOptions } from './session-timeouts.js';
 import { WorkerTrustStore, workerIntakePath, PENDING_MESSAGE } from './worker-trust-store.js';
@@ -177,10 +240,19 @@ function validateAcceptance(acceptance: WorkerAcceptancePolicy): void {
   if (acceptance.allowedRequesterDids?.some((did) => typeof did !== 'string' || did.trim() === ''))
     throw new Error('INVALID_REQUESTER_DID');
 }
-function deliveryPins(relay: RelayTransport): Pick<RelayTransport, 'getDeliveryStatusPin' | 'restoreDeliveryStatusPin'> {
+function deliveryPins(
+  relay: RelayTransport,
+): Pick<RelayTransport, 'getDeliveryStatusPin' | 'restoreDeliveryStatusPin'> {
   return {
-    ...(relay.getDeliveryStatusPin ? { getDeliveryStatusPin: (id: string) => relay.getDeliveryStatusPin!(id) } : {}),
-    ...(relay.restoreDeliveryStatusPin ? { restoreDeliveryStatusPin: (id: string, did: string) => relay.restoreDeliveryStatusPin!(id, did) } : {}),
+    ...(relay.getDeliveryStatusPin
+      ? { getDeliveryStatusPin: (id: string) => relay.getDeliveryStatusPin!(id) }
+      : {}),
+    ...(relay.restoreDeliveryStatusPin
+      ? {
+          restoreDeliveryStatusPin: (id: string, did: string) =>
+            relay.restoreDeliveryStatusPin!(id, did),
+        }
+      : {}),
   };
 }
 function transport(
@@ -196,27 +268,57 @@ function transport(
   const bound = client.withRecipient?.(owner) ?? client;
   return {
     ...deliveryPins(bound),
-    get connectionStatus() { return bound.connectionStatus; },
-    send: (envelope) => relayDeadline(Promise.resolve(bound.send(envelope)), security?.requestTimeoutMs ?? 45_000),
+    get connectionStatus() {
+      return bound.connectionStatus;
+    },
+    send: (envelope) =>
+      relayDeadline(Promise.resolve(bound.send(envelope)), security?.requestTimeoutMs ?? 45_000),
     receive: async (did, waitMs, signal, filter) => {
       if (bound.managesRequestDeadlines) return bound.receive(did, waitMs, signal, filter);
       const controller = new AbortController();
       const readSignal = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]);
       try {
-        return await relayDeadline(Promise.resolve(bound.receive(did, waitMs, readSignal, filter)),
-          security?.requestTimeoutMs ?? 45_000, readSignal);
+        return await relayDeadline(
+          Promise.resolve(bound.receive(did, waitMs, readSignal, filter)),
+          security?.requestTimeoutMs ?? 45_000,
+          readSignal,
+        );
       } catch (error) {
         controller.abort(error);
         throw error;
       }
     },
-    ...(bound.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) =>
-      bound.managesRequestDeadlines ? bound.acknowledgeDelivery!(did, id, signal) :
-        relayDeadline(Promise.resolve(bound.acknowledgeDelivery!(did, id, signal)), security?.requestTimeoutMs ?? 45_000, signal) } : {}),
-    ...(bound.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => bound.managesRequestDeadlines
-      ? bound.deliveryStatus!(envelope, signal) : relayDeadline(Promise.resolve(bound.deliveryStatus!(envelope, signal)), security?.requestTimeoutMs ?? 45_000, signal) } : {}),
+    ...(bound.acknowledgeDelivery
+      ? {
+          acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) =>
+            bound.managesRequestDeadlines
+              ? bound.acknowledgeDelivery!(did, id, signal)
+              : relayDeadline(
+                  Promise.resolve(bound.acknowledgeDelivery!(did, id, signal)),
+                  security?.requestTimeoutMs ?? 45_000,
+                  signal,
+                ),
+        }
+      : {}),
+    ...(bound.deliveryStatus
+      ? {
+          deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) =>
+            bound.managesRequestDeadlines
+              ? bound.deliveryStatus!(envelope, signal)
+              : relayDeadline(
+                  Promise.resolve(bound.deliveryStatus!(envelope, signal)),
+                  security?.requestTimeoutMs ?? 45_000,
+                  signal,
+                ),
+        }
+      : {}),
     ...(bound.register ? { register: (card: SignedAgentCard) => bound.register!(card) } : {}),
-    ...(bound.discover ? { discover: () => relayDeadline(Promise.resolve(bound.discover!()), security?.requestTimeoutMs ?? 45_000) } : {}),
+    ...(bound.discover
+      ? {
+          discover: () =>
+            relayDeadline(Promise.resolve(bound.discover!()), security?.requestTimeoutMs ?? 45_000),
+        }
+      : {}),
   };
 }
 function freshAudit(path?: string): void {
@@ -254,7 +356,8 @@ class TaskMailbox {
           this.waiters = this.waiters.filter((waiter) => waiter !== onWake);
           error ? reject(error) : resolve();
         };
-        const onAbort = () => finish(signal?.reason instanceof Error ? signal.reason : new Error('SESSION_ABORTED'));
+        const onAbort = () =>
+          finish(signal?.reason instanceof Error ? signal.reason : new Error('SESSION_ABORTED'));
         const onWake = () => finish();
         this.waiters.push(onWake);
         signal?.addEventListener('abort', onAbort, { once: true });
@@ -268,8 +371,18 @@ function mailboxRelay(relay: RelayTransport, mailbox: TaskMailbox): RelayTranspo
   return {
     ...deliveryPins(relay),
     send: (envelope) => relay.send(envelope),
-    ...(relay.deliveryStatus ? { deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) => relay.deliveryStatus!(envelope, signal) } : {}),
-    ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, signal) } : {}),
+    ...(relay.deliveryStatus
+      ? {
+          deliveryStatus: (envelope: SignedEnvelope, signal?: AbortSignal) =>
+            relay.deliveryStatus!(envelope, signal),
+        }
+      : {}),
+    ...(relay.acknowledgeDelivery
+      ? {
+          acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) =>
+            relay.acknowledgeDelivery!(did, id, signal),
+        }
+      : {}),
     receive: (_recipientDid, _waitMs, signal) => mailbox.take(signal),
   };
 }
@@ -351,16 +464,26 @@ class RecipientInbox {
     // Refresh may finish while an HTTP receive has already leased a task frame.
     // Cancelling that response discards the frame and exposes the next sequence.
     // The bounded poll picks up status IDs on its next iteration; wake idle readers.
-    this.wake?.(); this.wake = undefined;
+    this.wake?.();
+    this.wake = undefined;
     // A status-only reader may be inside receiveRelay's polling loop. Disabling
     // its service must cancel that read, or historical status IDs keep Node alive.
     if (!active && this.mailboxes.size === 0) this.readAbort?.abort();
-    if (active && !this.started) { this.started = true; registerRequesterInbox(this.did, this); void this.pump(); }
+    if (active && !this.started) {
+      this.started = true;
+      registerRequesterInbox(this.did, this);
+      void this.pump();
+    }
   }
   private statusIds(): string[] {
-    return this.delivery && (this.delivery.active || this.mailboxes.size > 0) ? this.delivery.service.statusRouter.ids(this.delivery.url) : [];
+    return this.delivery && (this.delivery.active || this.mailboxes.size > 0)
+      ? this.delivery.service.statusRouter.ids(this.delivery.url)
+      : [];
   }
-  setConnections(router: ConnectionRouter): void { this.connections = router; this.readAbort?.abort(); }
+  setConnections(router: ConnectionRouter): void {
+    this.connections = router;
+    this.readAbort?.abort();
+  }
   constructor(
     private readonly relay: RelayTransport,
     private readonly did: string,
@@ -370,7 +493,10 @@ class RecipientInbox {
   }
   deliverFromPeerRole(envelope: SignedEnvelope): boolean {
     if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.delivery) {
-      void this.delivery.service.statusRouter.route(envelope, this.relay).catch(e => this.delivery?.service.options.onError?.(e)); return true;
+      void this.delivery.service.statusRouter
+        .route(envelope, this.relay)
+        .catch((e) => this.delivery?.service.options.onError?.(e));
+      return true;
     }
     const mailbox = this.mailboxes.get(envelope.payload.taskId);
     if (!mailbox) return false;
@@ -423,22 +549,51 @@ class RecipientInbox {
       this.readAbort = controller;
       try {
         const statusIds = this.statusIds();
-        const readStatus = async () => statusIds.length ? await this.relay.receive(this.did, 0, controller.signal,
-          { taskId: statusIds, lease: this.relay.acknowledgeDelivery !== undefined }) : undefined;
+        const readStatus = async () =>
+          statusIds.length
+            ? await this.relay.receive(this.did, 0, controller.signal, {
+                taskId: statusIds,
+                lease: this.relay.acknowledgeDelivery !== undefined,
+              })
+            : undefined;
         // Read the independent status namespace without a role filter so existing relays
         // can forward it. Task reads retain bilateral role inference, including self-delegation.
-        const envelope = await readStatus() ?? await receiveRelay(this.relay, this.did, controller.signal,
-          this.mailboxes.size === 0 ? { taskId: statusIds } : this.connections ? {
-            taskId: [...this.mailboxes.keys(), ...this.connections.options.store.controlSnapshot()
-              .filter(r => r.active).map(r => 'conn_' + r.offer.requestId)],
-          } : this.delivery ? { role: 'requester', taskId: [...this.mailboxes.keys()] } : { role: 'requester' },
-          undefined, readStatus);
+        const envelope =
+          (await readStatus()) ??
+          (await receiveRelay(
+            this.relay,
+            this.did,
+            controller.signal,
+            this.mailboxes.size === 0
+              ? { taskId: statusIds }
+              : this.connections
+                ? {
+                    taskId: [
+                      ...this.mailboxes.keys(),
+                      ...this.connections.options.store
+                        .controlSnapshot()
+                        .filter((r) => r.active)
+                        .map((r) => 'conn_' + r.offer.requestId),
+                    ],
+                  }
+                : this.delivery
+                  ? { role: 'requester', taskId: [...this.mailboxes.keys()] }
+                  : { role: 'requester' },
+            undefined,
+            readStatus,
+          ));
         if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.delivery) {
-          try { await this.delivery.service.statusRouter.route(envelope, this.relay); }
-          catch (error) { this.delivery.service.options.onError?.(error as Error); }
+          try {
+            await this.delivery.service.statusRouter.route(envelope, this.relay);
+          } catch (error) {
+            this.delivery.service.options.onError?.(error as Error);
+          }
           continue;
         }
-        if (isConnectionEvent(envelope.payload.eventType) && this.connections) { await this.connections.route(envelope); continue; }
+        if (isConnectionEvent(envelope.payload.eventType) && this.connections) {
+          await this.connections.route(envelope);
+          continue;
+        }
         if (!this.mailboxes.has(envelope.payload.taskId) || this.isWorkerBoundFrame(envelope)) {
           if (forwardToWorkerListener(this.did, envelope)) continue;
         }
@@ -477,9 +632,18 @@ function recipientInbox(
   return inbox;
 }
 setDeliveryStatusReaderFactory((service, relay, url, active) => {
-  recipientInbox(service, relay, service.owner.did, url.replace(/\/$/, '')).setDelivery(service, url, active);
+  recipientInbox(service, relay, service.owner.did, url.replace(/\/$/, '')).setDelivery(
+    service,
+    url,
+    active,
+  );
 });
-export interface WorkerNodeOptions extends WorkerAcceptancePolicy, SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+export interface WorkerNodeOptions
+  extends
+    WorkerAcceptancePolicy,
+    SessionTimeoutOptions,
+    RelayAuthRecoveryOptions,
+    ProtocolReleaseOptions {
   redelegation?: { requester: RequesterClient; ownerApprovalProvider: ApprovalProvider };
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
@@ -622,24 +786,51 @@ export class WorkerNode {
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
     assertConnectionsOptions(options);
-    this.autoAccept = autoAcceptPolicy(options.autoAccept ?? readApplicationConfig({ ...options.identityOptions, allowPrivateRelay: true }).autoAccept);
+    this.autoAccept = autoAcceptPolicy(
+      options.autoAccept ??
+        readApplicationConfig({ ...options.identityOptions, allowPrivateRelay: true }).autoAccept,
+    );
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     if (options.auditInterruptionFormat !== undefined && options.auditInterruptionFormat !== 1)
       throw new Error('UNSUPPORTED_AUDIT_INTERRUPTION_FORMAT');
     this.protocol = new LiveProtocol(options);
-    this.intakeStore = options.intakeStore ?? new WorkerTrustStore(options.owner, {
-      path: options.identityOptions ? workerIntakePath(options.owner.did, options.identityOptions) : undefined,
-      fs: options.identityOptions?.fs, platform: options.identityOptions?.platform, now: options.now });
-    this.connectionStore = options.connectionStore ?? (this.intakeStore instanceof WorkerTrustStore ? this.intakeStore : new WorkerTrustStore(options.owner, { now: options.now }));
-    if (this.connectionStore.ownerDid !== options.owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
-    this.heldReview = options.heldReview ?? new HeldRequestReview(options.owner, { ...options.identityOptions, now: options.now });
-    if (options.inviteTtlSeconds !== undefined && (!Number.isSafeInteger(options.inviteTtlSeconds) ||
-        options.inviteTtlSeconds < 1 || options.inviteTtlSeconds > 2592000))
+    this.intakeStore =
+      options.intakeStore ??
+      new WorkerTrustStore(options.owner, {
+        path: options.identityOptions
+          ? workerIntakePath(options.owner.did, options.identityOptions)
+          : undefined,
+        fs: options.identityOptions?.fs,
+        platform: options.identityOptions?.platform,
+        now: options.now,
+      });
+    this.connectionStore =
+      options.connectionStore ??
+      (this.intakeStore instanceof WorkerTrustStore
+        ? this.intakeStore
+        : new WorkerTrustStore(options.owner, { now: options.now }));
+    if (this.connectionStore.ownerDid !== options.owner.did)
+      throw new Error('CONNECTION_OWNER_MISMATCH');
+    this.heldReview =
+      options.heldReview ??
+      new HeldRequestReview(options.owner, { ...options.identityOptions, now: options.now });
+    if (
+      options.inviteTtlSeconds !== undefined &&
+      (!Number.isSafeInteger(options.inviteTtlSeconds) ||
+        options.inviteTtlSeconds < 1 ||
+        options.inviteTtlSeconds > 2592000)
+    )
       throw new Error('INVALID_INVITE_TTL');
     const persistencePath = options.inboxPath ?? options.auditPath;
-    if (persistencePath) this.taskJournal = new TaskJournal(persistencePath + '.tasks.jsonl', options.owner);
-    if (options.dailyLimit && (!options.dailyLimit.path || !Number.isSafeInteger(options.dailyLimit.maxTasks) || options.dailyLimit.maxTasks < 1))
+    if (persistencePath)
+      this.taskJournal = new TaskJournal(persistencePath + '.tasks.jsonl', options.owner);
+    if (
+      options.dailyLimit &&
+      (!options.dailyLimit.path ||
+        !Number.isSafeInteger(options.dailyLimit.maxTasks) ||
+        options.dailyLimit.maxTasks < 1)
+    )
       throw new Error('INVALID_DAILY_LIMIT');
     this.acceptance = acceptanceFrom(options);
     validateAcceptance(this.acceptance);
@@ -657,36 +848,63 @@ export class WorkerNode {
         authRecoveryTimeoutMs: options.authRecoveryTimeoutMs,
       }),
     );
-    this.deliveryService = (typeof options.relay === 'string' || options.relayUrl)
-      ? options.deliveryService ?? (typeof options.relay === 'string' || options.deliveryOptions
-      ? new GatewayDeliveryService(options.owner, { ...options.deliveryOptions,
-        identityOptions: options.deliveryOptions?.identityOptions ?? options.identityOptions,
-        now: options.deliveryOptions?.now ?? options.now, requestTimeoutMs: options.connectTimeoutMs,
-        resolveTransport: options.deliveryOptions?.resolveTransport ?? ((url, owner) => transport(url, owner, options)),
-        assertSendAllowed: async context => {
-          this.assertPeer(context.peerOwnerDid, context.envelope.payload.taskId);
-          await options.deliveryOptions?.assertSendAllowed?.(context);
-        } }) : undefined) : undefined;
-    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
+    this.deliveryService =
+      typeof options.relay === 'string' || options.relayUrl
+        ? (options.deliveryService ??
+          (typeof options.relay === 'string' || options.deliveryOptions
+            ? new GatewayDeliveryService(options.owner, {
+                ...options.deliveryOptions,
+                identityOptions:
+                  options.deliveryOptions?.identityOptions ?? options.identityOptions,
+                now: options.deliveryOptions?.now ?? options.now,
+                requestTimeoutMs: options.connectTimeoutMs,
+                resolveTransport:
+                  options.deliveryOptions?.resolveTransport ??
+                  ((url, owner) => transport(url, owner, options)),
+                assertSendAllowed: async (context) => {
+                  this.assertPeer(context.peerOwnerDid, context.envelope.payload.taskId);
+                  await options.deliveryOptions?.assertSendAllowed?.(context);
+                },
+              })
+            : undefined))
+        : undefined;
+    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did)
+      throw deliveryError('OUTBOX_STORE_INVALID');
     if (this.deliveryService) {
-      this.deliveryService.recipientStatus = new RecipientDeliveryCoordinator(this.deliveryService, {
-        relayUrl: typeof options.relay === 'string' ? options.relay : options.relayUrl,
-        connectionState: peer => this.connectionStore.connectionState(peer),
-        onPublish: () => { void this.deliveryService!.drainStatuses(); },
-      });
+      this.deliveryService.recipientStatus = new RecipientDeliveryCoordinator(
+        this.deliveryService,
+        {
+          relayUrl: typeof options.relay === 'string' ? options.relay : options.relayUrl,
+          connectionState: (peer) => this.connectionStore.connectionState(peer),
+          onPublish: () => {
+            void this.deliveryService!.drainStatuses();
+          },
+        },
+      );
       this.heldReview.store.setTransitionSink(this.deliveryService.recipientStatus.transition);
       this.deliveryService.onMaintenance(() => {
         this.deliveryService!.recipientStatus.reconcile(this.heldReview.store.records());
-        if (this.heldReview.list().some(r => r.state === 'expired')) this.heldReview.expire();
+        if (this.heldReview.list().some((r) => r.state === 'expired')) this.heldReview.expire();
       });
     }
     if (!persistencePath && this.deliveryService) {
-      this.taskJournal = new TaskJournal(join(this.deliveryService.store.root, 'tasks.jsonl'), options.owner, this.deliveryService.store.limits.recordBytes, 'process');
-      this.deliveryService.onMaintenance(async signal => {
+      this.taskJournal = new TaskJournal(
+        join(this.deliveryService.store.root, 'tasks.jsonl'),
+        options.owner,
+        this.deliveryService.store.limits.recordBytes,
+        'process',
+      );
+      this.deliveryService.onMaintenance(async (signal) => {
         if (!existsSync(this.taskJournal!.path)) return;
-        const store = this.deliveryService!.store, retained = new Set<string>();
-        for await (const r of store.scan('receipts', signal)) if (r.retainUntil > store.now()) retained.add(r.taskId);
-        await this.taskJournal!.compactInBackground(retained, change => store.transaction(change), signal);
+        const store = this.deliveryService!.store,
+          retained = new Set<string>();
+        for await (const r of store.scan('receipts', signal))
+          if (r.retainUntil > store.now()) retained.add(r.taskId);
+        await this.taskJournal!.compactInBackground(
+          retained,
+          (change) => store.transaction(change),
+          signal,
+        );
       });
     }
     this.approvalProvider =
@@ -695,7 +913,8 @@ export class WorkerNode {
     const now = this.protocol.now();
     this.agentCard = createSignedAgentCard(
       {
-        name: options.name ?? options.adapter.name, now,
+        name: options.name ?? options.adapter.name,
+        now,
         agentDid,
         relayEndpoint:
           typeof options.relay === 'string'
@@ -703,55 +922,111 @@ export class WorkerNode {
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
         autoAccept: this.autoAccept,
-        ...(options.inviteTtlSeconds !== undefined ? {
-          expiresAt: new Date(now + options.inviteTtlSeconds * 1000).toISOString(),
-        } : {}),
+        ...(options.inviteTtlSeconds !== undefined
+          ? {
+              expiresAt: new Date(now + options.inviteTtlSeconds * 1000).toISOString(),
+            }
+          : {}),
         protocolVersions: this.protocol.receiveVersions(),
       },
       options.owner,
       agentDid === options.owner.did ? undefined : options.agentKey,
     );
-    this.connections = new ConnectionRouter({ owner: options.owner, agentCard: this.agentCard,
-      relayUrl: this.agentCard.payload.relayEndpoint, relay: this.relay, store: this.connectionStore,
-      review: this.heldReview, now: options.now, humanReview: options.connectionReview,
-      revocations: this.revocation, allowPrivateRelay: options.allowPrivateRelay,
-      assertPeer: did => { this.assertPeer(did); }, onConnectionEvent: options.onConnectionEvent });
+    this.connections = new ConnectionRouter({
+      owner: options.owner,
+      agentCard: this.agentCard,
+      relayUrl: this.agentCard.payload.relayEndpoint,
+      relay: this.relay,
+      store: this.connectionStore,
+      review: this.heldReview,
+      now: options.now,
+      humanReview: options.connectionReview,
+      revocations: this.revocation,
+      allowPrivateRelay: options.allowPrivateRelay,
+      assertPeer: (did) => {
+        this.assertPeer(did);
+      },
+      onConnectionEvent: options.onConnectionEvent,
+    });
   }
-  invite(expiresInSeconds = this.options.inviteTtlSeconds ?? 86400, options: { maxUses?: number } = {}): string {
+  invite(
+    expiresInSeconds = this.options.inviteTtlSeconds ?? 86400,
+    options: { maxUses?: number } = {},
+  ): string {
     assertInviteMaxUses(options.maxUses ?? 1);
     this.refreshMonthlyCard();
-    const token = createInviteToken({ agentCard: this.agentCard, expiresInSeconds, issuedAt: new Date(this.protocol.now()).toISOString() }, this.options.owner);
-    this.connectionStore.recordInviteLimit(parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true }), options.maxUses ?? 1);
+    const token = createInviteToken(
+      {
+        agentCard: this.agentCard,
+        expiresInSeconds,
+        issuedAt: new Date(this.protocol.now()).toISOString(),
+      },
+      this.options.owner,
+    );
+    this.connectionStore.recordInviteLimit(
+      parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true }),
+      options.maxUses ?? 1,
+    );
     return token;
   }
   private monthlyCounter(): MonthlyCostCounter {
-    return new MonthlyCostCounter(join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
-      'auto-accept-monthly.jsonl'), this.options.owner, () => this.protocol.now());
+    return new MonthlyCostCounter(
+      join(
+        dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+        'auto-accept-monthly.jsonl',
+      ),
+      this.options.owner,
+      () => this.protocol.now(),
+    );
   }
   private refreshMonthlyCard(): void {
     const limit = this.autoAccept.limits.maxMonthlyUsd;
     if (limit === undefined) return;
     let description = 'Sealbridge worker';
-    try { this.monthlyCounter().check(limit); }
-    catch (e) {
-      description = e instanceof Error && e.message === 'MONTHLY_LIMIT_REACHED'
-        ? 'Monthly intake closed. 今月の受付は終了'
-        : 'Monthly counting state unavailable. 月次の使用量状態を利用できません';
+    try {
+      this.monthlyCounter().check(limit);
+    } catch (e) {
+      description =
+        e instanceof Error && e.message === 'MONTHLY_LIMIT_REACHED'
+          ? 'Monthly intake closed. 今月の受付は終了'
+          : 'Monthly counting state unavailable. 月次の使用量状態を利用できません';
     }
     if (description !== this.agentCard.payload.description)
-      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, description, now: this.protocol.now(),
-        expiresAt: new Date(this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() },
-        this.options.owner, this.options.agentKey);
+      this.agentCard = createSignedAgentCard(
+        {
+          ...this.agentCard.payload,
+          description,
+          now: this.protocol.now(),
+          expiresAt: new Date(
+            this.protocol.now() + (this.options.inviteTtlSeconds ?? 86400) * 1000,
+          ).toISOString(),
+        },
+        this.options.owner,
+        this.options.agentKey,
+      );
   }
   async register(): Promise<void> {
     this.refreshMonthlyCard();
     const protocolVersions = this.protocol.receiveVersions();
-    if (JSON.stringify(protocolVersions) !== JSON.stringify(this.agentCard.payload.protocolVersions) || Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now() ||
-        this.autoAccept.limits.maxMonthlyUsd !== undefined &&
-        this.agentCard.signature.signedAt.slice(0, 7) !== new Date(this.protocol.now()).toISOString().slice(0, 7)) {
+    if (
+      JSON.stringify(protocolVersions) !==
+        JSON.stringify(this.agentCard.payload.protocolVersions) ||
+      Date.parse(this.agentCard.payload.expiresAt) <= this.protocol.now() ||
+      (this.autoAccept.limits.maxMonthlyUsd !== undefined &&
+        this.agentCard.signature.signedAt.slice(0, 7) !==
+          new Date(this.protocol.now()).toISOString().slice(0, 7))
+    ) {
       const now = this.protocol.now();
-      this.agentCard = createSignedAgentCard({ ...this.agentCard.payload, protocolVersions, now,
-        expiresAt: new Date(now + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString() }, this.options.owner, this.options.agentKey);
+      this.agentCard = createSignedAgentCard(
+        {
+          ...this.agentCard.payload,
+          protocolVersions,
+          now,
+          expiresAt: new Date(now + (this.options.inviteTtlSeconds ?? 86400) * 1000).toISOString(),
+        },
+        this.options.owner,
+        this.options.agentKey,
+      );
     }
     this.connections.service.setAgentCard(this.agentCard);
     await this.relay.register?.(this.agentCard);
@@ -763,8 +1038,12 @@ export class WorkerNode {
     this.taskJournal?.close();
     this.listenerStatus('stopped');
   }
-  async startDelivery(): Promise<void> { await this.deliveryService?.start(); }
-  stopDelivery(): void { this.deliveryService?.stop(); }
+  async startDelivery(): Promise<void> {
+    await this.deliveryService?.start();
+  }
+  stopDelivery(): void {
+    this.deliveryService?.stop();
+  }
   /** Public registration is opt-in, including for PolicyAutoApprovalProvider. */
   private publishes(): boolean {
     return this.options.publishToRegistry === true;
@@ -854,16 +1133,28 @@ export class WorkerNode {
   private continuous = false;
   private workerRelayCauses(error: unknown): Error[] {
     const causes: Error[] = [];
-    for (let current = error; current instanceof Error && !causes.includes(current) && causes.length < 16;
-      current = current.cause) causes.push(current);
+    for (
+      let current = error;
+      current instanceof Error && !causes.includes(current) && causes.length < 16;
+      current = current.cause
+    )
+      causes.push(current);
     return causes;
   }
   private permanentWorkerRelayCause(causes: readonly Error[]): Error | undefined {
-    return causes.find(cause => {
+    return causes.find((cause) => {
       const status = /^RELAY_(?:REGISTRATION_)?REJECTED:\s*(\d{3})\b/.exec(cause.message)?.[1];
-      return (status !== undefined && Number(status) < 500 && ![401, 408, 429].includes(Number(status))) ||
-        /^(?:SSRF_BLOCKED_RELAY_URL\b|RELAY_(?:AUTH_REQUIRED|TAMPERING_DETECTED|PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNSUPPORTED)|BIND)\b|SSE_(?:BUFFER_OVERFLOW|CAPACITY)\b)/.test(cause.message) ||
-        /^(?:CERT_HAS_EXPIRED|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID)$/.test((cause as NodeJS.ErrnoException).code ?? '');
+      return (
+        (status !== undefined &&
+          Number(status) < 500 &&
+          ![401, 408, 429].includes(Number(status))) ||
+        /^(?:SSRF_BLOCKED_RELAY_URL\b|RELAY_(?:AUTH_REQUIRED|TAMPERING_DETECTED|PROXY_(?:AUTH_FAILED|REFUSED|TLS_FAILED|UNSUPPORTED)|BIND)\b|SSE_(?:BUFFER_OVERFLOW|CAPACITY)\b)/.test(
+          cause.message,
+        ) ||
+        /^(?:CERT_HAS_EXPIRED|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID)$/.test(
+          (cause as NodeJS.ErrnoException).code ?? '',
+        )
+      );
     });
   }
   private retryableWorkerRelayError(error: unknown): boolean {
@@ -873,9 +1164,14 @@ export class WorkerNode {
     // Persistent workers retry raw 401s even when a bounded auth episode (or
     // explicitly disabled transport-level recovery) has already ended. Unlike
     // 403, 401 is not evidence of a permanent authorization policy refusal.
-    return isTransientRelayError(error) || causes.some(cause =>
-      'code' in cause && cause.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED' ||
-      /^(?:RELAY_|SSE_)/.test(cause.message));
+    return (
+      isTransientRelayError(error) ||
+      causes.some(
+        (cause) =>
+          ('code' in cause && cause.code === 'RELAY_AUTH_RECOVERY_EXHAUSTED') ||
+          /^(?:RELAY_|SSE_)/.test(cause.message),
+      )
+    );
   }
   private status?: RelayConnectionStatus;
   private listenerStatus(status: RelayConnectionStatus, error?: Error): void {
@@ -884,12 +1180,14 @@ export class WorkerNode {
     this.options.onStatus?.(status, error);
   }
   private listen(signal: AbortSignal): Promise<SignedEnvelope> {
-    return receiveRelay(this.relay, this.options.owner.did, signal, { role: 'worker' },
-      (status) => this.listenerStatus(status === 'connected' ? this.relay.connectionStatus ?? status : status))
-      .catch((error: unknown) => {
-        if (signal.aborted || this.continuous) throw error;
-        throw relayDiagnostic(error);
-      });
+    return receiveRelay(this.relay, this.options.owner.did, signal, { role: 'worker' }, (status) =>
+      this.listenerStatus(
+        status === 'connected' ? (this.relay.connectionStatus ?? status) : status,
+      ),
+    ).catch((error: unknown) => {
+      if (signal.aborted || this.continuous) throw error;
+      throw relayDiagnostic(error);
+    });
   }
   async start(
     options: { once?: boolean; signal?: AbortSignal } = {},
@@ -925,15 +1223,22 @@ export class WorkerNode {
           // It seals durable interrupted audits without starting a new task.
           if (idleSignal.aborted) break;
           // revocationAwareRelay ingests a leading REVOKE before this read returns.
-          const envelope = pendingEnvelope ?? await this.listen(idleSignal);
+          const envelope = pendingEnvelope ?? (await this.listen(idleSignal));
           pendingEnvelope = envelope;
           if (await this.recoverProposal(envelope)) {
             pendingEnvelope = undefined;
             if (options.once) return this.lastResult;
             continue;
           }
-          if (this.deliver(envelope)) { pendingEnvelope = undefined; continue; }
-          const job = this.beginTask(envelope, AbortSignal.any([idleSignal, generation.signal]), options.once === true);
+          if (this.deliver(envelope)) {
+            pendingEnvelope = undefined;
+            continue;
+          }
+          const job = this.beginTask(
+            envelope,
+            AbortSignal.any([idleSignal, generation.signal]),
+            options.once === true,
+          );
           pendingEnvelope = undefined;
           if (!job) continue;
           jobs.add(job);
@@ -943,7 +1248,8 @@ export class WorkerNode {
             return this.lastResult;
           }
         } catch (error) {
-          if (options.once || idleSignal.aborted || !this.retryableWorkerRelayError(error)) throw error;
+          if (options.once || idleSignal.aborted || !this.retryableWorkerRelayError(error))
+            throw error;
           const diagnostic = relayDiagnostic(error);
           this.listenerStatus('unavailable', diagnostic);
           // Quiesce the failed generation before reconciling durable outcomes.
@@ -959,11 +1265,21 @@ export class WorkerNode {
       if (!idleSignal.aborted) {
         // A rejected one-shot task may be followed by another start on this node.
         // Only a terminal listener failure shuts down the worker and all of its tasks.
-        if (error instanceof Error && ((!options.once &&
-            (this.workerRelayCauses(error).some(cause => /^RELAY_|^SSE_|^SSRF_BLOCKED_RELAY_URL/.test(cause.message)) || isTransientRelayError(error))) ||
-            'code' in error && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code)))) {
-          const diagnostic = relayDiagnostic(options.once ? error :
-            this.permanentWorkerRelayCause(this.workerRelayCauses(error)) ?? error);
+        if (
+          error instanceof Error &&
+          ((!options.once &&
+            (this.workerRelayCauses(error).some((cause) =>
+              /^RELAY_|^SSE_|^SSRF_BLOCKED_RELAY_URL/.test(cause.message),
+            ) ||
+              isTransientRelayError(error))) ||
+            ('code' in error &&
+              ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED'].includes(String(error.code))))
+        ) {
+          const diagnostic = relayDiagnostic(
+            options.once
+              ? error
+              : (this.permanentWorkerRelayCause(this.workerRelayCauses(error)) ?? error),
+          );
           this.listenerStatus('unavailable', diagnostic);
           for (const mailbox of this.mailboxes.values()) mailbox.close(diagnostic);
           this.controller.abort(diagnostic);
@@ -985,51 +1301,87 @@ export class WorkerNode {
       throw new Error('PEER_NOT_ALLOWED');
     // A shared WorkerTrustStore projects both denials from the same signed snapshot.
     // Separate injected stores still need both checks.
-    const denied = this.intakeStore === this.connectionStore
-      ? this.connectionStore.connectionState(did) === 'blocked'
-      : this.intakeStore.level(did) === 'denied' || this.connectionStore.connectionState(did) === 'blocked';
+    const denied =
+      this.intakeStore === this.connectionStore
+        ? this.connectionStore.connectionState(did) === 'blocked'
+        : this.intakeStore.level(did) === 'denied' ||
+          this.connectionStore.connectionState(did) === 'blocked';
     if (denied && (!taskId || this.acceptedPeers.get(taskId) !== did))
       throw new Error('REQUEST_DENIED');
     return this.options.checkPeer?.(did);
   }
   private trust(did: string, protocolVersion: string): 'unknown' | 'limited' | 'trusted' {
     const contactTrust = this.assertPeer(did);
-    if (contactTrust === 'trusted' || this.connectionStore.hasExplicitLegacyGrant(did)) return 'trusted';
-    return protocolVersion === '0.2.0' && this.connectionStore.connectionState(did) === 'connected' ? 'limited' : 'unknown';
+    if (contactTrust === 'trusted' || this.connectionStore.hasExplicitLegacyGrant(did))
+      return 'trusted';
+    return protocolVersion === '0.2.0' && this.connectionStore.connectionState(did) === 'connected'
+      ? 'limited'
+      : 'unknown';
   }
   private async notifyOutcome(record: TaskCheckpoint, outcome = record.outcome!): Promise<void> {
     if (outcome.result?.state === 'SETTLED') {
       const entries = outcome.result.bundle.entries;
-      const proposal = entries.find(e => e.body.eventType === 'PROPOSE')?.body.payload;
-      const accepted = entries.find(e => e.body.eventType === 'ACCEPT')?.body.payload;
-      const delivered = entries.find(e => e.body.eventType === 'DELIVER')?.body.payload as unknown as Delivery;
-      const retainedManifest = (accepted as unknown as { contract?: TaskContract })?.contract?.manifest ??
+      const proposal = entries.find((e) => e.body.eventType === 'PROPOSE')?.body.payload;
+      const accepted = entries.find((e) => e.body.eventType === 'ACCEPT')?.body.payload;
+      const delivered = entries.find((e) => e.body.eventType === 'DELIVER')?.body
+        .payload as unknown as Delivery;
+      const retainedManifest =
+        (accepted as unknown as { contract?: TaskContract })?.contract?.manifest ??
         (proposal as unknown as { proposal?: { payload: TaskManifest } })?.proposal?.payload;
-      const grantBearing = record.delegation || (retainedManifest ? !!retainedManifest.contextGrant :
-        !!(proposal as { grantDigest?: string })?.grantDigest);
+      const grantBearing =
+        record.delegation ||
+        (retainedManifest
+          ? !!retainedManifest.contextGrant
+          : !!(proposal as { grantDigest?: string })?.grantDigest);
       if (grantBearing) {
-        if (!delivered || proposalAuditDigest(proposal) !== record.proposalDigest) throw new Error('DELEGATION_INVALID');
+        if (!delivered || proposalAuditDigest(proposal) !== record.proposalDigest)
+          throw new Error('DELEGATION_INVALID');
         verifyRecoveredDelegation(delivered, proposal, accepted, record.delegation?.parentContract);
-        if (record.delegation && digest(assembleDelegation(record.delegation)) !== digest(delivered.delegation))
+        if (
+          record.delegation &&
+          digest(assembleDelegation(record.delegation)) !== digest(delivered.delegation)
+        )
           throw new Error('DELEGATION_INVALID');
       }
     }
-    const send = (recovery: unknown) => this.relay.send(signEnvelope({ taskId: record.taskId,
-      recipientDid: record.requesterDid, seq: 0, eventType: 'ERROR',
-      payload: asJson({ code: outcome.code, recovery }),
-    }, this.options.owner, { encrypt: true }));
+    const send = (recovery: unknown) =>
+      this.relay.send(
+        signEnvelope(
+          {
+            taskId: record.taskId,
+            recipientDid: record.requesterDid,
+            seq: 0,
+            eventType: 'ERROR',
+            payload: asJson({ code: outcome.code, recovery }),
+          },
+          this.options.owner,
+          { encrypt: true },
+        ),
+      );
     const bytes = outcome.result ? Buffer.from(JSON.stringify(outcome.result)) : undefined;
     // Cached audits can exceed a single relay envelope even when every original event fitted.
     if (bytes && bytes.length > 48 * 1024) {
-      const size = 24 * 1024, count = Math.ceil(bytes.length / size), resultDigest = digest(outcome.result);
+      const size = 24 * 1024,
+        count = Math.ceil(bytes.length / size),
+        resultDigest = digest(outcome.result);
       for (let index = 0; index < count; index++) {
-        await send({ proposalDigest: record.proposalDigest, part: { index, count, resultDigest,
-          data: bytes.subarray(index * size, (index + 1) * size).toString('base64') } });
+        await send({
+          proposalDigest: record.proposalDigest,
+          part: {
+            index,
+            count,
+            resultDigest,
+            data: bytes.subarray(index * size, (index + 1) * size).toString('base64'),
+          },
+        });
         // Yield to inbox readers so a cached audit does not fill the bounded relay queue.
         if (index + 1 < count) await waitForRelayRetry(10, this.controller.signal);
       }
     } else {
-      await send({ proposalDigest: record.proposalDigest, ...(outcome.result ? { result: outcome.result } : {}) });
+      await send({
+        proposalDigest: record.proposalDigest,
+        ...(outcome.result ? { result: outcome.result } : {}),
+      });
     }
   }
   /** Another publisher invalidated the prepared index. Rebuild outside the signer lock, then retry. */
@@ -1042,32 +1394,60 @@ export class WorkerNode {
   private saveTaskCheckpoint(record: TaskCheckpoint): void {
     if (!this.taskJournal) return;
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath) {
-      this.deliveryService.store.transaction(() => { this.taskJournal!.reload(); this.taskJournal!.save(record); });
+      this.deliveryService.store.transaction(() => {
+        this.taskJournal!.reload();
+        this.taskJournal!.save(record);
+      });
     } else this.taskJournal.save(record);
   }
   /** Intent is durable before audit append; retries reuse the entire original signed record. */
-  private closeInterruptedAudit(record: TaskCheckpoint, reason: AuditInterruption['reason'], expectedEntries?: AuditEntry[],
-    save: (record: TaskCheckpoint) => void = record => this.saveTaskCheckpoint(record)): TaskCheckpoint {
-    if (!record.auditPath || !record.auditStage || record.auditStage === 'OUT_OF_SCOPE') return record;
+  private closeInterruptedAudit(
+    record: TaskCheckpoint,
+    reason: AuditInterruption['reason'],
+    expectedEntries?: AuditEntry[],
+    save: (record: TaskCheckpoint) => void = (record) => this.saveTaskCheckpoint(record),
+  ): TaskCheckpoint {
+    if (!record.auditPath || !record.auditStage || record.auditStage === 'OUT_OF_SCOPE')
+      return record;
     const store = new JsonlStore(record.auditPath);
     const entries = store.read();
-    if (expectedEntries && digest(entries) !== digest(expectedEntries)) throw new Error('AUDIT_PREFIX_MISMATCH');
+    if (expectedEntries && digest(entries) !== digest(expectedEntries))
+      throw new Error('AUDIT_PREFIX_MISMATCH');
     const proposal = entries[0]?.body.payload as unknown as Proposal | undefined;
-    if (!proposal || digest({ manifest: proposal.proposal.payload, input: proposal.input }) !== record.proposalDigest)
+    if (
+      !proposal ||
+      digest({ manifest: proposal.proposal.payload, input: proposal.input }) !==
+        record.proposalDigest
+    )
       throw new Error('AUDIT_PREFIX_MISMATCH');
     if (!record.auditClosure) {
-      const interruption = createAuditInterruption(entries, this.options.owner, record.auditStage, reason);
+      const interruption = createAuditInterruption(
+        entries,
+        this.options.owner,
+        record.auditStage,
+        reason,
+      );
       record = { ...record, auditClosure: { state: 'pending', interruption } };
     }
-    store.closeInterrupted({ entries, interruption: record.auditClosure!.interruption }, () => save(record));
-    const written: TaskCheckpoint = { ...record, auditClosure: { ...record.auditClosure!, state: 'written' } };
+    store.closeInterrupted({ entries, interruption: record.auditClosure!.interruption }, () =>
+      save(record),
+    );
+    const written: TaskCheckpoint = {
+      ...record,
+      auditClosure: { ...record.auditClosure!, state: 'written' },
+    };
     save(written);
     return written;
   }
   private reportInterruptionFailure(taskId: string): void {
     // Keep the original task outcome separately; never expose arbitrary I/O exception text.
-    try { this.reportRejection(taskId, new Error('AUDIT_INTERRUPTION_WRITE_FAILED')); }
-    catch { try { this.options.onEvent?.('REJECTED', taskId, { code: 'AUDIT_INTERRUPTION_WRITE_FAILED' }); } catch {} }
+    try {
+      this.reportRejection(taskId, new Error('AUDIT_INTERRUPTION_WRITE_FAILED'));
+    } catch {
+      try {
+        this.options.onEvent?.('REJECTED', taskId, { code: 'AUDIT_INTERRUPTION_WRITE_FAILED' });
+      } catch {}
+    }
   }
   private async reconcileTasks(): Promise<void> {
     if (this.reconciled || !this.taskJournal) return;
@@ -1078,24 +1458,48 @@ export class WorkerNode {
       let record = saved;
       // Pending intents are retried even if the business outcome was already made terminal.
       // Old files have no explicit auditStage and are never backfilled, even with interruption closure enabled.
-      if (record.auditStage && record.auditStage !== 'OUT_OF_SCOPE' &&
-          !record.outcome?.result && record.auditClosure?.state !== 'written' &&
-          (record.phase !== 'terminal' || record.outcome?.code === 'TASK_INTERRUPTED' || record.auditClosure?.state === 'pending')) {
-        try { record = this.closeInterruptedAudit(record, 'WORKER_RESTART_OBSERVED'); }
-        catch { record = this.taskJournal.tasks.get(record.taskId) ?? record; this.reportInterruptionFailure(record.taskId); }
+      if (
+        record.auditStage &&
+        record.auditStage !== 'OUT_OF_SCOPE' &&
+        !record.outcome?.result &&
+        record.auditClosure?.state !== 'written' &&
+        (record.phase !== 'terminal' ||
+          record.outcome?.code === 'TASK_INTERRUPTED' ||
+          record.auditClosure?.state === 'pending')
+      ) {
+        try {
+          record = this.closeInterruptedAudit(record, 'WORKER_RESTART_OBSERVED');
+        } catch {
+          record = this.taskJournal.tasks.get(record.taskId) ?? record;
+          this.reportInterruptionFailure(record.taskId);
+        }
       }
-      const pending = !record.auditClosure && this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
+      const pending =
+        !record.auditClosure &&
+        this.intakeStore.pendingTask(record.requesterDid, record.taskId, record.proposalDigest);
       if (record.phase !== 'terminal') {
         const result = this.sealedTaskResult(record);
         // Adapters expose executeTask only. Unknown execution/tool results cannot be retried safely.
-        record = { ...record, phase: 'terminal', outcome: pending ? { code: 'PENDING_OWNER_APPROVAL' } : result
-          ? { code: result.state === 'SETTLED' ? 'TASK_SETTLED' : 'TASK_CANCELLED', result }
-          : { code: 'TASK_INTERRUPTED' }, notificationPending: true };
+        record = {
+          ...record,
+          phase: 'terminal',
+          outcome: pending
+            ? { code: 'PENDING_OWNER_APPROVAL' }
+            : result
+              ? { code: result.state === 'SETTLED' ? 'TASK_SETTLED' : 'TASK_CANCELLED', result }
+              : { code: 'TASK_INTERRUPTED' },
+          notificationPending: true,
+        };
         this.saveTaskCheckpoint(record);
-        if (!result && !pending) this.options.onEvent?.('INTERRUPTED', record.taskId, { code: 'TASK_INTERRUPTED' });
+        if (!result && !pending)
+          this.options.onEvent?.('INTERRUPTED', record.taskId, { code: 'TASK_INTERRUPTED' });
       }
       if (record.notificationPending) {
-        try { this.assertPeer(record.requesterDid); } catch { continue; }
+        try {
+          this.assertPeer(record.requesterDid);
+        } catch {
+          continue;
+        }
         if (pending) {
           record = { ...record, phase: 'terminal', outcome: { code: 'PENDING_OWNER_APPROVAL' } };
           this.saveTaskCheckpoint(record);
@@ -1110,61 +1514,126 @@ export class WorkerNode {
     if (!record.auditPath) return;
     try {
       const bundle = parseJsonl(readFileSync(record.auditPath, 'utf8'));
-      if (!verifyAudit(bundle, { taskId: record.taskId, actors: [record.requesterDid, this.options.owner.did] }).valid)
+      if (
+        !verifyAudit(bundle, {
+          taskId: record.taskId,
+          actors: [record.requesterDid, this.options.owner.did],
+        }).valid
+      )
         return;
-      const proposal = bundle.entries.find((entry) => entry.body.eventType === 'PROPOSE')?.body.payload as unknown as Proposal;
+      const proposal = bundle.entries.find((entry) => entry.body.eventType === 'PROPOSE')?.body
+        .payload as unknown as Proposal;
       if (proposalAuditDigest(proposal) !== record.proposalDigest) return;
       const last = bundle.entries.at(-1)?.body.eventType;
-      if (last === 'CANCEL') return { taskId: record.taskId, state: 'CANCELLED', deliverable: null, bundle };
-      const delivery = bundle.entries.find((entry) => entry.body.eventType === 'DELIVER')?.body.payload as unknown as Delivery;
+      if (last === 'CANCEL')
+        return { taskId: record.taskId, state: 'CANCELLED', deliverable: null, bundle };
+      const delivery = bundle.entries.find((entry) => entry.body.eventType === 'DELIVER')?.body
+        .payload as unknown as Delivery;
       if (last === 'SETTLED' && delivery) {
-        const accepted = bundle.entries.find(entry => entry.body.eventType === 'ACCEPT')?.body.payload;
+        const accepted = bundle.entries.find((entry) => entry.body.eventType === 'ACCEPT')?.body
+          .payload;
         verifyRecoveredDelegation(delivery, proposal, accepted, record.delegation?.parentContract);
-        if (record.delegation && digest(assembleDelegation(record.delegation)) !== digest(delivery.delegation)) return;
-        return { taskId: record.taskId, state: 'SETTLED', deliverable: delivery.artifact.payload.data, bundle };
+        if (
+          record.delegation &&
+          digest(assembleDelegation(record.delegation)) !== digest(delivery.delegation)
+        )
+          return;
+        return {
+          taskId: record.taskId,
+          state: 'SETTLED',
+          deliverable: delivery.artifact.payload.data,
+          bundle,
+        };
       }
-    } catch { /* An unsealed or partial audit is evidence to preserve, not authorization to rerun. */ }
+    } catch {
+      /* An unsealed or partial audit is evidence to preserve, not authorization to rerun. */
+    }
     return undefined;
   }
   private async recoverProposal(envelope: SignedEnvelope): Promise<boolean> {
-    if (!this.taskJournal || envelope.payload.eventType !== 'PROPOSE' || envelope.payload.seq !== 0 ||
-        !verifyEnvelope(envelope, this.options.owner.did)) return false;
-    try { this.assertPeer(envelope.payload.senderDid); } catch (error) {
+    if (
+      !this.taskJournal ||
+      envelope.payload.eventType !== 'PROPOSE' ||
+      envelope.payload.seq !== 0 ||
+      !verifyEnvelope(envelope, this.options.owner.did)
+    )
+      return false;
+    try {
+      this.assertPeer(envelope.payload.senderDid);
+    } catch (error) {
       this.reportRejection(envelope.payload.taskId, error);
       await acknowledgeRelay(this.relay, envelope);
       return true;
     }
     let data: Proposal;
     try {
-      data = openEnvelope(envelope, this.options.owner,
-        sessionDecryptOptions(this.options.allowUnencryptedEnvelopes)) as unknown as Proposal;
-    } catch { return false; }
+      data = openEnvelope(
+        envelope,
+        this.options.owner,
+        sessionDecryptOptions(this.options.allowUnencryptedEnvelopes),
+      ) as unknown as Proposal;
+    } catch {
+      return false;
+    }
     const manifest = data?.proposal?.payload;
-    if (!manifest || !verifySigned(data.proposal, envelope.payload.senderDid) ||
-        manifest.taskId !== envelope.payload.taskId || manifest.requester?.ownerDid !== envelope.payload.senderDid)
+    if (
+      !manifest ||
+      !verifySigned(data.proposal, envelope.payload.senderDid) ||
+      manifest.taskId !== envelope.payload.taskId ||
+      manifest.requester?.ownerDid !== envelope.payload.senderDid
+    )
       return false;
     const proposalDigest = digest({ manifest, input: data.input });
     if (this.deliveryService && !this.options.inboxPath && !this.options.auditPath)
       this.deliveryService.store.transaction(() => this.taskJournal!.reload());
     let record = this.taskJournal.tasks.get(manifest.taskId);
     const exactReceipt = this.deliveryService?.store.read('receipts', envelope.payload.envelopeId);
-    const receipt = exactReceipt ?? this.deliveryService?.store.snapshot('receipts').find(r => r.taskId === manifest.taskId);
-    if (receipt && (receipt.senderDid !== envelope.payload.senderDid || exactReceipt && receipt.envelopeDigest !== digest(envelope) || receipt.taskId !== manifest.taskId))
+    const receipt =
+      exactReceipt ??
+      this.deliveryService?.store.snapshot('receipts').find((r) => r.taskId === manifest.taskId);
+    if (
+      receipt &&
+      (receipt.senderDid !== envelope.payload.senderDid ||
+        (exactReceipt && receipt.envelopeDigest !== digest(envelope)) ||
+        receipt.taskId !== manifest.taskId)
+    )
       throw deliveryError('DELIVERY_RECORD_CONFLICT');
     if (!record && receipt) {
-      record = { version: 1, taskId: manifest.taskId, requesterDid: envelope.payload.senderDid,
-        envelopeId: envelope.payload.envelopeId, proposalDigest, phase: 'terminal', invocations: [], outcome: { code: 'TASK_INTERRUPTED' } };
+      record = {
+        version: 1,
+        taskId: manifest.taskId,
+        requesterDid: envelope.payload.senderDid,
+        envelopeId: envelope.payload.envelopeId,
+        proposalDigest,
+        phase: 'terminal',
+        invocations: [],
+        outcome: { code: 'TASK_INTERRUPTED' },
+      };
       this.saveTaskCheckpoint(record);
     }
     // Older inboxes have intake evidence but no execution checkpoint. Never execute those tasks again.
     if (!record && this.options.inboxPath && existsSync(this.options.inboxPath)) {
       for (const line of readFileSync(this.options.inboxPath, 'utf8').split('\n')) {
         let old: { taskId?: string; requesterOwnerDid?: string };
-        try { old = JSON.parse(line); } catch { continue; }
-        if (old?.taskId === manifest.taskId && old.requesterOwnerDid === envelope.payload.senderDid) {
-          record = { version: 1, taskId: manifest.taskId, requesterDid: envelope.payload.senderDid,
-            envelopeId: envelope.payload.envelopeId, proposalDigest, phase: 'terminal', invocations: [],
-            outcome: { code: 'TASK_INTERRUPTED' } };
+        try {
+          old = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (
+          old?.taskId === manifest.taskId &&
+          old.requesterOwnerDid === envelope.payload.senderDid
+        ) {
+          record = {
+            version: 1,
+            taskId: manifest.taskId,
+            requesterDid: envelope.payload.senderDid,
+            envelopeId: envelope.payload.envelopeId,
+            proposalDigest,
+            phase: 'terminal',
+            invocations: [],
+            outcome: { code: 'TASK_INTERRUPTED' },
+          };
           this.taskJournal.save(record);
           break;
         }
@@ -1172,8 +1641,14 @@ export class WorkerNode {
     }
     if (!record) return false;
     this.lastResult = undefined;
-    if (record.requesterDid !== envelope.payload.senderDid || record.proposalDigest !== proposalDigest) {
-      await this.notifyOutcome({ ...record, requesterDid: envelope.payload.senderDid, proposalDigest }, { code: 'TASK_ID_CONFLICT' });
+    if (
+      record.requesterDid !== envelope.payload.senderDid ||
+      record.proposalDigest !== proposalDigest
+    ) {
+      await this.notifyOutcome(
+        { ...record, requesterDid: envelope.payload.senderDid, proposalDigest },
+        { code: 'TASK_ID_CONFLICT' },
+      );
     } else if (record.outcome) {
       await this.notifyOutcome(record);
       this.lastResult = record.outcome.result;
@@ -1194,14 +1669,30 @@ export class WorkerNode {
   private reportRejection(taskId: string, error: unknown, contextGrant = false): void {
     const diagnostic = rejectionBody(error, contextGrant);
     if (this.options.auditPath) {
-      const fd = openSync(this.options.auditPath + '.errors.jsonl',
-        constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
+      const fd = openSync(
+        this.options.auditPath + '.errors.jsonl',
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_APPEND |
+          constants.O_NOFOLLOW |
+          constants.O_NONBLOCK,
+        0o600,
+      );
       try {
         if (!fstatSync(fd).isFile()) throw new Error('INVALID_AUDIT_FILE');
         fchmodSync(fd, 0o600);
-        appendFileSync(fd, JSON.stringify(signPayload({ event: 'REJECTED', taskId,
-          timestamp: new Date().toISOString(), ...diagnostic }, this.options.owner)) + '\n');
-      } finally { closeSync(fd); }
+        appendFileSync(
+          fd,
+          JSON.stringify(
+            signPayload(
+              { event: 'REJECTED', taskId, timestamp: new Date().toISOString(), ...diagnostic },
+              this.options.owner,
+            ),
+          ) + '\n',
+        );
+      } finally {
+        closeSync(fd);
+      }
     }
     this.options.onEvent?.('REJECTED', taskId, diagnostic);
   }
@@ -1222,11 +1713,17 @@ export class WorkerNode {
       // AUDIT_ENTRY and other session frames are not proposals. Reporting them as
       // INVALID_PROPOSAL_ENVELOPE hides an outbox failure on the task that just ended.
       if (verified && first.payload.eventType === 'PROPOSE')
-        this.options.onEvent?.('REJECTED', first.payload.taskId, { code: 'INVALID_PROPOSAL_ENVELOPE' });
+        this.options.onEvent?.('REJECTED', first.payload.taskId, {
+          code: 'INVALID_PROPOSAL_ENVELOPE',
+        });
       return;
     }
     let invalid = false;
-    try { this.validateProposal(first); } catch { invalid = true; }
+    try {
+      this.validateProposal(first);
+    } catch {
+      invalid = true;
+    }
     let rejection = invalid ? undefined : this.intakeRejection(first);
     let reserved = false;
     if (!invalid && !rejection && this.activeTasks >= this.concurrentLimit)
@@ -1276,7 +1773,9 @@ export class WorkerNode {
         if (!envelope) return;
         if (await this.recoverProposal(envelope)) continue;
         if (!this.deliver(envelope) && verifyEnvelope(envelope, this.options.owner.did))
-          this.options.onEvent?.('REJECTED', envelope.payload.taskId, { code: 'INVALID_SESSION_ENVELOPE' });
+          this.options.onEvent?.('REJECTED', envelope.payload.taskId, {
+            code: 'INVALID_SESSION_ENVELOPE',
+          });
       }
     } finally {
       wait.abort();
@@ -1294,19 +1793,41 @@ export class WorkerNode {
       });
       if (await this.recoverProposal(first)) {
         if (this.lastResult?.taskId === first.payload.taskId) return this.lastResult;
-        throw new Error(this.taskJournal?.tasks.get(first.payload.taskId)?.outcome?.code ?? 'TASK_INTERRUPTED');
+        throw new Error(
+          this.taskJournal?.tasks.get(first.payload.taskId)?.outcome?.code ?? 'TASK_INTERRUPTED',
+        );
       }
       return await this.executeTask(first, idleSignal, this.relay);
-    } finally { this.taskJournal?.close(); }
+    } finally {
+      this.taskJournal?.close();
+    }
   }
 
-  private async holdTask(first: SignedEnvelope, manifest: TaskManifest, input: Json): Promise<HeldSummary> {
+  private async holdTask(
+    first: SignedEnvelope,
+    manifest: TaskManifest,
+    input: Json,
+  ): Promise<HeldSummary> {
     const contentDigest = digest({ manifest, input });
     this.connectionStore.consumeAdmission(manifest.requester.ownerDid, manifest.taskId);
-    const previous = this.heldReview.list().find(r => r.taskId === manifest.taskId && r.senderOwnerDid === manifest.requester.ownerDid);
-    const held = previous ?? this.heldReview.hold({ kind: 'task', senderOwnerDid: manifest.requester.ownerDid,
-      taskId: manifest.taskId, contentDigest, deadline: Date.parse(manifest.deadline), envelope: first,
-      ...(manifest.contextGrant ? { grantExpiresAt: Date.parse(manifest.contextGrant.expiresAt) } : {}) });
+    const previous = this.heldReview
+      .list()
+      .find(
+        (r) => r.taskId === manifest.taskId && r.senderOwnerDid === manifest.requester.ownerDid,
+      );
+    const held =
+      previous ??
+      this.heldReview.hold({
+        kind: 'task',
+        senderOwnerDid: manifest.requester.ownerDid,
+        taskId: manifest.taskId,
+        contentDigest,
+        deadline: Date.parse(manifest.deadline),
+        envelope: first,
+        ...(manifest.contextGrant
+          ? { grantExpiresAt: Date.parse(manifest.contextGrant.expiresAt) }
+          : {}),
+      });
     if (held.contentDigest !== contentDigest) throw new Error('INVALID_PROPOSAL');
     return this.heldReview.inspect(held.id);
   }
@@ -1350,14 +1871,19 @@ export class WorkerNode {
       if (m.contextGrant || !heldId || heldClose.signal.aborted) return;
       if (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT') return;
       const tick = (): void => {
-        if (heldClose.signal.aborted || (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT')) {
+        if (
+          heldClose.signal.aborted ||
+          (auditStage !== 'OWNER_APPROVAL' && auditStage !== 'ACCEPT_ACK_WAIT')
+        ) {
           stopHeldWatch();
           return;
         }
         try {
-          if (!this.heldReview.list().some(record => record.id === heldId))
+          if (!this.heldReview.list().some((record) => record.id === heldId))
             heldClose.abort(new Error('HELD_ATTEMPT_CLOSED'));
-        } catch { /* A locked or unreadable quarantine is not proof the attempt was closed. */ }
+        } catch {
+          /* A locked or unreadable quarantine is not proof the attempt was closed. */
+        }
       };
       tick();
       if (!heldClose.signal.aborted) {
@@ -1375,36 +1901,56 @@ export class WorkerNode {
       watchHeldAttempt();
     };
     const acknowledgeProposal = async (signal?: AbortSignal): Promise<void> => {
-      await this.withDelivery(() => { this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed'); }, signal);
+      await this.withDelivery(() => {
+        this.deliveryService?.store.receipt(first, Date.parse(m.deadline), 'processed');
+      }, signal);
       await acknowledgeRelay(relay, first, signal);
     };
     let invalidProposal = false;
     try {
-      try { data = this.validateProposal(first); }
-      catch (error) { invalidProposal = true; throw error; }
+      try {
+        data = this.validateProposal(first);
+      } catch (error) {
+        invalidProposal = true;
+        throw error;
+      }
       const manifest = data.proposal.payload;
       this.assertPeer(first.payload.senderDid);
       validateManifest(manifest);
       validateContextGrantUse(manifest, data.input, this.protocol.now());
       if (manifest.contextGrant?.deliveryMode === 'approval_redelegation') {
         const facility = this.options.redelegation;
-        if (!facility || !this.options.auditPath || !this.taskJournal) throw new Error('DELEGATION_INVALID');
+        if (!facility || !this.options.auditPath || !this.taskJournal)
+          throw new Error('DELEGATION_INVALID');
         requireOwnerDecision(facility.ownerApprovalProvider);
         requireOwnerDecision(facility.requester.approvalProvider);
-        if (facility.requester.options.owner.did !== this.options.owner.did) throw new Error('DELEGATION_INVALID');
+        if (facility.requester.options.owner.did !== this.options.owner.did)
+          throw new Error('DELEGATION_INVALID');
       }
-      if (manifest.contextGrant && this.options.inboxPath) throw new Error('CONTEXT_GRANT_INPUT_RETENTION_CONFLICT');
+      if (manifest.contextGrant && this.options.inboxPath)
+        throw new Error('CONTEXT_GRANT_INPUT_RETENTION_CONFLICT');
       m = manifest;
       auditPath = this.options.auditPath
         ? this.completed++ === 0 && !existsSync(this.options.auditPath)
           ? this.options.auditPath
           : this.options.auditPath.replace(/(?:\.jsonl)?$/, '.' + m.taskId + '.jsonl')
         : undefined;
-      const admissionConnection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
-      admissionAcceptance = admissionConnection && 'acceptance' in admissionConnection ? admissionConnection.acceptance : undefined;
-      automaticAuditEnabled = this.autoAccept.enabled || admissionAcceptance === 'read-only' || admissionAcceptance === 'write';
+      const admissionConnection = this.connectionStore
+        .listConnections()
+        .find((c) => c.peerOwnerDid === m.requester.ownerDid);
+      admissionAcceptance =
+        admissionConnection && 'acceptance' in admissionConnection
+          ? admissionConnection.acceptance
+          : undefined;
+      automaticAuditEnabled =
+        this.autoAccept.enabled ||
+        admissionAcceptance === 'read-only' ||
+        admissionAcceptance === 'write';
       if (!auditPath && automaticAuditEnabled) {
-        const directory = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)), 'auto-accept-audit');
+        const directory = join(
+          dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+          'auto-accept-audit',
+        );
         privateDirectory(directory, autoAcceptFs);
         auditPath = join(directory, digest(m.taskId).slice(7) + '.' + randomUUID() + '.jsonl');
       }
@@ -1412,19 +1958,32 @@ export class WorkerNode {
       // Provision the automatic ledger before the wire handshake. An unavailable
       // audit destination must fail before acceptance, not strand an owner gate.
       if (automaticAuditEnabled && auditPath) {
-        const fd = openSync(auditPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
-          (constants.O_NOFOLLOW ?? 0), 0o600);
+        const fd = openSync(
+          auditPath,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+          0o600,
+        );
         closeSync(fd);
       }
       if (this.taskJournal) {
-        checkpoint = { version: 1, taskId: m.taskId, requesterDid: m.requester.ownerDid,
-          envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
-          phase: 'received', auditPath, invocations: [] };
+        checkpoint = {
+          version: 1,
+          taskId: m.taskId,
+          requesterDid: m.requester.ownerDid,
+          envelopeId: first.payload.envelopeId,
+          proposalDigest: digest({ manifest: m, input: data.input }),
+          phase: 'received',
+          auditPath,
+          invocations: [],
+        };
         if (this.deliveryService) {
           await this.withDelivery(() => {
             this.deliveryService!.store.transaction(() => {
               this.taskJournal!.reload();
-              if (this.taskJournal!.tasks.has(m.taskId) || this.deliveryService!.store.snapshot('receipts').some(r => r.taskId === m.taskId))
+              if (
+                this.taskJournal!.tasks.has(m.taskId) ||
+                this.deliveryService!.store.snapshot('receipts').some((r) => r.taskId === m.taskId)
+              )
                 throw deliveryError('DELIVERY_RECORD_CONFLICT');
               this.deliveryService!.store.receiptLocked(first, Date.parse(m.deadline), 'persisted');
               this.taskJournal!.save(checkpoint!);
@@ -1465,7 +2024,10 @@ export class WorkerNode {
     let heldWatch: ReturnType<typeof setInterval> | undefined;
     let heldRecordId: string | undefined;
     const stopHeldWatch = (): void => {
-      if (heldWatch !== undefined) { clearInterval(heldWatch); heldWatch = undefined; }
+      if (heldWatch !== undefined) {
+        clearInterval(heldWatch);
+        heldWatch = undefined;
+      }
     };
     const wire = new SessionWire(
       relay,
@@ -1477,11 +2039,21 @@ export class WorkerNode {
       auditPath,
       this.options.allowUnencryptedEnvelopes === true,
       true,
-      this.deliveryService ? { service: this.deliveryService, context: {
-        messageId: receiptFileId(first.payload.envelopeId), peerOwnerDid: m.requester.ownerDid,
-        relayUrl: this.options.relayUrl ?? (typeof this.options.relay === 'string' ? this.options.relay : this.agentCard.payload.relayEndpoint),
-        deliveryDeadline: Date.parse(m.deadline),
-      } } : undefined,
+      this.deliveryService
+        ? {
+            service: this.deliveryService,
+            context: {
+              messageId: receiptFileId(first.payload.envelopeId),
+              peerOwnerDid: m.requester.ownerDid,
+              relayUrl:
+                this.options.relayUrl ??
+                (typeof this.options.relay === 'string'
+                  ? this.options.relay
+                  : this.agentCard.payload.relayEndpoint),
+              deliveryDeadline: Date.parse(m.deadline),
+            },
+          }
+        : undefined,
       m.contextGrant,
     );
     const cancelController = new AbortController();
@@ -1489,9 +2061,16 @@ export class WorkerNode {
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     let heartbeatStopped = false;
     const sendHeartbeat = async () => {
-      try { await wire.heartbeat(); } catch { /* The supervised reader reports relay availability. */ }
+      try {
+        await wire.heartbeat();
+      } catch {
+        /* The supervised reader reports relay availability. */
+      }
       if (!heartbeatStopped && !activeSignal.aborted) {
-        heartbeat = setTimeout(() => void sendHeartbeat(), this.options.heartbeatIntervalMs ?? 15_000);
+        heartbeat = setTimeout(
+          () => void sendHeartbeat(),
+          this.options.heartbeatIntervalMs ?? 15_000,
+        );
         heartbeat.unref();
       }
     };
@@ -1511,8 +2090,9 @@ export class WorkerNode {
         // Reporting residual files must not replace settlement or the execution error.
         try {
           if (this.options.onWorkspaceCleanupError)
-            void Promise.resolve(this.options.onWorkspaceCleanupError({ taskId: m.taskId, workspaceDir: path, code }))
-              .catch(() => {});
+            void Promise.resolve(
+              this.options.onWorkspaceCleanupError({ taskId: m.taskId, workspaceDir: path, code }),
+            ).catch(() => {});
           else console.warn('Workspace cleanup incomplete (' + code + '): ' + path);
         } catch {}
       }
@@ -1528,24 +2108,47 @@ export class WorkerNode {
       if (this.relay.discover) {
         const cards = await this.relay.discover();
         const sender = findDiscoveredAgentCard(cards, m.requester.agentDid, this.protocol.now());
-        if (sender?.payload.ownerDid === m.requester.ownerDid && sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint) {
-          await retryDeliveryBusy(() => this.protocol.observe(sender, cards), activeSignal, 'PROTOCOL_STORE_BUSY');
+        if (
+          sender?.payload.ownerDid === m.requester.ownerDid &&
+          sender.payload.relayEndpoint === this.agentCard.payload.relayEndpoint
+        ) {
+          await retryDeliveryBusy(
+            () => this.protocol.observe(sender, cards),
+            activeSignal,
+            'PROTOCOL_STORE_BUSY',
+          );
           peerDisplayName = sender.payload.name;
         }
       }
-      await retryDeliveryBusy(() => this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid), activeSignal, 'PROTOCOL_STORE_BUSY');
+      await retryDeliveryBusy(
+        () => this.protocol.inbound(m.protocolVersion, m.requester.ownerDid, m.requester.agentDid),
+        activeSignal,
+        'PROTOCOL_STORE_BUSY',
+      );
       const skills = this.agentCard.payload.skills;
-      const selected = m.task.skillId ? skills.filter(skill => skill.id === m.task.skillId) : skills;
-      if ((m.task.skillId && selected.length === 0) ||
-          (m.task.taskType && !selected.some(skill => skill.taskTypes?.includes(m.task.taskType!))) ||
-          (m.task.skillId && !m.task.taskType && selected.some(skill => skill.taskTypes?.length)))
-        throw diagnosticError('TASK_SCOPE_REJECTED', 'task.scope', skills, m.task, 'Select an advertised skill and task type, or omit both for direct delegation.');
+      const selected = m.task.skillId
+        ? skills.filter((skill) => skill.id === m.task.skillId)
+        : skills;
+      if (
+        (m.task.skillId && selected.length === 0) ||
+        (m.task.taskType &&
+          !selected.some((skill) => skill.taskTypes?.includes(m.task.taskType!))) ||
+        (m.task.skillId && !m.task.taskType && selected.some((skill) => skill.taskTypes?.length))
+      )
+        throw diagnosticError(
+          'TASK_SCOPE_REJECTED',
+          'task.scope',
+          skills,
+          m.task,
+          'Select an advertised skill and task type, or omit both for direct delegation.',
+        );
       const capabilityContext: CapabilityContext = {
         rootDid: m.requester.ownerDid,
         audience: this.options.owner.did,
         taskId: m.taskId,
       };
-      if (!Array.isArray(data.capabilityChains) || data.capabilityChains.length > 32) throw new Error('CAPABILITY_VIOLATION');
+      if (!Array.isArray(data.capabilityChains) || data.capabilityChains.length > 32)
+        throw new Error('CAPABILITY_VIOLATION');
       for (const chain of data.capabilityChains) verifyCapabilityChain(chain, capabilityContext);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       this.rememberChains(m.taskId, data.capabilityChains, capabilityContext);
@@ -1560,84 +2163,173 @@ export class WorkerNode {
       validateManifest(m);
       validateContextGrantUse(m, data.input, this.protocol.now());
       if (!validateOutput(m.io.inputSchema, data.input)) throw new Error('INVALID_PROPOSAL');
-      if (this.options.executionTimeoutMs !== undefined && m.budget.maxWallClockSeconds * 1000 > this.options.executionTimeoutMs)
-        throw diagnosticError('INCOMPATIBLE_TIMEOUTS', 'budget.maxWallClockSeconds',
-          this.options.executionTimeoutMs / 1000, m.budget.maxWallClockSeconds,
-          'Reduce the execution budget or raise the worker execution timeout before accepting.');
-      if (this.options.taskTimeoutMs !== undefined && m.budget.maxWallClockSeconds * 1000 > this.options.taskTimeoutMs)
-        throw diagnosticError('INCOMPATIBLE_TIMEOUTS', 'budget.maxWallClockSeconds',
-          this.options.taskTimeoutMs / 1000, m.budget.maxWallClockSeconds,
-          'Reduce the execution budget or raise the worker overall task timeout before accepting.');
-      if (data.peerIdleTimeoutMs !== undefined &&
-          (!Number.isSafeInteger(data.peerIdleTimeoutMs) || data.peerIdleTimeoutMs < 1 ||
-            (this.options.heartbeatIntervalMs ?? 15_000) >= data.peerIdleTimeoutMs))
-        throw diagnosticError('INCOMPATIBLE_TIMEOUTS', 'peerIdleTimeoutMs',
-          { greaterThan: this.options.heartbeatIntervalMs ?? 15_000 }, data.peerIdleTimeoutMs,
-          'Raise the requester idle timeout or shorten the worker heartbeat interval before accepting.');
+      if (
+        this.options.executionTimeoutMs !== undefined &&
+        m.budget.maxWallClockSeconds * 1000 > this.options.executionTimeoutMs
+      )
+        throw diagnosticError(
+          'INCOMPATIBLE_TIMEOUTS',
+          'budget.maxWallClockSeconds',
+          this.options.executionTimeoutMs / 1000,
+          m.budget.maxWallClockSeconds,
+          'Reduce the execution budget or raise the worker execution timeout before accepting.',
+        );
+      if (
+        this.options.taskTimeoutMs !== undefined &&
+        m.budget.maxWallClockSeconds * 1000 > this.options.taskTimeoutMs
+      )
+        throw diagnosticError(
+          'INCOMPATIBLE_TIMEOUTS',
+          'budget.maxWallClockSeconds',
+          this.options.taskTimeoutMs / 1000,
+          m.budget.maxWallClockSeconds,
+          'Reduce the execution budget or raise the worker overall task timeout before accepting.',
+        );
+      if (
+        data.peerIdleTimeoutMs !== undefined &&
+        (!Number.isSafeInteger(data.peerIdleTimeoutMs) ||
+          data.peerIdleTimeoutMs < 1 ||
+          (this.options.heartbeatIntervalMs ?? 15_000) >= data.peerIdleTimeoutMs)
+      )
+        throw diagnosticError(
+          'INCOMPATIBLE_TIMEOUTS',
+          'peerIdleTimeoutMs',
+          { greaterThan: this.options.heartbeatIntervalMs ?? 15_000 },
+          data.peerIdleTimeoutMs,
+          'Raise the requester idle timeout or shorten the worker heartbeat interval before accepting.',
+        );
       // Validate capability scope before the admission queue or an owner prompt.
       const scopedTools = new Set<string>();
       for (const chain of data.capabilityChains) {
         const leaf = verifyCapabilityChain(chain, capabilityContext).payload;
-        const grant = m.permissions.grantedCapabilities.find(g => g.resource === leaf.resource &&
-          leaf.allowedTools.every(t => g.allowedTools.includes(t)) && leaf.maxCalls <= g.maxInvocations &&
-          Date.parse(leaf.expiresAt) <= Date.parse(g.expiresAt));
-        if (!grant || leaf.maxDepth > m.permissions.maxDelegationDepth || leaf.allowedTools.some(t =>
-          scopedTools.has(t) || !schemaNarrows(leaf.argConstraints[t], grant.argConstraints ?? { type: 'object' })))
+        const grant = m.permissions.grantedCapabilities.find(
+          (g) =>
+            g.resource === leaf.resource &&
+            leaf.allowedTools.every((t) => g.allowedTools.includes(t)) &&
+            leaf.maxCalls <= g.maxInvocations &&
+            Date.parse(leaf.expiresAt) <= Date.parse(g.expiresAt),
+        );
+        if (
+          !grant ||
+          leaf.maxDepth > m.permissions.maxDelegationDepth ||
+          leaf.allowedTools.some(
+            (t) =>
+              scopedTools.has(t) ||
+              !schemaNarrows(leaf.argConstraints[t], grant.argConstraints ?? { type: 'object' }),
+          )
+        )
           throw new Error('CAPABILITY_VIOLATION');
-        leaf.allowedTools.forEach(t => scopedTools.add(t));
+        leaf.allowedTools.forEach((t) => scopedTools.add(t));
       }
-      if (this.options.requireConnection && (m.protocolVersion !== '0.2.0' || this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected'))
+      if (
+        this.options.requireConnection &&
+        (m.protocolVersion !== '0.2.0' ||
+          this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected')
+      )
         throw new Error('CONNECTION_REQUIRED');
       const proposalDigest = digest({ manifest: m, input: data.input });
       if (data.connectionRequest) {
         if (m.protocolVersion !== '0.2.0') throw new Error('INVALID_CONNECTION_REQUEST');
         this.connections.service.validateRequest(data.connectionRequest);
         const frame = openConnectionFrame(data.connectionRequest, this.options.owner);
-        if (frame.event.payload.type !== 'ConnectionRequest' || frame.event.payload.fromOwnerDid !== m.requester.ownerDid ||
-            frame.event.payload.originProposalDigest !== proposalDigest) throw new Error('INVALID_CONNECTION_REQUEST');
+        if (
+          frame.event.payload.type !== 'ConnectionRequest' ||
+          frame.event.payload.fromOwnerDid !== m.requester.ownerDid ||
+          frame.event.payload.originProposalDigest !== proposalDigest
+        )
+          throw new Error('INVALID_CONNECTION_REQUEST');
       }
-      const previouslyPending = this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest);
+      const previouslyPending = this.intakeStore.pendingTask(
+        m.requester.ownerDid,
+        m.taskId,
+        proposalDigest,
+      );
       let inspection: HeldSummary | undefined;
       this.deliveryService?.recipientStatus.begin(first.payload.envelopeId);
       // Persist the immutable ciphertext before any connection mutation or owner acknowledgement.
-      if (admissionAcceptance !== undefined || this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted') {
+      if (
+        admissionAcceptance !== undefined ||
+        this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted'
+      ) {
         inspection = await this.holdTask(first, m, data.input);
       }
       // All identity, schema, scope, capability and host checks precede durable consent.
       let inviteIneligible = false;
       if (data.inviteToken) {
-        const invite = parseAndVerifyInviteToken(data.inviteToken, this.protocol.now(), { allowPrivateRelay: true });
-        const outcome = this.connectionStore.redeemTaskInvite(invite, { peerOwnerDid: m.requester.ownerDid,
-          peerAgentDid: m.requester.agentDid, ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
-          relayUrl: this.agentCard.payload.relayEndpoint },
-          connectionIdFor(this.options.owner.did, m.requester.ownerDid));
+        const invite = parseAndVerifyInviteToken(data.inviteToken, this.protocol.now(), {
+          allowPrivateRelay: true,
+        });
+        const outcome = this.connectionStore.redeemTaskInvite(
+          invite,
+          {
+            peerOwnerDid: m.requester.ownerDid,
+            peerAgentDid: m.requester.agentDid,
+            ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+            relayUrl: this.agentCard.payload.relayEndpoint,
+          },
+          connectionIdFor(this.options.owner.did, m.requester.ownerDid),
+        );
         inviteIneligible = outcome === 'other' || outcome === 'inactive';
-        if (outcome === 'first') this.options.onConnectionEvent?.({ event: 'connected', peerOwnerDid: m.requester.ownerDid,
-          peerAgentDid: m.requester.agentDid, connectionId: connectionIdFor(this.options.owner.did, m.requester.ownerDid),
-          source: 'invite', connectedAt: this.protocol.now() });
+        if (outcome === 'first')
+          this.options.onConnectionEvent?.({
+            event: 'connected',
+            peerOwnerDid: m.requester.ownerDid,
+            peerAgentDid: m.requester.agentDid,
+            connectionId: connectionIdFor(this.options.owner.did, m.requester.ownerDid),
+            source: 'invite',
+            connectedAt: this.protocol.now(),
+          });
       }
       if (data.connectionRequest) await this.connections.consume(data.connectionRequest);
       const automaticAdmission = () => {
         // Audience, peer override and work policy share one fresh validated snapshot.
-        const connection = this.connectionStore.listConnections().find(c => c.peerOwnerDid === m.requester.ownerDid);
-        const acceptance = connection && 'acceptance' in connection ? connection.acceptance : undefined;
-        return { acceptance, policy: connectionAutoAccept(this.autoAccept, acceptance), context: {
-          manifest: m, signal: attemptSignal,
-          connected: m.protocolVersion === '0.2.0' && connection?.state === 'connected',
-          invited: !inviteIneligible && connection?.state === 'connected' && 'source' in connection && connection.source === 'invite',
-          adapter: this.options.adapter,
-          tools: this.options.tools ?? (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> }).tools ?? {},
-        } };
+        const connection = this.connectionStore
+          .listConnections()
+          .find((c) => c.peerOwnerDid === m.requester.ownerDid);
+        const acceptance =
+          connection && 'acceptance' in connection ? connection.acceptance : undefined;
+        return {
+          acceptance,
+          policy: connectionAutoAccept(this.autoAccept, acceptance),
+          context: {
+            manifest: m,
+            signal: attemptSignal,
+            connected: m.protocolVersion === '0.2.0' && connection?.state === 'connected',
+            invited:
+              !inviteIneligible &&
+              connection?.state === 'connected' &&
+              'source' in connection &&
+              connection.source === 'invite',
+            adapter: this.options.adapter,
+            tools:
+              this.options.tools ??
+              (this.options.adapter as AgentAdapter & { tools?: Record<string, ToolDefinition> })
+                .tools ??
+              {},
+          },
+        };
       };
       const admission = automaticAdmission();
-      const peerTrust = inviteIneligible ? 'unknown' : admission.acceptance !== undefined
-        ? m.protocolVersion === '0.2.0' ? 'limited' : 'unknown' : this.trust(m.requester.ownerDid, m.protocolVersion);
-      const automatic = automaticAuditEnabled && !previouslyPending && !inviteIneligible &&
-        await abortable(matchesAutoAccept(admission.policy, admission.context, this.options.autoAcceptStateGuard), attemptSignal);
+      const peerTrust = inviteIneligible
+        ? 'unknown'
+        : admission.acceptance !== undefined
+          ? m.protocolVersion === '0.2.0'
+            ? 'limited'
+            : 'unknown'
+          : this.trust(m.requester.ownerDid, m.protocolVersion);
+      const automatic =
+        automaticAuditEnabled &&
+        !previouslyPending &&
+        !inviteIneligible &&
+        (await abortable(
+          matchesAutoAccept(admission.policy, admission.context, this.options.autoAcceptStateGuard),
+          attemptSignal,
+        ));
       // Host-owned preflight precedes counters, owner approval, and provider calls.
       const sizeLimits: PreCallSizeLimits = {};
       for (const key of ['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles'] as const)
-        if (this.autoAccept.limits[key] !== undefined) sizeLimits[key] = this.autoAccept.limits[key];
+        if (this.autoAccept.limits[key] !== undefined)
+          sizeLimits[key] = this.autoAccept.limits[key];
       let sizeCode = 'INPUT_SIZE_OK';
       let inputSize: ReturnType<typeof checkInputSize> | undefined;
       try {
@@ -1647,93 +2339,188 @@ export class WorkerNode {
         }
         this.options.adapter.validateInput?.(m, data.input);
       } catch (error) {
-        sizeCode = error instanceof Error && ['INPUT_SIZE_LIMIT_REACHED', 'INPUT_BUDGET_EXCEEDED'].includes(error.message)
-          ? error.message : 'INPUT_SIZE_UNAVAILABLE';
+        sizeCode =
+          error instanceof Error &&
+          ['INPUT_SIZE_LIMIT_REACHED', 'INPUT_BUDGET_EXCEEDED'].includes(error.message)
+            ? error.message
+            : 'INPUT_SIZE_UNAVAILABLE';
       }
       if (sizeCode !== 'INPUT_SIZE_OK') {
         // Only refusals write signed records; successful work has no size-audit dependency.
         // These records contain counts, never the input or peer prose.
         try {
-          const directory = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)), 'pre-call-audit');
+          const directory = join(
+            dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+            'pre-call-audit',
+          );
           privateDirectory(directory, autoAcceptFs);
           const file = join(directory, digest(m.taskId).slice(7) + '.' + randomUUID() + '.json');
-          const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
-            (constants.O_NOFOLLOW ?? 0), 0o600);
+          const fd = openSync(
+            file,
+            constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+            0o600,
+          );
           try {
-            autoAcceptFs.writeFileSync(fd, JSON.stringify(signPayload({ version: 1, event: 'input_size_check',
-              taskId: m.taskId, requesterDid: m.requester.ownerDid, at: new Date(this.protocol.now()).toISOString(),
-              code: sizeCode, limits: sizeLimits, ...(inputSize ? { size: inputSize } : {}) }, this.options.owner)) + '\n');
+            autoAcceptFs.writeFileSync(
+              fd,
+              JSON.stringify(
+                signPayload(
+                  {
+                    version: 1,
+                    event: 'input_size_check',
+                    taskId: m.taskId,
+                    requesterDid: m.requester.ownerDid,
+                    at: new Date(this.protocol.now()).toISOString(),
+                    code: sizeCode,
+                    limits: sizeLimits,
+                    ...(inputSize ? { size: inputSize } : {}),
+                  },
+                  this.options.owner,
+                ),
+              ) + '\n',
+            );
             fsyncSync(fd);
-          } finally { closeSync(fd); }
-        } catch { throw new Error('INPUT_SIZE_UNAVAILABLE'); }
-        throw new PreCallRejectedError(sizeCode, this.autoAccept.limits.monthlyLimitMessage ?? 'standard');
+          } finally {
+            closeSync(fd);
+          }
+        } catch {
+          throw new Error('INPUT_SIZE_UNAVAILABLE');
+        }
+        throw new PreCallRejectedError(
+          sizeCode,
+          this.autoAccept.limits.monthlyLimitMessage ?? 'standard',
+        );
       }
       if (this.autoAccept.limits.maxMonthlyUsd !== undefined) {
         try {
           const counter = this.monthlyCounter();
-          counter.begin(this.autoAccept.limits.maxMonthlyUsd, m.taskId, this.options.adapter.billingModel ?? '', m.budget);
+          counter.begin(
+            this.autoAccept.limits.maxMonthlyUsd,
+            m.taskId,
+            this.options.adapter.billingModel ?? '',
+            m.budget,
+          );
           monthlyCounter = counter;
-        }
-        catch (error) {
+        } catch (error) {
           this.refreshMonthlyCard();
           if (this.registered) await this.register().catch(() => {});
-          throw new AdmissionLimitError(error instanceof Error && error.message === 'MONTHLY_LIMIT_REACHED'
-            ? 'MONTHLY_LIMIT_REACHED' : error instanceof Error && error.message === 'MONTHLY_MODEL_UNSUPPORTED'
-              ? 'MONTHLY_MODEL_UNSUPPORTED' : 'MONTHLY_STATE_UNAVAILABLE', monthlyResetAt(this.protocol.now()),
-            this.autoAccept.limits.monthlyLimitMessage ?? 'standard');
+          throw new AdmissionLimitError(
+            error instanceof Error && error.message === 'MONTHLY_LIMIT_REACHED'
+              ? 'MONTHLY_LIMIT_REACHED'
+              : error instanceof Error && error.message === 'MONTHLY_MODEL_UNSUPPORTED'
+                ? 'MONTHLY_MODEL_UNSUPPORTED'
+                : 'MONTHLY_STATE_UNAVAILABLE',
+            monthlyResetAt(this.protocol.now()),
+            this.autoAccept.limits.monthlyLimitMessage ?? 'standard',
+          );
         }
       }
       // Reserve before issuing approval. State failures and exhaustion must never
       // fall through to human/legacy policy acceptance of this automatic attempt.
       if (automatic && this.autoAccept.limits.maxTasksPerDayPerDid !== undefined) {
-        const path = join(dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
-          'auto-accept-daily', digest(m.requester.ownerDid).slice(7) + '.json');
+        const path = join(
+          dirname(workerIntakePath(this.options.owner.did, this.options.identityOptions)),
+          'auto-accept-daily',
+          digest(m.requester.ownerDid).slice(7) + '.json',
+        );
         try {
-          consumeDailyTask(path, this.autoAccept.limits.maxTasksPerDayPerDid, m.taskId, this.protocol.now());
+          consumeDailyTask(
+            path,
+            this.autoAccept.limits.maxTasksPerDayPerDid,
+            m.taskId,
+            this.protocol.now(),
+          );
         } catch (error) {
           if (error instanceof Error && error.message === 'DAILY_TASK_REPLAY')
             throw new ProposalRejectedError(
-              'This task ID already reserved a daily slot. Submit a new task ID. このタスク ID は日次枠を確保済みです。新しいタスク ID で依頼してください。', 'AUTO_ACCEPT_DAILY_TASK_REPLAY');
+              'This task ID already reserved a daily slot. Submit a new task ID. このタスク ID は日次枠を確保済みです。新しいタスク ID で依頼してください。',
+              'AUTO_ACCEPT_DAILY_TASK_REPLAY',
+            );
           if (error instanceof Error && error.message === 'DAILY_LIMIT_REACHED')
-            throw new AdmissionLimitError('AUTO_ACCEPT_DAILY_LIMIT_REACHED',
-              new Date(Math.floor(this.protocol.now() / 86400000) * 86400000 + 86400000).toISOString());
+            throw new AdmissionLimitError(
+              'AUTO_ACCEPT_DAILY_LIMIT_REACHED',
+              new Date(
+                Math.floor(this.protocol.now() / 86400000) * 86400000 + 86400000,
+              ).toISOString(),
+            );
           throw new ProposalRejectedError(
-            'Daily counting state is unavailable; task rejected. 日次の件数状態を利用できないため、依頼を拒否しました。', 'AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE');
+            'Daily counting state is unavailable; task rejected. 日次の件数状態を利用できないため、依頼を拒否しました。',
+            'AUTO_ACCEPT_DAILY_STATE_UNAVAILABLE',
+          );
         }
       }
-      const automaticProvider = automatic ? new WorkerAutoApprovalProvider(this.options.owner, admission.policy) : undefined;
-      if (this.deliveryService) await this.withDelivery(() => {
-        this.deliveryService!.recipientStatus.admit(first, m, !previouslyPending && peerTrust === 'limited', !!inspection, inspection?.receivedAt);
-      }, activeSignal);
+      const automaticProvider = automatic
+        ? new WorkerAutoApprovalProvider(this.options.owner, admission.policy)
+        : undefined;
+      if (this.deliveryService)
+        await this.withDelivery(() => {
+          this.deliveryService!.recipientStatus.admit(
+            first,
+            m,
+            !previouslyPending && peerTrust === 'limited',
+            !!inspection,
+            inspection?.receivedAt,
+          );
+        }, activeSignal);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
-      if (previouslyPending && peerTrust === 'trusted') throw new PendingTaskError('This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
+      if (previouslyPending && peerTrust === 'trusted')
+        throw new PendingTaskError(
+          'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.',
+        );
       if (!automatic && peerTrust !== 'trusted') {
         inspection ??= await this.holdTask(first, m, data.input);
-        if (previouslyPending || peerTrust === 'unknown' || this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
-            inspection.inspectionStatus !== 'complete') {
+        if (
+          previouslyPending ||
+          peerTrust === 'unknown' ||
+          this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
+          inspection.inspectionStatus !== 'complete'
+        ) {
           this.intakeStore.enqueue(m, data.input);
           if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
             const receivedAt = this.protocol.now();
-            try { this.connectionStore.recordIncoming({ peerOwnerDid: m.requester.ownerDid, peerAgentDid: m.requester.agentDid,
-              ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
-              relayUrl: this.agentCard.payload.relayEndpoint, incoming: { requestId: m.taskId, requestDigest: proposalDigest,
-                receivedAt, expiresAt: receivedAt + 14 * 86400000 } }); }
-            catch (error) { if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN') throw error; }
+            try {
+              this.connectionStore.recordIncoming({
+                peerOwnerDid: m.requester.ownerDid,
+                peerAgentDid: m.requester.agentDid,
+                ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+                relayUrl: this.agentCard.payload.relayEndpoint,
+                incoming: {
+                  requestId: m.taskId,
+                  requestDigest: proposalDigest,
+                  receivedAt,
+                  expiresAt: receivedAt + 14 * 86400000,
+                },
+              });
+            } catch (error) {
+              if (!(error instanceof Error) || error.message !== 'CONNECTION_REQUEST_COOLDOWN')
+                throw error;
+            }
           }
-          throw new PendingTaskError(inspection.inspectionStatus !== 'complete'
-            ? 'Task inspection is incomplete. Use tasks list/show, then explicitly submit a fresh task to an interactive worker for live owner approval. Connection consent is separate. Do not retry automatically.'
-            : peerTrust === 'unknown' && this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected'
-              ? 'Connection consent is missing. Check connections review list or the invitation flow. A fresh task still needs inspection and live owner approval. Do not retry automatically.'
-              : 'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.');
+          throw new PendingTaskError(
+            inspection.inspectionStatus !== 'complete'
+              ? 'Task inspection is incomplete. Use tasks list/show, then explicitly submit a fresh task to an interactive worker for live owner approval. Connection consent is separate. Do not retry automatically.'
+              : peerTrust === 'unknown' &&
+                  this.connectionStore.connectionState(m.requester.ownerDid) !== 'connected'
+                ? 'Connection consent is missing. Check connections review list or the invitation flow. A fresh task still needs inspection and live owner approval. Do not retry automatically.'
+                : 'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.',
+          );
         }
       }
-      const contractProvider = automaticProvider ?? (peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider);
-      if (!contractProvider || !automatic && peerTrust === 'limited' && (contractProvider.kind === 'policy' ||
-          contractProvider === this.approvalProvider && contractProvider.kind !== 'human'))
+      const contractProvider =
+        automaticProvider ??
+        (peerTrust === 'limited' ? this.options.ownerApprovalProvider : this.approvalProvider);
+      if (
+        !contractProvider ||
+        (!automatic &&
+          peerTrust === 'limited' &&
+          (contractProvider.kind === 'policy' ||
+            (contractProvider === this.approvalProvider && contractProvider.kind !== 'human')))
+      )
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       if (!automatic && contractProvider.kind === 'policy')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
-      if (m.contextGrant?.deliveryMode === 'approval_redelegation') requireOwnerDecision(contractProvider);
+      if (m.contextGrant?.deliveryMode === 'approval_redelegation')
+        requireOwnerDecision(contractProvider);
       await wire.receiveEvent('PROPOSE', first);
       proposalAudited = true;
       await wire.contextEvent('CONTEXT_GRANT');
@@ -1741,31 +2528,44 @@ export class WorkerNode {
       heldRecordId = inspection?.id;
       setAuditStage('OWNER_APPROVAL');
       const contract = createContract(m, data.proposal, this.options.owner);
-      const openingStarted = m.contextGrant?.deliveryMode === 'approval_redelegation' ? Date.now() : 0;
-      const approval = await abortable(contractProvider.approve({
-        taskId: m.taskId,
-        gate: 'contract_acceptance',
-        target: contract.contractDigest,
-        details: {
-          manifest: m.contextGrant?.deliveryMode === 'approval_redelegation' ? structuredClone(m) : m,
-          input: m.contextGrant?.deliveryMode === 'approval_redelegation' ? structuredClone(data.input) : data.input,
-          capabilities: data.capabilityChains,
-          ...(inspection ? { inspection } : {}),
-          from: first.payload.senderDid,
-        },
-        signal: attemptSignal,
-      }), attemptSignal);
-      if (m.contextGrant?.deliveryMode === 'approval_redelegation') assertFreshDecision(approval, openingStarted);
+      const openingStarted =
+        m.contextGrant?.deliveryMode === 'approval_redelegation' ? Date.now() : 0;
+      const approval = await abortable(
+        contractProvider.approve({
+          taskId: m.taskId,
+          gate: 'contract_acceptance',
+          target: contract.contractDigest,
+          details: {
+            manifest:
+              m.contextGrant?.deliveryMode === 'approval_redelegation' ? structuredClone(m) : m,
+            input:
+              m.contextGrant?.deliveryMode === 'approval_redelegation'
+                ? structuredClone(data.input)
+                : data.input,
+            capabilities: data.capabilityChains,
+            ...(inspection ? { inspection } : {}),
+            from: first.payload.senderDid,
+          },
+          signal: attemptSignal,
+        }),
+        attemptSignal,
+      );
+      if (m.contextGrant?.deliveryMode === 'approval_redelegation')
+        assertFreshDecision(approval, openingStarted);
       setAuditStage('OUT_OF_SCOPE');
       if (automatic) {
         const current = automaticAdmission();
-        if (!await matchesAutoAccept(current.policy, current.context)) throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
+        if (!(await matchesAutoAccept(current.policy, current.context)))
+          throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       }
       if (!automatic && this.trust(m.requester.ownerDid, m.protocolVersion) === 'unknown')
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       this.assertPeer(m.requester.ownerDid);
-      if (peerTrust === 'trusted' && this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted')
+      if (
+        peerTrust === 'trusted' &&
+        this.trust(m.requester.ownerDid, m.protocolVersion) !== 'trusted'
+      )
         throw new Error('APPROVAL_CHANNEL_UNAVAILABLE');
       gateway = new OwnerGateway(this.options.owner, contract, policy, this.revocation);
       const accepted = gateway.accept(approval);
@@ -1773,27 +2573,37 @@ export class WorkerNode {
       validateContextGrantUse(m, data.input, this.protocol.now());
       await wire.contextEvent('CONTEXT_OPENED');
       this.acceptedPeers.set(m.taskId, m.requester.ownerDid);
-      saveCheckpoint({ phase: 'accepted', ...(m.contextGrant?.deliveryMode === 'approval_redelegation'
-        ? { delegation: { parentContract: contract, attempts: [] } } : {}) });
+      saveCheckpoint({
+        phase: 'accepted',
+        ...(m.contextGrant?.deliveryMode === 'approval_redelegation'
+          ? { delegation: { parentContract: contract, attempts: [] } }
+          : {}),
+      });
       if (inspection?.inspectionStatus === 'complete' && this.deliveryService)
-        await this.withDelivery(() => { this.deliveryService!.recipientStatus.observe(first.payload.envelopeId, 'opened'); }, activeSignal);
+        await this.withDelivery(() => {
+          this.deliveryService!.recipientStatus.observe(first.payload.envelopeId, 'opened');
+        }, activeSignal);
       if (this.options.dailyLimit)
         consumeDailyTask(this.options.dailyLimit.path, this.options.dailyLimit.maxTasks, m.taskId);
       if (this.options.inboxPath) {
-        const record = JSON.stringify({
-          envelopeId: first.payload.envelopeId,
-          receivedAt: new Date().toISOString(),
-          taskId: m.taskId,
-          requesterOwnerDid: m.requester.ownerDid,
-          requesterAgentDid: m.requester.agentDid,
-          title: m.task.title,
-          description: m.task.description,
-          input: data.input,
-        }) + '\n';
+        const record =
+          JSON.stringify({
+            envelopeId: first.payload.envelopeId,
+            receivedAt: new Date().toISOString(),
+            taskId: m.taskId,
+            requesterOwnerDid: m.requester.ownerDid,
+            requesterAgentDid: m.requester.agentDid,
+            title: m.task.title,
+            description: m.task.description,
+            input: data.input,
+          }) + '\n';
         const fd = openSync(
           this.options.inboxPath,
-          constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND |
-            constants.O_NOFOLLOW | constants.O_NONBLOCK,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_APPEND |
+            constants.O_NOFOLLOW |
+            constants.O_NONBLOCK,
           0o600,
         );
         try {
@@ -1818,7 +2628,10 @@ export class WorkerNode {
       setAuditStage('OUT_OF_SCOPE');
       this.options.onEvent?.('ACCEPT', m.taskId);
       await wire.sendEvent('START', gateway.transition('START'));
-      heartbeat = setTimeout(() => void sendHeartbeat(), this.options.heartbeatIntervalMs ?? 15_000);
+      heartbeat = setTimeout(
+        () => void sendHeartbeat(),
+        this.options.heartbeatIntervalMs ?? 15_000,
+      );
       heartbeat.unref();
       timeouts.running();
       this.options.onEvent?.('IN_PROGRESS', m.taskId);
@@ -1908,12 +2721,16 @@ export class WorkerNode {
       };
       const managedChildren = new Set<Promise<SessionResult>>();
       let childrenClosed = false;
-      const delegationState: TaskDelegationState | undefined = m.contextGrant?.deliveryMode === 'approval_redelegation'
-        ? { parentContract: structuredClone(contract), attempts: [] } : undefined;
-      const persistChildren = () => saveCheckpoint({ delegation: structuredClone(delegationState!) });
+      const delegationState: TaskDelegationState | undefined =
+        m.contextGrant?.deliveryMode === 'approval_redelegation'
+          ? { parentContract: structuredClone(contract), attempts: [] }
+          : undefined;
+      const persistChildren = () =>
+        saveCheckpoint({ delegation: structuredClone(delegationState!) });
       const checkParent = () => {
         executionSignal.throwIfAborted();
-        if (!childHostOpen || gateway!.machine.state !== 'IN_PROGRESS' || wire.cancelHandled) throw new Error('DELEGATION_INVALID');
+        if (!childHostOpen || gateway!.machine.state !== 'IN_PROGRESS' || wire.cancelHandled)
+          throw new Error('DELEGATION_INVALID');
         this.assertPeer(m.requester.ownerDid, m.taskId);
         this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
         validateContextGrantUse(m, data.input, this.protocol.now());
@@ -1921,77 +2738,148 @@ export class WorkerNode {
       };
       const dispatchChild = async (request: ChildDelegationRequest): Promise<SessionResult> => {
         if (childrenClosed || !delegationState) throw new Error('DELEGATION_INVALID');
-        if (!request || Object.keys(request).some(k => !['to','relay','manifest','input','auditPath'].includes(k)))
+        if (
+          !request ||
+          Object.keys(request).some(
+            (k) => !['to', 'relay', 'manifest', 'input', 'auditPath'].includes(k),
+          )
+        )
           throw new Error('DELEGATION_INVALID');
-        const child = structuredClone(request.manifest), input = structuredClone(request.input);
+        const child = structuredClone(request.manifest),
+          input = structuredClone(request.input);
         if (Object.hasOwn(child, 'parentTaskId')) throw new Error('DELEGATION_INVALID');
         assertDelegationAttenuation(m, child);
-        if (child.requester.ownerDid !== this.options.owner.did || child.taskId === m.taskId ||
-            [m.requester.ownerDid, this.options.owner.did].includes(child.worker!.ownerDid) ||
-            delegationState.attempts.some(a => a.childTaskId === child.taskId)) throw new Error('DELEGATION_INVALID');
+        if (
+          child.requester.ownerDid !== this.options.owner.did ||
+          child.taskId === m.taskId ||
+          [m.requester.ownerDid, this.options.owner.did].includes(child.worker!.ownerDid) ||
+          delegationState.attempts.some((a) => a.childTaskId === child.taskId)
+        )
+          throw new Error('DELEGATION_INVALID');
         checkParent();
         validateContextGrantUse(child, input, this.protocol.now());
         const facility = this.options.redelegation!;
         requireOwnerDecision(facility.ownerApprovalProvider);
         requireOwnerDecision(facility.requester.approvalProvider);
-        if (facility.requester.options.owner.did !== this.options.owner.did) throw new Error('DELEGATION_INVALID');
+        if (facility.requester.options.owner.did !== this.options.owner.did)
+          throw new Error('DELEGATION_INVALID');
         let attempt: ChildDelegationAttempt | undefined;
-        const options: DelegateOptions = { to: request.to, relay: request.relay, manifest: child, input,
-          title: child.task.title, description: child.task.description, auditPath: request.auditPath,
-          signal: executionSignal, capabilityChains: [] };
+        const options: DelegateOptions = {
+          to: request.to,
+          relay: request.relay,
+          manifest: child,
+          input,
+          title: child.task.title,
+          description: child.task.description,
+          auditPath: request.auditPath,
+          signal: executionSignal,
+          capabilityChains: [],
+        };
         managedChildHooks.set(options, {
           prepare: async (manifest, selectedInput, peer) => {
             checkParent();
             assertDelegationAttenuation(m, manifest);
-            if (peer !== child.worker!.ownerDid || peer === m.requester.ownerDid || peer === this.options.owner.did)
+            if (
+              peer !== child.worker!.ownerDid ||
+              peer === m.requester.ownerDid ||
+              peer === this.options.owner.did
+            )
               throw new Error('DELEGATION_INVALID');
-            const values = { childManifestDigest: digest(manifest), childInputDigest: digest(selectedInput), delegateeOwnerDid: peer };
-            const target = redelegationTarget(contract, values), started = Date.now();
-            const receipt = await abortable(facility.ownerApprovalProvider.approve({ taskId: m.taskId, gate: 'redelegation',
-              target: structuredClone(target), details: { parentManifest: structuredClone(m), childManifest: structuredClone(manifest),
-                input: structuredClone(selectedInput), delegateeOwnerDid: peer, depthRemaining: 0,
-                disclosure: 'The root owner receives the complete signed parent and child contracts, including declarations and owner DIDs. Confirm this input, angle and task serve the parent purpose.' },
-              signal: executionSignal, deadline: m.deadline }), executionSignal);
+            const values = {
+              childManifestDigest: digest(manifest),
+              childInputDigest: digest(selectedInput),
+              delegateeOwnerDid: peer,
+            };
+            const target = redelegationTarget(contract, values),
+              started = Date.now();
+            const receipt = await abortable(
+              facility.ownerApprovalProvider.approve({
+                taskId: m.taskId,
+                gate: 'redelegation',
+                target: structuredClone(target),
+                details: {
+                  parentManifest: structuredClone(m),
+                  childManifest: structuredClone(manifest),
+                  input: structuredClone(selectedInput),
+                  delegateeOwnerDid: peer,
+                  depthRemaining: 0,
+                  disclosure:
+                    'The root owner receives the complete signed parent and child contracts, including declarations and owner DIDs. Confirm this input, angle and task serve the parent purpose.',
+                },
+                signal: executionSignal,
+                deadline: m.deadline,
+              }),
+              executionSignal,
+            );
             checkParent();
             validateContextGrantUse(manifest, selectedInput, this.protocol.now());
             assertFreshDecision(receipt, started);
             gateway!.approvals.require(m.taskId, 'redelegation', target, receipt);
-            if (delegationState.attempts.some(a => a.childTaskId === child.taskId)) throw new Error('DELEGATION_INVALID');
-            attempt = { childTaskId: child.taskId, ...values, approval: receipt, status: 'approved' };
+            if (delegationState.attempts.some((a) => a.childTaskId === child.taskId))
+              throw new Error('DELEGATION_INVALID');
+            attempt = {
+              childTaskId: child.taskId,
+              ...values,
+              approval: receipt,
+              status: 'approved',
+            };
             delegationState.attempts.push(attempt);
             persistChildren();
           },
           beforeTransmit: (manifest, selectedInput) => {
             checkParent();
             validateContextGrantUse(manifest, selectedInput, this.protocol.now());
-            if (!attempt || digest(manifest) !== attempt.childManifestDigest || digest(selectedInput) !== attempt.childInputDigest ||
-                !verifyApproval(attempt.approval, this.options.owner.did, m.taskId, 'redelegation', redelegationTarget(contract, attempt)))
+            if (
+              !attempt ||
+              digest(manifest) !== attempt.childManifestDigest ||
+              digest(selectedInput) !== attempt.childInputDigest ||
+              !verifyApproval(
+                attempt.approval,
+                this.options.owner.did,
+                m.taskId,
+                'redelegation',
+                redelegationTarget(contract, attempt),
+              )
+            )
               throw new Error('DELEGATION_APPROVAL_REQUIRED');
-            attempt.status = 'dispatching'; persistChildren();
+            attempt.status = 'dispatching';
+            persistChildren();
           },
-          onAcceptedContract: acceptedChild => {
+          onAcceptedContract: (acceptedChild) => {
             if (!attempt) throw new Error('DELEGATION_INVALID');
             // Keep uncertainty durable if signing or publication fails after authenticated ACCEPT.
-            attempt.status = 'unresolved'; persistChildren();
+            attempt.status = 'unresolved';
+            persistChildren();
             checkParent();
-            const link = createDelegationLink({ parentContract: contract, childContract: acceptedChild }, this.options.owner);
+            const link = createDelegationLink(
+              { parentContract: contract, childContract: acceptedChild },
+              this.options.owner,
+            );
             attempt.proof = { link, childContract: structuredClone(acceptedChild) };
-            attempt.status = 'accepted'; persistChildren();
+            attempt.status = 'accepted';
+            persistChildren();
           },
         });
         try {
           const result = await facility.requester.delegate(options);
           if (!attempt?.proof || result.state !== 'SETTLED') throw new Error('DELEGATION_INVALID');
-          attempt.status = 'completed'; persistChildren();
+          attempt.status = 'completed';
+          persistChildren();
           return result;
         } catch (error) {
           if (attempt) {
-            attempt.status = attempt.proof || attempt.status === 'approved' || error instanceof PeerRejectedError && attempt.status !== 'unresolved'
-              ? 'failed' : 'unresolved';
+            attempt.status =
+              attempt.proof ||
+              attempt.status === 'approved' ||
+              (error instanceof PeerRejectedError && attempt.status !== 'unresolved')
+                ? 'failed'
+                : 'unresolved';
             persistChildren();
           }
           throw error;
-        } finally { managedChildHooks.delete(options); }
+        } finally {
+          managedChildHooks.delete(options);
+        }
       };
       const context: AgentTaskContext = {
         preCallSizeLimits: sizeLimits,
@@ -2076,46 +2964,60 @@ export class WorkerNode {
                 })
               : undefined;
           executionSignal.throwIfAborted();
-          const invocation = { id: m.taskId + ':' + invocationCount++, tool,
-            argsDigest: digest(args), completed: false };
+          const invocation = {
+            id: m.taskId + ':' + invocationCount++,
+            tool,
+            argsDigest: digest(args),
+            completed: false,
+          };
           saveCheckpoint({ invocations: [...(checkpoint?.invocations ?? []), invocation] });
           const result = asJson(await proxies[index].callTool(tool, args, approval));
           // A backend may finish after cancellation. Leave its uncertain result for inspection.
           if (!executionSignal.aborted)
-            saveCheckpoint({ invocations: (checkpoint?.invocations ?? []).map((call) =>
-              call.id === invocation.id ? { ...call, completed: true } : call) });
+            saveCheckpoint({
+              invocations: (checkpoint?.invocations ?? []).map((call) =>
+                call.id === invocation.id ? { ...call, completed: true } : call,
+              ),
+            });
           return result;
         },
       };
-      if (delegationState) context.redelegate = request => {
-        const operation = dispatchChild(request);
-        managedChildren.add(operation);
-        void operation.finally(() => managedChildren.delete(operation)).catch(() => {});
-        return operation;
-      };
+      if (delegationState)
+        context.redelegate = (request) => {
+          const operation = dispatchChild(request);
+          managedChildren.add(operation);
+          void operation.finally(() => managedChildren.delete(operation)).catch(() => {});
+          return operation;
+        };
       this.assertPeer(m.requester.ownerDid, m.taskId);
       this.assertCapabilitiesActive(data.capabilityChains, capabilityContext);
       validateContextGrantUse(m, data.input, this.protocol.now());
-      if (this.deliveryService) await this.withDelivery(() => {
-        this.deliveryService!.recipientStatus.handoff(first, m);
-      }, executionSignal);
+      if (this.deliveryService)
+        await this.withDelivery(() => {
+          this.deliveryService!.recipientStatus.handoff(first, m);
+        }, executionSignal);
       let accountingFailure: unknown;
       const counter = monthlyCounter;
       const model = this.options.adapter.billingModel ?? '';
       const originalReport = context.reportUsage;
       if (counter) {
-        context.reportUsage = delta => {
+        context.reportUsage = (delta) => {
           try {
             if (delta.inputTokens !== undefined || delta.outputTokens !== undefined) {
               counter.usage(m.taskId, model, delta.inputTokens ?? 0, delta.outputTokens ?? 0);
             }
-          } catch (error) { accountingFailure ??= error; }
+          } catch (error) {
+            accountingFailure ??= error;
+          }
           originalReport(delta);
         };
       }
       let execution: Awaited<ReturnType<typeof executionBackend.execute>>;
       try {
-        execution = await abortable(executionBackend.execute(this.options.adapter, context), executionSignal);
+        execution = await abortable(
+          executionBackend.execute(this.options.adapter, context),
+          executionSignal,
+        );
         if (accountingFailure) throw accountingFailure;
       } finally {
         if (counter) {
@@ -2127,7 +3029,8 @@ export class WorkerNode {
       }
       const output = execution.output;
       childrenClosed = true;
-      if (delegationState) await abortable(Promise.allSettled([...managedChildren]), executionSignal);
+      if (delegationState)
+        await abortable(Promise.allSettled([...managedChildren]), executionSignal);
       const delegation = delegationState ? assembleDelegation(delegationState) : undefined;
       if (!this.options.inboxPath) await acknowledgeProposal(executionSignal);
       // A task may return while a queued progress update is still waiting for its ACK.
@@ -2166,7 +3069,10 @@ export class WorkerNode {
       const settled = await wire.receiveEvent('SETTLED');
       gateway.machine.apply(settled.payload.payload as unknown as Signed<Transition>);
       const bundle = await wire.finishWorker((sealed) => {
-        saveOutcome({ code: 'TASK_SETTLED', result: { taskId: m.taskId, state: 'SETTLED', deliverable: output, bundle: sealed } });
+        saveOutcome({
+          code: 'TASK_SETTLED',
+          result: { taskId: m.taskId, state: 'SETTLED', deliverable: output, bundle: sealed },
+        });
       });
       saveCheckpoint({ notificationPending: false });
       this.options.onEvent?.('SETTLED', m.taskId);
@@ -2175,7 +3081,9 @@ export class WorkerNode {
       childHostOpen = false;
       if (checkpoint?.outcome?.result) {
         // The bilateral checkpoint is already durable even if its final relay send failed.
-        await this.notifyOutcome(checkpoint).then(() => saveCheckpoint({ notificationPending: false })).catch(() => {});
+        await this.notifyOutcome(checkpoint)
+          .then(() => saveCheckpoint({ notificationPending: false }))
+          .catch(() => {});
         return checkpoint.outcome.result;
       }
       if (
@@ -2190,7 +3098,10 @@ export class WorkerNode {
             throw new Error('INVALID_CANCEL');
           if (gateway.machine.state !== 'CANCELLED') gateway.machine.apply(body.transition);
           const bundle = await wire.finishWorker((sealed) => {
-            saveOutcome({ code: 'TASK_CANCELLED', result: { taskId: m.taskId, state: 'CANCELLED', deliverable: null, bundle: sealed } });
+            saveOutcome({
+              code: 'TASK_CANCELLED',
+              result: { taskId: m.taskId, state: 'CANCELLED', deliverable: null, bundle: sealed },
+            });
           });
           saveCheckpoint({ notificationPending: false });
           this.options.onEvent?.('CANCELLED', m.taskId);
@@ -2201,48 +3112,87 @@ export class WorkerNode {
         }
       }
       await progressTail;
-      const heldAttemptClosed = heldClose.signal.aborted &&
+      const heldAttemptClosed =
+        heldClose.signal.aborted &&
         (auditStage === 'OWNER_APPROVAL' || auditStage === 'ACCEPT_ACK_WAIT');
       preserveWorkspace = activeSignal.aborted || idleSignal.aborted || heldAttemptClosed;
-      const timeoutReason = activeSignal.reason instanceof Error ? activeSignal.reason.message : activeSignal.reason;
-      const interruptionReason = idleSignal.aborted ? 'WORKER_STOPPED' :
-        activeSignal.aborted && ['TASK_TIMEOUT', 'PEER_WAIT_TIMEOUT'].includes(String(timeoutReason)) ? 'SESSION_TIMEOUT' :
-        heldAttemptClosed ? 'HELD_ATTEMPT_CLOSED' : undefined;
+      const timeoutReason =
+        activeSignal.reason instanceof Error ? activeSignal.reason.message : activeSignal.reason;
+      const interruptionReason = idleSignal.aborted
+        ? 'WORKER_STOPPED'
+        : activeSignal.aborted &&
+            ['TASK_TIMEOUT', 'PEER_WAIT_TIMEOUT'].includes(String(timeoutReason))
+          ? 'SESSION_TIMEOUT'
+          : heldAttemptClosed
+            ? 'HELD_ATTEMPT_CLOSED'
+            : undefined;
       if (interruptionReason && auditStage && auditStage !== 'OUT_OF_SCOPE' && auditPath) {
         const entries = await wire.quiesceAudit();
         try {
           // No journal is available only to embedders without persisted task checkpoints.
-          const record = checkpoint ?? { version: 1, taskId: m.taskId, requesterDid: m.requester.ownerDid,
-            envelopeId: first.payload.envelopeId, proposalDigest: digest({ manifest: m, input: data.input }),
-            phase: 'received', auditPath, auditStage, invocations: [] } as TaskCheckpoint;
-          this.closeInterruptedAudit(record, interruptionReason, entries, saved => {
+          const record =
+            checkpoint ??
+            ({
+              version: 1,
+              taskId: m.taskId,
+              requesterDid: m.requester.ownerDid,
+              envelopeId: first.payload.envelopeId,
+              proposalDigest: digest({ manifest: m, input: data.input }),
+              phase: 'received',
+              auditPath,
+              auditStage,
+              invocations: [],
+            } as TaskCheckpoint);
+          this.closeInterruptedAudit(record, interruptionReason, entries, (saved) => {
             checkpoint = saved;
             this.saveTaskCheckpoint(saved);
           });
-        } catch { this.reportInterruptionFailure(m.taskId); }
+        } catch {
+          this.reportInterruptionFailure(m.taskId);
+        }
         saveOutcome({ code: 'TASK_INTERRUPTED' });
       } else if (auditStage && !preserveWorkspace) setAuditStage('OUT_OF_SCOPE');
       if (idleSignal.aborted) throw e;
-      const diagnostic = preserveWorkspace ? { code: 'TASK_INTERRUPTED' } : rejectionBody(progressFailure ?? e, !!m.contextGrant);
+      const diagnostic = preserveWorkspace
+        ? { code: 'TASK_INTERRUPTED' }
+        : rejectionBody(progressFailure ?? e, !!m.contextGrant);
       // Record the terminal code and tell the owner before any outbox write. A busy
       // receipt or held-review close must not skip the requester's terminal ERROR.
-      try { saveCheckpoint({ phase: 'terminal', outcome: diagnostic, notificationPending: true }); } catch { /* The event below still names the code. */ }
+      try {
+        saveCheckpoint({ phase: 'terminal', outcome: diagnostic, notificationPending: true });
+      } catch {
+        /* The event below still names the code. */
+      }
       if (diagnostic.code === 'TASK_INTERRUPTED') {
-        this.options.onEvent?.('INTERRUPTED', m.taskId, { ...diagnostic,
-          ...(auditStage && auditStage !== 'OUT_OF_SCOPE' ? { phase: auditStage } : {}) });
+        this.options.onEvent?.('INTERRUPTED', m.taskId, {
+          ...diagnostic,
+          ...(auditStage && auditStage !== 'OUT_OF_SCOPE' ? { phase: auditStage } : {}),
+        });
       } else this.reportRejection(m.taskId, progressFailure ?? e, !!m.contextGrant);
       this.deliveryService?.recipientStatus.end(first.payload.envelopeId);
       if (this.deliveryService) {
         try {
           await this.withDelivery(() => {
-            this.deliveryService!.store.receipt(first, Date.parse(m.deadline), 'terminal', diagnostic.code);
+            this.deliveryService!.store.receipt(
+              first,
+              Date.parse(m.deadline),
+              'terminal',
+              diagnostic.code,
+            );
           }, activeSignal);
-        } catch { /* The checkpoint already records the outcome. */ }
+        } catch {
+          /* The checkpoint already records the outcome. */
+        }
       }
-      const refused = this.heldReview.list().find(r => r.taskId === m.taskId);
+      const refused = this.heldReview.list().find((r) => r.taskId === m.taskId);
       if (refused && diagnostic.code !== 'PENDING_OWNER_APPROVAL' && !preserveWorkspace) {
-        try { await this.withDelivery(() => { this.heldReview.discard(refused.id); }, activeSignal); }
-        catch { /* Closing the held attempt must not hide the terminal error. */ }
+        try {
+          await this.withDelivery(() => {
+            this.heldReview.discard(refused.id);
+          }, activeSignal);
+        } catch {
+          /* Closing the held attempt must not hide the terminal error. */
+        }
       }
       if (!wireFailureSent) {
         wireFailureSent = true;
@@ -2256,18 +3206,33 @@ export class WorkerNode {
           // A direct seq-0 ERROR is safe only before this wire has committed a send.
           if (!wire.hasCommittedSend) {
             try {
-              await relay.send(signEnvelope({
-                taskId: m.taskId, recipientDid: m.requester.ownerDid, seq: 0, eventType: 'ERROR',
-                payload: asJson(diagnostic),
-              }, this.options.owner, { encrypt: true }));
+              await relay.send(
+                signEnvelope(
+                  {
+                    taskId: m.taskId,
+                    recipientDid: m.requester.ownerDid,
+                    seq: 0,
+                    eventType: 'ERROR',
+                    payload: asJson(diagnostic),
+                  },
+                  this.options.owner,
+                  { encrypt: true },
+                ),
+              );
               delivered = true;
-            } catch { /* The requester still has its own deadline. */ }
+            } catch {
+              /* The requester still has its own deadline. */
+            }
           }
         }
         if (delivered) {
           saveCheckpoint({ notificationPending: false });
           if (diagnostic.code === 'PENDING_OWNER_APPROVAL') {
-            try { await acknowledgeProposal(); } catch { /* Receipt can wait for the next prepare. */ }
+            try {
+              await acknowledgeProposal();
+            } catch {
+              /* Receipt can wait for the next prepare. */
+            }
           }
         }
       }
@@ -2289,8 +3254,12 @@ export class WorkerNode {
         timeouts.close();
         wire.close();
         this.acceptedPeers.delete(m.taskId);
-        const completedHeld = this.heldReview.list().find(r => r.taskId === m.taskId);
-        if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state)) this.heldReview.discard(completedHeld.id, gateway.machine.state === 'SETTLED' ? 'completed' : 'closed');
+        const completedHeld = this.heldReview.list().find((r) => r.taskId === m.taskId);
+        if (completedHeld && gateway && ['SETTLED', 'CANCELLED'].includes(gateway.machine.state))
+          this.heldReview.discard(
+            completedHeld.id,
+            gateway.machine.state === 'SETTLED' ? 'completed' : 'closed',
+          );
         if (trackedTaskId) this.liveChains.delete(trackedTaskId);
         gateway?.close();
         if (idleSignal.aborted && checkpoint?.phase !== 'terminal') preserveWorkspace = true;
@@ -2320,34 +3289,58 @@ export class WorkerNode {
   private revocationAwareRelay(relay: RelayTransport): RelayTransport {
     const receive: RelayTransport['receive'] = async (recipientDid, waitMs, signal, filter) => {
       for (;;) {
-        if (this.registered && (JSON.stringify(this.protocol.receiveVersions()) !== JSON.stringify(this.agentCard.payload.protocolVersions) ||
-            this.autoAccept.limits.maxMonthlyUsd !== undefined &&
-            this.agentCard.signature.signedAt.slice(0, 7) !== new Date(this.protocol.now()).toISOString().slice(0, 7))) await this.register();
+        if (
+          this.registered &&
+          (JSON.stringify(this.protocol.receiveVersions()) !==
+            JSON.stringify(this.agentCard.payload.protocolVersions) ||
+            (this.autoAccept.limits.maxMonthlyUsd !== undefined &&
+              this.agentCard.signature.signedAt.slice(0, 7) !==
+                new Date(this.protocol.now()).toISOString().slice(0, 7)))
+        )
+          await this.register();
         const forwarded = this.forwardedQueue.shift();
         if (forwarded) {
           if (this.consumeRevocation(forwarded)) continue;
-          if (isConnectionEvent(forwarded.payload.eventType)) { await this.connections.route(forwarded); continue; }
+          if (isConnectionEvent(forwarded.payload.eventType)) {
+            await this.connections.route(forwarded);
+            continue;
+          }
           return forwarded;
         }
         const envelope = await relay.receive(
-          recipientDid, waitMs, signal, filter ?? { role: 'worker' },
+          recipientDid,
+          waitMs,
+          signal,
+          filter ?? { role: 'worker' },
         );
         if (!envelope) {
           const afterWait = this.forwardedQueue.shift();
           if (afterWait) {
             if (this.consumeRevocation(afterWait)) continue;
-            if (isConnectionEvent(afterWait.payload.eventType)) { await this.connections.route(afterWait); continue; }
+            if (isConnectionEvent(afterWait.payload.eventType)) {
+              await this.connections.route(afterWait);
+              continue;
+            }
             return afterWait;
           }
           return undefined;
         }
         if (envelope.payload.eventType === 'DELIVERY_STATUS' && this.deliveryService) {
-          try { await this.deliveryService.statusRouter.route(envelope, relay); }
-          catch (error) { this.deliveryService.options.onError?.(error as Error); }
+          try {
+            await this.deliveryService.statusRouter.route(envelope, relay);
+          } catch (error) {
+            this.deliveryService.options.onError?.(error as Error);
+          }
           continue;
         }
-        if (this.consumeRevocation(envelope)) { await acknowledgeRelay(relay, envelope); continue; }
-        if (isConnectionEvent(envelope.payload.eventType)) { await this.connections.route(envelope); continue; }
+        if (this.consumeRevocation(envelope)) {
+          await acknowledgeRelay(relay, envelope);
+          continue;
+        }
+        if (isConnectionEvent(envelope.payload.eventType)) {
+          await this.connections.route(envelope);
+          continue;
+        }
         if (
           this.isRequesterBoundFrame(envelope) &&
           forwardToRequesterInbox(this.options.owner.did, envelope)
@@ -2358,19 +3351,38 @@ export class WorkerNode {
     };
     return {
       ...deliveryPins(relay),
-      get connectionStatus() { return relay.connectionStatus; },
+      get connectionStatus() {
+        return relay.connectionStatus;
+      },
       send: async (envelope) => {
         this.assertPeer(envelope.payload.recipientDid, envelope.payload.taskId);
-        try { await relay.send(envelope); }
-        catch (error) {
+        try {
+          await relay.send(envelope);
+        } catch (error) {
           // Exact, decoded prior admission is success, never arbitrary HTTP 400.
           // Scope this to a running persistent worker; once/runOnce stay fail-fast.
-          if (!this.continuous || !(error instanceof Error) || error.name !== 'RelayDuplicateEnvelopeError' ||
-              !('code' in error) || error.code !== 'REPLAYED_ENVELOPE' ||
-              !('status' in error) || error.status !== 400) throw error;
+          if (
+            !this.continuous ||
+            !(error instanceof Error) ||
+            error.name !== 'RelayDuplicateEnvelopeError' ||
+            !('code' in error) ||
+            error.code !== 'REPLAYED_ENVELOPE' ||
+            !('status' in error) ||
+            error.status !== 400
+          )
+            throw error;
         }
       },
-      ...(relay.acknowledgeDelivery ? { acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) => relay.acknowledgeDelivery!(did, id, AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])])) } : {}),
+      ...(relay.acknowledgeDelivery
+        ? {
+            acknowledgeDelivery: (did: string, id: string, signal?: AbortSignal) =>
+              relay.acknowledgeDelivery!(
+                did,
+                id,
+                AbortSignal.any([this.controller.signal, ...(signal ? [signal] : [])]),
+              ),
+          }
+        : {}),
       receive,
       ...(relay.register ? { register: (card) => relay.register!(card) } : {}),
       ...(relay.discover ? { discover: () => relay.discover!() } : {}),
@@ -2434,21 +3446,31 @@ export class WorkerNode {
     }
   }
   private acceptsAgent(did: string): boolean {
-    return did === this.agentCard.payload.agentDid ||
-      (this.options.acceptOwnerAgent === true && did === this.options.owner.did);
+    return (
+      did === this.agentCard.payload.agentDid ||
+      (this.options.acceptOwnerAgent === true && did === this.options.owner.did)
+    );
   }
   private assertInviteActive(data: Proposal): boolean {
     const token = data.inviteToken;
     if (token === undefined) return false;
     if (typeof token !== 'string' || !token) throw new Error('INVALID_OR_EXPIRED_INVITE');
-    const invite = parseAndVerifyInviteToken(token, this.protocol.now(), { allowPrivateRelay: true, allowExpired: true });
-    if (invite.ownerDid !== this.options.owner.did ||
-        !this.acceptsAgent(invite.agentDid) ||
-        invite.relayUrl !== this.agentCard.payload.relayEndpoint)
+    const invite = parseAndVerifyInviteToken(token, this.protocol.now(), {
+      allowPrivateRelay: true,
+      allowExpired: true,
+    });
+    if (
+      invite.ownerDid !== this.options.owner.did ||
+      !this.acceptsAgent(invite.agentDid) ||
+      invite.relayUrl !== this.agentCard.payload.relayEndpoint
+    )
       throw new Error('INVITE_WORKER_MISMATCH');
     this.revocation.assertNotRevoked('invite', digest(invite));
     this.revocation.assertNotRevoked('invite', token);
-    if (Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)) <= this.protocol.now()) {
+    if (
+      Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt)) <=
+      this.protocol.now()
+    ) {
       throw new Error('INVITE_EXPIRED');
     }
     return true;
@@ -2615,45 +3637,153 @@ export interface ErrorDetail {
   actual: string;
   hint: string;
 }
-export interface ErrorDiagnostic { code: string; detail?: ErrorDetail; phase?: 'OWNER_APPROVAL' | 'ACCEPT_ACK_WAIT' }
+export interface ErrorDiagnostic {
+  code: string;
+  detail?: ErrorDetail;
+  phase?: 'OWNER_APPROVAL' | 'ACCEPT_ACK_WAIT';
+}
 class DiagnosticError extends Error {
-  constructor(code: string, readonly detail: ErrorDetail) { super(code); }
+  constructor(
+    code: string,
+    readonly detail: ErrorDetail,
+  ) {
+    super(code);
+  }
 }
 class PreCallRejectedError extends Error {
-  constructor(readonly code: string, readonly messageKind: 'standard' | 'trial-reviewer') { super(code); }
+  constructor(
+    readonly code: string,
+    readonly messageKind: 'standard' | 'trial-reviewer',
+  ) {
+    super(code);
+  }
 }
 class AdmissionLimitError extends Error {
-  constructor(readonly code: 'MONTHLY_LIMIT_REACHED' | 'MONTHLY_STATE_UNAVAILABLE' | 'MONTHLY_MODEL_UNSUPPORTED' | 'AUTO_ACCEPT_DAILY_LIMIT_REACHED',
-    readonly resetAt: string, readonly messageKind: 'standard' | 'trial-reviewer' = 'standard') { super(code); }
+  constructor(
+    readonly code:
+      | 'MONTHLY_LIMIT_REACHED'
+      | 'MONTHLY_STATE_UNAVAILABLE'
+      | 'MONTHLY_MODEL_UNSUPPORTED'
+      | 'AUTO_ACCEPT_DAILY_LIMIT_REACHED',
+    readonly resetAt: string,
+    readonly messageKind: 'standard' | 'trial-reviewer' = 'standard',
+  ) {
+    super(code);
+  }
 }
 class PendingTaskError extends Error {
-  constructor(readonly reason: string) { super('PENDING_OWNER_APPROVAL'); }
+  constructor(readonly reason: string) {
+    super('PENDING_OWNER_APPROVAL');
+  }
 }
-function diagnosticError(code: string, field: string, expected: unknown, actual: unknown, hint: string): Error {
-  return new DiagnosticError(code, { field, expected: digest(expected), actual: digest(actual), hint });
+function diagnosticError(
+  code: string,
+  field: string,
+  expected: unknown,
+  actual: unknown,
+  hint: string,
+): Error {
+  return new DiagnosticError(code, {
+    field,
+    expected: digest(expected),
+    actual: digest(actual),
+    hint,
+  });
 }
-function rejectionBody(error: unknown, contextGrant = false): ErrorDiagnostic & { reason?: string; resetAt?: string; messageKind?: 'standard' | 'trial-reviewer' } {
-  if (error instanceof PreCallRejectedError) return { code: error.code,
-    ...(error.code === 'INPUT_SIZE_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}) };
-  if (error instanceof AdmissionLimitError) return { code: error.code,
-    ...(error.code.endsWith('LIMIT_REACHED') ? { resetAt: error.resetAt } : {}),
-    ...(error.code === 'MONTHLY_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}) };
-  if (error instanceof PendingTaskError) return { code: 'PENDING_OWNER_APPROVAL', reason: error.reason };
-  if (error instanceof DiagnosticError) return { code: safeError(error, contextGrant), detail: error.detail };
+function rejectionBody(
+  error: unknown,
+  contextGrant = false,
+): ErrorDiagnostic & {
+  reason?: string;
+  resetAt?: string;
+  messageKind?: 'standard' | 'trial-reviewer';
+} {
+  if (error instanceof PreCallRejectedError)
+    return {
+      code: error.code,
+      ...(error.code === 'INPUT_SIZE_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}),
+    };
+  if (error instanceof AdmissionLimitError)
+    return {
+      code: error.code,
+      ...(error.code.endsWith('LIMIT_REACHED') ? { resetAt: error.resetAt } : {}),
+      ...(error.code === 'MONTHLY_LIMIT_REACHED' ? { messageKind: error.messageKind } : {}),
+    };
+  if (error instanceof PendingTaskError)
+    return { code: 'PENDING_OWNER_APPROVAL', reason: error.reason };
+  if (error instanceof DiagnosticError)
+    return { code: safeError(error, contextGrant), detail: error.detail };
   if (error instanceof ProposalRejectedError) return { code: error.code, reason: error.reason };
-  if (safeError(error, contextGrant) === 'PENDING_OWNER_APPROVAL') return { code: 'PENDING_OWNER_APPROVAL', reason: PENDING_MESSAGE };
+  if (safeError(error, contextGrant) === 'PENDING_OWNER_APPROVAL')
+    return { code: 'PENDING_OWNER_APPROVAL', reason: PENDING_MESSAGE };
   return { code: safeError(error, contextGrant) };
 }
 function safeError(e: unknown, contextGrant = false): string {
   const s = String(e);
   const exact = e instanceof Error ? e.message.split(':')[0] : '';
-  if (['OUTBOX_STORE_INVALID', 'OUTBOX_STORE_BUSY', 'OUTBOX_STORE_UNWRITABLE', 'OUTBOX_FULL',
-    'OUTBOX_DEADLINE_EXPIRED', 'DELIVERY_RECORD_CONFLICT', 'AUDIT_INTERRUPTION_WRITE_FAILED'].includes(exact)) return exact;
-  if (['ISOLATION_LEVEL_UNSUPPORTED', 'ISOLATION_LEVEL_MISMATCH', 'MONTHLY_STATE_UNAVAILABLE', 'INPUT_SIZE_LIMIT_REACHED', 'INPUT_SIZE_UNAVAILABLE', 'INPUT_BUDGET_EXCEEDED'].includes(exact)) return exact;
-  if (contextGrant && ['DELEGATION_PROOF_REQUIRED', 'DELEGATION_INVALID', 'DELEGATION_APPROVAL_REQUIRED'].includes(exact)) return exact;
-  if (/^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(exact)) return exact;
+  if (
+    [
+      'OUTBOX_STORE_INVALID',
+      'OUTBOX_STORE_BUSY',
+      'OUTBOX_STORE_UNWRITABLE',
+      'OUTBOX_FULL',
+      'OUTBOX_DEADLINE_EXPIRED',
+      'DELIVERY_RECORD_CONFLICT',
+      'AUDIT_INTERRUPTION_WRITE_FAILED',
+    ].includes(exact)
+  )
+    return exact;
+  if (
+    [
+      'ISOLATION_LEVEL_UNSUPPORTED',
+      'ISOLATION_LEVEL_MISMATCH',
+      'MONTHLY_STATE_UNAVAILABLE',
+      'INPUT_SIZE_LIMIT_REACHED',
+      'INPUT_SIZE_UNAVAILABLE',
+      'INPUT_BUDGET_EXCEEDED',
+    ].includes(exact)
+  )
+    return exact;
+  if (
+    contextGrant &&
+    ['DELEGATION_PROOF_REQUIRED', 'DELEGATION_INVALID', 'DELEGATION_APPROVAL_REQUIRED'].includes(
+      exact,
+    )
+  )
+    return exact;
+  if (
+    /^(CONTEXT_GRANT_|PROTOCOL_|CONNECTION_|INVALID_CONNECTION_|QUARANTINE_|INSPECTION_|ACCESS_MODE_REMOVED|INVITE_REFERENCE_UNAVAILABLE)/.test(
+      exact,
+    )
+  )
+    return exact;
   if (exact === 'INVITE_USES_EXHAUSTED') return exact;
-  for (const code of ['PENDING_OWNER_APPROVAL', 'PEER_NOT_ALLOWED', 'REQUEST_DENIED', 'INTAKE_QUEUE_FULL', 'INTAKE_RATE_LIMITED', 'INTAKE_STORE_INVALID', 'INTAKE_STORE_BUSY', 'INTAKE_STORE_UNWRITABLE', 'APPROVAL_CHANNEL_UNAVAILABLE', 'CONTACT_REVOKED', 'CONTACT_NOT_ALLOWED', 'INCOMPATIBLE_TIMEOUTS', 'CLAIM_LOST', 'DAILY_LIMIT_REACHED', 'DAILY_TASK_REPLAY', 'DAILY_LIMIT_CLOCK_ROLLBACK', 'DAILY_LIMIT_BUSY', 'DAILY_LIMIT_INVALID', 'UNENCRYPTED_ENVELOPE_REJECTED', 'INVITE_REQUIRED', 'INVITE_EXPIRED', 'INVITE_WORKER_MISMATCH', 'INVITE_REQUESTER_LISTENER_REQUIRED', 'TASK_SCOPE_REJECTED'])
+  for (const code of [
+    'PENDING_OWNER_APPROVAL',
+    'PEER_NOT_ALLOWED',
+    'REQUEST_DENIED',
+    'INTAKE_QUEUE_FULL',
+    'INTAKE_RATE_LIMITED',
+    'INTAKE_STORE_INVALID',
+    'INTAKE_STORE_BUSY',
+    'INTAKE_STORE_UNWRITABLE',
+    'APPROVAL_CHANNEL_UNAVAILABLE',
+    'CONTACT_REVOKED',
+    'CONTACT_NOT_ALLOWED',
+    'INCOMPATIBLE_TIMEOUTS',
+    'CLAIM_LOST',
+    'DAILY_LIMIT_REACHED',
+    'DAILY_TASK_REPLAY',
+    'DAILY_LIMIT_CLOCK_ROLLBACK',
+    'DAILY_LIMIT_BUSY',
+    'DAILY_LIMIT_INVALID',
+    'UNENCRYPTED_ENVELOPE_REJECTED',
+    'INVITE_REQUIRED',
+    'INVITE_EXPIRED',
+    'INVITE_WORKER_MISMATCH',
+    'INVITE_REQUESTER_LISTENER_REQUIRED',
+    'TASK_SCOPE_REJECTED',
+  ])
     if (s === 'Error: ' + code || s.startsWith('Error: ' + code + ':')) return code;
   if (s.includes('TOKEN_REVOKED')) return 'TOKEN_REVOKED';
   return (
@@ -2680,7 +3810,8 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
     signal.removeEventListener('abort', listener);
   }
 }
-export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
+export interface RequesterClientOptions
+  extends SessionTimeoutOptions, RelayAuthRecoveryOptions, ProtocolReleaseOptions {
   idempotencyOptions?: IdempotencyStoreOptions;
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
@@ -2689,7 +3820,11 @@ export interface RequesterClientOptions extends SessionTimeoutOptions, RelayAuth
   connectionReview?: ConnectionHumanReviewProvider;
   /** CLI-only explicit non-TTY sending consent; applies only to verified invite tasks after ACCEPT. */
   connectAcceptedInvite?: boolean;
-  onConnectionRecordWarning?: (warning: { code: 'CONNECTION_RECORD_FAILED'; peerOwnerDid: string; message: string }) => void;
+  onConnectionRecordWarning?: (warning: {
+    code: 'CONNECTION_RECORD_FAILED';
+    peerOwnerDid: string;
+    message: string;
+  }) => void;
   onConnectionEvent?: (event: ConnectedEvent) => void;
   /** Application-owned local records; omitted by library callers unless requested. */
   pendingStore?: RequesterPendingStore;
@@ -2732,15 +3867,26 @@ export interface ChildDelegationRequest {
   auditPath?: string;
 }
 // Module-private hooks cannot be supplied by task output or arbitrary delegate options.
-const managedChildHooks = new WeakMap<DelegateOptions, {
-  prepare: (manifest: TaskManifest, input: Json, peer: string) => Promise<void>;
-  beforeTransmit: (manifest: TaskManifest, input: Json) => void;
-  onAcceptedContract: (contract: TaskContract) => void;
-}>();
+const managedChildHooks = new WeakMap<
+  DelegateOptions,
+  {
+    prepare: (manifest: TaskManifest, input: Json, peer: string) => Promise<void>;
+    beforeTransmit: (manifest: TaskManifest, input: Json) => void;
+    onAcceptedContract: (contract: TaskContract) => void;
+  }
+>();
 function assertFreshDecision(receipt: ApprovalReceipt, started: number): void {
-  const approved = Date.parse(receipt?.payload?.approvedAt), signed = Date.parse(receipt?.signature?.signedAt);
-  if (!Number.isFinite(approved) || !Number.isFinite(signed) || approved < started || signed < started ||
-      approved > Date.now() || signed > Date.now()) throw new Error('DELEGATION_APPROVAL_REQUIRED');
+  const approved = Date.parse(receipt?.payload?.approvedAt),
+    signed = Date.parse(receipt?.signature?.signedAt);
+  if (
+    !Number.isFinite(approved) ||
+    !Number.isFinite(signed) ||
+    approved < started ||
+    signed < started ||
+    approved > Date.now() ||
+    signed > Date.now()
+  )
+    throw new Error('DELEGATION_APPROVAL_REQUIRED');
 }
 export interface DelegateOptions extends SessionTimeoutOptions {
   contextGrant?: ContextGrantOptions;
@@ -2811,10 +3957,14 @@ export class IncompleteSettlementError extends Error {
   readonly code?: string;
   readonly detail?: ErrorDetail;
   readonly recovery?: PeerRejectedError['recovery'];
-  constructor(readonly incompleteReceipt: IncompleteDelegateReceipt, cause: unknown) {
+  constructor(
+    readonly incompleteReceipt: IncompleteDelegateReceipt,
+    cause: unknown,
+  ) {
     super(incompleteReceipt.completionError, { cause });
     this.name = 'IncompleteSettlementError';
-    if (cause instanceof Error && 'code' in cause && typeof cause.code === 'string') this.code = cause.code;
+    if (cause instanceof Error && 'code' in cause && typeof cause.code === 'string')
+      this.code = cause.code;
     if (cause instanceof PeerRejectedError) {
       this.detail = cause.detail;
       this.recovery = cause.recovery;
@@ -2916,30 +4066,88 @@ export class RequesterClient {
   private readonly contextApprovals: ApprovalGate;
   private idempotency?: IdempotencyStore;
   private keyedStore(): IdempotencyStore {
-    return this.idempotency ??= new IdempotencyStore(this.options.owner, {
-      ...this.options.identityOptions, now: this.options.now, ...this.options.idempotencyOptions,
-    });
+    return (this.idempotency ??= new IdempotencyStore(this.options.owner, {
+      ...this.options.identityOptions,
+      now: this.options.now,
+      ...this.options.idempotencyOptions,
+    }));
   }
   private keyedAction(options: DelegateOptions | DelegateMultiOptions): Json {
-    const allowed = ['idempotencyKey', 'idempotencyOperation', 'idempotencyChildIndex', 'workerRef', 'pendingId', 'pendingRelayUrl',
-      'renegotiateProtocol', 'beforePropose', 'beforeTransmit', 'to', 'discover', 'relay', 'title', 'description', 'input',
-      'outputSchema', 'contextGrant', 'budget', 'manifest', 'auditPath', 'signal', 'capabilities', 'capabilityChains', 'minimumIsolationLevel',
-      'onProgress', 'workers', 'mode', 'quorumSize', 'completionTimeoutMs', 'timeoutMs', 'executionTimeoutMs', 'taskTimeoutMs',
-      'waitTimeoutMs', 'connectTimeoutMs', 'transportIdleTimeoutMs', 'heartbeatIntervalMs'];
-    if (Object.keys(options).some(k => !allowed.includes(k))) throw new Error('INVALID_IDEMPOTENCY_ARGUMENT');
+    const allowed = [
+      'idempotencyKey',
+      'idempotencyOperation',
+      'idempotencyChildIndex',
+      'workerRef',
+      'pendingId',
+      'pendingRelayUrl',
+      'renegotiateProtocol',
+      'beforePropose',
+      'beforeTransmit',
+      'to',
+      'discover',
+      'relay',
+      'title',
+      'description',
+      'input',
+      'outputSchema',
+      'contextGrant',
+      'budget',
+      'manifest',
+      'auditPath',
+      'signal',
+      'capabilities',
+      'capabilityChains',
+      'minimumIsolationLevel',
+      'onProgress',
+      'workers',
+      'mode',
+      'quorumSize',
+      'completionTimeoutMs',
+      'timeoutMs',
+      'executionTimeoutMs',
+      'taskTimeoutMs',
+      'waitTimeoutMs',
+      'connectTimeoutMs',
+      'transportIdleTimeoutMs',
+      'heartbeatIntervalMs',
+    ];
+    if (Object.keys(options).some((k) => !allowed.includes(k)))
+      throw new Error('INVALID_IDEMPOTENCY_ARGUMENT');
     const timeouts = resolveSessionTimeouts(this.options, options);
-    const normalized = { ...options, ...timeouts, relay: ('relay' in options ? options.relay : undefined) ?? this.options.relay,
-      outputSchema: options.outputSchema ?? {}, capabilities: options.capabilities ?? [],
+    const normalized = {
+      ...options,
+      ...timeouts,
+      relay: ('relay' in options ? options.relay : undefined) ?? this.options.relay,
+      outputSchema: options.outputSchema ?? {},
+      capabilities: options.capabilities ?? [],
       minimumIsolationLevel: options.minimumIsolationLevel ?? 'subprocess_restricted',
-      budget: { costBearer: 'worker_byok', maxInputTokens: 50000, maxOutputTokens: 10000,
-        maxToolInvocations: 10, maxWallClockSeconds: timeouts.executionTimeoutMs !== undefined
-          ? Math.floor(timeouts.executionTimeoutMs / 1000) : 60, onOverrun: 'hard_stop', ...options.budget },
-      taskTimeoutMs: timeouts.taskTimeoutMs ?? timeouts.timeoutMs ?? 600_000, timeoutMs: undefined,
-      waitTimeoutMs: timeouts.waitTimeoutMs ?? 600_000, connectTimeoutMs: timeouts.connectTimeoutMs ?? 45_000,
-      transportIdleTimeoutMs: timeouts.transportIdleTimeoutMs ?? 90_000, heartbeatIntervalMs: timeouts.heartbeatIntervalMs ?? 15_000,
-      ...('workers' in options ? { workers: structuredClone(options.workers),
-        completionTimeoutMs: options.completionTimeoutMs ?? 45_000,
-        ...(options.mode === 'quorum' ? { quorumSize: options.quorumSize ?? Math.floor(options.workers.length / 2) + 1 } : {}) } : {}),
+      budget: {
+        costBearer: 'worker_byok',
+        maxInputTokens: 50000,
+        maxOutputTokens: 10000,
+        maxToolInvocations: 10,
+        maxWallClockSeconds:
+          timeouts.executionTimeoutMs !== undefined
+            ? Math.floor(timeouts.executionTimeoutMs / 1000)
+            : 60,
+        onOverrun: 'hard_stop',
+        ...options.budget,
+      },
+      taskTimeoutMs: timeouts.taskTimeoutMs ?? timeouts.timeoutMs ?? 600_000,
+      timeoutMs: undefined,
+      waitTimeoutMs: timeouts.waitTimeoutMs ?? 600_000,
+      connectTimeoutMs: timeouts.connectTimeoutMs ?? 45_000,
+      transportIdleTimeoutMs: timeouts.transportIdleTimeoutMs ?? 90_000,
+      heartbeatIntervalMs: timeouts.heartbeatIntervalMs ?? 15_000,
+      ...('workers' in options
+        ? {
+            workers: structuredClone(options.workers),
+            completionTimeoutMs: options.completionTimeoutMs ?? 45_000,
+            ...(options.mode === 'quorum'
+              ? { quorumSize: options.quorumSize ?? Math.floor(options.workers.length / 2) + 1 }
+              : {}),
+          }
+        : {}),
     };
     return runtimeIdempotencyAction(normalized);
   }
@@ -2956,25 +4164,44 @@ export class RequesterClient {
       options.approvalProvider ?? new InteractiveCliApprovalProvider(options.owner);
     this.contextApprovals = new ApprovalGate(options.owner.did, policy);
     this.deliveryService = options.deliveryService;
-    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did) throw deliveryError('OUTBOX_STORE_INVALID');
+    if (this.deliveryService && this.deliveryService.owner.did !== options.owner.did)
+      throw deliveryError('OUTBOX_STORE_INVALID');
     if (!this.deliveryService && (typeof options.relay === 'string' || options.deliveryOptions))
       this.deliveryService = this.createDelivery();
   }
   private createDelivery(): GatewayDeliveryService {
-    return new GatewayDeliveryService(this.options.owner, { ...this.options.deliveryOptions,
-      identityOptions: this.options.deliveryOptions?.identityOptions ?? this.options.identityOptions,
-      now: this.options.deliveryOptions?.now ?? this.options.now, requestTimeoutMs: this.options.connectTimeoutMs,
-      resolveTransport: this.options.deliveryOptions?.resolveTransport ?? ((url, owner) => transport(url, owner, this.options)),
-      assertSendAllowed: async context => {
-        const store = this.options.connectionStore ?? new WorkerTrustStore(this.options.owner, {
-          path: workerIntakePath(this.options.owner.did, this.options.identityOptions),
-          fs: this.options.identityOptions?.fs, platform: this.options.identityOptions?.platform, now: this.options.now });
-        if (store.connectionState(context.peerOwnerDid) === 'blocked') throw new Error('REQUEST_DENIED');
+    return new GatewayDeliveryService(this.options.owner, {
+      ...this.options.deliveryOptions,
+      identityOptions:
+        this.options.deliveryOptions?.identityOptions ?? this.options.identityOptions,
+      now: this.options.deliveryOptions?.now ?? this.options.now,
+      requestTimeoutMs: this.options.connectTimeoutMs,
+      resolveTransport:
+        this.options.deliveryOptions?.resolveTransport ??
+        ((url, owner) => transport(url, owner, this.options)),
+      assertSendAllowed: async (context) => {
+        const store =
+          this.options.connectionStore ??
+          new WorkerTrustStore(this.options.owner, {
+            path: workerIntakePath(this.options.owner.did, this.options.identityOptions),
+            fs: this.options.identityOptions?.fs,
+            platform: this.options.identityOptions?.platform,
+            now: this.options.now,
+          });
+        if (store.connectionState(context.peerOwnerDid) === 'blocked')
+          throw new Error('REQUEST_DENIED');
         await this.options.deliveryOptions?.assertSendAllowed?.(context);
-      } });
+      },
+    });
   }
-  async startDelivery(): Promise<void> { this.deliveryStarted = true; await this.deliveryService?.start(); }
-  stopDelivery(): void { this.deliveryStarted = false; this.deliveryService?.stop(); }
+  async startDelivery(): Promise<void> {
+    this.deliveryStarted = true;
+    await this.deliveryService?.start();
+  }
+  stopDelivery(): void {
+    this.deliveryStarted = false;
+    this.deliveryService?.stop();
+  }
   /**
    * Send an encrypted REVOKE for an invite or capability to a worker inbox.
    * `to` is a worker DID or an acp-invite token. The notice is signed by this client.
@@ -3028,52 +4255,91 @@ export class RequesterClient {
   ): Promise<SessionResult> {
     const managedChild = managedChildHooks.get(options);
     if (options.peerRef !== undefined) {
-      if (typeof options.peerRef !== 'string' || !options.peerRef ||
-          (options.workerRef !== undefined && options.workerRef !== options.peerRef))
+      if (
+        typeof options.peerRef !== 'string' ||
+        !options.peerRef ||
+        (options.workerRef !== undefined && options.workerRef !== options.peerRef)
+      )
         throw new Error('CONFLICTING_WORKER_TARGET');
       const { peerRef, ...rest } = options;
       options = { ...rest, workerRef: peerRef };
     }
     if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
       validateIdempotencyKey(options.idempotencyKey);
-      options = { ...options, input: structuredClone(options.input),
+      options = {
+        ...options,
+        input: structuredClone(options.input),
         outputSchema: options.outputSchema && structuredClone(options.outputSchema),
         contextGrant: options.contextGrant && structuredClone(options.contextGrant),
         budget: options.budget && structuredClone(options.budget),
-        capabilities: options.capabilities && structuredClone(options.capabilities) };
-      options = { ...options, manifest: options.manifest && structuredClone(options.manifest),
+        capabilities: options.capabilities && structuredClone(options.capabilities),
+      };
+      options = {
+        ...options,
+        manifest: options.manifest && structuredClone(options.manifest),
         discover: options.discover && structuredClone(options.discover),
-        capabilityChains: options.capabilityChains && structuredClone(options.capabilityChains) };
+        capabilityChains: options.capabilityChains && structuredClone(options.capabilityChains),
+      };
       const action = this.keyedAction(options);
-      const result = unwrapIdempotency<SessionResult>(await this.keyedStore().run('acp_delegate_task', options.idempotencyKey!,
-        action, async operation => ({ isError: false, value: await this.delegate({ ...options,
-          idempotencyKey: undefined, idempotencyOperation: operation }, hooks) as unknown as Json })));
-      if ((options.manifest ? options.manifest.contextGrant : options.contextGrant)?.deliveryMode === 'approval_redelegation' &&
-          result.state === 'SETTLED') {
-        const proposed = result.bundle.entries.find(e => e.body.eventType === 'PROPOSE')?.body.payload;
-        const accepted = result.bundle.entries.find(e => e.body.eventType === 'ACCEPT')?.body.payload;
-        const delivered = result.bundle.entries.find(e => e.body.eventType === 'DELIVER')?.body.payload as unknown as Delivery | undefined;
+      const result = unwrapIdempotency<SessionResult>(
+        await this.keyedStore().run(
+          'acp_delegate_task',
+          options.idempotencyKey!,
+          action,
+          async (operation) => ({
+            isError: false,
+            value: (await this.delegate(
+              { ...options, idempotencyKey: undefined, idempotencyOperation: operation },
+              hooks,
+            )) as unknown as Json,
+          }),
+        ),
+      );
+      if (
+        (options.manifest ? options.manifest.contextGrant : options.contextGrant)?.deliveryMode ===
+          'approval_redelegation' &&
+        result.state === 'SETTLED'
+      ) {
+        const proposed = result.bundle.entries.find((e) => e.body.eventType === 'PROPOSE')?.body
+          .payload;
+        const accepted = result.bundle.entries.find((e) => e.body.eventType === 'ACCEPT')?.body
+          .payload;
+        const delivered = result.bundle.entries.find((e) => e.body.eventType === 'DELIVER')?.body
+          .payload as unknown as Delivery | undefined;
         if (!delivered || !verifyAudit(result.bundle).valid) throw new Error('DELEGATION_INVALID');
         verifyRecoveredDelegation(delivered, proposed, accepted);
-        if (options.manifest && delivered.delegation && digest(delivered.delegation.parentContract.manifest) !== digest(options.manifest))
+        if (
+          options.manifest &&
+          delivered.delegation &&
+          digest(delivered.delegation.parentContract.manifest) !== digest(options.manifest)
+        )
           throw new Error('DELEGATION_INVALID');
       }
       return result;
     }
     assertConnectionsOptions(this.options);
     // Retain the reviewed values even if the caller changes its objects while awaiting consent.
-    if (options.beforePropose || managedChild ||
-        (options.manifest ? options.manifest.contextGrant : options.contextGrant)?.deliveryMode === 'approval_redelegation') options = { ...options,
-      input: structuredClone(options.input), manifest: options.manifest && structuredClone(options.manifest),
-      contextGrant: options.contextGrant && structuredClone(options.contextGrant),
-      budget: options.budget && structuredClone(options.budget),
-      outputSchema: options.outputSchema && structuredClone(options.outputSchema),
-      capabilities: options.capabilities && structuredClone(options.capabilities),
-    };
+    if (
+      options.beforePropose ||
+      managedChild ||
+      (options.manifest ? options.manifest.contextGrant : options.contextGrant)?.deliveryMode ===
+        'approval_redelegation'
+    )
+      options = {
+        ...options,
+        input: structuredClone(options.input),
+        manifest: options.manifest && structuredClone(options.manifest),
+        contextGrant: options.contextGrant && structuredClone(options.contextGrant),
+        budget: options.budget && structuredClone(options.budget),
+        outputSchema: options.outputSchema && structuredClone(options.outputSchema),
+        capabilities: options.capabilities && structuredClone(options.capabilities),
+      };
     const timeoutOptions = resolveSessionTimeouts(this.options, options);
     validateSessionTimeouts(timeoutOptions);
     if (timeoutOptions.executionTimeoutMs !== undefined && timeoutOptions.executionTimeoutMs < 1000)
-      throw new Error('INVALID_TIMEOUT: executionTimeoutMs must be at least 1000 (whole-second contract budget)');
+      throw new Error(
+        'INVALID_TIMEOUT: executionTimeoutMs must be at least 1000 (whole-second contract budget)',
+      );
     const onProgress = hooks?.onProgress ?? options.onProgress;
     const invite = isInviteTarget(options.to)
       ? parseAndVerifyInviteToken(options.to, Date.now(), {
@@ -3100,55 +4366,117 @@ export class RequesterClient {
       owner = this.options.owner,
       inbox =
         typeof relayOption === 'string'
-          ? recipientInbox(this.deliveryService ?? this, relay, owner.did, relayOption.replace(/\/$/, ''))
-          : recipientInbox(this.deliveryService ?? relayOption, relay, owner.did, this.deliveryService ? options.pendingRelayUrl ?? this.options.pendingRelayUrl : undefined);
+          ? recipientInbox(
+              this.deliveryService ?? this,
+              relay,
+              owner.did,
+              relayOption.replace(/\/$/, ''),
+            )
+          : recipientInbox(
+              this.deliveryService ?? relayOption,
+              relay,
+              owner.did,
+              this.deliveryService
+                ? (options.pendingRelayUrl ?? this.options.pendingRelayUrl)
+                : undefined,
+            );
     const rawCards = !invite && relay.discover ? await relay.discover() : [];
     if (!Array.isArray(rawCards)) throw new Error('INVALID_AGENT_CARD');
     if (invite && options.discover) throw new Error('CONFLICTING_DISCOVERY_TARGET');
     const card = options.discover
-      ? discoverAgentCards(rawCards, { ...options.discover,
-          ...(options.to ? { did: options.to } : {}) })[0]
+      ? discoverAgentCards(rawCards, {
+          ...options.discover,
+          ...(options.to ? { did: options.to } : {}),
+        })[0]
       : findDiscoveredAgentCard(rawCards, options.to);
     if (options.discover && !card) throw new Error('WORKER_NOT_FOUND');
-    const connectionStore = this.options.connectionStore ?? new WorkerTrustStore(this.options.owner, {
-      path: this.options.identityOptions ? workerIntakePath(this.options.owner.did, this.options.identityOptions) : undefined,
-      fs: this.options.identityOptions?.fs, platform: this.options.identityOptions?.platform, now: this.options.now });
-    if (connectionStore.ownerDid !== this.options.owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
-    const connected = !invite && !card ? connectionStore.listConnections().find(c =>
-      c.peerOwnerDid === options.to && c.state === 'connected') : undefined;
-    const connectedAgent = connected && 'peerAgentDid' in connected && typeof connected.peerAgentDid === 'string' ? connected.peerAgentDid : undefined;
-    if (connected) this.protocol.observeConnection(connected.peerOwnerDid, connectedAgent ?? connected.peerOwnerDid);
+    const connectionStore =
+      this.options.connectionStore ??
+      new WorkerTrustStore(this.options.owner, {
+        path: this.options.identityOptions
+          ? workerIntakePath(this.options.owner.did, this.options.identityOptions)
+          : undefined,
+        fs: this.options.identityOptions?.fs,
+        platform: this.options.identityOptions?.platform,
+        now: this.options.now,
+      });
+    if (connectionStore.ownerDid !== this.options.owner.did)
+      throw new Error('CONNECTION_OWNER_MISMATCH');
+    const connected =
+      !invite && !card
+        ? connectionStore
+            .listConnections()
+            .find((c) => c.peerOwnerDid === options.to && c.state === 'connected')
+        : undefined;
+    const connectedAgent =
+      connected && 'peerAgentDid' in connected && typeof connected.peerAgentDid === 'string'
+        ? connected.peerAgentDid
+        : undefined;
+    if (connected)
+      this.protocol.observeConnection(
+        connected.peerOwnerDid,
+        connectedAgent ?? connected.peerOwnerDid,
+      );
     const advertisedPolicy = (invite?.agentCard ?? card)?.payload.autoAccept;
-    const automationNotice = 'This worker responds automatically, not through a human. この相手は人ではなく自動で応じます。';
-    const workerAutomation = advertisedPolicy?.enabled ? {
-      notice: automationNotice,
-      policy: advertisedPolicy,
-    } : undefined;
+    const automationNotice =
+      'This worker responds automatically, not through a human. この相手は人ではなく自動で応じます。';
+    const workerAutomation = advertisedPolicy?.enabled
+      ? {
+          notice: automationNotice,
+          policy: advertisedPolicy,
+        }
+      : undefined;
     const peer = invite?.ownerDid ?? card?.payload.ownerDid ?? options.to;
-    const protocolVersion = await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card,
-      options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion, peer,
-      invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer), options.signal, 'PROTOCOL_STORE_BUSY');
-    if (options.manifest && options.renegotiateProtocol) options = { ...options, manifest: { ...options.manifest, protocolVersion } };
+    const protocolVersion = await retryDeliveryBusy(
+      () =>
+        this.protocol.outbound(
+          invite?.agentCard ?? card,
+          options.renegotiateProtocol ? undefined : options.manifest?.protocolVersion,
+          peer,
+          invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer,
+        ),
+      options.signal,
+      'PROTOCOL_STORE_BUSY',
+    );
+    if (options.manifest && options.renegotiateProtocol)
+      options = { ...options, manifest: { ...options.manifest, protocolVersion } };
     const manifest =
       options.manifest ??
       buildTaskManifest({
         ...options,
         protocolVersion,
         taskTimeoutMs: timeoutOptions.taskTimeoutMs ?? timeoutOptions.timeoutMs,
-        budget: { ...options.budget, ...(timeoutOptions.executionTimeoutMs !== undefined
-          ? { maxWallClockSeconds: options.budget?.maxWallClockSeconds ?? Math.floor(timeoutOptions.executionTimeoutMs / 1000) } : {}) },
+        budget: {
+          ...options.budget,
+          ...(timeoutOptions.executionTimeoutMs !== undefined
+            ? {
+                maxWallClockSeconds:
+                  options.budget?.maxWallClockSeconds ??
+                  Math.floor(timeoutOptions.executionTimeoutMs / 1000),
+              }
+            : {}),
+        },
         ownerDid: owner.did,
         workerDid: peer,
         agentDid: invite?.agentDid ?? card?.payload.agentDid ?? connectedAgent ?? peer,
         skillId: options.discover?.skillId,
-        taskType: options.discover?.taskType ?? (card?.payload.skills.length === 1 &&
-          card.payload.skills[0].taskTypes?.length === 1 ? card.payload.skills[0].taskTypes[0] : undefined),
+        taskType:
+          options.discover?.taskType ??
+          (card?.payload.skills.length === 1 && card.payload.skills[0].taskTypes?.length === 1
+            ? card.payload.skills[0].taskTypes[0]
+            : undefined),
       });
-    if (options.manifest && timeoutOptions.executionTimeoutMs !== undefined &&
-        manifest.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs)
+    if (
+      options.manifest &&
+      timeoutOptions.executionTimeoutMs !== undefined &&
+      manifest.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs
+    )
       throw new Error('INCOMPATIBLE_TIMEOUTS: manifest budget exceeds executionTimeoutMs');
-    if (options.budget?.maxWallClockSeconds !== undefined && timeoutOptions.executionTimeoutMs !== undefined &&
-        options.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs)
+    if (
+      options.budget?.maxWallClockSeconds !== undefined &&
+      timeoutOptions.executionTimeoutMs !== undefined &&
+      options.budget.maxWallClockSeconds * 1000 > timeoutOptions.executionTimeoutMs
+    )
       throw new Error('INCOMPATIBLE_TIMEOUTS: requested budget exceeds executionTimeoutMs');
     validateManifest(manifest);
     validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
@@ -3172,32 +4500,84 @@ export class RequesterClient {
       this.deliveryService = this.createDelivery();
       if (this.deliveryStarted) await this.deliveryService.start();
     }
-    await this.deliveryService?.withStore(() => this.deliveryService!.store.checkAvailable(), options.signal);
-    const operation = options.idempotencyOperation, childIndex = options.idempotencyChildIndex ?? 0;
-    const stableRelayUrl = typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl;
-    const approvalRelay = typeof relayOption === 'string' ? relayOption
-      : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport';
-    const approvalTargetDigest = digest({ manifest, description: manifest.task.description, input: options.input,
-      relay: approvalRelay, fanOut: operation?.children ?? 1 });
-    if (operation) await operation.prepare({ childIndex, manifest, input: options.input, relayUrl: stableRelayUrl ?? approvalRelay,
-      peerOwnerDid: peer, peerAgentDid: manifest.worker!.agentDid, approvalTargetDigest });
+    await this.deliveryService?.withStore(
+      () => this.deliveryService!.store.checkAvailable(),
+      options.signal,
+    );
+    const operation = options.idempotencyOperation,
+      childIndex = options.idempotencyChildIndex ?? 0;
+    const stableRelayUrl =
+      typeof relayOption === 'string'
+        ? relayOption
+        : (options.pendingRelayUrl ?? this.options.pendingRelayUrl);
+    const approvalRelay =
+      typeof relayOption === 'string'
+        ? relayOption
+        : 'url' in relayOption && typeof relayOption.url === 'string'
+          ? relayOption.url
+          : 'injected transport';
+    const approvalTargetDigest = digest({
+      manifest,
+      description: manifest.task.description,
+      input: options.input,
+      relay: approvalRelay,
+      fanOut: operation?.children ?? 1,
+    });
+    if (operation)
+      await operation.prepare({
+        childIndex,
+        manifest,
+        input: options.input,
+        relayUrl: stableRelayUrl ?? approvalRelay,
+        peerOwnerDid: peer,
+        peerAgentDid: manifest.worker!.agentDid,
+        approvalTargetDigest,
+      });
     const approvalMode = manifest.contextGrant?.deliveryMode === 'approval_redelegation';
-    const proposalTarget = () => ({ type: 'ContextGrantProposal', manifestDigest: digest(manifest),
-      inputDigest: digest(options.input), workerOwnerDid: peer });
+    const proposalTarget = () => ({
+      type: 'ContextGrantProposal',
+      manifestDigest: digest(manifest),
+      inputDigest: digest(options.input),
+      workerOwnerDid: peer,
+    });
     let contextProposalApproval: ApprovalReceipt | undefined;
     if (approvalMode) {
       requireOwnerDecision(this.approvalProvider);
-      const target = proposalTarget(), started = Date.now();
+      const target = proposalTarget(),
+        started = Date.now();
       const approvalSignal = AbortSignal.any([
-        AbortSignal.timeout(Math.max(1, Math.min(Date.parse(manifest.deadline) - Date.now(),
-          timeoutOptions.waitTimeoutMs ?? timeoutOptions.taskTimeoutMs ?? timeoutOptions.timeoutMs ?? 600000))),
+        AbortSignal.timeout(
+          Math.max(
+            1,
+            Math.min(
+              Date.parse(manifest.deadline) - Date.now(),
+              timeoutOptions.waitTimeoutMs ??
+                timeoutOptions.taskTimeoutMs ??
+                timeoutOptions.timeoutMs ??
+                600000,
+            ),
+          ),
+        ),
         ...(options.signal ? [options.signal] : []),
       ]);
-      contextProposalApproval = await abortable(this.approvalProvider.approve({ taskId: manifest.taskId, gate: 'contract_acceptance',
-        target: structuredClone(target), details: { manifest: structuredClone(manifest), input: structuredClone(options.input) },
-        signal: approvalSignal, deadline: manifest.deadline }), approvalSignal);
+      contextProposalApproval = await abortable(
+        this.approvalProvider.approve({
+          taskId: manifest.taskId,
+          gate: 'contract_acceptance',
+          target: structuredClone(target),
+          details: { manifest: structuredClone(manifest), input: structuredClone(options.input) },
+          signal: approvalSignal,
+          deadline: manifest.deadline,
+        }),
+        approvalSignal,
+      );
       assertFreshDecision(contextProposalApproval, started);
-      this.contextApprovals.require(manifest.taskId, 'contract_acceptance', target, contextProposalApproval);
+      this.contextApprovals.require(
+        manifest.taskId,
+        'contract_acceptance',
+        target,
+        contextProposalApproval,
+      );
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
     }
     if (options.beforePropose) {
@@ -3206,13 +4586,21 @@ export class RequesterClient {
         ...(options.signal ? [options.signal] : []),
       ]);
       try {
-        const evidence = await abortable(options.beforePropose({
-          manifest: freezeApprovalAction(manifest), input: freezeApprovalAction(options.input),
-          ...(workerAutomation ? { workerAutomation } : {}),
-          relay: typeof relayOption === 'string' ? relayOption
-            : 'url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : 'injected transport',
-          signal: approvalSignal,
-        }), approvalSignal);
+        const evidence = await abortable(
+          options.beforePropose({
+            manifest: freezeApprovalAction(manifest),
+            input: freezeApprovalAction(options.input),
+            ...(workerAutomation ? { workerAutomation } : {}),
+            relay:
+              typeof relayOption === 'string'
+                ? relayOption
+                : 'url' in relayOption && typeof relayOption.url === 'string'
+                  ? relayOption.url
+                  : 'injected transport',
+            signal: approvalSignal,
+          }),
+          approvalSignal,
+        );
         approvalSignal.throwIfAborted();
         await operation?.authorize(childIndex, evidence);
       } catch (error) {
@@ -3220,27 +4608,47 @@ export class RequesterClient {
           throw new Error(options.signal?.aborted ? 'APPROVAL_ABORTED' : 'APPROVAL_TIMEOUT');
         throw error;
       }
-      if (invite) parseAndVerifyInviteToken(options.to, Date.now(), {
-        allowPrivateRelay: this.options.allowPrivateRelay,
-      });
+      if (invite)
+        parseAndVerifyInviteToken(options.to, Date.now(), {
+          allowPrivateRelay: this.options.allowPrivateRelay,
+        });
       if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('APPROVAL_TIMEOUT');
     }
-    if (operation && !options.beforePropose) await operation.authorize(childIndex, {
-      targetDigest: approvalTargetDigest, approvedAt: (this.options.now ?? Date.now)(), policy: 'configured-auto',
-    });
+    if (operation && !options.beforePropose)
+      await operation.authorize(childIndex, {
+        targetDigest: approvalTargetDigest,
+        approvedAt: (this.options.now ?? Date.now)(),
+        policy: 'configured-auto',
+      });
     if (managedChild) await managedChild.prepare(manifest, options.input, peer!);
     await operation?.sending();
-    const wireDelivery: WireDelivery | undefined = this.deliveryService && stableRelayUrl ? {
-      service: this.deliveryService, context: { messageId: '00000000-0000-4000-8000-000000000000',
-        peerOwnerDid: peer, relayUrl: stableRelayUrl, deliveryDeadline: Date.parse(manifest.deadline),
-        message: { taskId: manifest.taskId, peerAgentDid: manifest.worker!.agentDid,
-          protocolVersion: manifest.protocolVersion as '0.1.0' | '0.2.0',
-          ...(operation ? { operationId: operation.operationId } : {}) } },
-    } : undefined;
+    const wireDelivery: WireDelivery | undefined =
+      this.deliveryService && stableRelayUrl
+        ? {
+            service: this.deliveryService,
+            context: {
+              messageId: '00000000-0000-4000-8000-000000000000',
+              peerOwnerDid: peer,
+              relayUrl: stableRelayUrl,
+              deliveryDeadline: Date.parse(manifest.deadline),
+              message: {
+                taskId: manifest.taskId,
+                peerAgentDid: manifest.worker!.agentDid,
+                protocolVersion: manifest.protocolVersion as '0.1.0' | '0.2.0',
+                ...(operation ? { operationId: operation.operationId } : {}),
+              },
+            },
+          }
+        : undefined;
     const auditPath = options.auditPath ?? this.options.auditPath;
     freshAudit(auditPath);
     const bridge = new AbortController();
-    if (this.deliveryService && stableRelayUrl) inbox.setDelivery(this.deliveryService, stableRelayUrl, this.deliveryStarted || this.deliveryService.statusRouter.active);
+    if (this.deliveryService && stableRelayUrl)
+      inbox.setDelivery(
+        this.deliveryService,
+        stableRelayUrl,
+        this.deliveryStarted || this.deliveryService.statusRouter.active,
+      );
     const mailbox = inbox.attach(manifest.taskId);
     const timeouts = new SessionTimeouts(timeoutOptions, manifest.deadline, bridge.signal);
     const signal = timeouts.signal;
@@ -3288,9 +4696,15 @@ export class RequesterClient {
         .catch(() => undefined);
     };
     const onUserAbort = () => {
-      if (wireDelivery) void wireDelivery.service.withStore(() =>
-        wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED'))
-        .catch(error => { if (wireDelivery.service.options.onError) wireDelivery.service.options.onError(error); else console.warn(error.message); });
+      if (wireDelivery)
+        void wireDelivery.service
+          .withStore(() =>
+            wireDelivery.service.closeMessage(wireDelivery.context.messageId, 'CANCELLED'),
+          )
+          .catch((error) => {
+            if (wireDelivery.service.options.onError) wireDelivery.service.options.onError(error);
+            else console.warn(error.message);
+          });
       const state = gateway?.machine.state;
       if (state === 'IN_PROGRESS') startCancel();
       else if (state === 'ACCEPTED') deferredCancel = true;
@@ -3328,36 +4742,96 @@ export class RequesterClient {
       let connectionRequest: SignedEnvelope | undefined;
       let connectionRouter: ConnectionRouter | undefined;
       if (this.options.connectionReview && protocolVersion === '0.2.0') {
-        const relayUrl = invite?.relayUrl ?? card?.payload.relayEndpoint ?? this.options.pendingRelayUrl;
+        const relayUrl =
+          invite?.relayUrl ?? card?.payload.relayEndpoint ?? this.options.pendingRelayUrl;
         if (!relayUrl) throw new Error('RELAY_REQUIRED');
-        const store = this.options.connectionStore ?? new WorkerTrustStore(owner, { path: this.options.identityOptions
-          ? workerIntakePath(owner.did, this.options.identityOptions) : undefined, now: this.options.now });
+        const store =
+          this.options.connectionStore ??
+          new WorkerTrustStore(owner, {
+            path: this.options.identityOptions
+              ? workerIntakePath(owner.did, this.options.identityOptions)
+              : undefined,
+            now: this.options.now,
+          });
         if (store.ownerDid !== owner.did) throw new Error('CONNECTION_OWNER_MISMATCH');
         if (store.connectionState(peer) !== 'connected') {
-          connectionRouter = new ConnectionRouter({ owner, relay, relayUrl, store, identityOptions: this.options.identityOptions,
-            agentCard: createSignedAgentCard({ name: 'Sealbridge requester', agentDid: owner.did,
-              relayEndpoint: relayUrl, skills: [], protocolVersions: await retryDeliveryBusy(() => this.protocol.receiveVersions(), signal, 'PROTOCOL_STORE_BUSY') }, owner),
-            review: new HeldRequestReview(owner, { ...this.options.identityOptions, now: this.options.now }),
-            humanReview: this.options.connectionReview, now: this.options.now, allowPrivateRelay: this.options.allowPrivateRelay,
-            onConnectionEvent: this.options.onConnectionEvent });
+          connectionRouter = new ConnectionRouter({
+            owner,
+            relay,
+            relayUrl,
+            store,
+            identityOptions: this.options.identityOptions,
+            agentCard: createSignedAgentCard(
+              {
+                name: 'Sealbridge requester',
+                agentDid: owner.did,
+                relayEndpoint: relayUrl,
+                skills: [],
+                protocolVersions: await retryDeliveryBusy(
+                  () => this.protocol.receiveVersions(),
+                  signal,
+                  'PROTOCOL_STORE_BUSY',
+                ),
+              },
+              owner,
+            ),
+            review: new HeldRequestReview(owner, {
+              ...this.options.identityOptions,
+              now: this.options.now,
+            }),
+            humanReview: this.options.connectionReview,
+            now: this.options.now,
+            allowPrivateRelay: this.options.allowPrivateRelay,
+            onConnectionEvent: this.options.onConnectionEvent,
+          });
           try {
-            const request = await connectionRouter.service.request({ toOwnerDid: peer,
-              ...(invite ? { inviteToken: options.to } : card ? { peerAgentCard: card } : {}), originProposalDigest: digest({ manifest, input: options.input }), deferDelivery: true });
-            connectionRequest = store.controlSnapshot().find(r => r.offer.requestId === request.requestId)?.outbox[0]?.envelope;
-          } catch (error) { if (!(error instanceof Error) || error.message !== 'APPROVAL_REJECTED') throw error; }
+            const request = await connectionRouter.service.request({
+              toOwnerDid: peer,
+              ...(invite ? { inviteToken: options.to } : card ? { peerAgentCard: card } : {}),
+              originProposalDigest: digest({ manifest, input: options.input }),
+              deferDelivery: true,
+            });
+            connectionRequest = store
+              .controlSnapshot()
+              .find((r) => r.offer.requestId === request.requestId)?.outbox[0]?.envelope;
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== 'APPROVAL_REJECTED') throw error;
+          }
         }
       }
       if (connectionRouter) inbox.setConnections(connectionRouter);
       // Recheck the live phase immediately before transmission; owner review may cross a boundary.
-      await retryDeliveryBusy(() => this.protocol.outbound(invite?.agentCard ?? card, manifest.protocolVersion, peer, manifest.worker!.agentDid), signal, 'PROTOCOL_STORE_BUSY');
+      await retryDeliveryBusy(
+        () =>
+          this.protocol.outbound(
+            invite?.agentCard ?? card,
+            manifest.protocolVersion,
+            peer,
+            manifest.worker!.agentDid,
+          ),
+        signal,
+        'PROTOCOL_STORE_BUSY',
+      );
       options.beforeTransmit?.();
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
-      if (approvalMode && !verifyApproval(contextProposalApproval!, owner.did, manifest.taskId, 'contract_acceptance', proposalTarget()))
+      if (
+        approvalMode &&
+        !verifyApproval(
+          contextProposalApproval!,
+          owner.did,
+          manifest.taskId,
+          'contract_acceptance',
+          proposalTarget(),
+        )
+      )
         throw new Error('DELEGATION_APPROVAL_REQUIRED');
       if (approvalMode || managedChild) {
         options.signal?.throwIfAborted();
         if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('DELEGATION_INVALID');
-        if (invite) parseAndVerifyInviteToken(options.to, Date.now(), { allowPrivateRelay: this.options.allowPrivateRelay });
+        if (invite)
+          parseAndVerifyInviteToken(options.to, Date.now(), {
+            allowPrivateRelay: this.options.allowPrivateRelay,
+          });
       }
       managedChild?.beforeTransmit(manifest, options.input);
       await wire.sendEvent('PROPOSE', {
@@ -3385,46 +4859,85 @@ export class RequesterClient {
         )
       )
         throw new Error('INVALID_ACCEPTANCE');
-      const responseAutomation = accept.approval.payload.authorization ? {
-        notice: automationNotice, authorization: accept.approval.payload.authorization,
-        ...(advertisedPolicy && digest(advertisedPolicy) === accept.approval.payload.authorization.ruleDigest
-          ? { policy: advertisedPolicy } : {}),
-      } : workerAutomation;
+      const responseAutomation = accept.approval.payload.authorization
+        ? {
+            notice: automationNotice,
+            authorization: accept.approval.payload.authorization,
+            ...(advertisedPolicy &&
+            digest(advertisedPolicy) === accept.approval.payload.authorization.ruleDigest
+              ? { policy: advertisedPolicy }
+              : {}),
+          }
+        : workerAutomation;
       validateContextGrantUse(manifest, options.input, (this.options.now ?? Date.now)());
       managedChild?.onAcceptedContract(accept.contract);
       gateway = new OwnerGateway(owner, accept.contract, policy);
       gateway.machine.apply(accept.transition);
-      if (this.options.connectAcceptedInvite && invite && peer === invite.ownerDid &&
-          manifest.worker!.agentDid === invite.agentDid) {
+      if (
+        this.options.connectAcceptedInvite &&
+        invite &&
+        peer === invite.ownerDid &&
+        manifest.worker!.agentDid === invite.agentDid
+      ) {
         const connectionId = connectionIdFor(owner.did, peer);
         let recorded = false;
         let naming = {};
         try {
           const before = connectionStore.listConnections();
-          recorded = connectionStore.recordAcceptedInviteTask({ peerOwnerDid: peer,
-            peerAgentDid: invite.agentDid, peerDisplayName: invite.agentCard.payload.name,
-            relayUrl: invite.relayUrl }, connectionId, digest({ manifest, input: options.input }), digest(accept.approval), manifest);
+          recorded = connectionStore.recordAcceptedInviteTask(
+            {
+              peerOwnerDid: peer,
+              peerAgentDid: invite.agentDid,
+              peerDisplayName: invite.agentCard.payload.name,
+              relayUrl: invite.relayUrl,
+            },
+            connectionId,
+            digest({ manifest, input: options.input }),
+            digest(accept.approval),
+            manifest,
+          );
           if (recorded) {
             const connections = connectionStore.listConnections();
-            naming = await nameInviteConnection(owner, this.options.identityOptions ?? {}, digest(invite),
-              connections.find(c => c.peerOwnerDid === peer)!, before, connections);
+            naming = await nameInviteConnection(
+              owner,
+              this.options.identityOptions ?? {},
+              digest(invite),
+              connections.find((c) => c.peerOwnerDid === peer)!,
+              before,
+              connections,
+            );
           }
         } catch {
-          const warning = { code: 'CONNECTION_RECORD_FAILED' as const, peerOwnerDid: peer,
-            message: recorded ? 'CONNECTION_RECORD_FAILED: Connection was recorded, but its saved invite name could not be applied. The accepted task will continue. Use connections list to see its actual name.\n接続を記録しましたが、保存済み招待の名前を適用できませんでした。受諾済みの作業は続行します。connections list で実際の名前を確認してください。' :
-              'CONNECTION_RECORD_FAILED: Connection was not recorded. The accepted task will continue. Re-run delegate or use TTY/MCP connection confirmation to record it.' +
-              '\n接続を記録できませんでした。受諾済みの作業は続行します。delegate を再実行するか、TTY/MCP の接続確認で記録してください。' };
-          if (this.options.onConnectionRecordWarning) this.options.onConnectionRecordWarning(warning);
+          const warning = {
+            code: 'CONNECTION_RECORD_FAILED' as const,
+            peerOwnerDid: peer,
+            message: recorded
+              ? 'CONNECTION_RECORD_FAILED: Connection was recorded, but its saved invite name could not be applied. The accepted task will continue. Use connections list to see its actual name.\n接続を記録しましたが、保存済み招待の名前を適用できませんでした。受諾済みの作業は続行します。connections list で実際の名前を確認してください。'
+              : 'CONNECTION_RECORD_FAILED: Connection was not recorded. The accepted task will continue. Re-run delegate or use TTY/MCP connection confirmation to record it.' +
+                '\n接続を記録できませんでした。受諾済みの作業は続行します。delegate を再実行するか、TTY/MCP の接続確認で記録してください。',
+          };
+          if (this.options.onConnectionRecordWarning)
+            this.options.onConnectionRecordWarning(warning);
           else console.error(warning.message);
         }
-        if (recorded) this.options.onConnectionEvent?.({ ...naming, event: 'connected', peerOwnerDid: peer,
-          peerAgentDid: invite.agentDid, connectionId, source: 'request', connectedAt: (this.options.now ?? Date.now)() });
+        if (recorded)
+          this.options.onConnectionEvent?.({
+            ...naming,
+            event: 'connected',
+            peerOwnerDid: peer,
+            peerAgentDid: invite.agentDid,
+            connectionId,
+            source: 'request',
+            connectedAt: (this.options.now ?? Date.now)(),
+          });
       }
       gateway.machine.apply(
         (await wire.receiveEvent('START')).payload.payload as unknown as Signed<Transition>,
       );
       if (options.signal?.aborted || deferredCancel) startCancel();
-      timeouts.executing(timeoutOptions.executionTimeoutMs ?? manifest.budget.maxWallClockSeconds * 1000);
+      timeouts.executing(
+        timeoutOptions.executionTimeoutMs ?? manifest.budget.maxWallClockSeconds * 1000,
+      );
       wire.onActivity = () => timeouts.activity();
       const envelope = await wire.receiveEvent('DELIVER'),
         data = envelope.payload.payload as unknown as Delivery & { transition: Signed<Transition> };
@@ -3434,37 +4947,63 @@ export class RequesterClient {
       hooks?.onDelivered?.();
       const approval = () => {
         if (approvalMode || managedChild) requireOwnerDecision(this.approvalProvider);
-        const lineage = approvalMode ? verifyDelegationAttachment(data.delegation, accept.contract) : undefined;
+        const lineage = approvalMode
+          ? verifyDelegationAttachment(data.delegation, accept.contract)
+          : undefined;
         const started = approvalMode || managedChild ? Date.now() : 0;
         const pendingApproval = this.approvalProvider.approve({
           taskId: manifest.taskId,
           gate: 'final_verification',
           target: data,
-          details: { manifest, deliverableDigest: data.artifact.payload.digest,
+          details: {
+            manifest,
+            deliverableDigest: data.artifact.payload.digest,
             ...(responseAutomation ? { workerAutomation: responseAutomation } : {}),
-            ...(approvalMode ? { delegateeOwnerDids: lineage!.delegateeOwnerDids,
-              delegationDigests: data.delegation!.children.map(p => ({ linkDigest: digest(p.link),
-                contractDigest: p.childContract.contractDigest, grantDigest: digest(p.childContract.manifest.contextGrant!) })) } : {}) },
+            ...(approvalMode
+              ? {
+                  delegateeOwnerDids: lineage!.delegateeOwnerDids,
+                  delegationDigests: data.delegation!.children.map((p) => ({
+                    linkDigest: digest(p.link),
+                    contractDigest: p.childContract.contractDigest,
+                    grantDigest: digest(p.childContract.manifest.contextGrant!),
+                  })),
+                }
+              : {}),
+          },
           deadline: manifest.deadline,
           signal,
         });
         if (!approvalMode && !managedChild) return pendingApproval;
-        return pendingApproval.then(receipt => {
+        return pendingApproval.then((receipt) => {
           assertFreshDecision(receipt, started);
           if (Date.parse(manifest.deadline) <= Date.now()) throw new Error('DELEGATION_INVALID');
           return receipt;
         });
       };
-      const { result, verification, settlement } = await abortable(gateway.verifyAndSettle(
-        wire.sealed(envelope),
-        this.options.verificationEngine ?? new VerificationEngine(),
-        approval,
-        { ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}), allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true, onVerifiedDelivery: async () => {
-          if (!wireDelivery) return;
-          await wireDelivery.service.withStore(() => wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, { status: 'replied', envelopeId: wireDelivery.context.messageId,
-            replyEnvelopeId: receiptFileId(envelope.payload.envelopeId) }), signal);
-        } },
-      ), signal);
+      const { result, verification, settlement } = await abortable(
+        gateway.verifyAndSettle(
+          wire.sealed(envelope),
+          this.options.verificationEngine ?? new VerificationEngine(),
+          approval,
+          {
+            ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}),
+            allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true,
+            onVerifiedDelivery: async () => {
+              if (!wireDelivery) return;
+              await wireDelivery.service.withStore(
+                () =>
+                  wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, {
+                    status: 'replied',
+                    envelopeId: wireDelivery.context.messageId,
+                    replyEnvelopeId: receiptFileId(envelope.payload.envelopeId),
+                  }),
+                signal,
+              );
+            },
+          },
+        ),
+        signal,
+      );
       if (!result.accepted || !settlement) {
         await wire.sendEvent('VERIFY_REJECT', verification);
         throw new Error('VERIFICATION_REJECTED: ' + result.reason);
@@ -3491,23 +5030,52 @@ export class RequesterClient {
     } catch (e) {
       if (e instanceof PeerRejectedError && wireDelivery) {
         await wireDelivery.service.withStore(() => {
-          if (e.code === 'PENDING_OWNER_APPROVAL') wireDelivery.service.markPeerObserved(wireDelivery.context.messageId,
-            { status: 'received_held', envelopeId: wireDelivery.context.messageId });
-          wireDelivery.service.closeMessage(wireDelivery.context.messageId, e.code ?? 'PEER_REJECTED');
+          if (e.code === 'PENDING_OWNER_APPROVAL')
+            wireDelivery.service.markPeerObserved(wireDelivery.context.messageId, {
+              status: 'received_held',
+              envelopeId: wireDelivery.context.messageId,
+            });
+          wireDelivery.service.closeMessage(
+            wireDelivery.context.messageId,
+            e.code ?? 'PEER_REJECTED',
+          );
         }, signal);
       }
-      if (e instanceof PeerRejectedError && e.code === 'PENDING_OWNER_APPROVAL' && this.options.pendingStore) {
-        let pendingId = options.pendingId, pendingStoreError: string | undefined;
+      if (
+        e instanceof PeerRejectedError &&
+        e.code === 'PENDING_OWNER_APPROVAL' &&
+        this.options.pendingStore
+      ) {
+        let pendingId = options.pendingId,
+          pendingStoreError: string | undefined;
         if (!pendingId) {
           try {
-            pendingId = this.options.pendingStore.save({ ...(options.workerRef
-              ? { workerRef: options.workerRef } : { to: invite ? options.to : peer }),
-              relayUrl: typeof relayOption === 'string' ? relayOption : options.pendingRelayUrl ?? this.options.pendingRelayUrl ??
-                ('url' in relayOption && typeof relayOption.url === 'string' ? relayOption.url : undefined),
-              manifest, input: options.input, timeouts: timeoutOptions });
-          } catch (error) { pendingStoreError = pendingErrorCode(error); }
+            pendingId = this.options.pendingStore.save({
+              ...(options.workerRef
+                ? { workerRef: options.workerRef }
+                : { to: invite ? options.to : peer }),
+              relayUrl:
+                typeof relayOption === 'string'
+                  ? relayOption
+                  : (options.pendingRelayUrl ??
+                    this.options.pendingRelayUrl ??
+                    ('url' in relayOption && typeof relayOption.url === 'string'
+                      ? relayOption.url
+                      : undefined)),
+              manifest,
+              input: options.input,
+              timeouts: timeoutOptions,
+            });
+          } catch (error) {
+            pendingStoreError = pendingErrorCode(error);
+          }
         }
-        Object.assign(e, { pendingId, pendingStoreError, originalTaskId: manifest.taskId, nextStep: PENDING_NEXT_STEP });
+        Object.assign(e, {
+          pendingId,
+          pendingStoreError,
+          originalTaskId: manifest.taskId,
+          nextStep: PENDING_NEXT_STEP,
+        });
       }
       try {
         if (e instanceof PeerRejectedError && e.recovery) {
@@ -3515,28 +5083,44 @@ export class RequesterClient {
             throw new Error('INVALID_RECOVERY_OUTCOME');
           const cached = e.recovery.result;
           if (cached) {
-            const proposed = cached.bundle?.entries?.find((entry) => entry.body.eventType === 'PROPOSE')
-              ?.body.payload as unknown as Proposal | undefined;
-            const accepted = cached.bundle?.entries?.find((entry) => entry.body.eventType === 'ACCEPT')
-              ?.body.payload as unknown as { contract: TaskContract } | undefined;
-            const delivered = cached.bundle?.entries?.find((entry) => entry.body.eventType === 'DELIVER')
-              ?.body.payload as unknown as Delivery | undefined;
-            if (cached.taskId !== manifest.taskId || !['SETTLED', 'CANCELLED'].includes(cached.state) ||
-                !verifyAudit(cached.bundle, { taskId: manifest.taskId, actors: [owner.did, peer] }).valid ||
-                proposalAuditDigest(proposed) !== e.recovery.proposalDigest ||
-                !(manifest.contextGrant ? verifyContextAcceptanceAudit(accepted, manifest) :
-                  accepted && verifyContract(accepted.contract) && digest(accepted.contract.manifest) === digest(manifest)) ||
-                (cached.state === 'CANCELLED' && (e.code !== 'TASK_CANCELLED' || cached.deliverable !== null ||
+            const proposed = cached.bundle?.entries?.find(
+              (entry) => entry.body.eventType === 'PROPOSE',
+            )?.body.payload as unknown as Proposal | undefined;
+            const accepted = cached.bundle?.entries?.find(
+              (entry) => entry.body.eventType === 'ACCEPT',
+            )?.body.payload as unknown as { contract: TaskContract } | undefined;
+            const delivered = cached.bundle?.entries?.find(
+              (entry) => entry.body.eventType === 'DELIVER',
+            )?.body.payload as unknown as Delivery | undefined;
+            if (
+              cached.taskId !== manifest.taskId ||
+              !['SETTLED', 'CANCELLED'].includes(cached.state) ||
+              !verifyAudit(cached.bundle, { taskId: manifest.taskId, actors: [owner.did, peer] })
+                .valid ||
+              proposalAuditDigest(proposed) !== e.recovery.proposalDigest ||
+              !(manifest.contextGrant
+                ? verifyContextAcceptanceAudit(accepted, manifest)
+                : accepted &&
+                  verifyContract(accepted.contract) &&
+                  digest(accepted.contract.manifest) === digest(manifest)) ||
+              (cached.state === 'CANCELLED' &&
+                (e.code !== 'TASK_CANCELLED' ||
+                  cached.deliverable !== null ||
                   cached.bundle.entries.at(-1)?.body.eventType !== 'CANCEL')) ||
-                (cached.state === 'SETTLED' && (!delivered ||
+              (cached.state === 'SETTLED' &&
+                (!delivered ||
                   e.code !== 'TASK_SETTLED' ||
                   digest(delivered.artifact.payload.data) !== digest(cached.deliverable) ||
-                  cached.bundle.entries.at(-1)?.body.eventType !== 'SETTLED')))
+                  cached.bundle.entries.at(-1)?.body.eventType !== 'SETTLED'))
+            )
               throw new Error('INVALID_RECOVERY_OUTCOME');
             if (cached.state === 'SETTLED') {
               if (manifest.contextGrant) {
                 verifyRecoveredDelegation(delivered!, proposed, accepted);
-                if (delivered?.delegation && digest(delivered.delegation.parentContract.manifest) !== digest(manifest))
+                if (
+                  delivered?.delegation &&
+                  digest(delivered.delegation.parentContract.manifest) !== digest(manifest)
+                )
                   throw new Error('INVALID_RECOVERY_OUTCOME');
               }
               hooks?.onDelivered?.();
@@ -3546,7 +5130,8 @@ export class RequesterClient {
               // returns a verified bundle, but the live local file can still
               // contain only its acknowledged prefix. Preserve and finish it.
               await wire.quiesceAudit();
-              const store = new JsonlStore(auditPath), prefix = store.read();
+              const store = new JsonlStore(auditPath),
+                prefix = store.read();
               if (digest(prefix) !== digest(cached.bundle.entries.slice(0, prefix.length)))
                 throw new Error('AUDIT_PREFIX_MISMATCH');
               for (const entry of cached.bundle.entries.slice(prefix.length)) store.append(entry);
@@ -3558,7 +5143,14 @@ export class RequesterClient {
         if (!wire.hasCommittedSend || e instanceof PeerRejectedError || verifiedReceipt) throw e;
         // A closed recipient inbox is terminal for every attached task. Do not wait
         // for another relay send (or cancellation handshake) on the failed connection.
-        if (e instanceof Error && 'code' in e && ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED', 'RELAY_ENVELOPE_EXPIRED'].includes(String(e.code))) throw e;
+        if (
+          e instanceof Error &&
+          'code' in e &&
+          ['RELAY_TERMINAL', 'RELAY_AUTH_RECOVERY_EXHAUSTED', 'RELAY_ENVELOPE_EXPIRED'].includes(
+            String(e.code),
+          )
+        )
+          throw e;
         if (cancelStarted) {
           try {
             await wire.cancelSession();
@@ -3566,19 +5158,26 @@ export class RequesterClient {
             throw Object.assign(new Error('CANCELLED'), { bundle });
           } catch (inner) {
             if (inner instanceof Error && inner.message === 'CANCELLED') throw inner;
-            await wire.rawSend('ERROR', { code: safeError(inner, !!manifest.contextGrant) }).catch(() => {});
+            await wire
+              .rawSend('ERROR', { code: safeError(inner, !!manifest.contextGrant) })
+              .catch(() => {});
             throw inner;
           }
         }
-        await wire.rawSend('ERROR', { code: safeError(e, !!manifest.contextGrant) }).catch(() => {});
+        await wire
+          .rawSend('ERROR', { code: safeError(e, !!manifest.contextGrant) })
+          .catch(() => {});
         throw e;
       } catch (error) {
         if (!verifiedReceipt) throw error;
-        throw new IncompleteSettlementError({
-          ...verifiedReceipt,
-          entries: wire.entries.slice(),
-          completionError: error instanceof Error ? error.message : String(error),
-        }, error);
+        throw new IncompleteSettlementError(
+          {
+            ...verifiedReceipt,
+            entries: wire.entries.slice(),
+            completionError: error instanceof Error ? error.message : String(error),
+          },
+          error,
+        );
       }
     } finally {
       timeouts.close();
@@ -3591,16 +5190,32 @@ export class RequesterClient {
   async delegateMulti(options: DelegateMultiOptions): Promise<DelegateMultiResult> {
     if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
       validateIdempotencyKey(options.idempotencyKey);
-      options = { ...options, input: structuredClone(options.input),
+      options = {
+        ...options,
+        input: structuredClone(options.input),
         outputSchema: options.outputSchema && structuredClone(options.outputSchema),
         contextGrant: options.contextGrant && structuredClone(options.contextGrant),
         budget: options.budget && structuredClone(options.budget),
-        capabilities: options.capabilities && structuredClone(options.capabilities) };
+        capabilities: options.capabilities && structuredClone(options.capabilities),
+      };
       options = { ...options, workers: structuredClone(options.workers) };
       const action = this.keyedAction(options);
-      return unwrapIdempotency<DelegateMultiResult>(await this.keyedStore().run('acp_delegate_multi', options.idempotencyKey!,
-        action, async operation => ({ isError: false, value: await this.delegateMulti({ ...options,
-          idempotencyKey: undefined, idempotencyOperation: operation }) as unknown as Json }), { children: options.workers.length }));
+      return unwrapIdempotency<DelegateMultiResult>(
+        await this.keyedStore().run(
+          'acp_delegate_multi',
+          options.idempotencyKey!,
+          action,
+          async (operation) => ({
+            isError: false,
+            value: (await this.delegateMulti({
+              ...options,
+              idempotencyKey: undefined,
+              idempotencyOperation: operation,
+            })) as unknown as Json,
+          }),
+          { children: options.workers.length },
+        ),
+      );
     }
     if (!Array.isArray(options.workers) || options.workers.length === 0)
       throw new Error('WORKERS_REQUIRED');
@@ -3638,7 +5253,8 @@ export class RequesterClient {
     const incompleteReceipts: IncompleteDelegateReceipt[] = [];
     let failures = 0;
     const approvalFailures: Error[] = [];
-    const allApprovalFailed = () => approvalFailures.length === count ? approvalFailures[0] : undefined;
+    const allApprovalFailed = () =>
+      approvalFailures.length === count ? approvalFailures[0] : undefined;
     let winnerDigest: string | undefined;
     const abortUnfinished = (reason: string) => {
       controllers.forEach((controller, index) => {
@@ -3646,8 +5262,10 @@ export class RequesterClient {
         if (!delivered[index]) controller.abort(reason);
         else if (!completionTimers[index]) {
           // DELIVER has left execution: preserve verification and bilateral checkpointing.
-          completionTimers[index] = setTimeout(() => controller.abort(new Error('COMPLETION_TIMEOUT')),
-            completionTimeoutMs);
+          completionTimers[index] = setTimeout(
+            () => controller.abort(new Error('COMPLETION_TIMEOUT')),
+            completionTimeoutMs,
+          );
           completionTimers[index]!.unref();
         }
       });
@@ -3657,33 +5275,40 @@ export class RequesterClient {
         ? AbortSignal.any([options.signal, controllers[index].signal])
         : controllers[index].signal;
       try {
-        const result = await this.delegate({
-          to: worker.inviteToken ?? worker.workerDid,
-          relay: worker.relayUrl ?? this.options.relay,
-          title: options.title,
-          description: options.description,
-          input: options.input,
-          outputSchema: options.outputSchema,
-          contextGrant: options.contextGrant,
-          executionTimeoutMs: options.executionTimeoutMs,
-          timeoutMs: options.timeoutMs,
-          taskTimeoutMs: options.taskTimeoutMs,
-          waitTimeoutMs: options.waitTimeoutMs,
-          connectTimeoutMs: options.connectTimeoutMs,
-          transportIdleTimeoutMs: options.transportIdleTimeoutMs,
-          heartbeatIntervalMs: options.heartbeatIntervalMs,
-          budget: options.budget,
-          capabilities: options.capabilities,
-          minimumIsolationLevel: options.minimumIsolationLevel,
-          signal,
-          onProgress: options.onProgress,
-          beforePropose: options.beforePropose,
-          idempotencyOperation: options.idempotencyOperation,
-          idempotencyChildIndex: index,
-          auditPath: options.auditPath
-            ? options.auditPath.replace(/(\.jsonl)?$/, '.' + index + '.jsonl')
-            : undefined,
-        }, { onDelivered: () => { delivered[index] = true; } });
+        const result = await this.delegate(
+          {
+            to: worker.inviteToken ?? worker.workerDid,
+            relay: worker.relayUrl ?? this.options.relay,
+            title: options.title,
+            description: options.description,
+            input: options.input,
+            outputSchema: options.outputSchema,
+            contextGrant: options.contextGrant,
+            executionTimeoutMs: options.executionTimeoutMs,
+            timeoutMs: options.timeoutMs,
+            taskTimeoutMs: options.taskTimeoutMs,
+            waitTimeoutMs: options.waitTimeoutMs,
+            connectTimeoutMs: options.connectTimeoutMs,
+            transportIdleTimeoutMs: options.transportIdleTimeoutMs,
+            heartbeatIntervalMs: options.heartbeatIntervalMs,
+            budget: options.budget,
+            capabilities: options.capabilities,
+            minimumIsolationLevel: options.minimumIsolationLevel,
+            signal,
+            onProgress: options.onProgress,
+            beforePropose: options.beforePropose,
+            idempotencyOperation: options.idempotencyOperation,
+            idempotencyChildIndex: index,
+            auditPath: options.auditPath
+              ? options.auditPath.replace(/(\.jsonl)?$/, '.' + index + '.jsonl')
+              : undefined,
+          },
+          {
+            onDelivered: () => {
+              delivered[index] = true;
+            },
+          },
+        );
         finished[index] = true;
         // SETTLED always carries a verified deliverable, including JSON null.
         if (result.state !== 'SETTLED') throw new Error('VERIFICATION_REJECTED');
@@ -3713,8 +5338,11 @@ export class RequesterClient {
         if (error instanceof IncompleteSettlementError)
           incompleteReceipts.push(error.incompleteReceipt);
         await options.idempotencyOperation?.childReady(index, error);
-        if ((options.beforePropose || options.idempotencyOperation) && error instanceof Error &&
-            /^(APPROVAL_|IDEMPOTENCY_)/.test(error.message))
+        if (
+          (options.beforePropose || options.idempotencyOperation) &&
+          error instanceof Error &&
+          /^(APPROVAL_|IDEMPOTENCY_)/.test(error.message)
+        )
           approvalFailures.push(error);
         finished[index] = true;
         failures += 1;
@@ -3730,7 +5358,10 @@ export class RequesterClient {
       try {
         winner = await Promise.any(jobs);
       } catch {
-        throw Object.assign(allApprovalFailed() ?? new Error('RACE_FAILED'), { receipts, incompleteReceipts });
+        throw Object.assign(allApprovalFailed() ?? new Error('RACE_FAILED'), {
+          receipts,
+          incompleteReceipts,
+        });
       }
       abortUnfinished('RACE_LOST');
       await Promise.allSettled(jobs);
@@ -3751,12 +5382,19 @@ export class RequesterClient {
         receipts,
         incompleteReceipts,
         cancelled: resolved
-          .filter((_, index) => index !== winner.index && controllers[index].signal.aborted && !delivered[index])
+          .filter(
+            (_, index) =>
+              index !== winner.index && controllers[index].signal.aborted && !delivered[index],
+          )
           .map((worker) => worker.workerDid),
       };
     }
     await Promise.allSettled(jobs);
-    if (!winnerDigest) throw Object.assign(allApprovalFailed() ?? new Error('QUORUM_NOT_REACHED'), { receipts, incompleteReceipts });
+    if (!winnerDigest)
+      throw Object.assign(allApprovalFailed() ?? new Error('QUORUM_NOT_REACHED'), {
+        receipts,
+        incompleteReceipts,
+      });
     const seenWinners = new Set<string>();
     const winners = receipts.filter((receipt) => {
       if (receipt.outputDigest !== winnerDigest || seenWinners.has(receipt.workerDid)) return false;
@@ -3811,8 +5449,8 @@ function verifiedWorkerDid(bundle: AuditBundle, expectedDid: string): string {
   const payload = accept?.body.payload;
   const worker =
     payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as { contract?: { manifest?: TaskManifest }; worker?: TaskManifest['worker'] }).contract?.manifest?.worker ??
-        (payload as { worker?: TaskManifest['worker'] }).worker
+      ? ((payload as { contract?: { manifest?: TaskManifest }; worker?: TaskManifest['worker'] })
+          .contract?.manifest?.worker ?? (payload as { worker?: TaskManifest['worker'] }).worker)
       : undefined;
   const actors = bundle.checkpoint.actor.payload.actors;
   if (

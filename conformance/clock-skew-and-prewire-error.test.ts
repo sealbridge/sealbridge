@@ -87,7 +87,9 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -148,7 +150,9 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const alice = generateKeyPair();
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -176,7 +180,9 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
       title: 'Far future proposal',
       description: 'Should be rejected before SessionWire with an immediate ERROR frame',
     });
-    farFutureManifest.createdAt = new Date(Date.now() + DEFAULT_CLOCK_SKEW_MS + 300_000).toISOString();
+    farFutureManifest.createdAt = new Date(
+      Date.now() + DEFAULT_CLOCK_SKEW_MS + 300_000,
+    ).toISOString();
 
     void worker.start();
     const startedAt = Date.now();

@@ -5,7 +5,11 @@ import { constants } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, join } from 'node:path';
 import { startCredentialProxy, type CredentialProxyHandle } from './credential-proxy.js';
 import { sanitizedCommandEnvironment } from '@acp/sandbox';
-import { npmShimEntry, quoteWindowsBatchArgument, windowsCommandCandidates } from './windows-command.js';
+import {
+  npmShimEntry,
+  quoteWindowsBatchArgument,
+  windowsCommandCandidates,
+} from './windows-command.js';
 import { prepareCodexProxy } from './codex-config.js';
 import type { Json, AgentSkill } from '@acp/core';
 import type { AgentAdapter, AgentTaskContext } from './adapter-port.js';
@@ -30,8 +34,9 @@ export async function resolveCommand(command: string): Promise<string> {
   if (!isAbsolute(command) && /[\\/]/.test(command))
     throw new Error('COMMAND_MUST_BE_ABSOLUTE_OR_ON_PATH');
   const candidates = windows ? windowsCommandCandidates(command, process.env.PATHEXT) : [command];
-  const directories = isAbsolute(command) ? [dirname(command)] :
-    (process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin').split(delimiter);
+  const directories = isAbsolute(command)
+    ? [dirname(command)]
+    : (process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin').split(delimiter);
   for (const dir of directories) {
     if (!isAbsolute(dir)) continue;
     for (const candidate of candidates) {
@@ -62,10 +67,20 @@ export const runCommand: CommandRunner = async (request) => {
     env.PATH = defaults.PATH;
   }
   const binary = script ? process.execPath : batch ? defaults.ComSpec! : command;
-  const args = script ? [script, ...request.args] : batch ?
-    ['/d', '/s', '/v:off', '/c', '"' + [command, ...request.args].map(quoteWindowsBatchArgument).join(' ') + '"'] : request.args;
-  const windowsVerbatimArguments = windows && (batch && !script ||
-    basename(binary).toLowerCase() === 'cmd.exe' && args.includes('/c'));
+  const args = script
+    ? [script, ...request.args]
+    : batch
+      ? [
+          '/d',
+          '/s',
+          '/v:off',
+          '/c',
+          '"' + [command, ...request.args].map(quoteWindowsBatchArgument).join(' ') + '"',
+        ]
+      : request.args;
+  const windowsVerbatimArguments =
+    windows &&
+    ((batch && !script) || (basename(binary).toLowerCase() === 'cmd.exe' && args.includes('/c')));
   return new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(binary, args, {
       cwd: request.cwd,
@@ -154,8 +169,10 @@ export class CommandAgentAdapter implements AgentAdapter {
     if (process.platform === 'win32') {
       const shell = sanitizedCommandEnvironment('').ComSpec!;
       const extra = (this.options.args ?? []).map(quoteWindowsBatchArgument);
-      return { command: shell, args: ['/d', '/s', '/v:off', '/c',
-        '"' + [this.options.command, ...extra].join(' ') + '"'] };
+      return {
+        command: shell,
+        args: ['/d', '/s', '/v:off', '/c', '"' + [this.options.command, ...extra].join(' ') + '"'],
+      };
     }
     return {
       command: '/bin/sh',
@@ -224,15 +241,24 @@ export interface CliOptions {
   maxRequests?: number;
 }
 /** Default CLI invocations use a fresh HOME, so host CLI logins are unavailable. */
-export function assertCliAuthentication(adapter: 'claude' | 'codex', options: CliOptions = {}): void {
+export function assertCliAuthentication(
+  adapter: 'claude' | 'codex',
+  options: CliOptions = {},
+): void {
   // Owner-supplied commands/runners manage their own authentication.
   if (options.command || options.runner) return;
-  const variable = options.apiKeyEnv ?? (adapter === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  const variable =
+    options.apiKeyEnv ?? (adapter === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   if (options.apiKey ?? process.env[variable]) return;
-  throw new Error('AGENT_AUTH_REQUIRED: ' + adapter +
-    ' runs with a fresh task HOME; local CLI logins (~/.claude or ~/.codex) are unavailable. ' +
-    'Configure ' + variable + ' in the worker host environment before starting. ' +
-    'Never put credentials in task input or invitations.');
+  throw new Error(
+    'AGENT_AUTH_REQUIRED: ' +
+      adapter +
+      ' runs with a fresh task HOME; local CLI logins (~/.claude or ~/.codex) are unavailable. ' +
+      'Configure ' +
+      variable +
+      ' in the worker host environment before starting. ' +
+      'Never put credentials in task input or invitations.',
+  );
 }
 const CLAUDE_PERMISSION_MODES = [
   'acceptEdits',
@@ -332,11 +358,7 @@ export function resolveCodexCliCommand(options: CodexAdapterOptions = {}): Resol
 function commandList(resolved: ResolvedCliCommand): string[] {
   return [resolved.command, ...resolved.args];
 }
-function usage(
-  context: AgentTaskContext,
-  value: Record<string, unknown>,
-  meteredByProxy = false,
-) {
+function usage(context: AgentTaskContext, value: Record<string, unknown>, meteredByProxy = false) {
   // The proxy already charged this task from the provider response.
   // Stdout repeats those totals and must not be recorded again.
   if (meteredByProxy) return;
@@ -374,7 +396,7 @@ abstract class ProviderCliAdapter extends CommandAgentAdapter {
       process.env[
         this.cliOptions.apiKeyEnv ?? (anthropic ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY')
       ];
-    if (!key || this.cliOptions.command || anthropic && this.cliOptions.runner)
+    if (!key || this.cliOptions.command || (anthropic && this.cliOptions.runner))
       return super.executeTask(context);
     const proxy = await startCredentialProxy({
       apiKey: key,
@@ -391,14 +413,18 @@ abstract class ProviderCliAdapter extends CommandAgentAdapter {
     this.activeProxy = proxy;
     let codex: Awaited<ReturnType<typeof prepareCodexProxy>> | undefined;
     try {
-      if (!anthropic) codex = await prepareCodexProxy({
-        proxy,
-        invocation: this.invocation(),
-        extraArgs: this.cliOptions.extraArgs ?? [],
-        request: { cwd: context.workspaceDir, signal: context.signal,
-          timeoutMs: context.manifest.budget.maxWallClockSeconds * 1000 },
-        runner: this.options.runner ?? runCommand,
-      });
+      if (!anthropic)
+        codex = await prepareCodexProxy({
+          proxy,
+          invocation: this.invocation(),
+          extraArgs: this.cliOptions.extraArgs ?? [],
+          request: {
+            cwd: context.workspaceDir,
+            signal: context.signal,
+            timeoutMs: context.manifest.budget.maxWallClockSeconds * 1000,
+          },
+          runner: this.options.runner ?? runCommand,
+        });
       return await this.executeCommand(
         context,
         anthropic
@@ -412,8 +438,11 @@ abstract class ProviderCliAdapter extends CommandAgentAdapter {
       );
     } finally {
       this.activeProxy = undefined;
-      try { await codex?.close(); }
-      finally { await proxy.close(); }
+      try {
+        await codex?.close();
+      } finally {
+        await proxy.close();
+      }
     }
   }
 }
@@ -462,7 +491,9 @@ export class CodexCliAdapter extends ProviderCliAdapter {
   }
   protected override decode(stdout: string, context: AgentTaskContext): Json {
     if (this.activeProxy && this.activeProxy.authenticatedRequests === 0)
-      throw new Error('ADAPTER_PROXY_NOT_USED: Codex must use the task proxy before returning a deliverable');
+      throw new Error(
+        'ADAPTER_PROXY_NOT_USED: Codex must use the task proxy before returning a deliverable',
+      );
     let direct: Json;
     try {
       direct = JSON.parse(stdout) as Json;

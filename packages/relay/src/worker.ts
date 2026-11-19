@@ -18,12 +18,7 @@ import {
 import { relayWakeFromEnv } from './notifications.js';
 import type { RelayWakeOptions } from './notifications.js';
 import type { DurableLongPoll, RelaySnapshot } from './fetch.js';
-import {
-  emptyCursor,
-  emptyRelaySnapshot,
-  loadRelayState,
-  planJournal,
-} from './journal.js';
+import { emptyCursor, emptyRelaySnapshot, loadRelayState, planJournal } from './journal.js';
 import type { RelayMeta, JournalCursor, JournalPlan } from './journal.js';
 
 interface DurableStorage {
@@ -59,9 +54,12 @@ export class RelayDurableObject {
     private state: DurableState,
     env?: Record<string, unknown>,
   ) {
-    this.configuredNotificationKey = typeof env?.ACP_NOTIFICATION_KEY === 'string'
-      ? JSON.parse(env.ACP_NOTIFICATION_KEY) as KeyPair : undefined;
-    this.relay = new InMemoryRelay({ ...relayLimitsFromEnv(env),
+    this.configuredNotificationKey =
+      typeof env?.ACP_NOTIFICATION_KEY === 'string'
+        ? (JSON.parse(env.ACP_NOTIFICATION_KEY) as KeyPair)
+        : undefined;
+    this.relay = new InMemoryRelay({
+      ...relayLimitsFromEnv(env),
       // Channels are supplied by the embedding operator, never by an HTTP request.
       wake: (env?.ACP_WAKE as RelayWakeOptions | undefined) ?? relayWakeFromEnv(env),
     });
@@ -196,7 +194,9 @@ export class RelayDurableObject {
           await this.writeSnapshot();
         });
       }
-    })().finally(() => { this.notifications = undefined; });
+    })().finally(() => {
+      this.notifications = undefined;
+    });
     return this.notifications;
   }
   private scheduleNotifications(): void {
@@ -220,10 +220,7 @@ export class RelayDurableObject {
     if (request.method !== 'GET') return undefined;
     const url = new URL(request.url);
     const path = canonicalRelayPath(url.pathname);
-    if (
-      (path !== '/envelopes' && !path.startsWith('/inbox/')) ||
-      !url.searchParams.has('waitMs')
-    )
+    if ((path !== '/envelopes' && !path.startsWith('/inbox/')) || !url.searchParams.has('waitMs'))
       return undefined;
     const ms = Number(url.searchParams.get('waitMs'));
     if (!Number.isFinite(ms) || ms <= 0) return undefined;
@@ -296,8 +293,7 @@ export class RelayDurableObject {
     }
     if (
       (request.method === 'POST' && ['/agents', '/envelopes'].includes(path)) ||
-      (request.method === 'DELETE' &&
-        (path === '/envelopes' || path.startsWith('/envelopes/'))) ||
+      (request.method === 'DELETE' && (path === '/envelopes' || path.startsWith('/envelopes/'))) ||
       (request.method === 'GET' && (path === '/envelopes' || path.startsWith('/inbox/'))) ||
       this.persistedVersion !== this.relay.mutationVersion
     )
@@ -469,25 +465,37 @@ function inboxRoutes(method: string, path: string): boolean {
 
 const localHandler = createRelayFetchHandler();
 
-export async function handleRelayEdge(
-  request: Request,
-  env?: RelayEdgeEnv,
-): Promise<Response> {
+export async function handleRelayEdge(request: Request, env?: RelayEdgeEnv): Promise<Response> {
   const url = new URL(request.url);
   const path = canonicalRelayPath(url.pathname);
   if (request.method === 'GET' && path === '/health')
     return Response.json({ status: 'ok' }, { headers: relayHttpHeaders('json') });
   if (request.method === 'GET' && url.pathname === '/v1/capabilities')
-    return Response.json(env?.RELAY && !env.INVITES ? {} : { inviteLinks: 1 }, { headers: relayHttpHeaders('json') });
+    return Response.json(env?.RELAY && !env.INVITES ? {} : { inviteLinks: 1 }, {
+      headers: relayHttpHeaders('json'),
+    });
   if (url.pathname.startsWith('/v1/invites')) {
     const claim = request.method === 'POST' && url.pathname === '/v1/invites/claim';
     if (claim && env?.RATE_LIMITER) {
-      try { if (!(await env.RATE_LIMITER.limit({ key: clientIp(request) + ':invite-claim' })).success) return tooMany(60); }
-      catch { return Response.json({ error: 'RATE_LIMITER_UNAVAILABLE' }, { status: 503, headers: relayHttpHeaders('json') }); }
+      try {
+        if (!(await env.RATE_LIMITER.limit({ key: clientIp(request) + ':invite-claim' })).success)
+          return tooMany(60);
+      } catch {
+        return Response.json(
+          { error: 'RATE_LIMITER_UNAVAILABLE' },
+          { status: 503, headers: relayHttpHeaders('json') },
+        );
+      }
     }
-    if (env?.RELAY && !env.INVITES) return Response.json({ error: 'INVITE_LINK_UNAVAILABLE' }, { status: 503, headers: relayHttpHeaders('json') });
+    if (env?.RELAY && !env.INVITES)
+      return Response.json(
+        { error: 'INVITE_LINK_UNAVAILABLE' },
+        { status: 503, headers: relayHttpHeaders('json') },
+      );
     return env?.INVITES
-      ? claim ? routeInviteClaim(request, env.INVITES, clientIp(request)) : routeInvite(request, env.INVITES)
+      ? claim
+        ? routeInviteClaim(request, env.INVITES, clientIp(request))
+        : routeInvite(request, env.INVITES)
       : localHandler(request);
   }
   const bucket = rateBucket(request.method, path);
@@ -513,7 +521,8 @@ export async function handleRelayEdge(
         throw new Error('INVALID_REQUEST');
       }
       recipient = recipientOf(parsed) ?? '';
-    } else recipient = inboxRecipientFromRequest(path, url) ?? url.searchParams.get('recipient') ?? '';
+    } else
+      recipient = inboxRecipientFromRequest(path, url) ?? url.searchParams.get('recipient') ?? '';
     // Validate before idFromName so a missing or forged DID cannot mint an object.
     resolveDid(recipient);
     return env.RELAY.get(env.RELAY.idFromName('inbox:' + recipient)).fetch(forward(request, body));
