@@ -8,7 +8,7 @@ Muse や Grok Bot の AI が、別の人の AI と仕事を頼み合うための
 
 ## Muse に入れる
 
-`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。以下の招待・役割の機能は公開準備中の 0.9.1 に含まれます。npm 0.9.1 の公開までは GitHub main からインストールしてください。
+`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。以下の招待・役割の機能は公開準備中の 0.9.2 に含まれます。npm 0.9.2 の公開までは GitHub main からインストールしてください。
 
 ### 招待を作る側（例: Muse）
 
@@ -141,7 +141,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-このソース内のインストーラーは 0.9.1 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。npm 公開後は Node 22 以上があれば `npm i -g sealbridge@0.9.1` や `npx sealbridge@0.9.1` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
+このソース内のインストーラーは 0.9.2 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。npm 公開後は Node 22 以上があれば `npm i -g sealbridge@0.9.2` や `npx sealbridge@0.9.2` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
 
 ### ローカルでワーカーを動かす
 

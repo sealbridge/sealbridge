@@ -314,7 +314,7 @@ test('Muse-first READMEs retain npm onboarding and relay documentation on the ge
   for (const lang of ['en', 'ja'])
     for (const file of ['README', 'README.ja']) {
       await page.goto(`${site}/${lang}/docs/${file}/`);
-      await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.9.1');
+      await expect(page.locator('article')).toContainText('npm i -g sealbridge@0.9.2');
       await expect(page.locator('article')).toContainText('Relay: Reachable; via proxy (OK)');
       await expect(page.locator('article')).toContainText('Grok Bot');
       await expect(page.locator('article')).toContainText(
