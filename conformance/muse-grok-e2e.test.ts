@@ -479,7 +479,7 @@ it.each([
       });
       // Read-only admission permits execution, but the default requester rejects
       // the OpenAI host adapter's attested lack of isolation.
-      await send('ISOLATION_LEVEL_MISMATCH');
+      await send('VERIFICATION_REJECTED: Error: ISOLATION_LEVEL_MISMATCH');
       expect(modelCalls).toBe(1);
       if (cliFirst) {
         const before = JSON.parse(await cli(b, ['connections', 'list'])).connections;
