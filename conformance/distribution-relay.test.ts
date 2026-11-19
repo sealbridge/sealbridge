@@ -94,7 +94,9 @@ describe('distribution relay selection', () => {
     const schema = smithery.split('  commandFunction:')[0];
     expect(schema.split('    properties:')[0]).not.toContain('relayUrl');
     expect(schema).not.toMatch(/\bdefault:/);
-    const command = new Function(`return (${smithery.split('    |-\n')[1].trim()})`)() as (config: {
+    const commandBody = smithery.match(/^\s*commandFunction:\s*\|-\s*\r?\n([\s\S]*)$/m)?.[1];
+    expect(commandBody).toBeDefined();
+    const command = new Function(`return (${commandBody!.trim()})`)() as (config: {
       keyFile: string;
       relayUrl?: string;
     }) => { args: string[] };

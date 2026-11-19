@@ -54,10 +54,10 @@ describe('P2-15 CI hardening', () => {
     const dependabot = read('../.github/dependabot.yml');
     expect(dependabot).toMatch(/^version:\s*2$/m);
     for (const ecosystem of ['github-actions', 'npm']) {
-      expect(dependabot).toContain(`package-ecosystem: "${ecosystem}"`);
+      expect(dependabot).toMatch(new RegExp(`package-ecosystem:\\s*(['"])${ecosystem}\\1`));
     }
-    expect(dependabot.match(/directory:\s*"\/"/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(dependabot.match(/interval:\s*"weekly"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(dependabot.match(/directory:\s*(['"])\/\1/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(dependabot.match(/interval:\s*(['"])weekly\1/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('lists this regression in the conformance README', () => {
