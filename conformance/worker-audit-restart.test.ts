@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -28,7 +27,6 @@ async function fixture(filename: string) {
   let executions = 0;
   const createWorker = () =>
     new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,

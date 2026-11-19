@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,7 +55,6 @@ export function admissionFixture(
     approve = vi.spyOn(automatic, 'approve');
   const human = { approve: vi.fn(automatic.approve.bind(automatic)) };
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     relayUrl: 'https://relay.example',

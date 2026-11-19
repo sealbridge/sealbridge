@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it } from 'vitest';
 import {
   createRelayAuthToken,
@@ -245,7 +244,6 @@ describe('Improvement 1: expired and invalid AgentCard resilience in discover an
     };
 
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -359,7 +357,6 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const dotsKey = generateKeyPair();
 
     const grokWorker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -380,7 +377,6 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     });
 
     const dotsWorker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 
@@ -465,7 +461,6 @@ describe('Improvement 2: same-DID concurrent WorkerNode + RequesterClient and no
     const sameKey = generateKeyPair();
 
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
 

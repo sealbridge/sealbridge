@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,7 +28,6 @@ function setup(auditPath?: string) {
   const frames: unknown[] = [];
   let calls = 0;
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,

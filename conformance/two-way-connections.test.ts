@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -88,7 +87,6 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
       handler = createRelayFetchHandler();
     const fetcher: typeof fetch = async (input, init) => handler(new Request(input, init));
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       owner: aOwner,
       agentKey,
       acceptOwnerAgent: !!agentKey,

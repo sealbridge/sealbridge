@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CLOCK_SKEW_MS,
@@ -89,7 +88,6 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -153,7 +151,6 @@ describe('clock skew tolerance and pre-wire PROPOSE error return', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,

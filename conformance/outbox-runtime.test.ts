@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import type { PathLike } from 'node:fs';
@@ -1136,7 +1135,6 @@ function sessionFixture(inspection: boolean, loseResponse = false) {
   const approve = new PolicyAutoApprovalProvider(f.peer);
   function worker() {
     const node = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       owner: f.peer,
       relay: workerRelay,
       relayUrl: outboxOrigin,
@@ -1238,7 +1236,6 @@ describe('durable session integration', () => {
       const workers = origins.map((relay) => {
         const owner = generateKeyPair();
         const worker = new WorkerNode({
-          executionBackend: syntheticExecutionBackend,
           owner,
           relay,
           identityOptions,
@@ -1417,11 +1414,7 @@ describe('durable session integration', () => {
     const restartedService = f.restart(f.peer, {
       resolveTransport: () => ({ send: (e) => f.base.send(e), receive: () => undefined }),
     });
-    const restarted = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
-      ...first.options,
-      deliveryService: restartedService,
-    });
+    const restarted = new WorkerNode({ ...first.options, deliveryService: restartedService });
     cleanups.push(() => restarted.stop());
     const recovered = await restarted.runOnce();
     expect(recovered).toMatchObject({
@@ -1523,11 +1516,7 @@ describe('durable session integration', () => {
     const service = f.restart(f.peer, {
       resolveTransport: () => ({ send: (e) => f.base.send(e), receive: () => undefined }),
     });
-    const restarted = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
-      ...first.options,
-      deliveryService: service,
-    });
+    const restarted = new WorkerNode({ ...first.options, deliveryService: service });
     cleanups.push(() => restarted.stop());
     const run = restarted.start();
     try {
@@ -1662,7 +1651,6 @@ describe('durable session integration', () => {
     // Use an explicit local audit/journal without the delivery transaction's
     // OUTBOX_STORE_UNWRITABLE wrapper, so INVALID_TASK_JOURNAL reaches rejection.
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       ...f.worker().options,
       deliveryService: undefined,
       relayUrl: undefined,

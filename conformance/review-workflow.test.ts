@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
@@ -85,7 +84,6 @@ it('an HTTPS invitation completes an in-process diff review with unchanged signe
     };
   }
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: false, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,

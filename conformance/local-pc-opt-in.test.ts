@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   existsSync,
@@ -344,9 +343,14 @@ it('local doctor checks its own CLI on PATH', async () => {
   });
 });
 
-it.each(['delegate', 'mcp-server'])(
-  'settles actual %s requests without local PC opt-in',
-  async (mode) => {
+it.each([
+  ['delegate', false],
+  ['delegate', true],
+  ['mcp-server', false],
+  ['mcp-server', true],
+] as const)(
+  'host-worker delegation via %s with requester isolation opt-in=%s',
+  async (mode, isolated) => {
     const relay = new InMemoryRelay(),
       remote = generateKeyPair();
     const app = application();
@@ -354,7 +358,6 @@ it.each(['delegate', 'mcp-server'])(
     writeFileSync(key, JSON.stringify(owner), { mode: 0o600 });
     let executions = 0;
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       owner: remote,
       relay,
       relayUrl: 'https://relay.example',
@@ -377,7 +380,7 @@ it.each(['delegate', 'mcp-server'])(
     const settled = Promise.allSettled([running]);
     try {
       if (mode === 'delegate') {
-        await networkCommand(
+        const delegated = networkCommand(
           'delegate',
           [
             '--key',
@@ -391,15 +394,20 @@ it.each(['delegate', 'mcp-server'])(
             '--input',
             '{"ok":true}',
             '--auto-approve',
+            ...(isolated ? ['--require-isolated-execution'] : []),
           ],
           {
             ...app,
             transportFactory: () => relay,
           },
         );
-        expect(
-          vi.mocked(console.log).mock.calls.some(([line]) => String(line).includes('SETTLED')),
-        ).toBe(true);
+        if (isolated) await expect(delegated).rejects.toThrow('ISOLATION_LEVEL_MISMATCH');
+        else {
+          await delegated;
+          expect(
+            vi.mocked(console.log).mock.calls.some(([line]) => String(line).includes('SETTLED')),
+          ).toBe(true);
+        }
       } else {
         const server = new AcpMcpServer({
           owner,
@@ -419,14 +427,15 @@ it.each(['delegate', 'mcp-server'])(
               description: 'Remote echo',
               input: { ok: true },
               taskTimeoutMs: 5000,
+              ...(isolated ? { requireIsolatedExecution: true } : {}),
             },
           },
         });
-        expect(JSON.stringify(result)).toContain('SETTLED');
+        expect(JSON.stringify(result)).toContain(isolated ? 'ISOLATION_LEVEL_MISMATCH' : 'SETTLED');
         server.stopDelivery();
       }
       expect(executions).toBe(1);
-      expect((await settled)[0].status).toBe('fulfilled');
+      expect((await settled)[0].status).toBe(isolated ? 'rejected' : 'fulfilled');
     } finally {
       worker.stop();
       await settled;

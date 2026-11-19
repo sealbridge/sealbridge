@@ -89,6 +89,7 @@ export class OwnerGateway {
       allowUnencryptedEnvelopes?: boolean;
       onVerifiedDelivery?: () => void | Promise<void>;
       ownerDecision?: true;
+      requireIsolatedExecution?: boolean;
     },
   ) {
     if (

@@ -459,6 +459,12 @@ export class AcpMcpServer {
     let args = body.arguments === undefined ? {} : asRecord(body.arguments);
     if (
       (name === 'acp_delegate_task' || name === 'acp_delegate_multi') &&
+      args.requireIsolatedExecution !== undefined &&
+      typeof args.requireIsolatedExecution !== 'boolean'
+    )
+      throw new RpcError(-32602, 'Invalid requireIsolatedExecution: expected boolean');
+    if (
+      (name === 'acp_delegate_task' || name === 'acp_delegate_multi') &&
       args.minimumIsolationLevel !== undefined &&
       !MCP_ISOLATION_LEVELS.some((level) => level === args.minimumIsolationLevel)
     )
@@ -1134,6 +1140,9 @@ export class AcpMcpServer {
       input: (args.input ?? null) as Json,
       outputSchema: args.outputSchema as Schema | undefined,
       budget: args.budget as Partial<BudgetSpec> | undefined,
+      ...(typeof args.requireIsolatedExecution === 'boolean'
+        ? { requireIsolatedExecution: args.requireIsolatedExecution }
+        : {}),
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };
@@ -1235,6 +1244,9 @@ export class AcpMcpServer {
       input: (args.input ?? null) as Json,
       outputSchema: args.outputSchema as Schema | undefined,
       budget: args.budget as Partial<BudgetSpec> | undefined,
+      ...(typeof args.requireIsolatedExecution === 'boolean'
+        ? { requireIsolatedExecution: args.requireIsolatedExecution }
+        : {}),
       minimumIsolationLevel:
         typeof args.minimumIsolationLevel === 'string' ? args.minimumIsolationLevel : undefined,
     };

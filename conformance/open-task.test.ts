@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it } from 'vitest';
 import {
   generateKeyPair,
@@ -23,7 +22,6 @@ function setup(allowed = false) {
     relay = new InMemoryRelay();
   let calls = 0;
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     timeoutMs: 3000,

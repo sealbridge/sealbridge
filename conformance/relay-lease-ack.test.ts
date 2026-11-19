@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it, vi } from 'vitest';
 import { createRelayAuthToken, generateKeyPair, signEnvelope } from '../packages/core/src/index.js';
 import { HttpRelayClient } from '../packages/relay/src/index.js';
@@ -190,7 +189,6 @@ it('persists before ack and suppresses a proposal after a worker crash before ac
     approvalProvider: new PolicyAutoApprovalProvider(recipient),
   };
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     ...options,
@@ -215,7 +213,6 @@ it('persists before ack and suppresses a proposal after a worker crash before ac
     now += 30_001;
     holdAck = false;
     const restarted = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       ...options,

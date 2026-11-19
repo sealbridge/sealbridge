@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
@@ -73,7 +72,6 @@ it('settles the first delegate on a fresh invite with valid bilateral audits', a
   });
   const executeTask = vi.fn(async (c: { input: unknown }) => c.input as never);
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     owner,
     relay: new HttpRelayClient(url, fetcher, owner),
     relayUrl: url,

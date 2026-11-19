@@ -94,6 +94,8 @@ export interface VerificationResult {
   reason?: string;
 }
 export interface VerificationEngineOptions {
+  /** Requester-local opt-in: require an explicit non-host level meeting the contract minimum. */
+  requireIsolatedExecution?: boolean;
   /** Accept a cleartext DELIVER envelope. Default false. */
   allowUnencryptedEnvelopes?: boolean;
 }
@@ -140,6 +142,7 @@ export class VerificationEngine {
       allowUnencryptedEnvelopes?: boolean;
       onVerifiedDelivery?: () => void | Promise<void>;
       ownerDecision?: true;
+      requireIsolatedExecution?: boolean;
     },
   ): Promise<VerificationResult> {
     const stages: string[] = [];
@@ -192,6 +195,8 @@ export class VerificationEngine {
           d.attestation.payload.effectiveIsolationLevel,
           m.verification.requireExecutionAttestation,
           m.sandboxPolicy.allowSubprocessFallback === true,
+          this.options.requireIsolatedExecution === true ||
+            verifyOptions?.requireIsolatedExecution === true,
         )
       )
         throw new Error('ISOLATION_LEVEL_MISMATCH');

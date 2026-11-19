@@ -1,4 +1,3 @@
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -259,7 +258,6 @@ describe('application relay provenance', () => {
       const owner = resolveOrCreateIdentity('worker', identityOptions);
       expect(selected).toEqual([]);
       const worker = new WorkerNode({
-        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner,
@@ -338,7 +336,6 @@ describe('application relay provenance', () => {
     await networkCommand('discover', [], application);
     expect(fetcher.mock.calls[0][0]).toBe(DEFAULT_PUBLIC_RELAY + '/agents');
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner,

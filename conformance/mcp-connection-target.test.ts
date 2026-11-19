@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -169,7 +168,6 @@ it.each(['requester', 'worker'] as const)(
     vi.setSystemTime(Date.now() + 60001);
     const execute = vi.fn(async (ctx: any) => ctx.input);
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       owner: f.peer,
       relay,
       relayUrl: 'https://relay.example',
@@ -259,7 +257,6 @@ it('returns the advisory on terminal owner holds after a real send without retry
     relay = new InMemoryRelay();
   const execute = vi.fn(async () => ({}));
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     owner: f.peer,
     relay,
     relayUrl: 'https://relay.example',

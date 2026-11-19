@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it } from 'vitest';
 import {
   createSignedAgentCard,
@@ -136,7 +135,6 @@ describe('Sprint 1 deterministic discovery', () => {
       requester = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       allowedRequesterDids: [requester.did],

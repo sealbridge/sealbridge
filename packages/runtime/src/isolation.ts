@@ -24,9 +24,10 @@ export function satisfiesIsolation(
   effective: string | undefined,
   requireExecutionAttestation: boolean,
   allowSubprocessFallback: boolean,
+  requireIsolatedExecution = false,
 ): boolean {
   const minimum = isolationOrder.indexOf(required);
-  if (requireExecutionAttestation) {
+  if (requireIsolatedExecution) {
     const actual = effective === undefined ? -1 : isolationOrder.indexOf(effective);
     return minimum >= 0 && actual >= minimum;
   }

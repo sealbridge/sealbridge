@@ -269,3 +269,22 @@ schema, required manifest field, wire or stored-record format changes are made.
 Worker event names include `ACCEPT`, `IN_PROGRESS`, `DELIVER`, `SETTLED`, `CANCELLED`, `REJECTED`, and `INTERRUPTED`. `INTERRUPTED` carries `code: TASK_INTERRUPTED` and, for live handshake interruption, optional diagnostic `phase` (`OWNER_APPROVAL` or `ACCEPT_ACK_WAIT`). See [audit interruption](audit-interruption.md).
 
 `peerRef` is an alias of `workerRef` with the same saved reference value; MCP accepts either spelling. CLI delegation also accepts `--peer-ref` alongside `--to`. Resolution and permissions are unchanged.
+
+## Optional requester isolation
+
+Host-worker delegation remains enabled by default, including Codex, Claude,
+command, OpenAI, and MCP workers. Existing signed-attestation verification is
+unchanged. `requireExecutionAttestation` keeps its existing meaning and default.
+
+To opt in for a call, set `requireIsolatedExecution: true` on
+`RequesterClient.delegate` or `delegateMulti`. The same boolean is available on
+MCP `acp_delegate_task` and `acp_delegate_multi`; CLI `delegate` accepts
+`--require-isolated-execution`. Direct runtime verifier users can construct
+`new VerificationEngine({ requireIsolatedExecution: true })`.
+
+The opt-in rejects missing or host runner levels and requires an explicit level
+meeting the contract minimum, even if subprocess fallback is enabled. A standard
+`subprocess_restricted` sandbox qualifies, but does not isolate the kernel
+network. This is a requester-local, per-call requirement; supply it again for a
+fresh delegation. Missing or invalid signed attestations remain rejected either
+way.

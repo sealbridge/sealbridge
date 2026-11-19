@@ -138,8 +138,6 @@ async function session(
     budget: options.budget,
     capabilities: options.capabilities,
   });
-  // These real host adapter tests explicitly opt into legacy host execution.
-  manifest.verification.requireExecutionAttestation = false;
   manifest.verification.checks = [
     {
       checkId: 'chk_network',

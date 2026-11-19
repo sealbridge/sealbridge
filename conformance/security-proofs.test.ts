@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -803,7 +802,6 @@ describe('Proof 9: end-to-end payload encryption', () => {
       snapshots.push(JSON.stringify(relay.snapshot()));
     };
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -899,7 +897,6 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const relay = new InMemoryRelay();
     const registry = new RevocationRegistry();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -991,7 +988,6 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const relay = new InMemoryRelay();
     const abort = new AbortController();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -1053,7 +1049,6 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
       traffic.push(structuredClone(envelope));
     };
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -1259,7 +1254,6 @@ async function quorumWithBarrier(
   const workers = keys.map(
     (owner, index) =>
       new WorkerNode({
-        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner,

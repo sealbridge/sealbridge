@@ -1,4 +1,3 @@
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { protocolTestNow } from './protocol-test-clock.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
@@ -140,7 +139,6 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   const workerApproval = approving(() => workerOwner);
   const execute = vi.fn(async (ctx: { input: unknown }) => ctx.input as { echo: string });
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner: workerOwner,
@@ -390,7 +388,6 @@ it('retains worker-side invite admission and revocation checks after local impor
   const local = resolveOrCreateIdentity('requester', identityOptions);
   const execute = vi.fn(async () => ({}));
   const worker = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     owner,
     relay,
     revocation,
@@ -476,7 +473,6 @@ it('preserves explicitly configured unmigrated MCP owner-key worker routing; mig
   const otherExecute = vi.fn(async () => ({}));
   const makeWorker = (owner: KeyPair, executeTask: typeof otherExecute) =>
     new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       owner,
       relay,
       relayUrl: 'https://relay.example',

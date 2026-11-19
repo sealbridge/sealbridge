@@ -43,14 +43,21 @@ Untrusted third-party code requires `oci_container`
 Podman or Docker with `--network none`, `--read-only`, `--cap-drop ALL`,
 `--security-opt no-new-privileges`, and PID and memory limits.
 `ExecutionAttestation.effectiveIsolationLevel` is the path that actually ran.
-`VerificationEngine` rejects an `oci_container` contract whose attestation is not
-at least `oci_container` when `verification.requireExecutionAttestation` is true,
-even with `sandboxPolicy.allowSubprocessFallback` (`ISOLATION_LEVEL_MISMATCH`).
-Required attestations must contain an explicit non-host runner level meeting the
-contract minimum. Missing levels and `host_adapter`, `workspace_process`,
-`host_http_adapter`, or `mcp_proxy` are rejected. Setting
-`requireExecutionAttestation: false` preserves legacy isolation compatibility,
-but does not waive the signed attestation itself. An unavailable container runtime falls back to
+By default, verification preserves the existing host-worker and legacy-level
+compatibility policy. Signed attestations remain mandatory and are verified as
+before; `verification.requireExecutionAttestation` is not an isolation opt-in.
+For optional isolation enforcement, set `requireIsolatedExecution: true` on SDK
+`delegate` / `delegateMulti` or MCP `acp_delegate_task` / `acp_delegate_multi`,
+or pass `--require-isolated-execution` to CLI `delegate`. This requester-local,
+per-call policy rejects missing levels and `host_adapter`, `workspace_process`,
+`host_http_adapter`, or `mcp_proxy`, and requires a level meeting the contract
+minimum even with `allowSubprocessFallback`. Direct verifier users can set
+`VerificationEngine({ requireIsolatedExecution: true })`. The default is false,
+so Muse and Grok Bot can delegate to host workers without new configuration.
+`subprocess_restricted` qualifies as a sandbox level but does not provide kernel
+network isolation; use an `oci_container` contract when that is required.
+Without this opt-in, the existing OCI fallback and attestation policies remain
+unchanged (`ISOLATION_LEVEL_MISMATCH` on a disallowed level). An unavailable container runtime falls back to
 `subprocess_restricted` and reports that level. A container that fails to start
 is not retried in the weaker sandbox. The gateway accepts the manifest's
 `subprocess_restricted`, `networkAccess: none`, ephemeral-workspace policy;

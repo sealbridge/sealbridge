@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createRelayAuthToken,
@@ -447,7 +446,6 @@ describe('queued envelope expiry notices', () => {
     const relay = new InMemoryRelay({ envelopeTtlMs: 50 });
     const handler = createRelayFetchHandler({ relay });
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: recipient,
@@ -495,7 +493,6 @@ it('keeps a shared requester inbox usable after another task expires', async () 
     },
   };
   const offline = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner: recipient,
@@ -505,7 +502,6 @@ it('keeps a shared requester inbox usable after another task expires', async () 
     approvalProvider: new PolicyAutoApprovalProvider(recipient),
   });
   const online = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner: other,

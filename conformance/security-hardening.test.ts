@@ -773,7 +773,7 @@ describe('M3.1 attested isolation enforcement', () => {
     [false, 'subprocess_restricted', true, false],
     [undefined, undefined, true, false],
     [undefined, 'host_adapter', true, false],
-    [true, 'subprocess_restricted', true, false],
+    [true, 'subprocess_restricted', true, true],
     [undefined, 'oci_container', true, true],
     [undefined, 'subprocess_restricted', false, true],
   ] as const)(

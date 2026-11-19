@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, signApproval } from '../packages/core/src/index.js';
 import { verifyAudit } from '../packages/ledger/src/index.js';
@@ -18,7 +17,6 @@ function worker(relay: InMemoryRelay) {
   const approve = vi.spyOn(policy, 'approve');
   const execute = vi.fn(async (context) => ({ echoed: context.input }));
   const node = new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,

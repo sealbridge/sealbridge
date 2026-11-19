@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
@@ -27,7 +26,6 @@ function echoWorker(
   delayMs = 0,
 ) {
   return new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner: ownerDidKey,
@@ -76,7 +74,6 @@ describe('progress streaming and multi-worker delegation', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,
@@ -121,7 +118,6 @@ describe('progress streaming and multi-worker delegation', () => {
     expect(result.bundle.entries.some((entry) => entry.body.eventType === 'PROGRESS')).toBe(true);
 
     const limited = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,

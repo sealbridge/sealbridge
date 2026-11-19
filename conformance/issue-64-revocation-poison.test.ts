@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { describe, expect, it } from 'vitest';
 import {
   CapabilityGuard,
@@ -21,7 +20,6 @@ import {
 
 function echoWorker(owner: KeyPair, relay: InMemoryRelay, calls: Json[], events: string[]) {
   return new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,
@@ -239,7 +237,6 @@ describe('issue 64: unverified capability revocation', () => {
     const calls: Json[] = [];
     const events: string[] = [];
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,

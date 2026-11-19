@@ -1,4 +1,3 @@
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -466,7 +465,6 @@ describe('MCP tool definition quality', () => {
     const server = new AcpMcpServer({ owner, relay });
     const node = (key: ReturnType<typeof generateKeyPair>, tag: string) =>
       new WorkerNode({
-        executionBackend: syntheticExecutionBackend,
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner: key,

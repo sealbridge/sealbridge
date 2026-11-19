@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import {
   createCipheriv,
   createDecipheriv,
@@ -229,7 +228,6 @@ describe('P2-11 HKDF info binds both X25519 public keys', () => {
     };
     const input = { marker: 'p2-11-session-secret' };
     const worker = new WorkerNode({
-      executionBackend: syntheticExecutionBackend,
       autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
       checkPeer: () => 'trusted',
       owner: bob,

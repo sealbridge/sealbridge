@@ -166,7 +166,7 @@ const DELEGATE_USAGE =
   '(--to <invite|link|did|alias|workerRef> | --invite <invite|link|did|alias|workerRef> | --peer-ref <peerRef> | --discover <skill> | --task-type <type>) ' +
   '--title <text> --description <text> (--input <json> | --input-file <path>) ' +
   '[--relay <url>] [--key <file>] [--output-schema <json_or_file>] ' +
-  '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay]';
+  '[--audit <file>] [--out <file>] [--auto-approve] [--allow-private-relay] [--require-isolated-execution]';
 const WORKER_IDENTITY_HELP = `
   worker migrate [--create-owner] [--dry-run | --apply]  Migrate or recover after revocation with a fresh delegate; default is dry-run.
   worker revoke-delegate [--dry-run | --apply]  Revoke the local delegated execution identity.
@@ -190,6 +190,7 @@ const DISCOVER_USAGE =
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
   const boolean = new Set([
+    '--require-isolated-execution',
     '--no-connect',
     '--quiet-approval-warning',
     '--also-requester',
@@ -270,6 +271,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--verbose',
     ],
     delegate: [
+      '--require-isolated-execution',
       '--no-connect',
       '--quiet-approval-warning',
       ...timeouts,
@@ -303,6 +305,10 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
   ]);
   for (const [name, value] of parsed) {
     if (!known.has(name)) throw new Error('Unknown option: ' + name);
+    if (name === '--require-isolated-execution' && value !== true)
+      throw new Error(
+        'INVALID_REQUIRE_ISOLATED_EXECUTION: pass --require-isolated-execution without a value',
+      );
     if (name === '--no-connect' && value !== true)
       throw new Error('INVALID_NO_CONNECT: pass --no-connect without a value');
     if (name === '--allow-local-pc' && value !== true)
@@ -1100,6 +1106,7 @@ export async function networkCommand(
         input,
         outputSchema,
         ...application.pendingRequest,
+        ...(f.has('--require-isolated-execution') ? { requireIsolatedExecution: true } : {}),
         beforePropose: reportWorkerAutomation,
         to,
         ...(workerRef ? { workerRef } : {}),

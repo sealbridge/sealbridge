@@ -4,9 +4,9 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
-### Changed
+### Added
 
-- **Compatibility change:** Requesters requiring execution attestation now reject missing or host isolation levels (`host_adapter`, `workspace_process`, `host_http_adapter`, `mcp_proxy`) and any level below the contract minimum, including explicit subprocess fallback. Default requesters therefore reject legacy workers without an explicit runner level and host command/Claude/Codex/OpenAI/MCP workers. Setting `requireExecutionAttestation: false` preserves the previous isolation compatibility behavior; a signed attestation is still required. Standard sandbox deliveries remain supported. Final CLI approval now displays the attested isolation level, and local PC warnings describe the adapter's attached attestation accurately.
+- Optional requester isolation enforcement: set `requireIsolatedExecution: true` on SDK or MCP delegation, or pass `--require-isolated-execution` to CLI `delegate`, to reject missing/host runner levels and enforce the contract minimum. Isolation remains opt-in: default Codex, Claude, command, OpenAI, and MCP host-worker delegation works without new configuration. Existing signed-attestation verification and legacy isolation policy are unchanged. Final CLI approval displays the attested isolation level, and local PC warnings accurately describe the attached attestation.
 
 ## [0.9.2] - 2026-11-19
 

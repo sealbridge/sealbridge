@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair } from '../packages/core/src/index.js';
@@ -53,7 +52,6 @@ describe('worker workspace cleanup', () => {
           started = resolve;
         });
         const worker = new WorkerNode({
-          executionBackend: syntheticExecutionBackend,
           autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
           checkPeer: () => 'trusted',
           owner: bob,

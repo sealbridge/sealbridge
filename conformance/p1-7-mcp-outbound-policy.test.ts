@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { syntheticExecutionBackend } from './synthetic-execution-backend.js';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -47,7 +46,6 @@ function inviteFor(owner: KeyPair, relayEndpoint: string, agent?: KeyPair): stri
 
 function echoWorker(owner: KeyPair, relay: InMemoryRelay, tag: string, agent?: KeyPair) {
   return new WorkerNode({
-    executionBackend: syntheticExecutionBackend,
     autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
     checkPeer: () => 'trusted',
     owner,
