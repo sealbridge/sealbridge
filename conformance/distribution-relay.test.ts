@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -90,13 +91,28 @@ describe('distribution relay selection', () => {
   );
 
   it('keeps Smithery relay optional and forwards explicit overrides', () => {
-    const smithery = read('smithery.yaml');
-    const schema = smithery.split('  commandFunction:')[0];
-    expect(schema.split('    properties:')[0]).not.toContain('relayUrl');
-    expect(schema).not.toMatch(/\bdefault:/);
-    const commandBody = smithery.match(/^\s*commandFunction:\s*\|-\s*\r?\n([\s\S]*)$/m)?.[1];
-    expect(commandBody).toBeDefined();
-    const command = new Function(`return (${commandBody!.trim()})`)() as (config: {
+    const smithery = parse(read('smithery.yaml'));
+    const schema = smithery.startCommand.configSchema;
+    expect(schema.required ?? []).not.toContain('relayUrl');
+    expect(schema.properties.relayUrl).toBeDefined();
+    function inspect(value: unknown, forbidden: string): void {
+      if (Array.isArray(value)) {
+        for (const entry of value) inspect(entry, forbidden);
+      } else if (value !== null && typeof value === 'object') {
+        for (const [key, entry] of Object.entries(value)) {
+          expect(key).not.toBe(forbidden);
+          inspect(entry, forbidden);
+        }
+      } else {
+        expect(value).not.toBe(forbidden);
+      }
+    }
+    inspect(schema, 'default');
+    const { properties: _properties, ...outsideProperties } = schema;
+    inspect(outsideProperties, 'relayUrl');
+    const commandBody = smithery.startCommand.commandFunction;
+    expect(typeof commandBody).toBe('string');
+    const command = new Function(`return (${commandBody})`)() as (config: {
       keyFile: string;
       relayUrl?: string;
     }) => { args: string[] };

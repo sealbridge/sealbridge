@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const MUTABLE_REF = /@(?:v[^#\s]+|main|master)\b/;
@@ -51,13 +52,18 @@ describe('P2-15 CI hardening', () => {
   });
 
   it('schedules Dependabot updates for github-actions and npm', () => {
-    const dependabot = read('../.github/dependabot.yml');
-    expect(dependabot).toMatch(/^version:\s*2$/m);
+    const dependabot = parse(read('../.github/dependabot.yml'));
+    expect(dependabot.version).toBe(2);
     for (const ecosystem of ['github-actions', 'npm']) {
-      expect(dependabot).toMatch(new RegExp(`package-ecosystem:\\s*(['"])${ecosystem}\\1`));
+      const updates = dependabot.updates.filter(
+        (update: { 'package-ecosystem': string }) => update['package-ecosystem'] === ecosystem,
+      );
+      expect(updates.length).toBeGreaterThan(0);
+      for (const update of updates) {
+        expect(update.directory).toBe('/');
+        expect(update.schedule.interval).toBe('weekly');
+      }
     }
-    expect(dependabot.match(/directory:\s*(['"])\/\1/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(dependabot.match(/interval:\s*(['"])weekly\1/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('lists this regression in the conformance README', () => {
