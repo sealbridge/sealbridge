@@ -11,7 +11,10 @@ export class McpRpc {
   private framed?: boolean;
   private serial = 0;
   private closed = false;
-  private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  private readonly pending = new Map<
+    string,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
   private readonly calls = new Map<string | number, AbortController>();
   private writes: Promise<void> = Promise.resolve();
   constructor(
@@ -29,12 +32,22 @@ export class McpRpc {
       };
       const cancel = () => {
         cleanup();
-        void this.write({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
+        void this.write({
+          jsonrpc: '2.0',
+          method: 'notifications/cancelled',
+          params: { requestId: id },
+        });
         reject(signal.reason instanceof Error ? signal.reason : aborted());
       };
       this.pending.set(id, {
-        resolve: (value) => { cleanup(); resolve(value); },
-        reject: (error) => { cleanup(); reject(error); },
+        resolve: (value) => {
+          cleanup();
+          resolve(value);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
       });
       signal.addEventListener('abort', cancel, { once: true });
       void this.write({ jsonrpc: '2.0', id, method, params }).catch((error: Error) => {
@@ -48,18 +61,29 @@ export class McpRpc {
     const frame = this.framed
       ? 'Content-Length: ' + Buffer.byteLength(json) + '\r\n\r\n' + json
       : json + '\n';
-    const write = this.writes.then(() => new Promise<void>((resolve, reject) => {
-      if (this.closed) { resolve(); return; }
-      this.output.write(frame, (error) => error ? reject(error) : resolve());
-    }));
+    const write = this.writes.then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          if (this.closed) {
+            resolve();
+            return;
+          }
+          this.output.write(frame, (error) => (error ? reject(error) : resolve()));
+        }),
+    );
     this.writes = write.catch(() => undefined);
     return write;
   }
   private route(body: string): void {
     let message: Record<string, unknown>;
-    try { message = JSON.parse(body) as Record<string, unknown>; }
-    catch {
-      void this.write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+    try {
+      message = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      void this.write({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
       return;
     }
     if (message && message.jsonrpc === '2.0' && !Object.hasOwn(message, 'method')) {
@@ -78,15 +102,24 @@ export class McpRpc {
     const id = message?.id;
     const hasId = typeof id === 'string' || typeof id === 'number';
     if (hasId && (this.calls.size >= MAX_CALLS || this.calls.has(id))) {
-      void this.write({ jsonrpc: '2.0', id, error: { code: -32000, message: 'MCP_TOO_MANY_REQUESTS' } });
+      void this.write({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32000, message: 'MCP_TOO_MANY_REQUESTS' },
+      });
       return;
     }
     if (!hasId && message?.method !== 'notifications/initialized') return;
     const controller = new AbortController();
     if (hasId) this.calls.set(id, controller);
-    void this.handle(message, controller.signal).then((response) => {
-      if (response !== undefined) return this.write(response);
-    }).catch(() => this.close()).finally(() => { if (hasId) this.calls.delete(id); });
+    void this.handle(message, controller.signal)
+      .then((response) => {
+        if (response !== undefined) return this.write(response);
+      })
+      .catch(() => this.close())
+      .finally(() => {
+        if (hasId) this.calls.delete(id);
+      });
   }
   close(): void {
     if (this.closed) return;
@@ -97,7 +130,10 @@ export class McpRpc {
   }
   async serve(input: Readable): Promise<void> {
     let buffer: Buffer = Buffer.alloc(0);
-    const onClose = () => { this.close(); input.destroy(); };
+    const onClose = () => {
+      this.close();
+      input.destroy();
+    };
     this.output.once('close', onClose);
     this.output.once('error', onClose);
     try {
@@ -107,17 +143,21 @@ export class McpRpc {
           if (this.framed === undefined) {
             const preview = buffer.toString('utf8');
             if (preview.startsWith('Content-Length')) this.framed = true;
-            else if (preview.trimStart().startsWith('{') || preview.includes('\n')) this.framed = false;
+            else if (preview.trimStart().startsWith('{') || preview.includes('\n'))
+              this.framed = false;
             else break;
           }
           let body: string;
           if (this.framed) {
             const end = buffer.indexOf('\r\n\r\n');
             if (end < 0) break;
-            const match = /^Content-Length:\s*(\d+)\s*$/im.exec(buffer.subarray(0, end).toString('utf8'));
+            const match = /^Content-Length:\s*(\d+)\s*$/im.exec(
+              buffer.subarray(0, end).toString('utf8'),
+            );
             if (!match) throw new Error('INVALID_FRAMING');
             const length = Number(match[1]);
-            if (!Number.isSafeInteger(length) || length > MAX_BYTES) throw new Error('MCP_MESSAGE_TOO_LARGE');
+            if (!Number.isSafeInteger(length) || length > MAX_BYTES)
+              throw new Error('MCP_MESSAGE_TOO_LARGE');
             if (buffer.length < end + 4 + length) break;
             body = buffer.subarray(end + 4, end + 4 + length).toString('utf8');
             buffer = buffer.subarray(end + 4 + length);

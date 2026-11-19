@@ -3,8 +3,23 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, digest, generateKeyPair, parseAndVerifyInviteToken, signPayload } from '../packages/core/src/index.js';
-import { ConnectionAliases, connectionAutoAccept, defaultConnectionAlias, InviteStore, resolveStoredIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
+import {
+  createInviteToken,
+  createSignedAgentCard,
+  digest,
+  generateKeyPair,
+  parseAndVerifyInviteToken,
+  signPayload,
+} from '../packages/core/src/index.js';
+import {
+  ConnectionAliases,
+  connectionAutoAccept,
+  defaultConnectionAlias,
+  InviteStore,
+  resolveStoredIdentity,
+  WorkerTrustStore,
+  workerIntakePath,
+} from '../packages/runtime/src/index.js';
 import { connectionTarget, localConnections } from '../cli/src/connection-target.js';
 import { connectionsCommand } from '../cli/src/connections.js';
 import { networkCommand } from '../cli/src/network.js';
@@ -14,51 +29,107 @@ import { protocolTestNow } from './protocol-test-clock.js';
 let root: string;
 let options: { home: string; env: { SEALBRIDGE_DATA_DIR: string } };
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(protocolTestNow('2026-11-14T00:00:00Z'));
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(protocolTestNow('2026-11-14T00:00:00Z'));
   root = mkdtempSync(join(tmpdir(), 'connection-aliases-'));
   options = { home: root, env: { SEALBRIDGE_DATA_DIR: root } };
 });
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); rmSync(root, { recursive: true, force: true }); });
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  rmSync(root, { recursive: true, force: true });
+});
 async function connect(role: 'worker' | 'requester', name: string) {
-  const key = await resolveStoredIdentity(role, options), peer = generateKeyPair();
-  const card = createSignedAgentCard({ name, agentDid: peer.did, relayEndpoint: 'https://relay.example', skills: [], protocolVersions: ['0.2.0'] }, peer);
+  const key = await resolveStoredIdentity(role, options),
+    peer = generateKeyPair();
+  const card = createSignedAgentCard(
+    {
+      name,
+      agentDid: peer.did,
+      relayEndpoint: 'https://relay.example',
+      skills: [],
+      protocolVersions: ['0.2.0'],
+    },
+    peer,
+  );
   const token = createInviteToken({ agentCard: card }, peer);
   // Seed the pre-existing on-disk invite connection format; no new fields or migration.
-  const localCard = createSignedAgentCard({ name: 'Local ' + peer.did, agentDid: key.did, relayEndpoint: 'https://relay.example', skills: [] }, key);
+  const localCard = createSignedAgentCard(
+    {
+      name: 'Local ' + peer.did,
+      agentDid: key.did,
+      relayEndpoint: 'https://relay.example',
+      skills: [],
+    },
+    key,
+  );
   const invite = parseAndVerifyInviteToken(createInviteToken({ agentCard: localCard }, key));
   const store = new WorkerTrustStore(key, { path: workerIntakePath(key.did, options) });
-  store.redeemTaskInvite(invite, { peerOwnerDid: peer.did, peerAgentDid: peer.did, peerDisplayName: name, relayUrl: 'https://relay.example' }, 'test-' + peer.did);
+  store.redeemTaskInvite(
+    invite,
+    {
+      peerOwnerDid: peer.did,
+      peerAgentDid: peer.did,
+      peerDisplayName: name,
+      relayUrl: 'https://relay.example',
+    },
+    'test-' + peer.did,
+  );
   return { key, peer, store, token };
 }
 it('reads old connection records without rewriting and renames only the signed alias sidecar', async () => {
   const f = await connect('worker', 'Review Bot');
-  const path = workerIntakePath(f.key.did, options), before = readFileSync(path);
+  const path = workerIntakePath(f.key.did, options),
+    before = readFileSync(path);
   expect(defaultConnectionAlias('Review Bot')).toBe('review-bot');
   expect(defaultConnectionAlias('査読者')).toBe('peer');
-  expect(localConnections(f.key, options)[0]).toMatchObject({ alias: 'review-bot', peerOwnerDid: f.peer.did, state: 'connected' });
+  expect(localConnections(f.key, options)[0]).toMatchObject({
+    alias: 'review-bot',
+    peerOwnerDid: f.peer.did,
+    state: 'connected',
+  });
   const output = vi.fn();
   await connectionsCommand(['alias', f.peer.did, 'reviewer'], { identityOptions: options, output });
   expect((await connectionTarget('reviewer', options))?.key.did).toBe(f.key.did);
   expect(readFileSync(path)).toEqual(before);
   expect(new WorkerTrustStore(f.key, { path }).connectionState(f.peer.did)).toBe('connected');
   await connectionsCommand(['list'], { identityOptions: options, output });
-  expect(JSON.parse(output.mock.calls.at(-1)![0]).connections[0]).toMatchObject({ alias: 'reviewer', localOwnerDid: f.key.did, peerOwnerDid: f.peer.did, state: 'connected' });
+  expect(JSON.parse(output.mock.calls.at(-1)![0]).connections[0]).toMatchObject({
+    alias: 'reviewer',
+    localOwnerDid: f.key.did,
+    peerOwnerDid: f.peer.did,
+    state: 'connected',
+  });
 });
 it('rejects identical default names and cross-key ambiguity instead of choosing a peer', async () => {
-  const a = await connect('worker', 'Peer'), b = await connect('requester', 'Peer');
+  const a = await connect('worker', 'Peer'),
+    b = await connect('requester', 'Peer');
   await expect(connectionTarget('peer', options)).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
-  await expect(connectionsCommand(['alias', 'peer', 'chosen'], { identityOptions: options })).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
-  await connectionsCommand(['alias', a.peer.did, 'chosen', '--role', 'worker'], { identityOptions: options, output: vi.fn() });
+  await expect(
+    connectionsCommand(['alias', 'peer', 'chosen'], { identityOptions: options }),
+  ).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
+  await connectionsCommand(['alias', a.peer.did, 'chosen', '--role', 'worker'], {
+    identityOptions: options,
+    output: vi.fn(),
+  });
   expect((await connectionTarget('chosen', options))?.connection.peerOwnerDid).toBe(a.peer.did);
   expect((await connectionTarget('peer', options))?.connection.peerOwnerDid).toBe(b.peer.did);
 });
 it('fails clearly on unknown targets and preserves literal DID/invite/saved references', async () => {
   await expect(connectionTarget('missing', options)).rejects.toThrow('CONNECTION_NOT_FOUND');
-  await expect(networkCommand('delegate', ['--to', 'missing', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'], { identityOptions: options })).rejects.toThrow('CONNECTION_NOT_FOUND');
-  for (const name of ['did:key:test', 'saved:test']) expect(await connectionTarget(name, options)).toBeUndefined();
+  await expect(
+    networkCommand(
+      'delegate',
+      ['--to', 'missing', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
+      { identityOptions: options },
+    ),
+  ).rejects.toThrow('CONNECTION_NOT_FOUND');
+  for (const name of ['did:key:test', 'saved:test'])
+    expect(await connectionTarget(name, options)).toBeUndefined();
 });
 it('rejects connection/invite alias conflicts and never bypasses saved invite expiry', async () => {
-  const a = await connect('requester', 'reviewer'), b = await connect('worker', 'Other');
+  const a = await connect('requester', 'reviewer'),
+    b = await connect('worker', 'Other');
   const invites = await InviteStore.open(a.key, options);
   invites.import(b.token, 'reviewer');
   await expect(connectionTarget('reviewer', options)).rejects.toThrow('CONNECTION_TARGET_CONFLICT');
@@ -67,57 +138,103 @@ it('rejects connection/invite alias conflicts and never bypasses saved invite ex
   vi.setSystemTime(Date.now() + 2 * 86400000);
   expect(() => invites.resolve(saved.workerRef)).toThrow('INVITE_EXPIRED');
   await expect(connectionTarget('reviewer', options)).rejects.toThrow('CONNECTION_TARGET_CONFLICT');
-  for (const [flag, value] of [['--to', saved.workerRef], ['--peer-ref', 'reviewer'], ['--invite', 'reviewer']]) {
-    await expect(networkCommand('delegate', [flag, value, '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
-      { identityOptions: options })).rejects.toThrow('INVITE_EXPIRED');
+  for (const [flag, value] of [
+    ['--to', saved.workerRef],
+    ['--peer-ref', 'reviewer'],
+    ['--invite', 'reviewer'],
+  ]) {
+    await expect(
+      networkCommand(
+        'delegate',
+        [flag, value, '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
+        { identityOptions: options },
+      ),
+    ).rejects.toThrow('INVITE_EXPIRED');
   }
 });
-it.each(['pending', 'connected'] as const)('keeps active same-peer invites and falls back only to an expired invite connected peer: %s', async state => {
-  const f = await connect('requester', 'Muse');
-  const invites = await InviteStore.open(f.key, options);
-  invites.import(f.token, 'muse');
-  if (state === 'pending') {
-    f.store.disconnect(f.peer.did);
-    f.store.recordOutgoing({ peerOwnerDid: f.peer.did, peerDisplayName: 'Muse', relayUrl: 'https://relay.example',
-      outgoing: { requestId: 'pending', requestDigest: digest('offer'), createdAt: Date.now(),
-        expiresAt: Date.now() + 60000, ownerConsentDigest: digest('consent') } });
-  }
-  expect(await connectionTarget('muse', options)).toBeUndefined();
-  expect(invites.resolve('muse').invite.ownerDid).toBe(f.peer.did);
-  vi.setSystemTime(Date.now() + 2 * 86400000);
-  if (state === 'connected') {
-    expect((await connectionTarget('muse', options))?.connection.peerOwnerDid).toBe(f.peer.did);
-    expect(() => invites.resolve('muse')).toThrow('INVITE_EXPIRED');
-    return;
-  }
-  expect(await connectionTarget('muse', options)).toBeUndefined();
-  await expect(networkCommand('delegate', ['--to', 'muse', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
-    { identityOptions: options })).rejects.toThrow('INVITE_EXPIRED');
-});
+it.each(['pending', 'connected'] as const)(
+  'keeps active same-peer invites and falls back only to an expired invite connected peer: %s',
+  async (state) => {
+    const f = await connect('requester', 'Muse');
+    const invites = await InviteStore.open(f.key, options);
+    invites.import(f.token, 'muse');
+    if (state === 'pending') {
+      f.store.disconnect(f.peer.did);
+      f.store.recordOutgoing({
+        peerOwnerDid: f.peer.did,
+        peerDisplayName: 'Muse',
+        relayUrl: 'https://relay.example',
+        outgoing: {
+          requestId: 'pending',
+          requestDigest: digest('offer'),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 60000,
+          ownerConsentDigest: digest('consent'),
+        },
+      });
+    }
+    expect(await connectionTarget('muse', options)).toBeUndefined();
+    expect(invites.resolve('muse').invite.ownerDid).toBe(f.peer.did);
+    vi.setSystemTime(Date.now() + 2 * 86400000);
+    if (state === 'connected') {
+      expect((await connectionTarget('muse', options))?.connection.peerOwnerDid).toBe(f.peer.did);
+      expect(() => invites.resolve('muse')).toThrow('INVITE_EXPIRED');
+      return;
+    }
+    expect(await connectionTarget('muse', options)).toBeUndefined();
+    await expect(
+      networkCommand(
+        'delegate',
+        ['--to', 'muse', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
+        { identityOptions: options },
+      ),
+    ).rejects.toThrow('INVITE_EXPIRED');
+  },
+);
 it('does not let a pending different-peer connection alias shadow a saved invite', async () => {
-  const f = await connect('requester', 'Muse'), other = await connect('worker', 'Other');
+  const f = await connect('requester', 'Muse'),
+    other = await connect('worker', 'Other');
   f.store.disconnect(f.peer.did);
-  f.store.recordOutgoing({ peerOwnerDid: f.peer.did, peerDisplayName: 'Muse', relayUrl: 'https://relay.example',
-    outgoing: { requestId: 'pending', requestDigest: digest('offer'), createdAt: Date.now(),
-      expiresAt: Date.now() + 60000, ownerConsentDigest: digest('consent') } });
+  f.store.recordOutgoing({
+    peerOwnerDid: f.peer.did,
+    peerDisplayName: 'Muse',
+    relayUrl: 'https://relay.example',
+    outgoing: {
+      requestId: 'pending',
+      requestDigest: digest('offer'),
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60000,
+      ownerConsentDigest: digest('consent'),
+    },
+  });
   const invites = await InviteStore.open(f.key, options);
   invites.import(other.token, 'muse');
   expect(await connectionTarget('muse', options)).toBeUndefined();
   expect(invites.resolve('muse').invite.ownerDid).toBe(other.peer.did);
 });
 it('keeps historical top-level list identity fields while identifying aggregate rows separately', async () => {
-  const f = await connect('worker', 'One'); await connect('requester', 'Two');
+  const f = await connect('worker', 'One');
+  await connect('requester', 'Two');
   const output = vi.fn();
   await connectionsCommand(['list'], { identityOptions: options, output });
-  expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({ localOwnerDid: f.key.did, role: 'worker', scope: 'all',
-    connections: [expect.objectContaining({ localOwnerDid: expect.any(String) }), expect.objectContaining({ localOwnerDid: expect.any(String) })] });
+  expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({
+    localOwnerDid: f.key.did,
+    role: 'worker',
+    scope: 'all',
+    connections: [
+      expect.objectContaining({ localOwnerDid: expect.any(String) }),
+      expect.objectContaining({ localOwnerDid: expect.any(String) }),
+    ],
+  });
 });
 it('explains safe manual recovery from an alias lock without deleting a possibly active writer lock', async () => {
   const f = await connect('worker', 'One');
   const aliases = new ConnectionAliases(f.key, options);
   aliases.rename(f.peer.did, 'one', f.store.listConnections());
   writeFileSync(aliases.path + '.lock', '999999999', { mode: 0o600 });
-  expect(() => aliases.rename(f.peer.did, 'new', f.store.listConnections())).toThrow('check that no alias writer is alive');
+  expect(() => aliases.rename(f.peer.did, 'new', f.store.listConnections())).toThrow(
+    'check that no alias writer is alive',
+  );
   expect(readFileSync(aliases.path + '.lock', 'utf8')).toBe('999999999');
 });
 it('rejects blocked aliases before transmitting and retains a user rename across blocking', async () => {
@@ -125,15 +242,25 @@ it('rejects blocked aliases before transmitting and retains a user rename across
   new ConnectionAliases(f.key, options).rename(f.peer.did, 'reviewer', f.store.listConnections());
   f.store.block(f.peer.did);
   const transportFactory = vi.fn();
-  await expect(networkCommand('delegate', ['--to', 'reviewer', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
-    { identityOptions: options, transportFactory })).rejects.toThrow('CONNECTION_NOT_CONNECTED');
+  await expect(
+    networkCommand(
+      'delegate',
+      ['--to', 'reviewer', '--title', 'T', '--description', 'D', '--input', '{}', '--auto-approve'],
+      { identityOptions: options, transportFactory },
+    ),
+  ).rejects.toThrow('CONNECTION_NOT_CONNECTED');
   expect(transportFactory).not.toHaveBeenCalled();
 });
 it('rejects alias collisions, reserved syntax and forged sidecar data', async () => {
-  const a = await connect('worker', 'One'), b = await connect('worker', 'Two');
+  const a = await connect('worker', 'One'),
+    b = await connect('worker', 'Two');
   const aliases = new ConnectionAliases(a.key, options);
-  expect(() => aliases.rename(a.peer.did, 'two', a.store.listConnections())).toThrow('CONNECTION_ALIAS_EXISTS');
-  expect(() => aliases.rename(a.peer.did, 'did:key:other', a.store.listConnections())).toThrow('INVALID_CONNECTION_ALIAS');
+  expect(() => aliases.rename(a.peer.did, 'two', a.store.listConnections())).toThrow(
+    'CONNECTION_ALIAS_EXISTS',
+  );
+  expect(() => aliases.rename(a.peer.did, 'did:key:other', a.store.listConnections())).toThrow(
+    'INVALID_CONNECTION_ALIAS',
+  );
   expect(localConnections(b.key, options)).toHaveLength(2);
   aliases.rename(a.peer.did, 'chosen', a.store.listConnections());
   const forged = JSON.parse(readFileSync(aliases.path, 'utf8'));
@@ -152,79 +279,193 @@ it('allows and disallows only a selected connected DID with read-only default an
   await connectionsCommand(['disallow', 'muse'], { identityOptions: options, output });
   await connectionsCommand(['list'], { identityOptions: options, output });
   expect(JSON.parse(output.mock.calls.at(-1)![0]).connections[0].acceptance).toBe('off');
-  await expect(connectionsCommand(['allow', 'missing'], { identityOptions: options })).rejects.toThrow('CONNECTION_NOT_FOUND');
-  await expect(connectionsCommand(['allow', 'muse', 'anything'], { identityOptions: options })).rejects.toThrow('INVALID_CONNECTION_ACCEPTANCE');
+  await expect(
+    connectionsCommand(['allow', 'missing'], { identityOptions: options }),
+  ).rejects.toThrow('CONNECTION_NOT_FOUND');
+  await expect(
+    connectionsCommand(['allow', 'muse', 'anything'], { identityOptions: options }),
+  ).rejects.toThrow('INVALID_CONNECTION_ACCEPTANCE');
   await connect('worker', 'Muse');
-  await expect(connectionsCommand(['allow', 'muse'], { identityOptions: options })).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
-  await expect(connectionsCommand(['disallow', 'muse'], { identityOptions: options })).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
+  await expect(connectionsCommand(['allow', 'muse'], { identityOptions: options })).rejects.toThrow(
+    'CONNECTION_ALIAS_AMBIGUOUS',
+  );
+  await expect(
+    connectionsCommand(['disallow', 'muse'], { identityOptions: options }),
+  ).rejects.toThrow('CONNECTION_ALIAS_AMBIGUOUS');
   f.store.block(f.peer.did);
-  await expect(connectionsCommand(['allow', f.peer.did], { identityOptions: options })).rejects.toThrow('CONNECTION_NOT_CONNECTED');
+  await expect(
+    connectionsCommand(['allow', f.peer.did], { identityOptions: options }),
+  ).rejects.toThrow('CONNECTION_NOT_CONNECTED');
 });
 
-it.each(['invited', 'connected', 'anyone'] as const)('preserves legacy explicit %s policies and limits, while peer overrides never inherit write', async from => {
-  const f = await connect('worker', 'Legacy');
-  const path = workerIntakePath(f.key.did, options), before = readFileSync(path);
-  const legacy = f.store.listConnections()[0];
-  const acceptance = 'acceptance' in legacy ? legacy.acceptance : undefined;
-  for (const enabled of [false, true]) for (const work of ['read-only', 'write'] as const) {
-    const policy = { version: 1 as const, enabled, from, work, limits: { maxTasksPerDayPerDid: 7, maxDiffLines: 20 } };
-    expect(connectionAutoAccept(policy, acceptance)).toEqual(policy);
-    expect(connectionAutoAccept(policy, 'off')).toEqual({ ...policy, enabled: false, from: 'connected', work: 'read-only' });
-    expect(connectionAutoAccept(policy, 'read-only')).toEqual({ ...policy, enabled: true, from: 'connected', work: 'read-only' });
-    expect(connectionAutoAccept(policy, 'write')).toEqual({ ...policy, enabled: true, from: 'connected', work: 'write' });
-  }
-  expect(readFileSync(path)).toEqual(before);
-});
+it.each(['invited', 'connected', 'anyone'] as const)(
+  'preserves legacy explicit %s policies and limits, while peer overrides never inherit write',
+  async (from) => {
+    const f = await connect('worker', 'Legacy');
+    const path = workerIntakePath(f.key.did, options),
+      before = readFileSync(path);
+    const legacy = f.store.listConnections()[0];
+    const acceptance = 'acceptance' in legacy ? legacy.acceptance : undefined;
+    for (const enabled of [false, true])
+      for (const work of ['read-only', 'write'] as const) {
+        const policy = {
+          version: 1 as const,
+          enabled,
+          from,
+          work,
+          limits: { maxTasksPerDayPerDid: 7, maxDiffLines: 20 },
+        };
+        expect(connectionAutoAccept(policy, acceptance)).toEqual(policy);
+        expect(connectionAutoAccept(policy, 'off')).toEqual({
+          ...policy,
+          enabled: false,
+          from: 'connected',
+          work: 'read-only',
+        });
+        expect(connectionAutoAccept(policy, 'read-only')).toEqual({
+          ...policy,
+          enabled: true,
+          from: 'connected',
+          work: 'read-only',
+        });
+        expect(connectionAutoAccept(policy, 'write')).toEqual({
+          ...policy,
+          enabled: true,
+          from: 'connected',
+          work: 'write',
+        });
+      }
+    expect(readFileSync(path)).toEqual(before);
+  },
+);
 
 it('initializes the exact saved invite alias, preserving case and owner renames on repeats', async () => {
   const f = await connect('requester', 'Alpha Muse');
   const invites = await InviteStore.open(f.key, options);
   invites.import(f.token, 'Buddy');
-  const connections = f.store.listConnections(), peer = connections[0];
-  const result = await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections);
+  const connections = f.store.listConnections(),
+    peer = connections[0];
+  const result = await nameInviteConnection(
+    f.key,
+    options,
+    digest(parseAndVerifyInviteToken(f.token)),
+    peer,
+    [],
+    connections,
+  );
   expect(result).toEqual({ alias: 'Buddy' });
   expect(localConnections(f.key, options)[0].alias).toBe('Buddy');
   await connectionsCommand(['allow', 'Buddy'], { identityOptions: options, output: vi.fn() });
   new ConnectionAliases(f.key, options).rename(f.peer.did, 'chosen', connections);
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
+  expect(
+    await nameInviteConnection(
+      f.key,
+      options,
+      digest(parseAndVerifyInviteToken(f.token)),
+      peer,
+      connections,
+      connections,
+    ),
+  ).toEqual({});
   expect(localConnections(f.key, options)[0].alias).toBe('chosen');
   // A competing first-record initializer also cannot overwrite a sidecar rename.
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({ alias: 'chosen' });
+  expect(
+    await nameInviteConnection(
+      f.key,
+      options,
+      digest(parseAndVerifyInviteToken(f.token)),
+      peer,
+      [],
+      connections,
+    ),
+  ).toEqual({ alias: 'chosen' });
 });
 it('falls back on a different-DID collision, reports the actual name and never steals an alias', async () => {
   const other = await connect('requester', 'Other');
-  new ConnectionAliases(other.key, options).rename(other.peer.did, 'buddy', other.store.listConnections());
+  new ConnectionAliases(other.key, options).rename(
+    other.peer.did,
+    'buddy',
+    other.store.listConnections(),
+  );
   const derived = await connect('requester', 'Alpha Muse');
   const f = await connect('requester', 'Alpha Muse');
   (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
-  const connections = f.store.listConnections(), peer = connections.find(c => c.peerOwnerDid === f.peer.did)!;
-  const result = await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer,
-    connections.filter(c => c.peerOwnerDid !== f.peer.did), connections);
-  expect(result).toMatchObject({ alias: 'alpha-muse-2', aliasWarning: { code: 'CONNECTION_ALIAS_EXISTS', savedAlias: 'buddy',
-    message: expect.stringContaining('alpha-muse-2') } });
-  expect(localConnections(f.key, options).find(c => c.peerOwnerDid === other.peer.did)?.alias).toBe('buddy');
-  expect(localConnections(f.key, options).find(c => c.peerOwnerDid === derived.peer.did)?.alias).toBe('alpha-muse');
+  const connections = f.store.listConnections(),
+    peer = connections.find((c) => c.peerOwnerDid === f.peer.did)!;
+  const result = await nameInviteConnection(
+    f.key,
+    options,
+    digest(parseAndVerifyInviteToken(f.token)),
+    peer,
+    connections.filter((c) => c.peerOwnerDid !== f.peer.did),
+    connections,
+  );
+  expect(result).toMatchObject({
+    alias: 'alpha-muse-2',
+    aliasWarning: {
+      code: 'CONNECTION_ALIAS_EXISTS',
+      savedAlias: 'buddy',
+      message: expect.stringContaining('alpha-muse-2'),
+    },
+  });
+  expect(
+    localConnections(f.key, options).find((c) => c.peerOwnerDid === other.peer.did)?.alias,
+  ).toBe('buddy');
+  expect(
+    localConnections(f.key, options).find((c) => c.peerOwnerDid === derived.peer.did)?.alias,
+  ).toBe('alpha-muse');
 });
 it('keeps the derived default without a saved invite and never renames pre-existing legacy records', async () => {
   const f = await connect('requester', 'Alpha Muse');
-  const connections = f.store.listConnections(), peer = connections[0];
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, [], connections)).toEqual({ alias: 'alpha-muse' });
+  const connections = f.store.listConnections(),
+    peer = connections[0];
+  expect(
+    await nameInviteConnection(
+      f.key,
+      options,
+      digest(parseAndVerifyInviteToken(f.token)),
+      peer,
+      [],
+      connections,
+    ),
+  ).toEqual({ alias: 'alpha-muse' });
   (await InviteStore.open(f.key, options)).import(f.token, 'buddy');
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), peer, connections, connections)).toEqual({});
+  expect(
+    await nameInviteConnection(
+      f.key,
+      options,
+      digest(parseAndVerifyInviteToken(f.token)),
+      peer,
+      connections,
+      connections,
+    ),
+  ).toEqual({});
   expect(localConnections(f.key, options)[0].alias).toBe('alpha-muse');
 });
 
-it.each(['automatic', 'legacy'] as const)('keeps derived names for %s saved invite aliases', async kind => {
-  const f = await connect('requester', 'Gamma Bot');
-  const invites = await InviteStore.open(f.key, options);
-  invites.import(f.token, kind === 'legacy' ? 'old-owner-name' : undefined);
-  if (kind === 'legacy') {
-    const signed = JSON.parse(readFileSync(invites.path, 'utf8'));
-    delete signed.payload.entries[0].aliasExplicit;
-    (await import('node:fs')).unlinkSync(invites.aliasPath);
-    writeFileSync(invites.path, JSON.stringify(signPayload(signed.payload, f.key)));
-  }
-  const connections = f.store.listConnections();
-  expect(await nameInviteConnection(f.key, options, digest(parseAndVerifyInviteToken(f.token)), connections[0], [], connections)).toEqual({ alias: 'gamma-bot' });
-  expect(localConnections(f.key, options)[0].alias).toBe('gamma-bot');
-});
+it.each(['automatic', 'legacy'] as const)(
+  'keeps derived names for %s saved invite aliases',
+  async (kind) => {
+    const f = await connect('requester', 'Gamma Bot');
+    const invites = await InviteStore.open(f.key, options);
+    invites.import(f.token, kind === 'legacy' ? 'old-owner-name' : undefined);
+    if (kind === 'legacy') {
+      const signed = JSON.parse(readFileSync(invites.path, 'utf8'));
+      delete signed.payload.entries[0].aliasExplicit;
+      (await import('node:fs')).unlinkSync(invites.aliasPath);
+      writeFileSync(invites.path, JSON.stringify(signPayload(signed.payload, f.key)));
+    }
+    const connections = f.store.listConnections();
+    expect(
+      await nameInviteConnection(
+        f.key,
+        options,
+        digest(parseAndVerifyInviteToken(f.token)),
+        connections[0],
+        [],
+        connections,
+      ),
+    ).toEqual({ alias: 'gamma-bot' });
+    expect(localConnections(f.key, options)[0].alias).toBe('gamma-bot');
+  },
+);

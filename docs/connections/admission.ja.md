@@ -12,7 +12,12 @@
 
 ```ts
 const admission = new ConnectionAdmissionReview({
-  owner, agentCard, relayUrl, relay, store, heldOptions: identityOptions,
+  owner,
+  agentCard,
+  relayUrl,
+  relay,
+  store,
+  heldOptions: identityOptions,
 });
 const requests = admission.list();
 // ホスト UI で所有者が明示操作した時だけ呼びます。
@@ -207,7 +212,6 @@ board の claim と dispatch は、選択した投稿者の現在の接続が必
 一度だけの入場券と別の応募キューは後続の検討です。
 
 [プロトコル版とリリース時計](protocol-versions.ja.md)も参照してください。
-
 
 送信の道具の任意の `idempotencyKey` はローカル署名者・道具・同じ依頼の最初の結果を
 保持します。保存された `PENDING_OWNER_APPROVAL` は元の pendingId と `retryable:false`

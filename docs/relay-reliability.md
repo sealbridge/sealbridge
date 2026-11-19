@@ -12,10 +12,10 @@ Worker and requester polling retry transient network errors and HTTP 429/502/503
 
 HTTP 401 on a RelayAuth request starts bounded authentication recovery. By default the client uses the full **120000 ms** window after the first 401, waiting 2, 10, 30, then 60 seconds (clamped to remaining time). Every attempt signs a new credential with a current timestamp and an uncached nonce. An explicit attempt cap retains the short jittered backoff above. Elapsed recovery time uses a monotonic clock. Each request is bounded by the remaining recovery window and its request timeout; earlier task deadlines and cancellation still apply. Intervening network errors or retryable HTTP statuses consume the same recovery budget. A successful protected operation resets its budget; unrelated successful operations do not reset an active failure. Concurrent failures of the same operation and recipient share the attempt bound without sharing responses.
 
-| CLI flag (`worker start`, `delegate`, `mcp-server`) | Library option | Default |
-| --- | --- | --- |
-| `--relay-auth-retries <n>` | `maxAuthRecoveryAttempts` | Full recovery window unless capped; 0 restores immediate failure on 401 |
-| `--relay-auth-recovery-timeout-ms <ms>` | `authRecoveryTimeoutMs` | 120000 ms; positive integer, at most 2147483647 |
+| CLI flag (`worker start`, `delegate`, `mcp-server`) | Library option            | Default                                                                 |
+| --------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `--relay-auth-retries <n>`                          | `maxAuthRecoveryAttempts` | Full recovery window unless capped; 0 restores immediate failure on 401 |
+| `--relay-auth-recovery-timeout-ms <ms>`             | `authRecoveryTimeoutMs`   | 120000 ms; positive integer, at most 2147483647                         |
 
 Retry counts must be nonnegative integers, at most 2147483647. Library settings are available in `RelayClientSecurityOptions`, and on worker, requester and MCP options when they construct a client from a relay URL. Configure an explicitly supplied HTTP/SSE client at construction. Recovery covers polling, peek, SSE handshakes, delivery-status reads, wake registration and acknowledgements. It does not republish agent cards, change identity, renew invites, or restart task execution. Exhaustion reports `RELAY_AUTH_RECOVERY_EXHAUSTED`, including the local clock difference from relay Date when available; matching clocks also permit nonce replay or key/DID mismatch. On authentication recovery exhaustion, continuous workers close all in-flight tasks as interrupted without rerunning them, and remain unavailable while reconnecting every 60 seconds. One-shot workers and requesters fail on exhaustion. Diagnostics contain no credentials or response bodies.
 
@@ -34,14 +34,14 @@ peek and repeated sends do not renew it. The relay cannot read encrypted task
 deadlines; the gateway task default remains 600000 ms. Task traffic stays signed
 ciphertext plus routing metadata; the relay adds no plaintext task fields.
 
-| Library option | Worker binding | Local `relay start` flag | Default |
-| --- | --- | --- | --- |
-| `envelopeTtlMs` | `ACP_ENVELOPE_TTL_MS` | `--envelope-ttl-ms` | 86400000 ms (24 hours) |
-| `maxQueueSize` | `ACP_MAX_QUEUE_SIZE` | `--max-queue-size` | 256 per recipient |
-| `maxQueueBytesPerRecipient` | `ACP_MAX_QUEUE_BYTES` | `--max-queue-bytes` | 4194304 serialized UTF-8 JSON bytes per recipient |
-| `maxEnvelopeBytes` | `ACP_MAX_ENVELOPE_BYTES` | `--max-envelope-bytes` | 262144 serialized UTF-8 JSON bytes |
-| `maxEnvelopesPerSender` | `ACP_MAX_ENVELOPES_PER_SENDER` | `--max-envelopes-per-sender` | Selected recipient count, normally 256, per sender/recipient |
-| `seenTtlMs` | `ACP_SEEN_TTL_MS` | — | 3600000 ms; bounded replay cache |
+| Library option              | Worker binding                 | Local `relay start` flag     | Default                                                      |
+| --------------------------- | ------------------------------ | ---------------------------- | ------------------------------------------------------------ |
+| `envelopeTtlMs`             | `ACP_ENVELOPE_TTL_MS`          | `--envelope-ttl-ms`          | 86400000 ms (24 hours)                                       |
+| `maxQueueSize`              | `ACP_MAX_QUEUE_SIZE`           | `--max-queue-size`           | 256 per recipient                                            |
+| `maxQueueBytesPerRecipient` | `ACP_MAX_QUEUE_BYTES`          | `--max-queue-bytes`          | 4194304 serialized UTF-8 JSON bytes per recipient            |
+| `maxEnvelopeBytes`          | `ACP_MAX_ENVELOPE_BYTES`       | `--max-envelope-bytes`       | 262144 serialized UTF-8 JSON bytes                           |
+| `maxEnvelopesPerSender`     | `ACP_MAX_ENVELOPES_PER_SENDER` | `--max-envelopes-per-sender` | Selected recipient count, normally 256, per sender/recipient |
+| `seenTtlMs`                 | `ACP_SEEN_TTL_MS`              | —                            | 3600000 ms; bounded replay cache                             |
 
 Library and local flag values must be positive integers. Malformed Worker
 binding values retain the existing fallback to defaults. Explicit library/local
@@ -108,14 +108,14 @@ During execution, workers send signed, encrypted `HEARTBEAT` envelopes (default 
 
 There is no implicit two-minute absolute session cap. `delegate --help` and `worker start --help` list these options; all values are positive integer **milliseconds**, at most 2147483647:
 
-| CLI flag | Library option | Default | Meaning |
-| --- | --- | --- | --- |
-| `--execution-timeout-ms` | `executionTimeoutMs` | Delegate: existing 60000 ms contract budget; worker: agreed budget | AI/adapter execution ceiling. Delegate proposes this limit as `budget.maxWallClockSeconds`, rounded down to whole seconds (minimum 1000 ms). A supplied manifest must fit the explicit limit. |
-| `--task-timeout-ms` | `taskTimeoutMs` | 600000 ms (10 minutes) | Absolute task limit, including approval and settlement. Generated manifests use this deadline; an earlier supplied manifest deadline always wins. |
-| `--wait-timeout-ms` | `waitTimeoutMs` | 600000 ms | Maximum time in each peer/owner approval wait phase: proposal/accept/start and delivery/verification/settlement. Authenticated activity does not reset this timer. |
-| `--connect-timeout-ms` | `connectTimeoutMs` | 45000 ms | Bound each relay request/connection, including injected transports. Transient failures retry until cancellation or the task deadline. |
-| `--transport-idle-timeout-ms` | `transportIdleTimeoutMs` | 90000 ms | Requester watchdog for authenticated peer activity during execution, independent of execution quota. |
-| `--heartbeat-interval-ms` | `heartbeatIntervalMs` | 15000 ms | Worker heartbeat interval. On the requester this validates the expected cadence; configure the actual worker separately. Must be below the idle timeout. Workers also check the requesting peer's idle requirement before acceptance. |
+| CLI flag                      | Library option           | Default                                                            | Meaning                                                                                                                                                                                                                               |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--execution-timeout-ms`      | `executionTimeoutMs`     | Delegate: existing 60000 ms contract budget; worker: agreed budget | AI/adapter execution ceiling. Delegate proposes this limit as `budget.maxWallClockSeconds`, rounded down to whole seconds (minimum 1000 ms). A supplied manifest must fit the explicit limit.                                         |
+| `--task-timeout-ms`           | `taskTimeoutMs`          | 600000 ms (10 minutes)                                             | Absolute task limit, including approval and settlement. Generated manifests use this deadline; an earlier supplied manifest deadline always wins.                                                                                     |
+| `--wait-timeout-ms`           | `waitTimeoutMs`          | 600000 ms                                                          | Maximum time in each peer/owner approval wait phase: proposal/accept/start and delivery/verification/settlement. Authenticated activity does not reset this timer.                                                                    |
+| `--connect-timeout-ms`        | `connectTimeoutMs`       | 45000 ms                                                           | Bound each relay request/connection, including injected transports. Transient failures retry until cancellation or the task deadline.                                                                                                 |
+| `--transport-idle-timeout-ms` | `transportIdleTimeoutMs` | 90000 ms                                                           | Requester watchdog for authenticated peer activity during execution, independent of execution quota.                                                                                                                                  |
+| `--heartbeat-interval-ms`     | `heartbeatIntervalMs`    | 15000 ms                                                           | Worker heartbeat interval. On the requester this validates the expected cadence; configure the actual worker separately. Must be below the idle timeout. Workers also check the requesting peer's idle requirement before acceptance. |
 
 These options are accepted by `delegate` and `worker start`, and by `DelegateOptions` / `RequesterClientOptions` / `WorkerNodeOptions`. MCP single and multi delegation accept the camelCase options. Multi delegation forwards the controls to every task. The existing library `timeoutMs` remains an alias for the overall limit; `taskTimeoutMs` takes precedence. An idle worker waiting for a new proposal is not subject to the per-task or approval-wait timers; owner stop still interrupts it.
 
@@ -143,16 +143,16 @@ Generate a dedicated relay key with the existing `sealbridge keygen` command bef
 
 The recipient registration uses `POST /wake?recipient=<did>`, a fresh recipient-bound `receive` RelayAuth token, and `{ "channel": "default" }`. `{ "channel": null }` unregisters and cancels outstanding retries. `HttpRelayClient.registerWake(did, channel)` returns the public signing DID for provisioning the receiver; registration must be renewed before its retention expires. Worker startup with `--wake-channel` registers before listening and then reconciles queued work through the ordinary authenticated inbox and existing checkpoint recovery. Registration does not replay old notifications. `--on-receive` continues to run after local acceptance/persistence; it does not wake an offline process.
 
-| Relay CLI option | Library option (`InMemoryRelayOptions`) | Default |
-| --- | --- | --- |
-| `--wake-command <command>` | `wake.channels.default` (async callback receiving signed wake and abort signal) | Off |
-| `--wake-relay <url>` | `wake.relay` | Required when wake is enabled; public URL advertised to recipients |
-| `--wake-max-attempts <n>` | `wake.maxAttempts` | 5 total attempts |
-| `--wake-retry-base-ms <n>` | `wake.retryBaseMs` | 1000 ms; doubles after failure, capped at 60000 ms |
-| `--wake-timeout-ms <n>` | `wake.timeoutMs` | 5000 ms per attempt; maximum 2147483647 |
-| `--notification-key <file>` | `notificationKey` | Ephemeral identity for a local relay; persist a key to keep the identity across restarts |
-| `--notification-ttl-ms <n>` | `notificationTtlMs` | 3600000 ms for registration, wake dedup/retry retention, and recorded expiry notices |
-| `--envelope-ttl-ms <n>` | `envelopeTtlMs` | 86400000 ms; new admission retention |
+| Relay CLI option            | Library option (`InMemoryRelayOptions`)                                         | Default                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `--wake-command <command>`  | `wake.channels.default` (async callback receiving signed wake and abort signal) | Off                                                                                      |
+| `--wake-relay <url>`        | `wake.relay`                                                                    | Required when wake is enabled; public URL advertised to recipients                       |
+| `--wake-max-attempts <n>`   | `wake.maxAttempts`                                                              | 5 total attempts                                                                         |
+| `--wake-retry-base-ms <n>`  | `wake.retryBaseMs`                                                              | 1000 ms; doubles after failure, capped at 60000 ms                                       |
+| `--wake-timeout-ms <n>`     | `wake.timeoutMs`                                                                | 5000 ms per attempt; maximum 2147483647                                                  |
+| `--notification-key <file>` | `notificationKey`                                                               | Ephemeral identity for a local relay; persist a key to keep the identity across restarts |
+| `--notification-ttl-ms <n>` | `notificationTtlMs`                                                             | 3600000 ms for registration, wake dedup/retry retention, and recorded expiry notices     |
+| `--envelope-ttl-ms <n>`     | `envelopeTtlMs`                                                                 | 86400000 ms; new admission retention                                                     |
 
 `worker start --wake-channel <name>` defaults to off. Library hosts can configure multiple named channels. They must periodically call `evictExpired()` and `flushWakeNotifications()`; the local relay runs maintenance every second. A custom callback must honor its abort signal. Notification attempts never extend envelope TTLs, task deadlines, budgets, or approval policy. A successful wake is a request to reconcile work, not approval to execute a task.
 
@@ -217,7 +217,6 @@ The wire schema also accepts non-UUID IDs from other producers. Such incoming ID
 
 If completed-batch cleanup fails, the gateway reports a fixed storage error and retries cleanup during maintenance. The relay admission outcome is retained.
 
-
 Optional `idempotencyKey` on `acp_delegate_task`, `acp_delegate_multi` and
 `acp_resubmit_pending_request` is an exact Unicode string of 1–200 UTF-8 bytes.
 For example, add `"idempotencyKey":"review-2026-11-02"` to a send call.
@@ -259,15 +258,15 @@ blocking suppresses every queued status. Inspection completion and content displ
 alone do not open a task. Connection-only approval closes the original held task
 without recording `opened`.
 
-| State | Source and meaning |
-| --- | --- |
-| `queued` | Local approved ciphertext persisted in the outbox |
-| `relayed` | Relay admission; no recipient opening implied |
-| `received_held` | Recipient persisted quarantine content; an existing authenticated pending response can also establish this local observation |
-| `opened` | Recipient committed human contract approval after completed inspection |
-| `handed_to_agent` | Recipient recorded the adapter input boundary; no proof of reading or completed execution |
-| `replied` | Sender verified the returned delivery, independently of final owner verification |
-| `closed` | Local deadline/closure or recipient terminal held disposition; no proof of non-execution |
+| State             | Source and meaning                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `queued`          | Local approved ciphertext persisted in the outbox                                                                            |
+| `relayed`         | Relay admission; no recipient opening implied                                                                                |
+| `received_held`   | Recipient persisted quarantine content; an existing authenticated pending response can also establish this local observation |
+| `opened`          | Recipient committed human contract approval after completed inspection                                                       |
+| `handed_to_agent` | Recipient recorded the adapter input boundary; no proof of reading or completed execution                                    |
+| `replied`         | Sender verified the returned delivery, independently of final owner verification                                             |
+| `closed`          | Local deadline/closure or recipient terminal held disposition; no proof of non-execution                                     |
 
 Status facts outlive quarantine deletion. Successful result cleanup does not create
 `closed`. Records contain no task content, inspection details or closure reasons.

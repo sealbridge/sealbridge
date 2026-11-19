@@ -7,9 +7,18 @@ import { parseTree } from 'jsonc-parser';
 import type { Node as JsonNode, ParseError } from 'jsonc-parser';
 import { checkPrivatePath, ensurePrivateDirectory } from '@acp/runtime/local-identity';
 
-export interface Snapshot { path: string; bytes?: Buffer; stat?: fs.Stats }
-export interface FileChange extends Snapshot { next: Buffer; backup?: string }
-function fail(code: string): never { throw new Error(code); }
+export interface Snapshot {
+  path: string;
+  bytes?: Buffer;
+  stat?: fs.Stats;
+}
+export interface FileChange extends Snapshot {
+  next: Buffer;
+  backup?: string;
+}
+function fail(code: string): never {
+  throw new Error(code);
+}
 const errno = (error: unknown) => (error as NodeJS.ErrnoException).code;
 
 /** Host directories are checked for links, without changing their permissions. */
@@ -18,23 +27,38 @@ export function snapshot(path: string, io = fs, platform = process.platform): Sn
   try {
     checkPrivatePath(path, io, platform);
     let before: fs.Stats;
-    try { before = io.lstatSync(path); }
-    catch (error) { if (errno(error) === 'ENOENT') return { path }; throw error; }
+    try {
+      before = io.lstatSync(path);
+    } catch (error) {
+      if (errno(error) === 'ENOENT') return { path };
+      throw error;
+    }
     if (!before.isFile() || before.size > 1024 * 1024) fail('SETUP_CONFIG_INVALID');
-    fd = io.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) |
-      (fs.constants.O_NONBLOCK ?? 0));
+    fd = io.openSync(
+      path,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0),
+    );
     const stat = io.fstatSync(fd);
-    if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino) fail('SETUP_CONFIG_CHANGED');
+    if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino)
+      fail('SETUP_CONFIG_CHANGED');
     const buffer = Buffer.alloc(1024 * 1024 + 1);
-    let length = 0, count: number;
-    while (length < buffer.length && (count = io.readSync(fd, buffer, length, buffer.length - length, null))) length += count;
+    let length = 0,
+      count: number;
+    while (
+      length < buffer.length &&
+      (count = io.readSync(fd, buffer, length, buffer.length - length, null))
+    )
+      length += count;
     if (length > 1024 * 1024) fail('SETUP_CONFIG_INVALID');
     return { path, bytes: buffer.subarray(0, length), stat };
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('SETUP_')) throw error;
-    if (error instanceof Error && error.message === 'IDENTITY_INVALID') fail('SETUP_CONFIG_INVALID');
+    if (error instanceof Error && error.message === 'IDENTITY_INVALID')
+      fail('SETUP_CONFIG_INVALID');
     return fail('SETUP_WRITE_FAILED');
-  } finally { if (fd !== undefined) io.closeSync(fd); }
+  } finally {
+    if (fd !== undefined) io.closeSync(fd);
+  }
 }
 
 export function strictObject(bytes: Buffer): { text: string; tree: JsonNode } {
@@ -59,20 +83,34 @@ export function strictObject(bytes: Buffer): { text: string; tree: JsonNode } {
   return { text, tree };
 }
 
-export function hostChange(original: Snapshot, entry: unknown,
-  options: { updateExisting?: boolean; alternateEntry?: unknown } = {}): FileChange {
+export function hostChange(
+  original: Snapshot,
+  entry: unknown,
+  options: { updateExisting?: boolean; alternateEntry?: unknown } = {},
+): FileChange {
   const { text, tree } = strictObject(original.bytes ?? Buffer.from('{}\n'));
   const value = JSON.parse(text) as Record<string, unknown>;
-  const servers = tree.children?.find(p => p.children![0].value === 'mcpServers')?.children![1];
+  const servers = tree.children?.find((p) => p.children![0].value === 'mcpServers')?.children![1];
   if (servers && servers.type !== 'object') fail('SETUP_CONFIG_INVALID');
   if (servers && Object.hasOwn(value.mcpServers as object, 'sealbridge')) {
     const existing = (value.mcpServers as Record<string, unknown>).sealbridge;
     if (isDeepStrictEqual(existing, entry)) return { ...original, next: original.bytes! };
-    if (!options.updateExisting) fail(options.alternateEntry !== undefined && isDeepStrictEqual(existing, options.alternateEntry)
-      ? 'SETUP_APPROVAL_MODE_CONFLICT' : 'SETUP_ENTRY_CONFLICT');
-    const node = servers.children!.find(p => p.children![0].value === 'sealbridge')!.children![1];
-    const bom = original.bytes?.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) ? '\uFEFF' : '';
-    const next = Buffer.from(bom + text.slice(0, node.offset) + JSON.stringify(entry) + text.slice(node.offset + node.length));
+    if (!options.updateExisting)
+      fail(
+        options.alternateEntry !== undefined && isDeepStrictEqual(existing, options.alternateEntry)
+          ? 'SETUP_APPROVAL_MODE_CONFLICT'
+          : 'SETUP_ENTRY_CONFLICT',
+      );
+    const node = servers.children!.find((p) => p.children![0].value === 'sealbridge')!.children![1];
+    const bom = original.bytes?.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))
+      ? '\uFEFF'
+      : '';
+    const next = Buffer.from(
+      bom +
+        text.slice(0, node.offset) +
+        JSON.stringify(entry) +
+        text.slice(node.offset + node.length),
+    );
     strictObject(next);
     return { ...original, next };
   }
@@ -81,15 +119,25 @@ export function hostChange(original: Snapshot, entry: unknown,
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const unit = /(?:^|\n)([ \t]+)"/.exec(text)?.[1] ?? '  ';
   const base = servers ? unit : '';
-  const property = JSON.stringify(servers ? { sealbridge: entry } : { mcpServers: { sealbridge: entry } }, null, unit)
-    .slice(2, -2).split('\n').map(line => base + line).join(eol);
+  const property = JSON.stringify(
+    servers ? { sealbridge: entry } : { mcpServers: { sealbridge: entry } },
+    null,
+    unit,
+  )
+    .slice(2, -2)
+    .split('\n')
+    .map((line) => base + line)
+    .join(eol);
   const children = object.children ?? [];
   const last = children.at(-1);
   const offset = last ? last.offset + last.length : object.offset + 1;
   const tail = text.slice(offset, object.offset + object.length - 1);
   const suffix = tail.includes('\n') ? '' : eol + base;
-  const next = text.slice(0, offset) + (last ? ',' : '') + eol + property + suffix + text.slice(offset);
-  const bom = original.bytes?.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) ? '\uFEFF' : '';
+  const next =
+    text.slice(0, offset) + (last ? ',' : '') + eol + property + suffix + text.slice(offset);
+  const bom = original.bytes?.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))
+    ? '\uFEFF'
+    : '';
   const bytes = Buffer.from(bom + next);
   strictObject(bytes);
   return { ...original, next: bytes };
@@ -97,16 +145,35 @@ export function hostChange(original: Snapshot, entry: unknown,
 
 export function assertUnchanged(original: Snapshot, io = fs, platform = process.platform) {
   const current = snapshot(original.path, io, platform);
-  if (original.bytes === undefined ? current.bytes !== undefined :
-      !current.bytes?.equals(original.bytes) || current.stat!.dev !== original.stat!.dev ||
-      current.stat!.ino !== original.stat!.ino || current.stat!.mode !== original.stat!.mode ||
-      current.stat!.uid !== original.stat!.uid || current.stat!.gid !== original.stat!.gid)
+  if (
+    original.bytes === undefined
+      ? current.bytes !== undefined
+      : !current.bytes?.equals(original.bytes) ||
+        current.stat!.dev !== original.stat!.dev ||
+        current.stat!.ino !== original.stat!.ino ||
+        current.stat!.mode !== original.stat!.mode ||
+        current.stat!.uid !== original.stat!.uid ||
+        current.stat!.gid !== original.stat!.gid
+  )
     fail('SETUP_CONFIG_CHANGED');
 }
 
-function flushed(path: string, bytes: Buffer, mode: number, io: typeof fs, owner?: fs.Stats, created?: () => void) {
-  const fd = io.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-    (fs.constants.O_NOFOLLOW ?? 0), mode);
+function flushed(
+  path: string,
+  bytes: Buffer,
+  mode: number,
+  io: typeof fs,
+  owner?: fs.Stats,
+  created?: () => void,
+) {
+  const fd = io.openSync(
+    path,
+    fs.constants.O_WRONLY |
+      fs.constants.O_CREAT |
+      fs.constants.O_EXCL |
+      (fs.constants.O_NOFOLLOW ?? 0),
+    mode,
+  );
   try {
     created?.();
     if (process.platform !== 'win32' && owner) {
@@ -121,7 +188,9 @@ function flushed(path: string, bytes: Buffer, mode: number, io: typeof fs, owner
       offset += count;
     }
     io.fsyncSync(fd);
-  } finally { io.closeSync(fd); }
+  } finally {
+    io.closeSync(fd);
+  }
 }
 
 /** A backup remains available after a later write failure; never restore over owner edits. */
@@ -141,8 +210,16 @@ export function publish(change: FileChange, root: string, io = fs, platform = pr
     checkPrivatePath(change.path, io, platform);
     io.mkdirSync(dirname(change.path), { recursive: true });
     checkPrivatePath(change.path, io, platform);
-    flushed(temporary, change.next, change.stat ? change.stat.mode & 0o777 : 0o600, io, change.stat,
-      () => { madeTemporary = true; });
+    flushed(
+      temporary,
+      change.next,
+      change.stat ? change.stat.mode & 0o777 : 0o600,
+      io,
+      change.stat,
+      () => {
+        madeTemporary = true;
+      },
+    );
     assertUnchanged(change, io, platform);
     if (change.bytes) io.renameSync(temporary, change.path);
     else io.linkSync(temporary, change.path);
@@ -152,6 +229,12 @@ export function publish(change: FileChange, root: string, io = fs, platform = pr
     if (error instanceof Error && error.message.startsWith('SETUP_')) throw error;
     fail(errno(error) === 'EEXIST' ? 'SETUP_CONFIG_CHANGED' : 'SETUP_WRITE_FAILED');
   } finally {
-    if (madeTemporary) { try { io.unlinkSync(temporary); } catch (error) { if (errno(error) !== 'ENOENT') throw new Error('SETUP_WRITE_FAILED'); } }
+    if (madeTemporary) {
+      try {
+        io.unlinkSync(temporary);
+      } catch (error) {
+        if (errno(error) !== 'ENOENT') throw new Error('SETUP_WRITE_FAILED');
+      }
+    }
   }
 }

@@ -230,13 +230,13 @@ The mapping below is for building on existing permissive-license (Apache-2.0 / M
 
 ## M2/M3 delivery map (WP-7–WP-12)
 
-| Work package                   | Implemented source                                                                            | Verification                                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| WP-7 adapters/discovery        | `packages/adapters/src/`, `packages/core/src/discovery.ts`, `packages/runtime/src/adapter.ts` | All five adapters complete signed two-owner sessions; exact HTTP usage; CLI wrapper parsing; credential isolation |
-| WP-8 relay/invites             | `packages/relay/src/fetch.ts`, `index.ts`, `worker.ts`, `wrangler.toml.example`               | HTTP, SSE, long poll, WebSocket, registry signatures, expiry/tamper rejection, edge persistence                   |
-| WP-9 approval/isolation        | `packages/runtime/src/approval-providers.ts`, `packages/sandbox/src/container.ts`             | Interactive streams, signed webhook, policy sensitive gates, OCI detection/fallback                               |
-| WP-10 orchestrator/CLI         | `packages/runtime/src/session.ts`, `session-audit.ts`, `cli/src/network.ts`                   | Separate-owner key custody, protocol transitions, per-event AckReceipts and countersigned checkpoint              |
-| WP-11 network conformance/demo | `conformance/network-collab.test.ts`, `examples/network-collab/run.mjs`                       | Actual TCP sessions and separate CLI processes; automatic fetch bridge under EPERM/EACCES                         |
+| Work package                   | Implemented source                                                                            | Verification                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| WP-7 adapters/discovery        | `packages/adapters/src/`, `packages/core/src/discovery.ts`, `packages/runtime/src/adapter.ts` | All five adapters complete signed two-owner sessions; exact HTTP usage; CLI wrapper parsing; credential isolation      |
+| WP-8 relay/invites             | `packages/relay/src/fetch.ts`, `index.ts`, `worker.ts`, `wrangler.toml.example`               | HTTP, SSE, long poll, WebSocket, registry signatures, expiry/tamper rejection, edge persistence                        |
+| WP-9 approval/isolation        | `packages/runtime/src/approval-providers.ts`, `packages/sandbox/src/container.ts`             | Interactive streams, signed webhook, policy sensitive gates, OCI detection/fallback                                    |
+| WP-10 orchestrator/CLI         | `packages/runtime/src/session.ts`, `session-audit.ts`, `cli/src/network.ts`                   | Separate-owner key custody, protocol transitions, per-event AckReceipts and countersigned checkpoint                   |
+| WP-11 network conformance/demo | `conformance/network-collab.test.ts`, `examples/network-collab/run.mjs`                       | Actual TCP sessions and separate CLI processes; automatic fetch bridge under EPERM/EACCES                              |
 | WP-12 onboarding/CI            | `README.md`, `.github/workflows/conformance.yml`                                              | Node 22/24 + pnpm frozen install, build, schema validation, tests, and the original demo on Ubuntu, macOS, and Windows |
 
 Dependency direction is `adapters → runtime → relay/core/ledger/sandbox`;

@@ -2,7 +2,6 @@
 
 [Invitations and local roles](invite-and-roles.md)
 
-
 `@acp/core` exports `ConnectionRequest`, `ConnectionAccepted`, `ConnectionAck`
 and their bounded validators and signing/verification helpers. `@acp/runtime`
 exports `ConnectionService` and encrypted control frame helpers. Embedders supply
@@ -80,15 +79,15 @@ prunes, inspects content, opens a task, or changes consent. Run sync separately 
 apply received control messages. The result contains `peerOwnerDid`, `state`
 (the existing none/pending/connected/blocked projection), and `status`:
 
-| Status | Local evidence |
-| --- | --- |
-| `none` | No retained offer or established connection. |
-| `pending_peer` | Outgoing consent is recorded; peer acceptance has not been applied locally. This includes unsent requests and remote inspection/review waits. |
-| `pending_owner` | An incoming offer remains pending inspection or owner review. |
-| `connected` | An established local limited connection. For outgoing exchanges, the peer's signed acceptance was applied and an ACK was queued atomically. |
-| `inactive` | A retained exchange was deactivated locally, including rejection, withdrawal or disconnect. The exact reason is not stored. |
-| `expired` | A retained, unconnected active offer reached its original offer deadline. |
-| `blocked` | The peer is blocked locally. |
+| Status          | Local evidence                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`          | No retained offer or established connection.                                                                                                  |
+| `pending_peer`  | Outgoing consent is recorded; peer acceptance has not been applied locally. This includes unsent requests and remote inspection/review waits. |
+| `pending_owner` | An incoming offer remains pending inspection or owner review.                                                                                 |
+| `connected`     | An established local limited connection. For outgoing exchanges, the peer's signed acceptance was applied and an ACK was queued atomically.   |
+| `inactive`      | A retained exchange was deactivated locally, including rejection, withdrawal or disconnect. The exact reason is not stored.                   |
+| `expired`       | A retained, unconnected active offer reached its original offer deadline.                                                                     |
+| `blocked`       | The peer is blocked locally.                                                                                                                  |
 
 An established connection or block takes precedence over offer history. Otherwise
 the current outgoing offer takes precedence over the incoming offer, then the last

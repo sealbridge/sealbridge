@@ -237,7 +237,7 @@ agent-collab-platform/
 | WP-9 承認 / 隔離                | `packages/runtime/src/approval-providers.ts`、`packages/sandbox/src/container.ts`             | 対話ストリーム、署名付き Webhook、ポリシー上の機微なゲート、OCI の検出とフォールバック                        |
 | WP-10 オーケストレータ / CLI    | `packages/runtime/src/session.ts`、`session-audit.ts`、`cli/src/network.ts`                   | オーナーごとの鍵の分離、プロトコル遷移、イベントごとの AckReceipt、副署されたチェックポイント                 |
 | WP-11 ネットワーク適合性 / デモ | `conformance/network-collab.test.ts`、`examples/network-collab/run.mjs`                       | 実際の TCP セッションと分離した CLI プロセス。EPERM / EACCES のときの fetch ブリッジ                          |
-| WP-12 オンボーディング / CI     | `README.md`、`.github/workflows/conformance.yml`                                              | Node 22/24 と pnpm の frozen install、ビルド、スキーマ検証、テスト、元のデモ（Ubuntu、macOS、Windows）            |
+| WP-12 オンボーディング / CI     | `README.md`、`.github/workflows/conformance.yml`                                              | Node 22/24 と pnpm の frozen install、ビルド、スキーマ検証、テスト、元のデモ（Ubuntu、macOS、Windows）        |
 
 依存の向きは `adapters → runtime → relay/core/ledger/sandbox` です。`cli → adapters/runtime/relay` であり、元のサンプルもそのまま使えます。ワイルドカードの pnpm ワークスペースは `packages/adapters` を含みます。ルートの tsconfig はそのソースを含め、パッケージ自身が宣言ファイルを出すビルドを持ちます。
 

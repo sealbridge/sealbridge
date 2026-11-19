@@ -472,9 +472,7 @@
     },
     {
       "if": {
-        "required": [
-          "contextGrant"
-        ],
+        "required": ["contextGrant"],
         "properties": {
           "contextGrant": {
             "properties": {

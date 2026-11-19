@@ -27,21 +27,21 @@ import だけでは、鍵の作成・招待の読み取り・待受開始・rela
 
 すべて既存実装の直接の再 export で、ラッパーはありません。
 
-| 分野 | 値 |
-| --- | --- |
-| 保存済み招待 | `InviteStore` |
-| 招待文字列 | `KeychainSecretStore`, `openKeychainSecretStore` |
-| 鍵の選択 | `FileKeyStore`, `KeychainKeyStore`, `inspectStoredIdentity`, `resolveStoredIdentity`, `selectKeyStore`, `keyStoreSelection`, `keychainService`, `resolveDataRoot` |
-| 設定 | `readApplicationConfig`, `setApplicationKeyStore` |
-| 接続の metadata | `WorkerTrustStore`（`listConnections` を含む）, `workerIntakePath` |
-| 接続交換 | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections` |
-| 所有者の確認コマンド | `connectionsCommand`, `connectionHumanReview` |
-| 保留の審査 | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider` |
-| 検証済みタスク内容 | `taskContent` |
-| 検索・招待 | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
-| 鍵の生成 | `generateKeyPair` |
-| MCP のホスト | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs` |
-| 内容のルール検査 | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS` |
+| 分野                 | 値                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 保存済み招待         | `InviteStore`                                                                                                                                                                               |
+| 招待文字列           | `KeychainSecretStore`, `openKeychainSecretStore`                                                                                                                                            |
+| 鍵の選択             | `FileKeyStore`, `KeychainKeyStore`, `inspectStoredIdentity`, `resolveStoredIdentity`, `selectKeyStore`, `keyStoreSelection`, `keychainService`, `resolveDataRoot`                           |
+| 設定                 | `readApplicationConfig`, `setApplicationKeyStore`                                                                                                                                           |
+| 接続の metadata      | `WorkerTrustStore`（`listConnections` を含む）, `workerIntakePath`                                                                                                                          |
+| 接続交換             | `ConnectionService`, `ConnectionRouter`, `StoredConnectionExchange`, `syncConnections`                                                                                                      |
+| 所有者の確認コマンド | `connectionsCommand`, `connectionHumanReview`                                                                                                                                               |
+| 保留の審査           | `ConnectionAdmissionReview`, `HeldRequestReview`, `unavailableHeldContentReviewProvider`, `createRuleBasedContentReviewProvider`                                                            |
+| 検証済みタスク内容   | `taskContent`                                                                                                                                                                               |
+| 検索・招待           | `createSignedAgentCard`, `verifySignedAgentCard`, `createInviteToken`, `inviteTokenFromUri`, `isInviteTarget`, `parseAndVerifyInviteToken`, `discoverAgentCards`, `findDiscoveredAgentCard` |
+| 鍵の生成             | `generateKeyPair`                                                                                                                                                                           |
+| MCP のホスト         | `AcpMcpServer`, `mcpServerCommand`, `parseMcpServerArgs`, `mcpServerOptionsFromArgs`                                                                                                        |
+| 内容のルール検査     | `inspectRuleContent`, `CONTENT_INSPECTION_RULES`, `CONTENT_INSPECTION_RULESET_VERSION`, `CONTENT_INSPECTION_RULESET_DIGEST`, `CONTENT_INSPECTION_LIMITS`                                    |
 
 名前付きの型 exports:
 
@@ -180,7 +180,11 @@ core のメモリ上の検査器です。公開する型は `RuleInspectionInput
 保留中のタスクには、プロバイダを明示的に渡します。
 
 ```ts
-import { HeldRequestReview, WorkerNode, createRuleBasedContentReviewProvider } from 'sealbridge/sdk';
+import {
+  HeldRequestReview,
+  WorkerNode,
+  createRuleBasedContentReviewProvider,
+} from 'sealbridge/sdk';
 
 const inspectionTimeoutMs = 5000;
 const heldReview = new HeldRequestReview(owner, {

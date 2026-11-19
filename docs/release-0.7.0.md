@@ -10,16 +10,16 @@ workflow dispatch, environment approval or deployment.
 ## Completed publication / 公開済みの項目
 
 - [x] `v0.7.0` targets `77c6140c75e5fec89428727de00aca217a4cbb0c` (#229).
-  The annotated tag object is `cf086c4e`.
+      The annotated tag object is `cf086c4e`.
 - [x] `sealbridge@0.7.0` was published by `publish.yml` through Trusted Publishing,
-  with provenance.
+      with provenance.
 - [x] `sealbridge-local@0.7.0` was first published manually by the owner, without
-  provenance as expected; its `latest` dist-tag is 0.7.0.
+      provenance as expected; its `latest` dist-tag is 0.7.0.
 - [x] [GitHub Release v0.7.0](https://github.com/sealbridge/sealbridge/releases/tag/v0.7.0)
-  was created as Latest on 2026-11-11 at 20:08 JST (11:08 UTC).
+      was created as Latest on 2026-11-11 at 20:08 JST (11:08 UTC).
 - [x] https://sealbridge.dev/ and https://sealbridge.app/ were updated on
-  2026-11-11 at 20:09 JST (11:09 UTC). The installers were verified to install
-  both distributions at 0.7.0.
+      2026-11-11 at 20:09 JST (11:09 UTC). The installers were verified to install
+      both distributions at 0.7.0.
 
 本流は Trusted Publishing で provenance 付き、ローカル版の初回は所有者による
 手動公開で provenance なしです。両 npm 配布物・Release・サイトの公開は完了済みです。
@@ -27,14 +27,14 @@ workflow dispatch, environment approval or deployment.
 ## Remaining follow-up / 残作業
 
 - [ ] Merge this documentation/installer wording follow-up after review and CI,
-  under separate authorization. README prepared/pending wording is updated here
-  with the actual publication date, 2026-11-11 UTC.
+      under separate authorization. README prepared/pending wording is updated here
+      with the actual publication date, 2026-11-11 UTC.
 - [ ] After this PR is merged, rebuild/test and deploy the site documentation
-  derived from the READMEs and the updated installer wording. The earlier site
-  deployment above does not include this follow-up. No deployment in this PR.
+      derived from the READMEs and the updated installer wording. The earlier site
+      deployment above does not include this follow-up. No deployment in this PR.
 - [ ] Configure/verify the local package's Trusted Publisher near its next real
-  release, including the two-day OIDC validation requirement described below.
-  npm configuration is outside this PR.
+      release, including the two-day OIDC validation requirement described below.
+      npm configuration is outside this PR.
 
 この PR のマージ後、README 由来のサイト文書とインストーラー文言をサイトへ反映する
 必要があります。ローカル版の Trusted Publisher 設定と次回実公開での検証は残作業です。

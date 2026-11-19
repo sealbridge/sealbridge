@@ -13,13 +13,19 @@ interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
   fetch?: typeof fetch;
   readPaste?: () => Promise<string>;
 }
-const USAGE = 'Usage: ' + cliName + ' accept <link> [--alias <slug>] [--allow-private-relay] [--no-network] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
+const USAGE =
+  'Usage: ' +
+  cliName +
+  ' accept <link> [--alias <slug>] [--allow-private-relay] [--no-network] | accept --paste [--alias <slug>] [--allow-private-relay] | accept --stdin [--alias <slug>] [--allow-private-relay] | invites list | invites remove <alias-or-ref>';
 // Allow the existing 64 KiB token bound plus link framing and whitespace.
 const MAX_STDIN_BYTES = 68 * 1024;
 const STDIN_TIMEOUT_MS = 10_000;
 async function readStdin(options: AcceptOptions): Promise<string> {
   const input: NonNullable<AcceptOptions['input']> = options.input ?? process.stdin;
-  if (input.isTTY) throw new Error('INVITE_STDIN_REQUIRES_PIPE: use a pipe or file with --stdin, or --paste at a terminal');
+  if (input.isTTY)
+    throw new Error(
+      'INVITE_STDIN_REQUIRES_PIPE: use a pipe or file with --stdin, or --paste at a terminal',
+    );
   if (input.destroyed || input.readableEnded) throw new Error('INVITE_INPUT_UNAVAILABLE');
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -43,13 +49,20 @@ async function readStdin(options: AcceptOptions): Promise<string> {
     };
     const onData = (chunk: Buffer | string) => {
       const size = Buffer.byteLength(chunk);
-      if (size > MAX_STDIN_BYTES - bytes) { fail('INVITE_INPUT_TOO_LARGE'); return; }
+      if (size > MAX_STDIN_BYTES - bytes) {
+        fail('INVITE_INPUT_TOO_LARGE');
+        return;
+      }
       bytes += size;
       chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     };
     const onEnd = () => {
       cleanup();
-      const lines = Buffer.concat(chunks, bytes).toString('utf8').split(/\r\n|[\r\n]/).map(line => line.trim()).filter(Boolean);
+      const lines = Buffer.concat(chunks, bytes)
+        .toString('utf8')
+        .split(/\r\n|[\r\n]/)
+        .map((line) => line.trim())
+        .filter(Boolean);
       if (lines.length === 0) reject(new Error('INVITE_INPUT_EMPTY'));
       else if (lines.length !== 1) reject(new Error('INVITE_INPUT_MULTIPLE_LINES'));
       else resolve(lines[0]);
@@ -69,31 +82,59 @@ async function paste(options: AcceptOptions): Promise<string> {
   if (options.readPaste) return options.readPaste();
   return new Promise((resolve, reject) => {
     const reader = createInterface({ input, terminal: false });
-    reader.once('line', line => { resolve(line); reader.close(); });
+    reader.once('line', (line) => {
+      resolve(line);
+      reader.close();
+    });
     reader.once('close', () => reject(new Error('INVITE_INPUT_UNAVAILABLE')));
-    reader.once('error', () => { reject(new Error('INVITE_INPUT_UNAVAILABLE')); reader.close(); });
+    reader.once('error', () => {
+      reject(new Error('INVITE_INPUT_UNAVAILABLE'));
+      reader.close();
+    });
   });
 }
 /** User-operated import. Only short links contact the relay; import grants no consent. */
-export async function acceptCommand(command: 'accept' | 'invites', args: string[], options: AcceptOptions = {}): Promise<void> {
+export async function acceptCommand(
+  command: 'accept' | 'invites',
+  args: string[],
+  options: AcceptOptions = {},
+): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log(USAGE + (command === 'accept'
-      ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON with verificationNumber and relayContacted. --no-network refuses short links requiring relay access.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.' : ''));
+    console.log(
+      USAGE +
+        (command === 'accept'
+          ? '\n--stdin reads one link from a pipe or file until EOF (68 KiB, 10 seconds); TTY input is rejected. Use --paste at a terminal. Output is token-free JSON with verificationNumber and relayContacted. --no-network refuses short links requiring relay access.\n--allow-private-relay permits loopback/private relay invitations for this import; blocked by default.'
+          : ''),
+    );
     return;
   }
   if (command === 'invites') {
-    if (!(args.length === 1 && args[0] === 'list') &&
-        !(args.length === 2 && args[0] === 'remove' && !args[1].startsWith('--'))) throw new Error(USAGE);
+    if (
+      !(args.length === 1 && args[0] === 'list') &&
+      !(args.length === 2 && args[0] === 'remove' && !args[1].startsWith('--'))
+    )
+      throw new Error(USAGE);
     const owner = (await inspectStoredIdentity('requester', options)).key;
     const store = owner ? await InviteStore.open(owner, options) : undefined;
-    console.log(JSON.stringify(args[0] === 'list'
-      ? { invites: store?.list() ?? [] } : { removed: store?.remove(args[1]) ?? false }));
+    console.log(
+      JSON.stringify(
+        args[0] === 'list'
+          ? { invites: store?.list() ?? [] }
+          : { removed: store?.remove(args[1]) ?? false },
+      ),
+    );
     return;
   }
-  let alias: string | undefined, link: string | undefined, usePaste = false, useStdin = false, allowPrivateRelay = false, noNetwork = false;
+  let alias: string | undefined,
+    link: string | undefined,
+    usePaste = false,
+    useStdin = false,
+    allowPrivateRelay = false,
+    noNetwork = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--alias' && alias === undefined && args[i + 1] && !args[i + 1].startsWith('--')) alias = args[++i];
+    if (arg === '--alias' && alias === undefined && args[i + 1] && !args[i + 1].startsWith('--'))
+      alias = args[++i];
     else if (arg === '--paste' && !usePaste) usePaste = true;
     else if (arg === '--stdin' && !useStdin) useStdin = true;
     else if (arg === '--no-network' && !noNetwork) noNetwork = true;
@@ -101,16 +142,22 @@ export async function acceptCommand(command: 'accept' | 'invites', args: string[
     else if (!arg.startsWith('--') && link === undefined) link = arg;
     else throw new Error(USAGE);
   }
-  if (Number(usePaste) + Number(useStdin) + Number(link !== undefined) !== 1) throw new Error(USAGE);
+  if (Number(usePaste) + Number(useStdin) + Number(link !== undefined) !== 1)
+    throw new Error(USAGE);
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
   const shortLink = /^(?:https:\/\/sealbridge\.app\/j|sealbridge:\/\/join)/.test(link!);
-  if (shortLink && noNetwork) throw new Error('INVITE_LINK_NETWORK_REQUIRED: this invitation requires the relay; --no-network refused it');
+  if (shortLink && noNetwork)
+    throw new Error(
+      'INVITE_LINK_NETWORK_REQUIRED: this invitation requires the relay; --no-network refused it',
+    );
   const relayPolicy = { ...options.relayPolicy, allowPrivateRelay };
   if (shortLink) link = await claimInviteLink(link!, { ...options, relayPolicy });
   const invite = parseAndVerifyInviteToken(link!, options.now?.() ?? Date.now(), relayPolicy);
   const verificationNumber = inviteLinkVerificationNumber(digest(invite));
   const owner = await resolveStoredIdentity('requester', options);
-  const result = await (await InviteStore.open(owner, { ...options, relayPolicy })).import(link!, alias, shortLink ? { pendingConfirmation: true } : undefined);
+  const result = await (
+    await InviteStore.open(owner, { ...options, relayPolicy })
+  ).import(link!, alias, shortLink ? { pendingConfirmation: true } : undefined);
   console.log(JSON.stringify({ ...result, verificationNumber, relayContacted: shortLink }));
 }

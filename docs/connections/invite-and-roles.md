@@ -313,7 +313,10 @@ when a peer invitation remains imported, or `unknown` when provenance is unavail
 No tokens or private keys are returned; legacy records are not rewritten.
 
 ```json
-{"name":"acp_delegate_task","arguments":{"to":"review-bot","title":"Review","input":{"text":"Example"}}}
+{
+  "name": "acp_delegate_task",
+  "arguments": { "to": "review-bot", "title": "Review", "input": { "text": "Example" } }
+}
 ```
 
 The new optional string `to` uses the same runtime resolver as CLI `delegate --to`.

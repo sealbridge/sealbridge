@@ -3,11 +3,22 @@ import { readFile, access } from 'node:fs/promises';
 import { dirname, win32 } from 'node:path';
 
 /** PATHEXT lookup prefers native executables to command scripts in each directory. */
-export function windowsCommandCandidates(command: string, pathExt = '.COM;.EXE;.BAT;.CMD'): string[] {
+export function windowsCommandCandidates(
+  command: string,
+  pathExt = '.COM;.EXE;.BAT;.CMD',
+): string[] {
   if (win32.extname(command)) return [command];
-  const extensions = [...new Set(pathExt.toUpperCase().split(';')
-    .filter((ext) => /^\.[A-Z0-9]+$/.test(ext)))];
-  extensions.sort((a, b) => Number(!['.COM', '.EXE'].includes(a)) - Number(!['.COM', '.EXE'].includes(b)));
+  const extensions = [
+    ...new Set(
+      pathExt
+        .toUpperCase()
+        .split(';')
+        .filter((ext) => /^\.[A-Z0-9]+$/.test(ext)),
+    ),
+  ];
+  extensions.sort(
+    (a, b) => Number(!['.COM', '.EXE'].includes(a)) - Number(!['.COM', '.EXE'].includes(b)),
+  );
   return extensions.map((ext) => command + ext.toLowerCase());
 }
 

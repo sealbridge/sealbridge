@@ -13,11 +13,21 @@ import {
   contextGrantAuditPayload,
 } from '@acp/core';
 import type { ContextGrant, ContextGrantAuditEventType } from '@acp/core';
-import { appendContextGrantAuditEvent, CONTEXT_GRANT_AUDIT_EVENTS, contextSessionAuditPayload } from './context-grant-audit.js';
+import {
+  appendContextGrantAuditEvent,
+  CONTEXT_GRANT_AUDIT_EVENTS,
+  contextSessionAuditPayload,
+} from './context-grant-audit.js';
 import type { AckReceipt, Json, KeyPair, Signed, SignedEnvelope, Transition } from '@acp/core';
 import { JsonlStore, verifyAudit } from '@acp/ledger';
 import type { AuditBody, AuditBundle, AuditEntry, Checkpoint } from '@acp/ledger';
-import { RelayEnvelopeExpiredError, isTransientRelayError, relayRetryDelay, waitForRelayRetry, relayDeadline } from '@acp/relay';
+import {
+  RelayEnvelopeExpiredError,
+  isTransientRelayError,
+  relayRetryDelay,
+  waitForRelayRetry,
+  relayDeadline,
+} from '@acp/relay';
 import type { RelayConnectionStatus } from '@acp/relay';
 import type { RelayReceiveFilter, RelayTransport } from '@acp/relay';
 import type { ProgressPayload } from './adapter.js';
@@ -32,29 +42,49 @@ export interface WireDelivery {
 export function fixedLimitBody(body: Json): Json {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
   const messages: Record<string, string> = {
-    MONTHLY_LIMIT_REACHED: 'The monthly intake limit is reached. It resets on the 1st at 00:00 UTC (09:00 JST). 今月の受付上限に達しました。翌月1日 9:00 JST（UTC 0時）に戻ります。',
-    MONTHLY_STATE_UNAVAILABLE: 'Monthly counting state is unavailable; task rejected. 月次の使用量状態を利用できないため、依頼を拒否しました。',
-    MONTHLY_MODEL_UNSUPPORTED: 'The worker cannot accept this request right now. ワーカーは現在この依頼を受け付けられません。',
-    INPUT_SIZE_LIMIT_REACHED: 'This input exceeds the worker’s size limit. Split it into smaller parts. この入力はワーカーのサイズ上限を超えています。小さく分けて送ってください。',
-    INPUT_BUDGET_EXCEEDED: 'This request exceeds its input-token budget. Reduce the input or submit it with a sufficient budget. この依頼は入力トークン予算を超えています。入力を減らすか、十分な予算で送ってください。',
-    INPUT_SIZE_UNAVAILABLE: 'Input size could not be verified; task rejected. 入力の大きさを確認できないため、依頼を拒否しました。',
-    AUTO_ACCEPT_DAILY_LIMIT_REACHED: 'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。',
-    DAILY_LIMIT_REACHED: 'The daily task limit is reached. It resets at 00:00 UTC. 1日の件数上限に達しました。UTC 0時に戻ります。',
-    INTAKE_RATE_LIMITED: 'Too many requests. Please try later. 依頼が多すぎます。時間をおいて試してください。',
+    MONTHLY_LIMIT_REACHED:
+      'The monthly intake limit is reached. It resets on the 1st at 00:00 UTC (09:00 JST). 今月の受付上限に達しました。翌月1日 9:00 JST（UTC 0時）に戻ります。',
+    MONTHLY_STATE_UNAVAILABLE:
+      'Monthly counting state is unavailable; task rejected. 月次の使用量状態を利用できないため、依頼を拒否しました。',
+    MONTHLY_MODEL_UNSUPPORTED:
+      'The worker cannot accept this request right now. ワーカーは現在この依頼を受け付けられません。',
+    INPUT_SIZE_LIMIT_REACHED:
+      'This input exceeds the worker’s size limit. Split it into smaller parts. この入力はワーカーのサイズ上限を超えています。小さく分けて送ってください。',
+    INPUT_BUDGET_EXCEEDED:
+      'This request exceeds its input-token budget. Reduce the input or submit it with a sufficient budget. この依頼は入力トークン予算を超えています。入力を減らすか、十分な予算で送ってください。',
+    INPUT_SIZE_UNAVAILABLE:
+      'Input size could not be verified; task rejected. 入力の大きさを確認できないため、依頼を拒否しました。',
+    AUTO_ACCEPT_DAILY_LIMIT_REACHED:
+      'Today’s free allowance is exhausted. It resets at 09:00 Japan time (00:00 UTC). 今日の無料分は使い切りました。日本時間の朝9時（UTC 0時）に戻ります。',
+    DAILY_LIMIT_REACHED:
+      'The daily task limit is reached. It resets at 00:00 UTC. 1日の件数上限に達しました。UTC 0時に戻ります。',
+    INTAKE_RATE_LIMITED:
+      'Too many requests. Please try later. 依頼が多すぎます。時間をおいて試してください。',
   };
   const code = typeof body.code === 'string' ? body.code : '';
   if (!Object.hasOwn(messages, code)) return body;
-  const resetAt = ['MONTHLY_LIMIT_REACHED', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', 'DAILY_LIMIT_REACHED'].includes(code) &&
-    typeof body.resetAt === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(body.resetAt) &&
+  const resetAt =
+    ['MONTHLY_LIMIT_REACHED', 'AUTO_ACCEPT_DAILY_LIMIT_REACHED', 'DAILY_LIMIT_REACHED'].includes(
+      code,
+    ) &&
+    typeof body.resetAt === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(body.resetAt) &&
     (code !== 'MONTHLY_LIMIT_REACHED' || body.resetAt.slice(8, 10) === '01') &&
-    Number.isFinite(Date.parse(body.resetAt)) && new Date(body.resetAt).toISOString() === body.resetAt ? body.resetAt : undefined;
-  const message = code === 'MONTHLY_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
-    ? "The trial reviewer reached this month's limit and is paused until the 1st at 00:00 UTC. Try sealbridge demo or invite a friend. お試し用レビュアーは今月の上限に達したため、来月1日の日本時間朝9時まで停止しています。sealbridge demo か、友だちへの招待で試せます。"
-    : code === 'INPUT_SIZE_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
-      ? 'This diff is too large for the trial reviewer. Split it into smaller parts. この差分はお試し用レビュアーには大きすぎます。小さく分けて送ってください。'
-      : messages[code];
-  return { code, reason: message + (resetAt ? ' Resumes at ' + resetAt + ' (00:00 UTC / 日本時間の朝9時).' : ''),
-    ...(resetAt ? { resetAt } : {}) };
+    Number.isFinite(Date.parse(body.resetAt)) &&
+    new Date(body.resetAt).toISOString() === body.resetAt
+      ? body.resetAt
+      : undefined;
+  const message =
+    code === 'MONTHLY_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
+      ? "The trial reviewer reached this month's limit and is paused until the 1st at 00:00 UTC. Try sealbridge demo or invite a friend. お試し用レビュアーは今月の上限に達したため、来月1日の日本時間朝9時まで停止しています。sealbridge demo か、友だちへの招待で試せます。"
+      : code === 'INPUT_SIZE_LIMIT_REACHED' && body.messageKind === 'trial-reviewer'
+        ? 'This diff is too large for the trial reviewer. Split it into smaller parts. この差分はお試し用レビュアーには大きすぎます。小さく分けて送ってください。'
+        : messages[code];
+  return {
+    code,
+    reason: message + (resetAt ? ' Resumes at ' + resetAt + ' (00:00 UTC / 日本時間の朝9時).' : ''),
+    ...(resetAt ? { resetAt } : {}),
+  };
 }
 /** The peer's signed ERROR, retaining optional diagnostics for programmatic callers. */
 export class PeerRejectedError extends Error {
@@ -65,25 +95,50 @@ export class PeerRejectedError extends Error {
   readonly originalTaskId?: string;
   readonly nextStep?: string;
   readonly detail?: ErrorDetail;
-  readonly recovery?: { proposalDigest: string; result?: SessionResult;
-    part?: { index: number; count: number; data: string; resultDigest: string } };
+  readonly recovery?: {
+    proposalDigest: string;
+    result?: SessionResult;
+    part?: { index: number; count: number; data: string; resultDigest: string };
+  };
   constructor(body: Json) {
     body = fixedLimitBody(body);
-    super('PEER_REJECTED: ' + JSON.stringify(body && typeof body === 'object' && !Array.isArray(body) && body.recovery
-      ? { code: body.code, recovery: true } : body));
+    super(
+      'PEER_REJECTED: ' +
+        JSON.stringify(
+          body && typeof body === 'object' && !Array.isArray(body) && body.recovery
+            ? { code: body.code, recovery: true }
+            : body,
+        ),
+    );
     if (body && typeof body === 'object' && !Array.isArray(body)) {
       if (typeof body.code === 'string') this.code = body.code;
       if (body.code === 'PENDING_OWNER_APPROVAL') this.retryable = false;
       const recovery = body.recovery;
-      if (recovery && typeof recovery === 'object' && !Array.isArray(recovery) &&
-          typeof recovery.proposalDigest === 'string')
+      if (
+        recovery &&
+        typeof recovery === 'object' &&
+        !Array.isArray(recovery) &&
+        typeof recovery.proposalDigest === 'string'
+      )
         this.recovery = recovery as unknown as NonNullable<PeerRejectedError['recovery']>;
       const detail = body.detail;
-      if (detail && typeof detail === 'object' && !Array.isArray(detail) &&
-          typeof detail.field === 'string' && typeof detail.hint === 'string' &&
-          typeof detail.expected === 'string' && /^sha256:[a-f0-9]{64}$/.test(detail.expected) &&
-          typeof detail.actual === 'string' && /^sha256:[a-f0-9]{64}$/.test(detail.actual))
-        this.detail = { field: detail.field, expected: detail.expected, actual: detail.actual, hint: detail.hint };
+      if (
+        detail &&
+        typeof detail === 'object' &&
+        !Array.isArray(detail) &&
+        typeof detail.field === 'string' &&
+        typeof detail.hint === 'string' &&
+        typeof detail.expected === 'string' &&
+        /^sha256:[a-f0-9]{64}$/.test(detail.expected) &&
+        typeof detail.actual === 'string' &&
+        /^sha256:[a-f0-9]{64}$/.test(detail.actual)
+      )
+        this.detail = {
+          field: detail.field,
+          expected: detail.expected,
+          actual: detail.actual,
+          hint: detail.hint,
+        };
     }
   }
 }
@@ -113,7 +168,10 @@ export async function receiveRelay(
   while (true) {
     signal?.throwIfAborted();
     try {
-      const e = await relay.receive(did, 1000, signal, { ...filter, lease: relay.acknowledgeDelivery !== undefined });
+      const e = await relay.receive(did, 1000, signal, {
+        ...filter,
+        lease: relay.acknowledgeDelivery !== undefined,
+      });
       onStatus?.('connected');
       attempt = 0;
       if (e) return e;
@@ -121,7 +179,10 @@ export async function receiveRelay(
       if (control) return control;
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? new Error('SESSION_ABORTED');
-      if (!isTransientRelayError(error)) { onStatus?.('unavailable'); throw error; }
+      if (!isTransientRelayError(error)) {
+        onStatus?.('unavailable');
+        throw error;
+      }
       onStatus?.('reconnecting');
       console.warn('Relay poll retry ' + (attempt + 1) + ' (' + relayRetryCode(error) + ')');
       await waitForRelayRetry(relayRetryDelay(attempt++), signal);
@@ -131,9 +192,20 @@ export async function receiveRelay(
   }
 }
 /** A lost ack is retried by the HTTP client when the completed envelope is redelivered. */
-export async function acknowledgeRelay(relay: RelayTransport, envelope: SignedEnvelope, signal?: AbortSignal): Promise<void> {
-  try { await relay.acknowledgeDelivery?.(envelope.payload.recipientDid, envelope.payload.envelopeId, signal); }
-  catch (error) { if (!isTransientRelayError(error)) throw error; }
+export async function acknowledgeRelay(
+  relay: RelayTransport,
+  envelope: SignedEnvelope,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    await relay.acknowledgeDelivery?.(
+      envelope.payload.recipientDid,
+      envelope.payload.envelopeId,
+      signal,
+    );
+  } catch (error) {
+    if (!isTransientRelayError(error)) throw error;
+  }
 }
 interface EnvelopeWaiter {
   allowed: string[];
@@ -193,7 +265,10 @@ export class SessionWire {
     readonly delivery?: WireDelivery,
     readonly contextGrant?: ContextGrant,
   ) {
-    if (!this.awaitingInitial) { this.startPump(); void this.dispatch(); }
+    if (!this.awaitingInitial) {
+      this.startPump();
+      void this.dispatch();
+    }
   }
   get cancellationStarted(): boolean {
     return this.cancellation !== undefined;
@@ -214,8 +289,19 @@ export class SessionWire {
   }
   /** Liveness is signed/encrypted but does not consume audit sequence numbers or extend quota. */
   async heartbeat(): Promise<void> {
-    await this.relay.send(signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
-      seq: 0, eventType: 'HEARTBEAT', payload: { sentAt: Date.now() } }, this.owner, { encrypt: true }));
+    await this.relay.send(
+      signEnvelope(
+        {
+          taskId: this.taskId,
+          recipientDid: this.peerDid,
+          seq: 0,
+          eventType: 'HEARTBEAT',
+          payload: { sentAt: Date.now() },
+        },
+        this.owner,
+        { encrypt: true },
+      ),
+    );
   }
   /** Keep reading after the caller aborts the session signal, so CANCEL can still be sealed. */
   detachSignal(): void {
@@ -242,7 +328,8 @@ export class SessionWire {
   private async runPump(): Promise<void> {
     try {
       while (!this.stopped) {
-        if (!this.detached && this.signal.aborted) throw this.signal.reason ?? new Error('SESSION_ABORTED');
+        if (!this.detached && this.signal.aborted)
+          throw this.signal.reason ?? new Error('SESSION_ABORTED');
         const envelope = await receiveRelay(
           this.relay,
           this.owner.did,
@@ -252,7 +339,9 @@ export class SessionWire {
           try {
             if (this.delivery) await this.delivery.service.statusRouter.route(envelope, this.relay);
             else await acknowledgeRelay(this.relay, envelope);
-          } catch (error) { this.delivery?.service.options.onError?.(error as Error); }
+          } catch (error) {
+            this.delivery?.service.options.onError?.(error as Error);
+          }
           continue;
         }
         if (envelope.payload.eventType === 'CANCEL' && envelope.payload.senderDid === this.peerDid)
@@ -288,11 +377,23 @@ export class SessionWire {
       const sealed = await this.shift();
       const receipt = this.delivery?.service.store.read('receipts', sealed.payload.envelopeId);
       if (receipt) {
-        if (!verifyEnvelope(sealed, this.owner.did) || sealed.payload.senderDid !== this.peerDid || receipt.senderDid !== sealed.payload.senderDid ||
-          receipt.taskId !== this.taskId || receipt.envelopeDigest !== digest(sealed)) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+        if (
+          !verifyEnvelope(sealed, this.owner.did) ||
+          sealed.payload.senderDid !== this.peerDid ||
+          receipt.senderDid !== sealed.payload.senderDid ||
+          receipt.taskId !== this.taskId ||
+          receipt.envelopeDigest !== digest(sealed)
+        )
+          throw deliveryError('DELIVERY_RECORD_CONFLICT');
         if (receipt.state !== 'persisted') {
           const ack = this.receiptAcks.get(sealed.payload.envelopeId);
-          if (ack) { try { await this.relay.send(ack); } catch { /* Admission may already be recorded. */ } }
+          if (ack) {
+            try {
+              await this.relay.send(ack);
+            } catch {
+              /* Admission may already be recorded. */
+            }
+          }
           await acknowledgeRelay(this.relay, sealed, this.signal);
           continue;
         }
@@ -312,25 +413,40 @@ export class SessionWire {
         const type = envelope.payload.eventType;
         if (CONTEXT_GRANT_AUDIT_EVENTS.includes(type as ContextGrantAuditEventType)) {
           validateSchema('context-grant-audit-payload', envelope.payload.payload);
-          if (!this.contextGrant || digest(envelope.payload.payload) !== digest(contextGrantAuditPayload(this.contextGrant)))
+          if (
+            !this.contextGrant ||
+            digest(envelope.payload.payload) !== digest(contextGrantAuditPayload(this.contextGrant))
+          )
             throw new Error('CONTEXT_GRANT_AUDIT_CONFLICT');
           await this.acknowledgeControl(envelope);
           continue;
         }
         if (type === 'HEARTBEAT') {
           const sentAt = (envelope.payload.payload as { sentAt?: number }).sentAt;
-          if (typeof sentAt !== 'number' || !Number.isSafeInteger(sentAt) || sentAt > Date.now() + 5000)
+          if (
+            typeof sentAt !== 'number' ||
+            !Number.isSafeInteger(sentAt) ||
+            sentAt > Date.now() + 5000
+          )
             throw new Error('INVALID_HEARTBEAT');
           if (sentAt > this.lastHeartbeat && Date.now() - sentAt <= 60_000) {
             this.lastHeartbeat = sentAt;
             this.onActivity?.();
           }
-          await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
+          await acknowledgeRelay(
+            this.relay,
+            this.sealed(envelope),
+            this.detached ? this.readController.signal : this.signal,
+          );
           continue;
         }
         this.onActivity?.();
         if (type === 'RECOVERY_PART') {
-          await acknowledgeRelay(this.relay, this.sealed(envelope), this.detached ? this.readController.signal : this.signal);
+          await acknowledgeRelay(
+            this.relay,
+            this.sealed(envelope),
+            this.detached ? this.readController.signal : this.signal,
+          );
           continue;
         }
         const index = this.waiters.findIndex((waiter) => waiter.allowed.includes(type));
@@ -395,8 +511,17 @@ export class SessionWire {
     }
   }
   private prepare(eventType: string, payload: unknown): SignedEnvelope {
-    return signEnvelope({ taskId: this.taskId, recipientDid: this.peerDid,
-      seq: this.outgoing++, eventType, payload: asJson(payload) }, this.owner, { encrypt: true });
+    return signEnvelope(
+      {
+        taskId: this.taskId,
+        recipientDid: this.peerDid,
+        seq: this.outgoing++,
+        eventType,
+        payload: asJson(payload),
+      },
+      this.owner,
+      { encrypt: true },
+    );
   }
   private dispatchPrepared(envelopes: SignedEnvelope[]): Promise<void> {
     if (!this.delivery) return this.dispatchBatch(envelopes);
@@ -414,13 +539,19 @@ export class SessionWire {
       await service.prepare(signal);
       const first = envelopes[0];
       if (first.payload.eventType === 'PROPOSE') context.messageId = first.payload.envelopeId;
-      await service.enqueuePrepared(envelopes, { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) }, signal);
+      await service.enqueuePrepared(
+        envelopes,
+        { ...context, ...(first.payload.eventType !== 'PROPOSE' ? { message: undefined } : {}) },
+        signal,
+      );
       const batchId = service.store.read('outbox', first.payload.envelopeId)!.batchId;
       this.hasCommittedSend = true;
       for (const envelope of envelopes) {
-        try { await service.sendPrepared(envelope.payload.envelopeId, signal); }
-        catch (error) {
-          if (error instanceof Error && error.message === 'OUTBOX_DEADLINE_EXPIRED') throw new Error('TASK_TIMEOUT');
+        try {
+          await service.sendPrepared(envelope.payload.envelopeId, signal);
+        } catch (error) {
+          if (error instanceof Error && error.message === 'OUTBOX_DEADLINE_EXPIRED')
+            throw new Error('TASK_TIMEOUT');
           throw error;
         }
         const pin = service.store.read('outbox', envelope.payload.envelopeId)?.relayDid;
@@ -430,20 +561,30 @@ export class SessionWire {
       // All members' admission results and identity pins have been consumed by this wire.
       // Remove the completed batch now so subsequent frames do not scan its ciphertext.
       service.finishBatch(batchId);
-    } else for (const envelope of envelopes) {
-      this.hasCommittedSend = true;
-      await relayDeadline(Promise.resolve(this.relay.send(envelope)), 2_147_483_647, signal);
-      if (this.relay.deliveryStatus) void this.watchDelivery(envelope);
-    }
+    } else
+      for (const envelope of envelopes) {
+        this.hasCommittedSend = true;
+        await relayDeadline(Promise.resolve(this.relay.send(envelope)), 2_147_483_647, signal);
+        if (this.relay.deliveryStatus) void this.watchDelivery(envelope);
+      }
   }
   async rawSend(eventType: string, payload: unknown): Promise<void> {
     await this.dispatchPrepared([this.prepare(eventType, payload)]);
   }
   private async complete(envelope: SignedEnvelope): Promise<void> {
     const sealed = this.sealed(envelope);
-    if (this.delivery) await this.delivery.service.store.receiptPrepared(sealed, this.delivery.context.deliveryDeadline,
-      'processed', this.detached ? this.readController.signal : this.signal);
-    await acknowledgeRelay(this.relay, sealed, this.detached ? this.readController.signal : this.signal);
+    if (this.delivery)
+      await this.delivery.service.store.receiptPrepared(
+        sealed,
+        this.delivery.context.deliveryDeadline,
+        'processed',
+        this.detached ? this.readController.signal : this.signal,
+      );
+    await acknowledgeRelay(
+      this.relay,
+      sealed,
+      this.detached ? this.readController.signal : this.signal,
+    );
   }
   /** Ciphertext that still matches the outer signature, when `view` was opened for the session. */
   sealed(view: SignedEnvelope): SignedEnvelope {
@@ -476,11 +617,21 @@ export class SessionWire {
       if (error.recovery) {
         const part = error.recovery.part;
         if (part) {
-          if (!Number.isSafeInteger(part.index) || !Number.isSafeInteger(part.count) ||
-              part.index < 0 || part.index >= part.count || typeof part.data !== 'string' ||
-              typeof part.resultDigest !== 'string') throw new Error('INVALID_RECOVERY_OUTCOME');
-          const key = digest({ proposalDigest: error.recovery.proposalDigest, code: error.code,
-            count: part.count, resultDigest: part.resultDigest });
+          if (
+            !Number.isSafeInteger(part.index) ||
+            !Number.isSafeInteger(part.count) ||
+            part.index < 0 ||
+            part.index >= part.count ||
+            typeof part.data !== 'string' ||
+            typeof part.resultDigest !== 'string'
+          )
+            throw new Error('INVALID_RECOVERY_OUTCOME');
+          const key = digest({
+            proposalDigest: error.recovery.proposalDigest,
+            code: error.code,
+            count: part.count,
+            resultDigest: part.resultDigest,
+          });
           const parts = this.recoveryParts.get(key) ?? new Map<number, Buffer>();
           parts.set(part.index, Buffer.from(part.data, 'base64'));
           this.recoveryParts.set(key, parts);
@@ -488,7 +639,11 @@ export class SessionWire {
             view.payload.eventType = 'RECOVERY_PART';
             return view;
           }
-          const result = JSON.parse(Buffer.concat(Array.from({ length: part.count }, (_, index) => parts.get(index)!)).toString('utf8')) as SessionResult;
+          const result = JSON.parse(
+            Buffer.concat(
+              Array.from({ length: part.count }, (_, index) => parts.get(index)!),
+            ).toString('utf8'),
+          ) as SessionResult;
           if (digest(result) !== part.resultDigest) throw new Error('INVALID_RECOVERY_OUTCOME');
           error.recovery.result = result;
           this.recoveryParts.delete(key);
@@ -511,7 +666,11 @@ export class SessionWire {
     if (this.stopped) throw new Error('SESSION_CLOSED');
     if (initial) {
       const envelope = this.acceptInitial(expected, initial);
-      if (this.awaitingInitial) { this.awaitingInitial = false; this.startPump(); void this.dispatch(); }
+      if (this.awaitingInitial) {
+        this.awaitingInitial = false;
+        this.startPump();
+        void this.dispatch();
+      }
       return envelope;
     }
     if (this.pumpError && this.inbox.length === 0 && this.stashed.length === 0)
@@ -539,7 +698,9 @@ export class SessionWire {
       actorDid,
       receiverDid,
       eventType,
-      payload: this.contextGrant ? contextSessionAuditPayload(eventType, payload, this.contextGrant) : payload,
+      payload: this.contextGrant
+        ? contextSessionAuditPayload(eventType, payload, this.contextGrant)
+        : payload,
     };
   }
   private async acknowledgeControl(event: SignedEnvelope): Promise<void> {
@@ -595,14 +756,21 @@ export class SessionWire {
   }
   async contextEvent(eventType: ContextGrantAuditEventType): Promise<void> {
     if (!this.contextGrant) return;
-    await appendContextGrantAuditEvent((type, payload) => this.sendEvent(type, payload), eventType, this.contextGrant);
+    await appendContextGrantAuditEvent(
+      (type, payload) => this.sendEvent(type, payload),
+      eventType,
+      this.contextGrant,
+    );
   }
   private async transmit(eventType: string, payload: unknown): Promise<void> {
     if (this.stopped) throw new Error('SESSION_CLOSED');
     const data = asJson(payload),
       body = this.body(eventType, data, this.owner.did, this.peerDid),
       draft = signPayload(body, this.owner);
-    await this.dispatchPrepared([this.prepare(eventType, data), this.prepare('AUDIT_ENTRY', draft)]);
+    await this.dispatchPrepared([
+      this.prepare(eventType, data),
+      this.prepare('AUDIT_ENTRY', draft),
+    ]);
     const ackFrame = await this.rawReceive('AUDIT_ACK');
     const ack = ackFrame.payload.payload as unknown as AckReceipt;
     if (
@@ -656,9 +824,7 @@ export class SessionWire {
     const actor = signPayload(this.checkpoint(), this.owner);
     await this.rawSend('CHECKPOINT', actor);
     const frame = await this.rawReceive('CHECKPOINT_ACK');
-    const receiver = frame.payload.payload as unknown as Signed<
-      Signed<Checkpoint>
-    >;
+    const receiver = frame.payload.payload as unknown as Signed<Signed<Checkpoint>>;
     const bundle = this.seal({ actor, receiver });
     await this.complete(frame);
     return bundle;

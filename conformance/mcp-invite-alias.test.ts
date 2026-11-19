@@ -3,11 +3,28 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInviteToken, createRevocationNotice, createSignedAgentCard, digest, generateKeyPair, RevocationRegistry, parseAndVerifyInviteToken, signApproval } from '../packages/core/src/index.js';
+import {
+  createInviteToken,
+  createRevocationNotice,
+  createSignedAgentCard,
+  digest,
+  generateKeyPair,
+  RevocationRegistry,
+  parseAndVerifyInviteToken,
+  signApproval,
+} from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import * as core from '../packages/core/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
-import { AcpMcpServer, InviteStore, RequesterClient, WorkerNode, resolveOrCreateIdentity, WorkerTrustStore, workerIntakePath } from '../packages/runtime/src/index.js';
+import {
+  AcpMcpServer,
+  InviteStore,
+  RequesterClient,
+  WorkerNode,
+  resolveOrCreateIdentity,
+  WorkerTrustStore,
+  workerIntakePath,
+} from '../packages/runtime/src/index.js';
 import type { AcpMcpServerOptions, ApprovalProvider } from '../packages/runtime/src/index.js';
 import { acceptCommand } from '../cli/src/accept.js';
 import { createInviteCommand } from '../cli/src/invite-links.js';
@@ -18,13 +35,23 @@ let home: string;
 let identityOptions: { home: string; env: { SEALBRIDGE_DATA_DIR: string } };
 const NOW = protocolTestNow('2026-11-01T00:00:00.000Z');
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW);
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
   home = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-alias-'));
   identityOptions = { home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') } };
 });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); rmSync(home, { recursive: true, force: true }); });
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  rmSync(home, { recursive: true, force: true });
+});
 async function call(server: AcpMcpServer, name: string, args: Record<string, unknown> = {}) {
-  const response = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) as {
+  const response = (await server.handle({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  })) as {
     result: { isError: boolean; content: { text: string }[]; structuredContent?: unknown };
     error?: { code: number };
   };
@@ -32,54 +59,101 @@ async function call(server: AcpMcpServer, name: string, args: Record<string, unk
   return { error: response.result.isError, value: JSON.parse(response.result.content[0].text) };
 }
 function approving(owner: () => KeyPair): ApprovalProvider {
-  return { approve: vi.fn(async r => signApproval(r.taskId, r.gate, r.target, owner(), 'APPROVED')) };
+  return {
+    approve: vi.fn(async (r) => signApproval(r.taskId, r.gate, r.target, owner(), 'APPROVED')),
+  };
 }
-it.each([undefined, 1, 3])('refuses implicit requester invites without minting or persisting limits; maxUses=%s', async maxUses => {
-  const mint = vi.spyOn(core, 'createInviteToken');
-  const record = vi.spyOn(WorkerTrustStore.prototype, 'recordInviteLimit');
-  const server = new AcpMcpServer({ identityOptions });
-  const result = await call(server, 'acp_create_invite', maxUses === undefined ? {} : { maxUses });
-  expect(result.error).toBe(true);
-  expect(result.value).toMatchObject({ error: 'INVITE_REQUESTER_LISTENER_REQUIRED',
-    message: expect.stringContaining('Invite creation refused'), nextStep: expect.stringContaining('mcp-server --key <file>') });
-  expect(result.value).not.toHaveProperty('inviteToken');
-  expect(mint).not.toHaveBeenCalled();
-  expect(record).not.toHaveBeenCalled();
-});
+it.each([undefined, 1, 3])(
+  'refuses implicit requester invites without minting or persisting limits; maxUses=%s',
+  async (maxUses) => {
+    const mint = vi.spyOn(core, 'createInviteToken');
+    const record = vi.spyOn(WorkerTrustStore.prototype, 'recordInviteLimit');
+    const server = new AcpMcpServer({ identityOptions });
+    const result = await call(
+      server,
+      'acp_create_invite',
+      maxUses === undefined ? {} : { maxUses },
+    );
+    expect(result.error).toBe(true);
+    expect(result.value).toMatchObject({
+      error: 'INVITE_REQUESTER_LISTENER_REQUIRED',
+      message: expect.stringContaining('Invite creation refused'),
+      nextStep: expect.stringContaining('mcp-server --key <file>'),
+    });
+    expect(result.value).not.toHaveProperty('inviteToken');
+    expect(mint).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  },
+);
 it('creates shared MCP invitations with persistent issuer policy and unchanged token fields', async () => {
-  const owner = generateKeyPair(), server = new AcpMcpServer({ owner, identityOptions });
-  const created = await call(server, 'acp_create_invite', { relayUrl: 'https://relay.example', maxUses: 2 });
+  const owner = generateKeyPair(),
+    server = new AcpMcpServer({ owner, identityOptions });
+  const created = await call(server, 'acp_create_invite', {
+    relayUrl: 'https://relay.example',
+    maxUses: 2,
+  });
   expect(created.error).toBe(false);
   expect(created.value).not.toHaveProperty('warning');
   const invite = parseAndVerifyInviteToken(created.value.inviteToken);
   expect(invite).not.toHaveProperty('maxUses');
   const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, identityOptions) });
-  for (let i = 0; i < 2; i++) expect(store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toBe('first');
-  expect(() => store.redeemTaskInvite(invite, { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' }, 'connection')).toThrow('INVITE_USES_EXHAUSTED');
+  for (let i = 0; i < 2; i++)
+    expect(
+      store.redeemTaskInvite(
+        invite,
+        { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' },
+        'connection',
+      ),
+    ).toBe('first');
+  expect(() =>
+    store.redeemTaskInvite(
+      invite,
+      { peerOwnerDid: generateKeyPair().did, relayUrl: 'https://relay.example' },
+      'connection',
+    ),
+  ).toThrow('INVITE_USES_EXHAUSTED');
 });
-it.each([0, 1.5, 1001, '2', 'no', null])('rejects invalid MCP maxUses %s', async maxUses => {
+it.each([0, 1.5, 1001, '2', 'no', null])('rejects invalid MCP maxUses %s', async (maxUses) => {
   const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
   const result = await call(server, 'acp_create_invite', { maxUses });
   expect(result.error).toBeTruthy();
 });
 function invitation(ttl = 60) {
   const owner = generateKeyPair();
-  const card = createSignedAgentCard({ name: 'Reviewer', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] }, owner);
+  const card = createSignedAgentCard(
+    { name: 'Reviewer', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] },
+    owner,
+  );
   return { owner, token: createInviteToken({ agentCard: card, expiresInSeconds: ttl }, owner) };
 }
 it('sees CLI imports in a live MCP process and settles reference-only calls with explicit decisions and valid audit', async () => {
-  const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
+  const relay = new InMemoryRelay(),
+    workerOwner = generateKeyPair();
   const approval = approving(() => resolveOrCreateIdentity('requester', identityOptions));
   const server = new AcpMcpServer({ identityOptions, relay, approvalProvider: approval });
-  expect(await call(server, 'acp_list_invites')).toEqual({ error: false, value: { count: 0, invites: [] } });
+  expect(await call(server, 'acp_list_invites')).toEqual({
+    error: false,
+    value: { count: 0, invites: [] },
+  });
   expect(existsSync(join(home, 'data'))).toBe(false);
   const workerApproval = approving(() => workerOwner);
   const execute = vi.fn(async (ctx: { input: unknown }) => ctx.input as { echo: string });
-  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
-    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, approvalProvider: workerApproval });
+  const worker = new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
+    owner: workerOwner,
+    relay,
+    relayUrl: 'https://relay.example',
+    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute },
+    approvalProvider: workerApproval,
+  });
   const token = worker.invite();
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-  await acceptCommand('accept', ['https://sealbridge.app/i#' + token, '--alias', 'reviewer'], identityOptions);
+  await acceptCommand(
+    'accept',
+    ['https://sealbridge.app/i#' + token, '--alias', 'reviewer'],
+    identityOptions,
+  );
   const { verificationNumber, relayContacted, ...imported } = JSON.parse(log.mock.calls.at(-1)![0]);
   expect(verificationNumber).toMatch(/^\d{6}$/);
   expect(relayContacted).toBe(false);
@@ -88,54 +162,137 @@ it('sees CLI imports in a live MCP process and settles reference-only calls with
   expect(imported.peerRef).toBe(imported.workerRef);
   const listed = await call(server, 'acp_list_invites');
   expect(listed.value.invites).toEqual([imported]);
-  expect(approval.approve).not.toHaveBeenCalled(); expect(workerApproval.approve).not.toHaveBeenCalled();
+  expect(approval.approve).not.toHaveBeenCalled();
+  expect(workerApproval.approve).not.toHaveBeenCalled();
   const pending = worker.start();
   try {
-    for (const selector of [{ workerRef: imported.workerRef }, { workerRef: 'reviewer' },
-      { peerRef: imported.peerRef }, { peerRef: 'reviewer', workerRef: 'reviewer' }]) {
-      const args = { ...selector, title: 'Echo', description: 'Return JSON', input: { echo: 'hello' }, taskTimeoutMs: 5000 };
+    for (const selector of [
+      { workerRef: imported.workerRef },
+      { workerRef: 'reviewer' },
+      { peerRef: imported.peerRef },
+      { peerRef: 'reviewer', workerRef: 'reviewer' },
+    ]) {
+      const args = {
+        ...selector,
+        title: 'Echo',
+        description: 'Return JSON',
+        input: { echo: 'hello' },
+        taskTimeoutMs: 5000,
+      };
       expect(JSON.stringify(args)).not.toContain(token);
       const result = await call(server, 'acp_delegate_task', args);
-      expect(result).toMatchObject({ error: false, value: { status: 'SETTLED', deliverable: { echo: 'hello' }, auditBundle: { valid: true } } });
+      expect(result).toMatchObject({
+        error: false,
+        value: { status: 'SETTLED', deliverable: { echo: 'hello' }, auditBundle: { valid: true } },
+      });
       expect(JSON.stringify(result)).not.toContain(token);
     }
-    const keyed = { title: 'Echo', input: { echo: 'hello' }, idempotencyKey: 'same-reference', taskTimeoutMs: 5000 };
-    const original = await call(server, 'acp_delegate_task', { ...keyed, workerRef: imported.workerRef });
-    expect(await call(server, 'acp_delegate_task', { ...keyed, peerRef: imported.peerRef })).toEqual(original);
+    const keyed = {
+      title: 'Echo',
+      input: { echo: 'hello' },
+      idempotencyKey: 'same-reference',
+      taskTimeoutMs: 5000,
+    };
+    const original = await call(server, 'acp_delegate_task', {
+      ...keyed,
+      workerRef: imported.workerRef,
+    });
+    expect(
+      await call(server, 'acp_delegate_task', { ...keyed, peerRef: imported.peerRef }),
+    ).toEqual(original);
     expect(original.error).toBe(false);
     expect(execute).toHaveBeenCalledTimes(5);
-    const client = new RequesterClient({ owner: resolveOrCreateIdentity('requester', identityOptions),
-      relay, identityOptions, approvalProvider: approval });
+    const client = new RequesterClient({
+      owner: resolveOrCreateIdentity('requester', identityOptions),
+      relay,
+      identityOptions,
+      approvalProvider: approval,
+    });
     for (const selector of [{ workerRef: imported.workerRef }, { peerRef: imported.peerRef }]) {
-      const result = await client.delegate({ ...selector, to: token, title: 'SDK', description: 'Echo', input: {}, taskTimeoutMs: 5000 });
+      const result = await client.delegate({
+        ...selector,
+        to: token,
+        title: 'SDK',
+        description: 'Echo',
+        input: {},
+        taskTimeoutMs: 5000,
+      });
       expect(result.state).toBe('SETTLED');
     }
     expect(execute).toHaveBeenCalledTimes(7);
     for (const flag of ['--to', '--invite', '--peer-ref']) {
-      await networkCommand('delegate', [flag, imported.peerRef, '--title', 'CLI', '--description', 'Echo',
-        '--input', '{"echo":"hello"}', '--auto-approve', '--task-timeout-ms', '5000'],
-      { identityOptions, transportFactory: () => relay });
-      expect(JSON.parse(log.mock.calls.at(-1)![0])).toMatchObject({ state: 'SETTLED', deliverable: { echo: 'hello' } });
+      await networkCommand(
+        'delegate',
+        [
+          flag,
+          imported.peerRef,
+          '--title',
+          'CLI',
+          '--description',
+          'Echo',
+          '--input',
+          '{"echo":"hello"}',
+          '--auto-approve',
+          '--task-timeout-ms',
+          '5000',
+        ],
+        { identityOptions, transportFactory: () => relay },
+      );
+      expect(JSON.parse(log.mock.calls.at(-1)![0])).toMatchObject({
+        state: 'SETTLED',
+        deliverable: { echo: 'hello' },
+      });
     }
     expect(execute).toHaveBeenCalledTimes(10);
     expect(workerApproval.approve).not.toHaveBeenCalled();
-    expect(JSON.stringify((approval.approve as ReturnType<typeof vi.fn>).mock.calls)).not.toContain(token);
+    expect(JSON.stringify((approval.approve as ReturnType<typeof vi.fn>).mock.calls)).not.toContain(
+      token,
+    );
     const restart = new AcpMcpServer({ identityOptions, relay, approvalProvider: approval });
     expect((await call(restart, 'acp_list_invites')).value).toEqual(listed.value);
-    const definitions = await restart.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) as any;
+    const definitions = (await restart.handle({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/list',
+    })) as any;
     const ajv = new Ajv2020({ strict: false });
-    expect(ajv.compile(definitions.result.tools.find((t: any) => t.name === 'acp_list_invites').outputSchema)(listed.value)).toBe(true);
-    expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ error: false, value: { removed: true } });
-    expect(await call(server, 'acp_remove_invite', { workerRef: imported.workerRef })).toEqual({ error: false, value: { removed: false } });
-    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({ error: false, value: { removed: false } });
-    expect((await call(server, 'acp_delegate_task', { workerRef: imported.workerRef, title: 'Echo' })).value.error).toBe('INVITE_NOT_FOUND');
+    expect(
+      ajv.compile(
+        definitions.result.tools.find((t: any) => t.name === 'acp_list_invites').outputSchema,
+      )(listed.value),
+    ).toBe(true);
+    expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({
+      error: false,
+      value: { removed: true },
+    });
+    expect(await call(server, 'acp_remove_invite', { workerRef: imported.workerRef })).toEqual({
+      error: false,
+      value: { removed: false },
+    });
+    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({
+      error: false,
+      value: { removed: false },
+    });
+    expect(
+      (await call(server, 'acp_delegate_task', { workerRef: imported.workerRef, title: 'Echo' }))
+        .value.error,
+    ).toBe('INVITE_NOT_FOUND');
     await acceptCommand('accept', [token, '--alias', 'reviewer'], identityOptions);
-    expect((await call(server, 'acp_list_invites')).value.invites[0].workerRef).toBe(imported.workerRef);
-    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({ error: false, value: { removed: true } });
-  } finally { worker.stop(); await pending; }
+    expect((await call(server, 'acp_list_invites')).value.invites[0].workerRef).toBe(
+      imported.workerRef,
+    );
+    expect(await call(server, 'acp_remove_invite', { peerRef: imported.peerRef })).toEqual({
+      error: false,
+      value: { removed: true },
+    });
+  } finally {
+    worker.stop();
+    await pending;
+  }
 });
 it('enforces explicit worker/relay policies and conflicting selectors before transport construction', async () => {
-  const { token, owner } = invitation(), local = resolveOrCreateIdentity('requester', identityOptions);
+  const { token, owner } = invitation(),
+    local = resolveOrCreateIdentity('requester', identityOptions);
   const saved = new InviteStore(local, identityOptions).import(token, 'reviewer');
   const factory = vi.fn();
   const args = { workerRef: saved.workerRef, title: 'Echo', description: 'Return JSON', input: {} };
@@ -150,22 +307,52 @@ it('enforces explicit worker/relay policies and conflicting selectors before tra
   }
   const server = new AcpMcpServer({ identityOptions, transportFactory: factory });
   for (const selector of [{ workerDid: owner.did }, { inviteToken: token }])
-    expect((await call(server, 'acp_delegate_task', { ...args, ...selector })).value.error).toBe('CONFLICTING_WORKER_TARGET');
-  expect((await call(server, 'acp_delegate_task', { inviteToken: token, workerDid: local.did, title: 'Echo' })).value.error).toBe('CONFLICTING_WORKER_TARGET');
+    expect((await call(server, 'acp_delegate_task', { ...args, ...selector })).value.error).toBe(
+      'CONFLICTING_WORKER_TARGET',
+    );
+  expect(
+    (
+      await call(server, 'acp_delegate_task', {
+        inviteToken: token,
+        workerDid: local.did,
+        title: 'Echo',
+      })
+    ).value.error,
+  ).toBe('CONFLICTING_WORKER_TARGET');
   expect(factory).not.toHaveBeenCalled();
   // A permitted alias retains its invite relay instead of the public fallback.
-  const stop = vi.fn(async () => { throw new Error('TEST_SEND_STOP'); });
-  const accepted = new AcpMcpServer({ identityOptions, allowedWorkerDids: [owner.did], allowedRelayUrls: ['https://relay.example'],
-    transportFactory: url => { expect(url).toBe('https://relay.example'); return { send: stop } as any; },
-    approvalProvider: approving(() => local) });
+  const stop = vi.fn(async () => {
+    throw new Error('TEST_SEND_STOP');
+  });
+  const accepted = new AcpMcpServer({
+    identityOptions,
+    allowedWorkerDids: [owner.did],
+    allowedRelayUrls: ['https://relay.example'],
+    transportFactory: (url) => {
+      expect(url).toBe('https://relay.example');
+      return { send: stop } as any;
+    },
+    approvalProvider: approving(() => local),
+  });
   expect((await call(accepted, 'acp_delegate_task', args)).value.error).toBe('TEST_SEND_STOP');
 });
 it('keeps expired/revoked aliases as invite targets and never falls back to DID delegation', async () => {
-  const { token, owner } = invitation(1), local = resolveOrCreateIdentity('requester', identityOptions);
+  const { token, owner } = invitation(1),
+    local = resolveOrCreateIdentity('requester', identityOptions);
   const saved = new InviteStore(local, identityOptions).import(token, 'reviewer');
-  const factory = vi.fn(), server = new AcpMcpServer({ identityOptions, transportFactory: factory });
+  const factory = vi.fn(),
+    server = new AcpMcpServer({ identityOptions, transportFactory: factory });
   const args = { workerRef: saved.workerRef, title: 'Echo', description: 'Return JSON' };
-  server.revocation.revoke(createRevocationNotice({ targetType: 'invite', targetId: digest(parseAndVerifyInviteToken(token)), reason: 'Replaced' }, owner));
+  server.revocation.revoke(
+    createRevocationNotice(
+      {
+        targetType: 'invite',
+        targetId: digest(parseAndVerifyInviteToken(token)),
+        reason: 'Replaced',
+      },
+      owner,
+    ),
+  );
   expect((await call(server, 'acp_delegate_task', args)).value.error).toBe('TOKEN_REVOKED');
   vi.setSystemTime(NOW + 1000);
   expect((await call(server, 'acp_list_invites')).value.invites[0].status).toBe('expired');
@@ -173,34 +360,86 @@ it('keeps expired/revoked aliases as invite targets and never falls back to DID 
   expect(factory).not.toHaveBeenCalled();
 });
 it('rechecks invitation expiry after outbound approval without sending a proposal', async () => {
-  const { token } = invitation(1), local = resolveOrCreateIdentity('requester', identityOptions);
+  const { token } = invitation(1),
+    local = resolveOrCreateIdentity('requester', identityOptions);
   const saved = new InviteStore(local, identityOptions).import(token, 'reviewer');
-  const relay = new InMemoryRelay(), send = vi.spyOn(relay, 'send');
-  const approvalProvider: ApprovalProvider = { approve: async r => {
-    vi.setSystemTime(NOW + 1000);
-    return signApproval(r.taskId, r.gate, r.target, local, 'APPROVED');
-  } };
+  const relay = new InMemoryRelay(),
+    send = vi.spyOn(relay, 'send');
+  const approvalProvider: ApprovalProvider = {
+    approve: async (r) => {
+      vi.setSystemTime(NOW + 1000);
+      return signApproval(r.taskId, r.gate, r.target, local, 'APPROVED');
+    },
+  };
   const server = new AcpMcpServer({ identityOptions, relay, approvalProvider });
-  const result = await call(server, 'acp_delegate_task', { workerRef: saved.workerRef, title: 'Echo', description: 'Return JSON' });
+  const result = await call(server, 'acp_delegate_task', {
+    workerRef: saved.workerRef,
+    title: 'Echo',
+    description: 'Return JSON',
+  });
   expect(result.value.error).toBe('INVITE_EXPIRED');
-  expect(JSON.stringify(result)).not.toContain(token); expect(send).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toContain(token);
+  expect(send).not.toHaveBeenCalled();
 });
 it('retains worker-side invite admission and revocation checks after local import', async () => {
-  const relay = new InMemoryRelay(), owner = generateKeyPair(), revocation = new RevocationRegistry();
+  const relay = new InMemoryRelay(),
+    owner = generateKeyPair(),
+    revocation = new RevocationRegistry();
   const local = resolveOrCreateIdentity('requester', identityOptions);
   const execute = vi.fn(async () => ({}));
-  const worker = new WorkerNode({ owner, relay, revocation, relayUrl: 'https://relay.example',
-    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute }, approvalProvider: approving(() => owner) });
-  const token = worker.invite(), saved = new InviteStore(local, identityOptions).import(token, 'reviewer');
-  revocation.revoke(createRevocationNotice({ targetType: 'invite', targetId: digest(parseAndVerifyInviteToken(token)), reason: 'Replaced' }, owner));
-  const server = new AcpMcpServer({ identityOptions, relay, approvalProvider: approving(() => local) });
+  const worker = new WorkerNode({
+    owner,
+    relay,
+    revocation,
+    relayUrl: 'https://relay.example',
+    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute },
+    approvalProvider: approving(() => owner),
+  });
+  const token = worker.invite(),
+    saved = new InviteStore(local, identityOptions).import(token, 'reviewer');
+  revocation.revoke(
+    createRevocationNotice(
+      {
+        targetType: 'invite',
+        targetId: digest(parseAndVerifyInviteToken(token)),
+        reason: 'Replaced',
+      },
+      owner,
+    ),
+  );
+  const server = new AcpMcpServer({
+    identityOptions,
+    relay,
+    approvalProvider: approving(() => local),
+  });
   const pending = worker.start();
   try {
-    expect((await call(server, 'acp_delegate_task', { workerRef: saved.workerRef, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('TOKEN_REVOKED');
+    expect(
+      (
+        await call(server, 'acp_delegate_task', {
+          workerRef: saved.workerRef,
+          title: 'Echo',
+          description: 'Return JSON',
+          taskTimeoutMs: 5000,
+        })
+      ).value.error,
+    ).toContain('TOKEN_REVOKED');
     await worker.register();
-    expect((await call(server, 'acp_delegate_task', { workerDid: owner.did, title: 'Echo', description: 'Return JSON', taskTimeoutMs: 5000 })).value.error).toContain('PENDING_OWNER_APPROVAL');
+    expect(
+      (
+        await call(server, 'acp_delegate_task', {
+          workerDid: owner.did,
+          title: 'Echo',
+          description: 'Return JSON',
+          taskTimeoutMs: 5000,
+        })
+      ).value.error,
+    ).toContain('PENDING_OWNER_APPROVAL');
     expect(execute).not.toHaveBeenCalled();
-  } finally { worker.stop(); await pending; }
+  } finally {
+    worker.stop();
+    await pending;
+  }
 });
 
 it('locks CLI worker signing and role-free payload independently of the requester identity', async () => {
@@ -232,43 +471,96 @@ it('preserves explicitly configured unmigrated MCP owner-key worker routing; mig
   expect(invite.agentCard.payload).not.toHaveProperty('role');
   const sameKeyExecute = vi.fn(async () => ({ receiver: requester.did }));
   const otherExecute = vi.fn(async () => ({}));
-  const makeWorker = (owner: KeyPair, executeTask: typeof otherExecute) => new WorkerNode({
-    owner, relay, relayUrl: 'https://relay.example', checkPeer: () => 'trusted',
-    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
-    adapter: { id: 'echo', name: 'Echo', skills: [], executeTask }, approvalProvider: approving(() => owner),
-  });
-  const receiver = makeWorker(requester, sameKeyExecute), other = makeWorker(defaultWorker, otherExecute);
+  const makeWorker = (owner: KeyPair, executeTask: typeof otherExecute) =>
+    new WorkerNode({
+      owner,
+      relay,
+      relayUrl: 'https://relay.example',
+      checkPeer: () => 'trusted',
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      adapter: { id: 'echo', name: 'Echo', skills: [], executeTask },
+      approvalProvider: approving(() => owner),
+    });
+  const receiver = makeWorker(requester, sameKeyExecute),
+    other = makeWorker(defaultWorker, otherExecute);
   const running = [receiver.start(), other.start()];
   const sender = generateKeyPair();
-  const client = new AcpMcpServer({ owner: sender, relay, identityOptions,
-    approvalProvider: approving(() => sender) });
+  const client = new AcpMcpServer({
+    owner: sender,
+    relay,
+    identityOptions,
+    approvalProvider: approving(() => sender),
+  });
   const send = vi.spyOn(relay, 'send');
   try {
-    const result = await call(client, 'acp_delegate_task', { inviteToken: created.value.inviteToken,
-      title: 'Identity routing', input: {}, taskTimeoutMs: 5000 });
-    expect(result).toMatchObject({ error: false, value: { status: 'SETTLED', deliverable: { receiver: requester.did } } });
-    expect(send.mock.calls.find(([e]) => e.payload.eventType === 'PROPOSE')![0].payload.recipientDid).toBe(requester.did);
+    const result = await call(client, 'acp_delegate_task', {
+      inviteToken: created.value.inviteToken,
+      title: 'Identity routing',
+      input: {},
+      taskTimeoutMs: 5000,
+    });
+    expect(result).toMatchObject({
+      error: false,
+      value: { status: 'SETTLED', deliverable: { receiver: requester.did } },
+    });
+    expect(
+      send.mock.calls.find(([e]) => e.payload.eventType === 'PROPOSE')![0].payload.recipientDid,
+    ).toBe(requester.did);
     expect(sameKeyExecute).toHaveBeenCalledTimes(1);
     expect(otherExecute).not.toHaveBeenCalled();
-  } finally { receiver.stop(); other.stop(); await Promise.all(running); }
+  } finally {
+    receiver.stop();
+    other.stop();
+    await Promise.all(running);
+  }
 });
 it('accepts old and neutral CLI reference selectors with identical invite-store resolution', async () => {
   for (const flag of ['--to', '--invite', '--peer-ref']) {
-    await expect(networkCommand('delegate', [flag, 'missing', '--title', 'Test', '--description', 'Test',
-      '--input', '{}', '--auto-approve'], { identityOptions })).rejects.toThrow(flag === '--to' ? 'CONNECTION_NOT_FOUND' : 'INVITE_NOT_FOUND');
+    await expect(
+      networkCommand(
+        'delegate',
+        [
+          flag,
+          'missing',
+          '--title',
+          'Test',
+          '--description',
+          'Test',
+          '--input',
+          '{}',
+          '--auto-approve',
+        ],
+        { identityOptions },
+      ),
+    ).rejects.toThrow(flag === '--to' ? 'CONNECTION_NOT_FOUND' : 'INVITE_NOT_FOUND');
   }
-  await expect(networkCommand('delegate', ['--to', 'one', '--peer-ref', 'two'], { identityOptions }))
-    .rejects.toThrow('CONFLICTING_TARGET_OPTIONS');
+  await expect(
+    networkCommand('delegate', ['--to', 'one', '--peer-ref', 'two'], { identityOptions }),
+  ).rejects.toThrow('CONFLICTING_TARGET_OPTIONS');
 });
 it('validates peerRef schemas and rejects conflicts before transport', async () => {
-  const factory = vi.fn(), server = new AcpMcpServer({ identityOptions, transportFactory: factory });
-  const definitions = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) as any;
+  const factory = vi.fn(),
+    server = new AcpMcpServer({ identityOptions, transportFactory: factory });
+  const definitions = (await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as any;
   const ajv = new Ajv2020({ strict: false });
   for (const tool of ['acp_delegate_task', 'acp_remove_invite']) {
     const schema = definitions.result.tools.find((t: any) => t.name === tool).inputSchema;
     for (const selector of [{ workerRef: 'reviewer' }, { peerRef: 'reviewer' }])
-      expect(ajv.compile(schema)({ ...selector, ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}) })).toBe(true);
-    expect((await call(server, tool, { peerRef: 'one', workerRef: 'two', ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}) })).error).toBe(-32602);
+      expect(
+        ajv.compile(schema)({
+          ...selector,
+          ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}),
+        }),
+      ).toBe(true);
+    expect(
+      (
+        await call(server, tool, {
+          peerRef: 'one',
+          workerRef: 'two',
+          ...(tool === 'acp_delegate_task' ? { title: 'Echo' } : {}),
+        })
+      ).error,
+    ).toBe(-32602);
   }
   expect(factory).not.toHaveBeenCalled();
 });
@@ -281,8 +573,10 @@ it('allows the MCP maxUses capacity boundary', async () => {
 
 it('advertises the same invitation limit in the MCP catalog', async () => {
   const server = new AcpMcpServer({ identityOptions });
-  const definitions = await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) as any;
-  const schema = definitions.result.tools.find((t: any) => t.name === 'acp_create_invite').inputSchema;
+  const definitions = (await server.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as any;
+  const schema = definitions.result.tools.find(
+    (t: any) => t.name === 'acp_create_invite',
+  ).inputSchema;
   const validate = new Ajv2020({ strict: false }).compile(schema);
   expect(validate({ maxUses: 1000 })).toBe(true);
   for (const maxUses of [1001, 0, 1.5, '2']) expect(validate({ maxUses })).toBe(false);

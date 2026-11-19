@@ -17,7 +17,6 @@ Those two commands do not pass a trust anchor, so a valid file prints
 stays `VALID`. Pin the tail with `--expect-final-state`, `--expect-last-hash`,
 `--expect-entry-count`, or a positional trust-anchor JSON file.
 
-
 Use a fresh audit directory for each run. Sealed logs cannot be appended to.
 
 Alice and Bob generate independent ephemeral Ed25519 did:key identities. Alice

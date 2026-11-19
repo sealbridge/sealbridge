@@ -7,6 +7,5 @@ export function verifyFragment(hash, now = Date.now()) {
   const token = hash.slice(1);
   const invite = parseAndVerifyInviteToken(token, now);
   const link = `https://sealbridge.app/i#${token}`;
-  return { token, invite, link,
-    command: `sealbridge accept "${link}"` };
+  return { token, invite, link, command: `sealbridge accept "${link}"` };
 }

@@ -23,14 +23,24 @@ export interface LocalIdentity {
   key?: KeyPair;
 }
 const MAX_KEY_BYTES = 16 * 1024;
-function failure(code: string): Error { return new Error(code); }
-function errno(error: unknown): string | undefined { return (error as NodeJS.ErrnoException).code; }
+function failure(code: string): Error {
+  return new Error(code);
+}
+function errno(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code;
+}
 function context(options: DataRootOptions) {
   const platform = options.platform ?? process.platform;
   const paths = platform === 'win32' ? win32 : posix;
   const env = options.env ?? process.env;
   let home = options.home;
-  if (home === undefined) { try { home = homedir(); } catch { home = ''; } }
+  if (home === undefined) {
+    try {
+      home = homedir();
+    } catch {
+      home = '';
+    }
+  }
   return { platform, paths, env, home };
 }
 export function resolveDataRoot(options: DataRootOptions = {}): string {
@@ -40,16 +50,18 @@ export function resolveDataRoot(options: DataRootOptions = {}): string {
     if (!paths.isAbsolute(override)) throw failure('DATA_DIR_UNAVAILABLE');
     return paths.normalize(override);
   }
-  const base = platform === 'win32' ? env.LOCALAPPDATA
-    : platform === 'linux' ? env.XDG_DATA_HOME : undefined;
+  const base =
+    platform === 'win32' ? env.LOCALAPPDATA : platform === 'linux' ? env.XDG_DATA_HOME : undefined;
   if (base) {
     if (!paths.isAbsolute(base)) throw failure('DATA_DIR_UNAVAILABLE');
     return paths.join(base, platform === 'win32' ? 'Sealbridge' : 'sealbridge');
   }
   if (!home || !paths.isAbsolute(home)) throw failure('DATA_DIR_UNAVAILABLE');
-  return platform === 'win32' ? paths.join(home, 'AppData', 'Local', 'Sealbridge')
-    : platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'Sealbridge')
-    : paths.join(home, '.local', 'share', 'sealbridge');
+  return platform === 'win32'
+    ? paths.join(home, 'AppData', 'Local', 'Sealbridge')
+    : platform === 'darwin'
+      ? paths.join(home, 'Library', 'Application Support', 'Sealbridge')
+      : paths.join(home, '.local', 'share', 'sealbridge');
 }
 function legacyPaths(role: IdentityRole, options: DataRootOptions): string[] {
   const { paths, platform, env, home } = context(options);
@@ -58,17 +70,27 @@ function legacyPaths(role: IdentityRole, options: DataRootOptions): string[] {
     throw failure('DATA_DIR_UNAVAILABLE');
   const result = [paths.join(home, '.acp', role + '.private.json')];
   if (role === 'requester') {
-    const oldRoot = env.ACP_DATA_DIR ?? (platform === 'win32'
-      ? paths.join(env.LOCALAPPDATA || home, 'AgentCollaborationPlatform')
-      : platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'AgentCollaborationPlatform')
-      : paths.join(env.XDG_DATA_HOME || paths.join(home, '.local', 'share'), 'agent-collab-platform'));
+    const oldRoot =
+      env.ACP_DATA_DIR ??
+      (platform === 'win32'
+        ? paths.join(env.LOCALAPPDATA || home, 'AgentCollaborationPlatform')
+        : platform === 'darwin'
+          ? paths.join(home, 'Library', 'Application Support', 'AgentCollaborationPlatform')
+          : paths.join(
+              env.XDG_DATA_HOME || paths.join(home, '.local', 'share'),
+              'agent-collab-platform',
+            ));
     if (!paths.isAbsolute(oldRoot)) throw failure('DATA_DIR_UNAVAILABLE');
     result.push(paths.join(oldRoot, 'owner.private.json'));
   }
   return result;
 }
 /** Reject links, except macOS's root-owned /var and /tmp system aliases. */
-export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+export function checkPath(
+  path: string,
+  io: typeof fs,
+  platform: NodeJS.Platform = process.platform,
+): void {
   const paths = platform === 'win32' ? win32 : posix;
   const parent = paths.dirname(path);
   if (parent !== path) checkPath(parent, io, platform);
@@ -81,29 +103,49 @@ export function checkPath(path: string, io: typeof fs, platform: NodeJS.Platform
       if (target !== '/private' + path) throw failure('IDENTITY_INVALID');
       checkPath(target, io, platform);
     }
-  } catch (error) { if (errno(error) !== 'ENOENT') throw error; }
+  } catch (error) {
+    if (errno(error) !== 'ENOENT') throw error;
+  }
 }
 export function checkStat(stat: fs.Stats, directory = false): void {
   if (directory ? !stat.isDirectory() : !stat.isFile()) throw failure('IDENTITY_INVALID');
-  if (process.platform !== 'win32' && stat.uid !== process.getuid!()) throw failure('IDENTITY_INVALID');
+  if (process.platform !== 'win32' && stat.uid !== process.getuid!())
+    throw failure('IDENTITY_INVALID');
   if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0)
-    throw failure(directory ? 'DATA_DIR_PERMISSIONS: private directory required; run chmod 700 on the data directory (所有者専用の権限にしてください)' : 'IDENTITY_INVALID');
+    throw failure(
+      directory
+        ? 'DATA_DIR_PERMISSIONS: private directory required; run chmod 700 on the data directory (所有者専用の権限にしてください)'
+        : 'IDENTITY_INVALID',
+    );
 }
-export function inspectDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+export function inspectDirectory(
+  path: string,
+  io: typeof fs,
+  platform: NodeJS.Platform = process.platform,
+): void {
   checkPath(path, io, platform);
   const before = io.lstatSync(path);
   checkStat(before, true);
   if (process.platform === 'win32') return;
-  const fd = io.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) |
-    (fs.constants.O_DIRECTORY ?? 0));
+  const fd = io.openSync(
+    path,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_DIRECTORY ?? 0),
+  );
   try {
     const stat = io.fstatSync(fd);
     checkStat(stat, true);
     if (stat.dev !== before.dev || stat.ino !== before.ino) throw failure('IDENTITY_INVALID');
-  } finally { io.closeSync(fd); }
+  } finally {
+    io.closeSync(fd);
+  }
 }
 /** Bounded descriptor-based read using the application private-file policy. */
-export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, platform: NodeJS.Platform = process.platform): string | undefined {
+export function readPrivateFile(
+  path: string,
+  io: typeof fs,
+  maxBytes: number,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
   let fd: number | undefined;
   let observed = false;
   try {
@@ -112,8 +154,10 @@ export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, p
     const before = io.lstatSync(path);
     observed = true;
     checkStat(before);
-    fd = io.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) |
-      (fs.constants.O_NONBLOCK ?? 0));
+    fd = io.openSync(
+      path,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0),
+    );
     const stat = io.fstatSync(fd);
     checkStat(stat);
     if (stat.dev !== before.dev || stat.ino !== before.ino) throw failure('IDENTITY_INVALID');
@@ -128,25 +172,43 @@ export function readPrivateFile(path: string, io: typeof fs, maxBytes: number, p
     return bytes.subarray(0, length).toString('utf8');
   } catch (error) {
     if (errno(error) === 'ENOENT' && !observed) return undefined;
-    if (error instanceof Error && (error.message === 'IDENTITY_INVALID' || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
+    if (
+      error instanceof Error &&
+      (error.message === 'IDENTITY_INVALID' || error.message.startsWith('DATA_DIR_PERMISSIONS:'))
+    )
+      throw error;
     throw failure('IDENTITY_UNREADABLE');
-  } finally { if (fd !== undefined) io.closeSync(fd); }
+  } finally {
+    if (fd !== undefined) io.closeSync(fd);
+  }
 }
 function readKey(path: string, io: typeof fs, platform: NodeJS.Platform): KeyPair | undefined {
   const contents = readPrivateFile(path, io, MAX_KEY_BYTES, platform);
   if (contents === undefined) return undefined;
   try {
     const value = JSON.parse(contents) as KeyPair;
-    if (!value || typeof value.did !== 'string' || typeof value.privateKey !== 'string' ||
-        Object.keys(value).sort().join(',') !== 'did,privateKey' ||
-        createPrivateKey(value.privateKey).asymmetricKeyType !== 'ed25519' ||
-        !verifySigned(signPayload({ type: 'LocalIdentityCheck' }, value,
-          '2026-01-01T00:00:00.000Z'), value.did)) throw failure('IDENTITY_INVALID');
+    if (
+      !value ||
+      typeof value.did !== 'string' ||
+      typeof value.privateKey !== 'string' ||
+      Object.keys(value).sort().join(',') !== 'did,privateKey' ||
+      createPrivateKey(value.privateKey).asymmetricKeyType !== 'ed25519' ||
+      !verifySigned(
+        signPayload({ type: 'LocalIdentityCheck' }, value, '2026-01-01T00:00:00.000Z'),
+        value.did,
+      )
+    )
+      throw failure('IDENTITY_INVALID');
     return value;
-  } catch { throw failure('IDENTITY_INVALID'); }
+  } catch {
+    throw failure('IDENTITY_INVALID');
+  }
 }
 /** Inspect without creating directories or identities. Canonical files take precedence. */
-export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): LocalIdentity {
+export function inspectLocalIdentity(
+  role: IdentityRole,
+  options: LocalIdentityOptions = {},
+): LocalIdentity {
   const io = options.fs ?? fs;
   const platform = options.platform ?? process.platform;
   if (options.explicitKeyPath !== undefined) {
@@ -165,7 +227,12 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
       try {
         inspectDirectory(directory, io, platform);
       } catch (error) {
-        if (error instanceof Error && (error.message === 'IDENTITY_INVALID' || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
+        if (
+          error instanceof Error &&
+          (error.message === 'IDENTITY_INVALID' ||
+            error.message.startsWith('DATA_DIR_PERMISSIONS:'))
+        )
+          throw error;
         throw failure('IDENTITY_UNREADABLE');
       }
     }
@@ -180,16 +247,31 @@ export function inspectLocalIdentity(role: IdentityRole, options: LocalIdentityO
   }
   return legacy ?? { path, source: 'default' };
 }
-export function privateDirectory(path: string, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+export function privateDirectory(
+  path: string,
+  io: typeof fs,
+  platform: NodeJS.Platform = process.platform,
+): void {
   checkPath(path, io, platform);
   io.mkdirSync(path, { recursive: true, mode: 0o700 });
   inspectDirectory(path, io, platform);
 }
 /** Exclusive creation of a flushed private temporary file. Caller owns cleanup. */
-export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs, platform: NodeJS.Platform = process.platform): void {
+export function writePrivateFile(
+  path: string,
+  bytes: Buffer,
+  io: typeof fs,
+  platform: NodeJS.Platform = process.platform,
+): void {
   checkPath(path, io, platform);
-  const fd = io.openSync(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-    (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+  const fd = io.openSync(
+    path,
+    fs.constants.O_WRONLY |
+      fs.constants.O_CREAT |
+      fs.constants.O_EXCL |
+      (fs.constants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
   try {
     checkStat(io.fstatSync(fd));
     let offset = 0;
@@ -207,7 +289,10 @@ export function writePrivateFile(path: string, bytes: Buffer, io: typeof fs, pla
   io.closeSync(fd);
 }
 /** Publish a flushed temporary key without replacing a concurrently committed identity. */
-export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdentityOptions = {}): KeyPair {
+export function resolveOrCreateIdentity(
+  role: IdentityRole,
+  options: LocalIdentityOptions = {},
+): KeyPair {
   const io = options.fs ?? fs;
   const platform = options.platform ?? process.platform;
   const selected = inspectLocalIdentity(role, options);
@@ -218,18 +303,29 @@ export function resolveOrCreateIdentity(role: IdentityRole, options: LocalIdenti
   try {
     privateDirectory(root, io, platform);
     privateDirectory(dirname(selected.path), io, platform);
-    writePrivateFile(temporary, Buffer.from(JSON.stringify(generateKeyPair()) + '\n'), io, platform);
+    writePrivateFile(
+      temporary,
+      Buffer.from(JSON.stringify(generateKeyPair()) + '\n'),
+      io,
+      platform,
+    );
     temporaryCreated = true;
     checkPath(selected.path, io, platform);
-    try { io.linkSync(temporary, selected.path); }
-    catch (error) {
-      if (errno(error) === 'EEXIST') { /* The committed winner is loaded below. */ }
-      else if (['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM'].includes(errno(error) ?? ''))
+    try {
+      io.linkSync(temporary, selected.path);
+    } catch (error) {
+      if (errno(error) === 'EEXIST') {
+        /* The committed winner is loaded below. */
+      } else if (['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM'].includes(errno(error) ?? ''))
         throw failure('IDENTITY_CREATION_UNSUPPORTED');
       else throw error;
     }
   } catch (error) {
-    if (error instanceof Error && (error.message.startsWith('IDENTITY_') || error.message.startsWith('DATA_DIR_PERMISSIONS:'))) throw error;
+    if (
+      error instanceof Error &&
+      (error.message.startsWith('IDENTITY_') || error.message.startsWith('DATA_DIR_PERMISSIONS:'))
+    )
+      throw error;
     throw failure('IDENTITY_STORE_UNWRITABLE');
   } finally {
     if (temporaryCreated) io.unlinkSync(temporary);

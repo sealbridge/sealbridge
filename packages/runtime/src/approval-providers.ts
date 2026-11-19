@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
-import { signApproval, signPayload, verifyApproval, digest, assertConnectionsOptions } from '@acp/core';
+import {
+  signApproval,
+  signPayload,
+  verifyApproval,
+  digest,
+  assertConnectionsOptions,
+} from '@acp/core';
 import type { ApprovalReceipt, Gate, KeyPair } from '@acp/core';
 import type { OwnerPolicy } from './policy.js';
 /** Caps a worker applies before it accepts a contract or spends owner credentials. */
@@ -22,7 +28,10 @@ export interface WorkerAcceptancePolicy {
 }
 export class ProposalRejectedError extends Error {
   readonly approved = false;
-  constructor(readonly reason: string, readonly code = 'PROPOSAL_REJECTED') {
+  constructor(
+    readonly reason: string,
+    readonly code = 'PROPOSAL_REJECTED',
+  ) {
     super(code + ': ' + reason);
     this.name = 'ProposalRejectedError';
   }
@@ -91,11 +100,7 @@ export function evaluateContractAcceptance(
     if (timeout > policy.maxWallClockSeconds)
       return {
         approved: false,
-        reason:
-          'timeoutSeconds ' +
-          timeout +
-          ' exceeds worker limit ' +
-          policy.maxWallClockSeconds,
+        reason: 'timeoutSeconds ' + timeout + ' exceeds worker limit ' + policy.maxWallClockSeconds,
       };
   }
   const allow = (policy.allowedRequesterDids ?? []).map((did) => did.trim()).filter(Boolean);
@@ -107,8 +112,7 @@ export function evaluateContractAcceptance(
       approved: false,
       reason: 'requester ' + ownerDid + ' does not match envelope from ' + sender,
     };
-  const authenticated =
-    typeof ownerDid === 'string' && ownerDid.length > 0 ? ownerDid : sender;
+  const authenticated = typeof ownerDid === 'string' && ownerDid.length > 0 ? ownerDid : sender;
   if (typeof authenticated === 'string' && allow.includes(authenticated)) return { approved: true };
   return {
     approved: false,
@@ -133,22 +137,27 @@ export class InteractiveCliApprovalProvider implements ApprovalProvider {
   readonly ownerDecision = true as const;
   constructor(
     readonly owner: KeyPair,
-    readonly options: { input?: Readable; output?: Writable; formatRequest?: (request: ApprovalRequest) => string } = {},
+    readonly options: {
+      input?: Readable;
+      output?: Writable;
+      formatRequest?: (request: ApprovalRequest) => string;
+    } = {},
   ) {}
   async approve(request: ApprovalRequest): Promise<ApprovalReceipt> {
     const output = this.options.output ?? process.stdout;
     output.write(
-      (this.options.formatRequest?.(request) ?? JSON.stringify(
-        {
-          taskId: request.taskId,
-          gate: request.gate,
-          targetDigest: digest(request.target),
-          target: request.target,
-          details: request.details ?? null,
-        },
-        null,
-        2,
-      )) + '\nApprove [y/N]? ',
+      (this.options.formatRequest?.(request) ??
+        JSON.stringify(
+          {
+            taskId: request.taskId,
+            gate: request.gate,
+            targetDigest: digest(request.target),
+            target: request.target,
+            details: request.details ?? null,
+          },
+          null,
+          2,
+        )) + '\nApprove [y/N]? ',
     );
     const rl = createInterface({ input: this.options.input ?? process.stdin, crlfDelay: Infinity });
     try {
@@ -198,7 +207,9 @@ export class PolicyAutoApprovalProvider implements ApprovalProvider {
       confirmedGates?: Gate[];
       acceptance?: WorkerAcceptancePolicy;
     } = {},
-  ) { if (options.acceptance) assertConnectionsOptions(options.acceptance); }
+  ) {
+    if (options.acceptance) assertConnectionsOptions(options.acceptance);
+  }
   async approve(r: ApprovalRequest): Promise<ApprovalReceipt> {
     if (r.gate === 'contract_acceptance') {
       const decision = evaluateContractAcceptance(this.options.acceptance, r.details);
@@ -249,7 +260,9 @@ function approvalReason(request: ApprovalRequest): string {
   return request.gate;
 }
 export class WebhookApprovalProvider implements ApprovalProvider {
-  get ownerDecision(): true | undefined { return this.options.response === 'owner-decision' ? true : undefined; }
+  get ownerDecision(): true | undefined {
+    return this.options.response === 'owner-decision' ? true : undefined;
+  }
   constructor(
     readonly owner: KeyPair,
     readonly options: WebhookApprovalProviderOptions,
@@ -338,19 +351,28 @@ export class McpFormApprovalProvider implements ApprovalProvider {
     },
   ) {}
   assertAvailable(): void {
-    if (!this.options.available()) throw new Error(
-      'APPROVAL_CHANNEL_UNAVAILABLE: The host does not support MCP form elicitation. Use a host that supports elicitation, or --approval-webhook.',
-    );
+    if (!this.options.available())
+      throw new Error(
+        'APPROVAL_CHANNEL_UNAVAILABLE: The host does not support MCP form elicitation. Use a host that supports elicitation, or --approval-webhook.',
+      );
   }
   async approve(request: ApprovalRequest): Promise<ApprovalReceipt> {
     this.assertAvailable();
-    const review = JSON.stringify({
-      taskId: request.taskId, gate: request.gate, target: request.target,
-      targetDigest: digest(request.target), details: request.details ?? null,
-    }, null, 2);
+    const review = JSON.stringify(
+      {
+        taskId: request.taskId,
+        gate: request.gate,
+        target: request.target,
+        targetDigest: digest(request.target),
+        details: request.details ?? null,
+      },
+      null,
+      2,
+    );
     if (Buffer.byteLength(review) > 64 * 1024) throw new Error('APPROVAL_REVIEW_TOO_LARGE');
     const remaining = request.deadline
-      ? Date.parse(request.deadline) - (this.options.now ?? Date.now)() : Infinity;
+      ? Date.parse(request.deadline) - (this.options.now ?? Date.now)()
+      : Infinity;
     const timeoutMs = Math.min(this.options.timeoutMs ?? 60000, remaining);
     if (!(timeoutMs > 0)) throw new Error('APPROVAL_TIMEOUT');
     const controller = new AbortController();
@@ -360,20 +382,32 @@ export class McpFormApprovalProvider implements ApprovalProvider {
     const timer = setTimeout(() => controller.abort(new Error('APPROVAL_TIMEOUT')), timeoutMs);
     let release!: () => void;
     const previous = this.queue;
-    this.queue = new Promise<void>((resolve) => { release = resolve; });
+    this.queue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let onAbort!: () => void;
     try {
       const result = await Promise.race([
         previous.then(() => {
           if (controller.signal.aborted) throw controller.signal.reason;
-          return this.options.request({
-            mode: 'form', message: 'Review this Sealbridge action:\n' + review,
-            requestedSchema: {
-              type: 'object', properties: {
-                approved: { type: 'boolean', title: 'Approve this specific action', default: false },
-              }, required: ['approved'],
+          return this.options.request(
+            {
+              mode: 'form',
+              message: 'Review this Sealbridge action:\n' + review,
+              requestedSchema: {
+                type: 'object',
+                properties: {
+                  approved: {
+                    type: 'boolean',
+                    title: 'Approve this specific action',
+                    default: false,
+                  },
+                },
+                required: ['approved'],
+              },
             },
-          }, controller.signal);
+            controller.signal,
+          );
         }),
         new Promise<never>((_resolve, reject) => {
           onAbort = () => reject(controller.signal.reason);

@@ -36,7 +36,12 @@ export interface AgentTaskContext {
     state: 'SETTLED' | 'CANCELLED';
     deliverable: Json | null;
     bundle: AuditBundle;
-    verification?: { accepted: boolean; event: 'VERIFY_ACCEPT' | 'VERIFY_REJECT'; stages: string[]; reason?: string };
+    verification?: {
+      accepted: boolean;
+      event: 'VERIFY_ACCEPT' | 'VERIFY_REJECT';
+      stages: string[];
+      reason?: string;
+    };
   }>;
   taskId: string;
   manifest: TaskManifest;

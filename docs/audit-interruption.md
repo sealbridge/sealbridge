@@ -23,11 +23,11 @@ The JSON form is `{ entries, interruption }`, exclusive of `{ entries, checkpoin
 
 `parseJsonl(): AuditBundle` and `verifyAudit(AuditBundle)` remain bilateral-only. Older 0.4.x readers reject interruption JSONL with `MISSING_OR_MISPLACED_CHECKPOINT`; new readers do not reinterpret an interruption as a checkpoint. `SessionResult.bundle`, recovered results, and task result caches still require bilateral evidence.
 
-| Evidence | `status` | `valid` | `audit-verify` exit |
-| --- | --- | --- | --- |
-| Verified bilateral checkpoint | `VALID` | `true` | 0 |
-| Verified worker-only terminal | `UNILATERALLY_CLOSED` | `false` | 2 |
-| Broken evidence or mismatched pins | `INVALID` | `false` | 1 |
+| Evidence                           | `status`              | `valid` | `audit-verify` exit |
+| ---------------------------------- | --------------------- | ------- | ------------------- |
+| Verified bilateral checkpoint      | `VALID`               | `true`  | 0                   |
+| Verified worker-only terminal      | `UNILATERALLY_CLOSED` | `false` | 2                   |
+| Broken evidence or mismatched pins | `INVALID`             | `false` | 1                   |
 
 Unreadable input and argument/I/O failures exit 1 with diagnostics. Existing bilateral results, status labels, pins, and exit codes are retained. Scripts requiring bilateral evidence must continue to require exit 0 or `valid:true`; accepting exit 2 is an explicit choice to handle a worker observation.
 

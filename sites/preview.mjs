@@ -13,14 +13,31 @@ for (const line of (await readFile(path.join(directory, '_headers'), 'utf8')).sp
   if (line.startsWith('/')) rules.push({ route: line.trim(), headers: {} });
   else {
     const colon = line.indexOf(':');
-    if (colon > 0 && rules.length) rules.at(-1).headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
+    if (colon > 0 && rules.length)
+      rules.at(-1).headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
   }
 }
 function policyFor(pathname) {
-  return Object.assign({}, ...rules.filter(rule => rule.route === '/*' || rule.route === pathname).map(rule => rule.headers));
+  return Object.assign(
+    {},
+    ...rules
+      .filter((rule) => rule.route === '/*' || rule.route === pathname)
+      .map((rule) => rule.headers),
+  );
 }
-const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.webm': 'video/webm', '.mp4': 'video/mp4', '.png': 'image/png' };
-for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
+const mime = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.webm': 'video/webm',
+  '.mp4': 'video/mp4',
+  '.png': 'image/png',
+};
+for (const [target, port] of [
+  ['site', 4173],
+  ['invite', 4174],
+]) {
   const root = path.join(directory, 'dist', target);
   const server = createServer(async (req, res) => {
     // No request logging. This server never inspects query values or fragments.
@@ -33,18 +50,29 @@ for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
       const info = await stat(file);
       if (!info.isFile()) throw new Error('NOT_A_FILE');
       const size = info.size;
-      const headers = { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
-        'Accept-Ranges': 'bytes', ...policyFor(pathname) };
+      const headers = {
+        'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
+        'Accept-Ranges': 'bytes',
+        ...policyFor(pathname),
+      };
       // Single byte ranges cover browser media playback and seeking, including suffix ranges.
       const range = parseByteRange(req.headers.range, size);
       if (range) {
         if (range.unsatisfiable) {
-          res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}`, 'Content-Length': 0 });
+          res.writeHead(416, {
+            ...headers,
+            'Content-Range': `bytes */${size}`,
+            'Content-Length': 0,
+          });
           res.end();
           return;
         }
         const { start, end } = range;
-        res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+        res.writeHead(206, {
+          ...headers,
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Content-Length': end - start + 1,
+        });
         if (req.method === 'HEAD') res.end();
         else await pipeline(createReadStream(file, { start, end }), res);
         return;
@@ -62,7 +90,10 @@ for (const [target, port] of [['site', 4173], ['invite', 4174]]) {
       res.end('Not found');
     }
   });
-  server.listen(port, '127.0.0.1', () => console.log(`${target}: http://127.0.0.1:${port}${target === 'invite' ? '/i' : '/'}`));
+  server.listen(port, '127.0.0.1', () =>
+    console.log(`${target}: http://127.0.0.1:${port}${target === 'invite' ? '/i' : '/'}`),
+  );
   const close = () => server.close();
-  process.on('SIGINT', close); process.on('SIGTERM', close);
+  process.on('SIGINT', close);
+  process.on('SIGTERM', close);
 }

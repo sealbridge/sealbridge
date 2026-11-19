@@ -6,31 +6,52 @@ import { join } from 'node:path';
 
 // These tests inspect interactive approval wiring rather than non-TTY refusal.
 const streams = [process.stdin, process.stderr];
-const ttyDescriptors = streams.map(stream => Object.getOwnPropertyDescriptor(stream, 'isTTY'));
-beforeEach(() => streams.forEach(stream => Object.defineProperty(stream, 'isTTY', { configurable: true, value: true })));
-afterEach(() => streams.forEach((stream, index) => {
-  if (ttyDescriptors[index]) Object.defineProperty(stream, 'isTTY', ttyDescriptors[index]!);
-  else delete (stream as { isTTY?: boolean }).isTTY;
-}));
-import { generateKeyPair, parseAndVerifyInviteToken, createSignedAgentCard, createInviteToken } from '../packages/core/src/index.js';
+const ttyDescriptors = streams.map((stream) => Object.getOwnPropertyDescriptor(stream, 'isTTY'));
+beforeEach(() =>
+  streams.forEach((stream) =>
+    Object.defineProperty(stream, 'isTTY', { configurable: true, value: true }),
+  ),
+);
+afterEach(() =>
+  streams.forEach((stream, index) => {
+    if (ttyDescriptors[index]) Object.defineProperty(stream, 'isTTY', ttyDescriptors[index]!);
+    else delete (stream as { isTTY?: boolean }).isTTY;
+  }),
+);
+import {
+  generateKeyPair,
+  parseAndVerifyInviteToken,
+  createSignedAgentCard,
+  createInviteToken,
+} from '../packages/core/src/index.js';
 import type { DelegateOptions, WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
-const captured = vi.hoisted(() => ({ worker: undefined as WorkerNodeOptions | undefined,
+const captured = vi.hoisted(() => ({
+  worker: undefined as WorkerNodeOptions | undefined,
   task: undefined as DelegateOptions | undefined,
-  interactive: undefined as { formatRequest?: unknown } | undefined }));
-vi.mock('../packages/runtime/dist/index.js', async original => {
+  interactive: undefined as { formatRequest?: unknown } | undefined,
+}));
+vi.mock('../packages/runtime/dist/index.js', async (original) => {
   const runtime = await original<typeof import('../packages/runtime/src/index.js')>();
-  return { ...runtime,
+  return {
+    ...runtime,
     InteractiveCliApprovalProvider: class extends runtime.InteractiveCliApprovalProvider {
-      constructor(owner: ConstructorParameters<typeof runtime.InteractiveCliApprovalProvider>[0],
-        options: ConstructorParameters<typeof runtime.InteractiveCliApprovalProvider>[1]) {
+      constructor(
+        owner: ConstructorParameters<typeof runtime.InteractiveCliApprovalProvider>[0],
+        options: ConstructorParameters<typeof runtime.InteractiveCliApprovalProvider>[1],
+      ) {
         super(owner, options);
         captured.interactive = options;
       }
     },
     WorkerNode: class extends runtime.WorkerNode {
-      constructor(options: WorkerNodeOptions) { super(options); captured.worker = options; }
-      override async start() { return undefined; }
+      constructor(options: WorkerNodeOptions) {
+        super(options);
+        captured.worker = options;
+      }
+      override async start() {
+        return undefined;
+      }
     },
     RequesterClient: class {
       async startDelivery() {}
@@ -54,19 +75,45 @@ beforeEach(() => {
   captured.interactive = undefined;
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
-const delegateArgs = () => ['--key', key, '--to', 'did:key:local', '--title', 'Review diff', '--description', 'Check changes'];
-const workerArgs = () => ['start', '--allow-local-pc', '--key', key, '--relay', 'https://relay.example', '--contacts', join(dir, 'contacts.json')];
-
-it.each([{ args: [] }, { args: ['--audit-interruption-format', '1'] }])('worker uses interruption format 1 with $args', async ({ args }) => {
-  await networkCommand('worker', [...workerArgs(), ...args]);
-  expect(captured.worker?.auditInterruptionFormat).toBe(1);
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
 });
+const delegateArgs = () => [
+  '--key',
+  key,
+  '--to',
+  'did:key:local',
+  '--title',
+  'Review diff',
+  '--description',
+  'Check changes',
+];
+const workerArgs = () => [
+  'start',
+  '--allow-local-pc',
+  '--key',
+  key,
+  '--relay',
+  'https://relay.example',
+  '--contacts',
+  join(dir, 'contacts.json'),
+];
+
+it.each([{ args: [] }, { args: ['--audit-interruption-format', '1'] }])(
+  'worker uses interruption format 1 with $args',
+  async ({ args }) => {
+    await networkCommand('worker', [...workerArgs(), ...args]);
+    expect(captured.worker?.auditInterruptionFormat).toBe(1);
+  },
+);
 
 it('worker help documents default interruption format 1', async () => {
   await networkCommand('worker', ['start', '--help']);
-  expect(vi.mocked(console.log).mock.calls.flat().join('\n'))
-    .toContain('PROPOSE interruption terminals (default: 1)');
+  expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain(
+    'PROPOSE interruption terminals (default: 1)',
+  );
 });
 
 it('delegate reads a diff file without changing whitespace and forwards an HTTPS invite link', async () => {
@@ -75,7 +122,10 @@ it('delegate reads a diff file without changing whitespace and forwards an HTTPS
   writeFileSync(file, diff);
   const args = delegateArgs();
   const owner = generateKeyPair();
-  const card = createSignedAgentCard({ name: 'Echo', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] }, owner);
+  const card = createSignedAgentCard(
+    { name: 'Echo', agentDid: owner.did, relayEndpoint: 'https://relay.example', skills: [] },
+    owner,
+  );
   args[3] = 'https://sealbridge.app/i#' + createInviteToken({ agentCard: card }, owner);
   await networkCommand('delegate', [...args, '--input-file', file]);
   expect(captured.task?.input).toEqual({ diff });
@@ -89,26 +139,36 @@ it('delegate reads a JSON object file and keeps inline input compatible', async 
   await networkCommand('delegate', [...delegateArgs(), '--input', '{"existing":true}']);
   expect(captured.task?.input).toEqual({ existing: true });
 });
-it.each(['Please review this change.\n', ''])('delegate wraps plain text and empty files as a diff (%j)', async contents => {
-  const file = join(dir, 'notes.txt');
-  writeFileSync(file, contents);
-  await networkCommand('delegate', [...delegateArgs(), '--input-file', file]);
-  expect(captured.task?.input).toEqual({ diff: contents });
-});
+it.each(['Please review this change.\n', ''])(
+  'delegate wraps plain text and empty files as a diff (%j)',
+  async (contents) => {
+    const file = join(dir, 'notes.txt');
+    writeFileSync(file, contents);
+    await networkCommand('delegate', [...delegateArgs(), '--input-file', file]);
+    expect(captured.task?.input).toEqual({ diff: contents });
+  },
+);
 it('delegate rejects conflicting input sources before sending a task', async () => {
-  await expect(networkCommand('delegate', [...delegateArgs(), '--input', '{}', '--input-file', 'unused']))
-    .rejects.toThrow('INVALID_INPUT_OPTIONS');
+  await expect(
+    networkCommand('delegate', [...delegateArgs(), '--input', '{}', '--input-file', 'unused']),
+  ).rejects.toThrow('INVALID_INPUT_OPTIONS');
   expect(captured.task).toBeUndefined();
 });
-it.each(['{broken', 'null', '[]', '42'])('delegate rejects invalid JSON object files (%s)', async contents => {
-  const file = join(dir, 'input.json');
-  writeFileSync(file, contents);
-  await expect(networkCommand('delegate', [...delegateArgs(), '--input-file', file])).rejects.toThrow('INVALID_INPUT_FILE');
-  expect(captured.task).toBeUndefined();
-});
+it.each(['{broken', 'null', '[]', '42'])(
+  'delegate rejects invalid JSON object files (%s)',
+  async (contents) => {
+    const file = join(dir, 'input.json');
+    writeFileSync(file, contents);
+    await expect(
+      networkCommand('delegate', [...delegateArgs(), '--input-file', file]),
+    ).rejects.toThrow('INVALID_INPUT_FILE');
+    expect(captured.task).toBeUndefined();
+  },
+);
 it('delegate reports unreadable input files before sending a task', async () => {
-  await expect(networkCommand('delegate', [...delegateArgs(), '--input-file', join(dir, 'absent.diff')]))
-    .rejects.toThrow('ENOENT');
+  await expect(
+    networkCommand('delegate', [...delegateArgs(), '--input-file', join(dir, 'absent.diff')]),
+  ).rejects.toThrow('ENOENT');
   expect(captured.task).toBeUndefined();
 });
 it('worker defaults to a 24-hour invite and prints its ready-to-share HTTPS link', async () => {
@@ -124,41 +184,82 @@ it('worker applies invite-ttl to both the invitation and the signed card', async
   await networkCommand('worker', [...workerArgs(), '--invite-ttl', '172800']);
   const invite = parseAndVerifyInviteToken(String(vi.mocked(console.log).mock.calls[0][0]));
   expect(Date.parse(invite.expiresAt) - Date.parse(invite.issuedAt)).toBe(172800000);
-  expect(Math.abs(Date.parse(invite.agentCard.payload.expiresAt) - Date.parse(invite.expiresAt))).toBeLessThan(1000);
+  expect(
+    Math.abs(Date.parse(invite.agentCard.payload.expiresAt) - Date.parse(invite.expiresAt)),
+  ).toBeLessThan(1000);
 });
-it.each(['0', '-1', '1.5', '2592001', 'NaN'])('worker rejects invalid invite-ttl (%s) before starting', async ttl => {
-  await expect(networkCommand('worker', [...workerArgs(), '--invite-ttl', ttl])).rejects.toThrow('INVALID_INVITE_TTL');
-  expect(captured.worker).toBeUndefined();
-});
-it.each(['claude', 'codex'])('worker fails early with actionable authentication guidance for %s', async adapter => {
-  vi.stubEnv('ANTHROPIC_API_KEY', '');
-  vi.stubEnv('OPENAI_API_KEY', '');
-  await expect(networkCommand('worker', [...workerArgs(), '--adapter', adapter]))
-    .rejects.toThrow('AGENT_AUTH_REQUIRED');
-  expect(captured.worker).toBeUndefined();
-});
-it.each([['claude', 'ANTHROPIC_API_KEY'], ['codex', 'OPENAI_API_KEY']])('worker accepts a configured host key for %s', async (adapter, variable) => {
+it.each(['0', '-1', '1.5', '2592001', 'NaN'])(
+  'worker rejects invalid invite-ttl (%s) before starting',
+  async (ttl) => {
+    await expect(networkCommand('worker', [...workerArgs(), '--invite-ttl', ttl])).rejects.toThrow(
+      'INVALID_INVITE_TTL',
+    );
+    expect(captured.worker).toBeUndefined();
+  },
+);
+it.each(['claude', 'codex'])(
+  'worker fails early with actionable authentication guidance for %s',
+  async (adapter) => {
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    await expect(networkCommand('worker', [...workerArgs(), '--adapter', adapter])).rejects.toThrow(
+      'AGENT_AUTH_REQUIRED',
+    );
+    expect(captured.worker).toBeUndefined();
+  },
+);
+it.each([
+  ['claude', 'ANTHROPIC_API_KEY'],
+  ['codex', 'OPENAI_API_KEY'],
+])('worker accepts a configured host key for %s', async (adapter, variable) => {
   vi.stubEnv(variable, 'local-fixture-value');
   await networkCommand('worker', [...workerArgs(), '--adapter', adapter]);
   expect(captured.worker?.adapter.id).toBe(adapter);
 });
 it('worker preserves explicit command overrides that manage their own authentication', async () => {
   vi.stubEnv('OPENAI_API_KEY', '');
-  await networkCommand('worker', [...workerArgs(), '--adapter', 'codex', '--cmd', 'owner-configured-command']);
+  await networkCommand('worker', [
+    ...workerArgs(),
+    '--adapter',
+    'codex',
+    '--cmd',
+    'owner-configured-command',
+  ]);
   expect(captured.worker?.adapter.id).toBe('codex');
 });
-it.each(['delegate', 'worker'])('%s help documents input files, invite links, TTL and verbose defaults', async command => {
-  await networkCommand(command, ['--help']);
-  const help = String(vi.mocked(console.log).mock.calls[0][0]);
-  for (const value of ['--input-file', '--invite-ttl', '86400 / 24h', '--verbose', 'default: off', 'fresh'])
-    expect(help).toContain(value);
-});
+it.each(['delegate', 'worker'])(
+  '%s help documents input files, invite links, TTL and verbose defaults',
+  async (command) => {
+    await networkCommand(command, ['--help']);
+    const help = String(vi.mocked(console.log).mock.calls[0][0]);
+    for (const value of [
+      '--input-file',
+      '--invite-ttl',
+      '86400 / 24h',
+      '--verbose',
+      'default: off',
+      'fresh',
+    ])
+      expect(help).toContain(value);
+  },
+);
 
-it.each([false, true])('CLI worker wires concise or verbose approval display (verbose=%s)', async verbose => {
-  await networkCommand('worker', [...workerArgs(), ...(verbose ? ['--verbose'] : [])]);
-  expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
-});
-it.each([false, true])('CLI delegate wires concise or verbose approval display (verbose=%s)', async verbose => {
-  await networkCommand('delegate', [...delegateArgs(), '--input', '{}', ...(verbose ? ['--verbose'] : [])]);
-  expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
-});
+it.each([false, true])(
+  'CLI worker wires concise or verbose approval display (verbose=%s)',
+  async (verbose) => {
+    await networkCommand('worker', [...workerArgs(), ...(verbose ? ['--verbose'] : [])]);
+    expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
+  },
+);
+it.each([false, true])(
+  'CLI delegate wires concise or verbose approval display (verbose=%s)',
+  async (verbose) => {
+    await networkCommand('delegate', [
+      ...delegateArgs(),
+      '--input',
+      '{}',
+      ...(verbose ? ['--verbose'] : []),
+    ]);
+    expect(typeof captured.interactive?.formatRequest === 'function').toBe(true);
+  },
+);

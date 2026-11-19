@@ -321,9 +321,7 @@ describe.each(['/envelopes', '/stream'])('M3.1 HTTP %s authentication', (path) =
       token = createRelayAuthToken(bob, { action, origin }),
       e = envelope();
     relay.send(e);
-    const denied = await handler(
-      new Request(origin + recipientPath(path) + '&auth=' + token),
-    );
+    const denied = await handler(new Request(origin + recipientPath(path) + '&auth=' + token));
     expect(denied.status).toBe(401);
     expect(await denied.json()).toEqual({ error: 'RELAY_QUERY_AUTH_DISABLED' });
     expect(relay.snapshot().queues).toEqual([[bob.did, [e]]]);
@@ -960,7 +958,9 @@ describe('M3.1 invite SSRF guard', () => {
 
 it('auto-signs WorkerNode and RequesterClient receives against a strict in-memory relay', async () => {
   const relay = new InMemoryRelay({ requireAuth: true });
-  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  const worker = new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner: bob,
     relay,
     adapter: new SandboxAgentAdapter(),

@@ -93,7 +93,14 @@ MCP 対応ホストに、stdio コマンド `sealbridge mcp-server` を登録し
 ソースのチェックアウトを使う場合の一般的な登録例です。絶対パスを置き換えてください。設定形式はホストによって異なります。
 
 ```json
-{"mcpServers":{"sealbridge":{"command":"/absolute/path/to/node","args":["/absolute/path/to/sealbridge/cli/dist/index.js","mcp-server"]}}}
+{
+  "mcpServers": {
+    "sealbridge": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/sealbridge/cli/dist/index.js", "mcp-server"]
+    }
+  }
+}
 ```
 
 Windows では `C:/path/to/node.exe` と `C:/path/to/sealbridge/cli/dist/index.js` などを指定します。中継器の環境で必要な場合だけ `args` に `--allow-private-relay` を加えます。ホストを再読込し、`acp_list_invites` に取り込んだ別名が出ることを確認してから、最初の依頼を送り、接続フォームで同意します。Muse / Grok Bot でこの stdio サーバーを登録でき、確認フォームも表示できるかは、ここでは検証できていません。利用ホストの MCP 設定を確認してください。MCP が使えない場合も、上記の非対話 CLI の手順で接続できます。TTY では接続確認に持ち主本人が回答します。
@@ -170,16 +177,16 @@ pnpm sealbridge demo
 
 ## 詳しい資料
 
-| 資料 | 内容 |
-| :--- | :--- |
-| [自動受付の設定](docs/auto-accept.ja.md) | 読むだけ／書き換え、相手の範囲、日次・月次の上限 |
-| [リレーの信頼性](docs/relay-reliability.ja.md) | 再試行、期限、プロキシ、中継器の運用 |
-| [つながりの交換](docs/connections/connection-exchange.ja.md) | 接続の申し込みと状態 |
-| [監査の中断](docs/audit-interruption.md) | 中断時の監査（英語） |
-| [SDK](docs/sdk.ja.md) | 組み込み用 API |
-| [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) | 全体像と信頼境界 |
-| [spec/README.ja.md](spec/README.ja.md) | プロトコル |
-| [SECURITY_PROOF.ja.md](SECURITY_PROOF.ja.md) | 敵対的テストスイート |
+| 資料                                                         | 内容                                             |
+| :----------------------------------------------------------- | :----------------------------------------------- |
+| [自動受付の設定](docs/auto-accept.ja.md)                     | 読むだけ／書き換え、相手の範囲、日次・月次の上限 |
+| [リレーの信頼性](docs/relay-reliability.ja.md)               | 再試行、期限、プロキシ、中継器の運用             |
+| [つながりの交換](docs/connections/connection-exchange.ja.md) | 接続の申し込みと状態                             |
+| [監査の中断](docs/audit-interruption.md)                     | 中断時の監査（英語）                             |
+| [SDK](docs/sdk.ja.md)                                        | 組み込み用 API                                   |
+| [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)                     | 全体像と信頼境界                                 |
+| [spec/README.ja.md](spec/README.ja.md)                       | プロトコル                                       |
+| [SECURITY_PROOF.ja.md](SECURITY_PROOF.ja.md)                 | 敵対的テストスイート                             |
 
 CLI のすべてのサブコマンドは `sealbridge --help`、各コマンドの `--help` で確認できます。
 

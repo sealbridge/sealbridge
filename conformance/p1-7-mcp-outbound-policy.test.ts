@@ -19,11 +19,7 @@ import {
   normalizeMcpRelayUrl,
 } from '../packages/runtime/src/index.js';
 import type { ApprovalProvider } from '../packages/runtime/src/index.js';
-import {
-  mcpServerCommand,
-  mcpServerOptionsFromArgs,
-  parseMcpServerArgs,
-} from '../cli/src/mcp.js';
+import { mcpServerCommand, mcpServerOptionsFromArgs, parseMcpServerArgs } from '../cli/src/mcp.js';
 
 const allowedRelay = 'https://relay.example/acp';
 
@@ -49,7 +45,9 @@ function inviteFor(owner: KeyPair, relayEndpoint: string, agent?: KeyPair): stri
 }
 
 function echoWorker(owner: KeyPair, relay: InMemoryRelay, tag: string, agent?: KeyPair) {
-  return new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  return new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner,
     relay,
     relayUrl: allowedRelay + '/',
@@ -73,9 +71,8 @@ async function callTool(server: AcpMcpServer, name: string, args: Record<string,
     method: 'tools/call',
     params: { name, arguments: args },
   });
-  const result = (
-    response as { result: { isError?: boolean; content: Array<{ text: string }> } }
-  ).result;
+  const result = (response as { result: { isError?: boolean; content: Array<{ text: string }> } })
+    .result;
   return {
     isError: result.isError === true,
     body: JSON.parse(result.content[0].text) as Record<string, unknown>,
@@ -583,9 +580,13 @@ describe('MCP outbound approval', () => {
     const server = new AcpMcpServer({ owner, relay, requireInteractiveApproval: true });
     const send = vi.spyOn(relay, 'send');
     const result = await callTool(server, 'acp_delegate_task', {
-      inviteToken: inviteFor(worker, allowedRelay), title: 'Host approval', input: { ask: true },
+      inviteToken: inviteFor(worker, allowedRelay),
+      title: 'Host approval',
+      input: { ask: true },
     });
-    expect(result.body.error).toMatch(/APPROVAL_CHANNEL_UNAVAILABLE.*host.*elicitation.*--approval-webhook/);
+    expect(result.body.error).toMatch(
+      /APPROVAL_CHANNEL_UNAVAILABLE.*host.*elicitation.*--approval-webhook/,
+    );
     expect(shown).toEqual([]);
     expect(input.listenerCount('data')).toBe(0);
     expect(send).not.toHaveBeenCalled();
@@ -636,40 +637,40 @@ describe('MCP tool disclosure and CLI flags', () => {
     expect(parsed.relay).toBe(allowedRelay);
     const privateRelay = parseMcpServerArgs(['--allow-private-relay']);
     expect(privateRelay.allowPrivateRelay).toBe(true);
-    expect(
-      mcpServerOptionsFromArgs(privateRelay, alice).allowPrivateRelay,
-    ).toBe(true);
+    expect(mcpServerOptionsFromArgs(privateRelay, alice).allowPrivateRelay).toBe(true);
     const webhook = parseMcpServerArgs(['--approval-webhook', 'https://hooks.example/acp']);
     expect(webhook.approvalWebhookUrl).toBe('https://hooks.example/acp');
     expect(webhook.requireInteractiveApproval).toBe(false);
     expect(() =>
-      parseMcpServerArgs([
-        '--require-approval',
-        '--approval-webhook',
-        'https://hooks.example/acp',
-      ]),
+      parseMcpServerArgs(['--require-approval', '--approval-webhook', 'https://hooks.example/acp']),
     ).toThrow(/require-approval/);
     expect(() => parseMcpServerArgs(['--allow-worker'])).toThrow('Missing --allow-worker');
     expect(() => parseMcpServerArgs(['--allow-relay'])).toThrow('Missing --allow-relay');
 
     const owner = generateKeyPair();
-    expect(() =>
-      new AcpMcpServer(
-        mcpServerOptionsFromArgs(parseMcpServerArgs(['--allow-worker', 'did:key:not-valid']), owner),
-      ),
-    ).toThrow('INVALID_WORKER_DID');
-    expect(() =>
-      new AcpMcpServer(
-        mcpServerOptionsFromArgs(parseMcpServerArgs(['--allow-relay', 'file:///etc/passwd']), owner),
-      ),
-    ).toThrow('SSRF_BLOCKED_RELAY_URL');
-    expect(() =>
-      new AcpMcpServer(
-        mcpServerOptionsFromArgs(
-          parseMcpServerArgs(['--approval-webhook', 'notaurl']),
-          owner,
+    expect(
+      () =>
+        new AcpMcpServer(
+          mcpServerOptionsFromArgs(
+            parseMcpServerArgs(['--allow-worker', 'did:key:not-valid']),
+            owner,
+          ),
         ),
-      ),
+    ).toThrow('INVALID_WORKER_DID');
+    expect(
+      () =>
+        new AcpMcpServer(
+          mcpServerOptionsFromArgs(
+            parseMcpServerArgs(['--allow-relay', 'file:///etc/passwd']),
+            owner,
+          ),
+        ),
+    ).toThrow('SSRF_BLOCKED_RELAY_URL');
+    expect(
+      () =>
+        new AcpMcpServer(
+          mcpServerOptionsFromArgs(parseMcpServerArgs(['--approval-webhook', 'notaurl']), owner),
+        ),
     ).toThrow('INVALID_APPROVAL_WEBHOOK_URL');
     await expect(mcpServerCommand(['--allow-worker'])).rejects.toThrow('Missing --allow-worker');
   });

@@ -19,6 +19,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm format:check
       - run: pnpm lint
   conformance:
     name: conformance (${{ matrix.label }})

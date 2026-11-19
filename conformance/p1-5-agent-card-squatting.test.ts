@@ -28,12 +28,7 @@ import { AcpMcpServer, WorkerNode } from '../packages/runtime/src/index.js';
 const relayEndpoint = 'https://relay.example';
 const costModes: BudgetSpec['costBearer'][] = ['worker_byok'];
 
-function cardFields(
-  ownerDid: string,
-  agentDid: string,
-  expiresAt: string,
-  name = 'worker',
-) {
+function cardFields(ownerDid: string, agentDid: string, expiresAt: string, name = 'worker') {
   return {
     type: 'AgentCard' as const,
     version: '0.2.0',
@@ -191,7 +186,9 @@ describe('P1-5 agent card squatting', () => {
     expect((await post(self)).status).toBe(201);
     expect(relay.agents.has(agentRegistryKey(attacker.did, victim.did))).toBe(true);
     expect(relay.agents.has(agentRegistryKey(victim.did, victim.did))).toBe(true);
-    expect(() => selectAgentCard(relay.discover(), victim.did)).toThrow('AMBIGUOUS_AGENT_CARD_OWNER');
+    expect(() => selectAgentCard(relay.discover(), victim.did)).toThrow(
+      'AMBIGUOUS_AGENT_CARD_OWNER',
+    );
   });
 
   it('rejects an expired card on verification, registration, and eviction', async () => {
@@ -218,7 +215,9 @@ describe('P1-5 agent card squatting', () => {
       ),
     ).toThrow('INVALID_AGENT_CARD');
     const freshSignedAt = new Date().toISOString();
-    const tooLongAt = new Date(Date.parse(freshSignedAt) + MAX_AGENT_CARD_EXPIRY_MS + 1_000).toISOString();
+    const tooLongAt = new Date(
+      Date.parse(freshSignedAt) + MAX_AGENT_CARD_EXPIRY_MS + 1_000,
+    ).toISOString();
     const tooLong = signPayload(
       cardFields(owner.did, owner.did, tooLongAt, 'too-long'),
       owner,
@@ -251,11 +250,7 @@ describe('P1-5 agent card squatting', () => {
     expect(relay.discover()).toEqual([]);
 
     let ttlNow = Date.now();
-    const longLived = selfCard(
-      owner,
-      'ttl',
-      new Date(ttlNow + 60 * 60 * 1000).toISOString(),
-    );
+    const longLived = selfCard(owner, 'ttl', new Date(ttlNow + 60 * 60 * 1000).toISOString());
     const ttlRelay = new InMemoryRelay({ now: () => ttlNow, agentCardTtlMs: 1_000 });
     ttlRelay.register(longLived);
     expect(ttlRelay.snapshot().agentExpiry?.[0]?.[1]).toBe(ttlNow + 1_000);
@@ -284,24 +279,27 @@ describe('P1-5 agent card squatting', () => {
     relay.register(delegated);
     relay.register(otherDelegated);
     expect(() => relay.register(delegated)).not.toThrow();
-    const older = signPayload(delegated.payload, owner, new Date(Date.now() - 60_000).toISOString());
-    expect(() => relay.register(older as SignedAgentCard)).toThrow('AGENT_OWNER_OR_VERSION_MISMATCH');
+    const older = signPayload(
+      delegated.payload,
+      owner,
+      new Date(Date.now() - 60_000).toISOString(),
+    );
+    expect(() => relay.register(older as SignedAgentCard)).toThrow(
+      'AGENT_OWNER_OR_VERSION_MISMATCH',
+    );
     expect(relay.discover()).toHaveLength(4);
     expect(relay.agents.has(agentRegistryKey(owner.did, agent.did))).toBe(true);
     expect(relay.agents.has(agentRegistryKey(other.did, agent.did))).toBe(true);
-    expect(() => selectAgentCard(relay.agents.values(), agent.did)).toThrow('AMBIGUOUS_AGENT_CARD_OWNER');
+    expect(() => selectAgentCard(relay.agents.values(), agent.did)).toThrow(
+      'AMBIGUOUS_AGENT_CARD_OWNER',
+    );
     expect(selectAgentCard(relay.agents.values(), owner.did)?.payload.name).toBe('owner');
 
     const handler = createRelayFetchHandler({ relay });
     const get = (path: string) => handler(new Request('https://relay.example' + path));
     expect(
       await (
-        await get(
-          '/agents/' +
-            encodeURIComponent(owner.did) +
-            '/' +
-            encodeURIComponent(agent.did),
-        )
+        await get('/agents/' + encodeURIComponent(owner.did) + '/' + encodeURIComponent(agent.did))
       ).json(),
     ).toEqual(delegated);
     const ambiguous = await get('/agents/' + encodeURIComponent(agent.did));
@@ -390,14 +388,18 @@ describe('P1-5 agent card squatting', () => {
     };
     expect(
       () =>
-        new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+        new WorkerNode({
+          autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+          checkPeer: () => 'trusted',
           owner,
           agentDid: agent.did,
           relay,
           adapter,
         }),
     ).toThrow('AGENT_DELEGATION_REQUIRED');
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner,
       agentDid: agent.did,
       agentKey: agent,

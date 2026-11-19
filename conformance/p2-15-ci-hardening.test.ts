@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const MUTABLE_REF = /@(?:v[^#\s]+|main|master)\b/;
@@ -32,8 +33,9 @@ describe('P2-15 CI hardening', () => {
     expect(workflow).toContain('matrix:');
     expect(workflow).toContain('name: conformance (${{ matrix.label }})');
     expect(workflow).toContain('include:');
-    const runners = [...workflow.matchAll(/^\s*- label: (\S+)\n\s+os: (\S+)$/gm)]
-      .map(([, label, os]) => ({ label, os }));
+    const runners = [...workflow.matchAll(/^\s*- label: (\S+)\n\s+os: (\S+)$/gm)].map(
+      ([, label, os]) => ({ label, os }),
+    );
     expect(runners).toEqual([
       { label: 'ubuntu-latest', os: 'ubuntu-24.04' },
       { label: 'macos-latest', os: 'macos-latest' },
@@ -50,13 +52,18 @@ describe('P2-15 CI hardening', () => {
   });
 
   it('schedules Dependabot updates for github-actions and npm', () => {
-    const dependabot = read('../.github/dependabot.yml');
-    expect(dependabot).toMatch(/^version:\s*2$/m);
+    const dependabot = parse(read('../.github/dependabot.yml'));
+    expect(dependabot.version).toBe(2);
     for (const ecosystem of ['github-actions', 'npm']) {
-      expect(dependabot).toContain(`package-ecosystem: "${ecosystem}"`);
+      const updates = dependabot.updates.filter(
+        (update: { 'package-ecosystem': string }) => update['package-ecosystem'] === ecosystem,
+      );
+      expect(updates.length).toBeGreaterThan(0);
+      for (const update of updates) {
+        expect(update.directory).toBe('/');
+        expect(update.schedule.interval).toBe('weekly');
+      }
     }
-    expect(dependabot.match(/directory:\s*"\/"/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(dependabot.match(/interval:\s*"weekly"/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('lists this regression in the conformance README', () => {

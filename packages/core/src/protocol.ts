@@ -13,7 +13,7 @@ export interface ProtocolCompatibilityPolicy {
 }
 export const PROTOCOL_DAY_MS = 86_400_000;
 export function isManifestProtocolVersion(value: unknown): value is ManifestProtocolVersion {
-  return MANIFEST_PROTOCOL_VERSIONS.some(version => version === value);
+  return MANIFEST_PROTOCOL_VERSIONS.some((version) => version === value);
 }
 /** Unknown strings have no ordering in the local manifest protocol. */
 export function compareProtocolVersions(left: string, right: string): number {
@@ -21,29 +21,52 @@ export function compareProtocolVersions(left: string, right: string): number {
     throw new Error('PROTOCOL_VERSION_UNSUPPORTED');
   return MANIFEST_PROTOCOL_VERSIONS.indexOf(right) - MANIFEST_PROTOCOL_VERSIONS.indexOf(left);
 }
-export function protocolCompatibilityPhase(policy: ProtocolCompatibilityPolicy, now: number): ProtocolCompatibilityPhase {
+export function protocolCompatibilityPhase(
+  policy: ProtocolCompatibilityPolicy,
+  now: number,
+): ProtocolCompatibilityPhase {
   const released = Date.parse(policy.releasedAt);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(policy.releasedAt) ||
-      !Number.isFinite(released) || new Date(released).toISOString().replace('.000Z', 'Z') !== policy.releasedAt.replace('.000Z', 'Z') ||
-      !Number.isFinite(now) || now < released || policy.sendLegacyUntilDays !== 90 ||
-      policy.receiveLegacyUntilDays !== 180 ||
-      (policy.maximumObservedPhase !== undefined && ![0, 1, 2].includes(policy.maximumObservedPhase)))
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(policy.releasedAt) ||
+    !Number.isFinite(released) ||
+    new Date(released).toISOString().replace('.000Z', 'Z') !==
+      policy.releasedAt.replace('.000Z', 'Z') ||
+    !Number.isFinite(now) ||
+    now < released ||
+    policy.sendLegacyUntilDays !== 90 ||
+    policy.receiveLegacyUntilDays !== 180 ||
+    (policy.maximumObservedPhase !== undefined && ![0, 1, 2].includes(policy.maximumObservedPhase))
+  )
     throw new Error('PROTOCOL_POLICY_INVALID');
-  const phase = now >= released + 180 * PROTOCOL_DAY_MS ? 2 : now >= released + 90 * PROTOCOL_DAY_MS ? 1 : 0;
+  const phase =
+    now >= released + 180 * PROTOCOL_DAY_MS ? 2 : now >= released + 90 * PROTOCOL_DAY_MS ? 1 : 0;
   return Math.max(phase, policy.maximumObservedPhase ?? 0) as ProtocolCompatibilityPhase;
 }
-export function supportedReceiveVersions(policy: ProtocolCompatibilityPolicy, now: number): ManifestProtocolVersion[] {
+export function supportedReceiveVersions(
+  policy: ProtocolCompatibilityPolicy,
+  now: number,
+): ManifestProtocolVersion[] {
   return protocolCompatibilityPhase(policy, now) < 2 ? [...MANIFEST_PROTOCOL_VERSIONS] : ['0.2.0'];
 }
-export function supportedSendVersions(policy: ProtocolCompatibilityPolicy, now: number): ManifestProtocolVersion[] {
-  return protocolCompatibilityPhase(policy, now) === 0 ? [...MANIFEST_PROTOCOL_VERSIONS] : ['0.2.0'];
+export function supportedSendVersions(
+  policy: ProtocolCompatibilityPolicy,
+  now: number,
+): ManifestProtocolVersion[] {
+  return protocolCompatibilityPhase(policy, now) === 0
+    ? [...MANIFEST_PROTOCOL_VERSIONS]
+    : ['0.2.0'];
 }
 /** Absent legacy capabilities imply 0.1.0 only; explicit unknown versions imply nothing. */
-export function understoodProtocolVersions(peerVersions?: readonly string[]): ManifestProtocolVersion[] {
+export function understoodProtocolVersions(
+  peerVersions?: readonly string[],
+): ManifestProtocolVersion[] {
   const advertised = peerVersions ?? ['0.1.0'];
-  return MANIFEST_PROTOCOL_VERSIONS.filter(version => advertised.includes(version));
+  return MANIFEST_PROTOCOL_VERSIONS.filter((version) => advertised.includes(version));
 }
-function assertFloor(version: ManifestProtocolVersion, observedFloor?: ManifestProtocolVersion): void {
+function assertFloor(
+  version: ManifestProtocolVersion,
+  observedFloor?: ManifestProtocolVersion,
+): void {
   if (observedFloor !== undefined && compareProtocolVersions(version, observedFloor) < 0)
     throw new Error('PROTOCOL_DOWNGRADE_REFUSED');
 }
@@ -54,7 +77,7 @@ export function selectProtocolVersion(
   now: number,
 ): ManifestProtocolVersion {
   const peer = understoodProtocolVersions(peerVersions);
-  const version = supportedSendVersions(policy, now).find(version => peer.includes(version));
+  const version = supportedSendVersions(policy, now).find((version) => peer.includes(version));
   if (!version) throw new Error('PROTOCOL_VERSION_UNSUPPORTED');
   assertFloor(version, observedFloor);
   return version;
@@ -66,7 +89,7 @@ export function assertInboundProtocolVersion(
   policy: ProtocolCompatibilityPolicy,
   now: number,
 ): asserts version is ManifestProtocolVersion {
-  if (!supportedReceiveVersions(policy, now).some(candidate => candidate === version))
+  if (!supportedReceiveVersions(policy, now).some((candidate) => candidate === version))
     throw new Error('PROTOCOL_VERSION_UNSUPPORTED');
   assertFloor(version as ManifestProtocolVersion, senderObservedFloor);
 }

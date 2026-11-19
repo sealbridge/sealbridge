@@ -4,13 +4,36 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  AcpMcpServer, InviteStore, inspectRuleContent, createRuleBasedContentReviewProvider,
-  CONTENT_INSPECTION_RULES, CONTENT_INSPECTION_LIMITS, CONTENT_INSPECTION_RULESET_VERSION, CONTENT_INSPECTION_RULESET_DIGEST, WorkerTrustStore, connectionsCommand, createInviteToken,
-  createSignedAgentCard, discoverAgentCards, generateKeyPair, inviteTokenFromUri,
-  keyStoreSelection, parseAndVerifyInviteToken, resolveDataRoot, resolveStoredIdentity, workerIntakePath,
-  buildTaskManifest, taskContent,
+  AcpMcpServer,
+  InviteStore,
+  inspectRuleContent,
+  createRuleBasedContentReviewProvider,
+  CONTENT_INSPECTION_RULES,
+  CONTENT_INSPECTION_LIMITS,
+  CONTENT_INSPECTION_RULESET_VERSION,
+  CONTENT_INSPECTION_RULESET_DIGEST,
+  WorkerTrustStore,
+  connectionsCommand,
+  createInviteToken,
+  createSignedAgentCard,
+  discoverAgentCards,
+  generateKeyPair,
+  inviteTokenFromUri,
+  keyStoreSelection,
+  parseAndVerifyInviteToken,
+  resolveDataRoot,
+  resolveStoredIdentity,
+  workerIntakePath,
+  buildTaskManifest,
+  taskContent,
 } from '../cli/src/sdk.js';
-import type { HeldTaskContent, InviteStoreOptions, KeyringModule, RelayTransport, SavedInvite } from '../cli/src/sdk.js';
+import type {
+  HeldTaskContent,
+  InviteStoreOptions,
+  KeyringModule,
+  RelayTransport,
+  SavedInvite,
+} from '../cli/src/sdk.js';
 import * as sdk from '../cli/src/sdk.js';
 import { digest, signEnvelope, signPayload } from '../packages/core/src/index.js';
 import { taskContent as runtimeTaskContent } from '../packages/runtime/dist/index.js';
@@ -20,39 +43,96 @@ const NOW = Date.parse('2030-01-01T00:00:00.000Z');
 let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(realpathSync(tmpdir()), 'sealbridge-sdk-'));
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW);
-  vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network call'); }));
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('Unexpected network call');
+    }),
+  );
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); rmSync(root, { recursive: true, force: true }); });
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  rmSync(root, { recursive: true, force: true });
+});
 
 it('exports the runtime task projection through the SDK and legacy CLI module', () => {
-  expect(taskContent).toBe(runtimeTaskContent); expect(cliTaskContent).toBe(taskContent);
-  expect(sdk).not.toHaveProperty('literalText'); expect(sdk).not.toHaveProperty('cliTaskInspection');
-  const owner = generateKeyPair(), requester = generateKeyPair();
-  const manifest = buildTaskManifest({ ownerDid: requester.did, workerDid: owner.did, title: 'Review', description: 'Content' });
+  expect(taskContent).toBe(runtimeTaskContent);
+  expect(cliTaskContent).toBe(taskContent);
+  expect(sdk).not.toHaveProperty('literalText');
+  expect(sdk).not.toHaveProperty('cliTaskInspection');
+  const owner = generateKeyPair(),
+    requester = generateKeyPair();
+  const manifest = buildTaskManifest({
+    ownerDid: requester.did,
+    workerDid: owner.did,
+    title: 'Review',
+    description: 'Content',
+  });
   const input = { text: 'Review content' };
-  const envelope = signEnvelope({ taskId: manifest.taskId, recipientDid: owner.did, seq: 0, eventType: 'PROPOSE',
-    payload: { proposal: signPayload(manifest, requester), input } as never }, requester, { encrypt: true });
-  const content: HeldTaskContent = taskContent(envelope, owner, digest({ manifest, input }), digest(envelope));
+  const envelope = signEnvelope(
+    {
+      taskId: manifest.taskId,
+      recipientDid: owner.did,
+      seq: 0,
+      eventType: 'PROPOSE',
+      payload: { proposal: signPayload(manifest, requester), input } as never,
+    },
+    requester,
+    { encrypt: true },
+  );
+  const content: HeldTaskContent = taskContent(
+    envelope,
+    owner,
+    digest({ manifest, input }),
+    digest(envelope),
+  );
   expect(content).toEqual({ manifest, input, capabilityChains: [] });
 });
 
 it('supports invitation references, identity selection and owner-reviewed confirmation through the SDK', async () => {
   const secrets = new Map<string, string>();
-  const keyring: KeyringModule = { Entry: class {
-    private id: string;
-    constructor(service: string, account: string) { this.id = service + '/' + account; }
-    getPassword() { return secrets.get(this.id) ?? null; }
-    setPassword(value: string) { secrets.set(this.id, value); }
-    deletePassword() { return secrets.delete(this.id); }
-  } };
-  const options: InviteStoreOptions = { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'data') },
-    keyStore: 'keychain', keyringLoader: async () => keyring, now: () => NOW };
+  const keyring: KeyringModule = {
+    Entry: class {
+      private id: string;
+      constructor(service: string, account: string) {
+        this.id = service + '/' + account;
+      }
+      getPassword() {
+        return secrets.get(this.id) ?? null;
+      }
+      setPassword(value: string) {
+        secrets.set(this.id, value);
+      }
+      deletePassword() {
+        return secrets.delete(this.id);
+      }
+    },
+  };
+  const options: InviteStoreOptions = {
+    home: root,
+    env: { SEALBRIDGE_DATA_DIR: join(root, 'data') },
+    keyStore: 'keychain',
+    keyringLoader: async () => keyring,
+    now: () => NOW,
+  };
   expect(resolveDataRoot(options)).toBe(join(root, 'data'));
   expect(keyStoreSelection(options)).toMatchObject({ keyStore: 'keychain', source: 'option' });
-  const owner = await resolveStoredIdentity('requester', options), peer = generateKeyPair();
-  const card = createSignedAgentCard({ name: 'Reviewer', agentDid: peer.did,
-    relayEndpoint: 'https://relay.example', skills: [], protocolVersions: ['0.2.0'], now: NOW }, peer);
+  const owner = await resolveStoredIdentity('requester', options),
+    peer = generateKeyPair();
+  const card = createSignedAgentCard(
+    {
+      name: 'Reviewer',
+      agentDid: peer.did,
+      relayEndpoint: 'https://relay.example',
+      skills: [],
+      protocolVersions: ['0.2.0'],
+      now: NOW,
+    },
+    peer,
+  );
   const token = createInviteToken({ agentCard: card, issuedAt: new Date(NOW).toISOString() }, peer);
   const link = 'https://sealbridge.app/i#' + token;
   expect(inviteTokenFromUri(link) === token).toBe(true);
@@ -65,17 +145,36 @@ it('supports invitation references, identity selection and owner-reviewed confir
   expect(readFileSync(invites.path, 'utf8').includes(token)).toBe(false);
   expect([...secrets.values()].includes(token)).toBe(true);
 
-  const store = new WorkerTrustStore(owner, { path: workerIntakePath(owner.did, options), now: () => NOW });
+  const store = new WorkerTrustStore(owner, {
+    path: workerIntakePath(owner.did, options),
+    now: () => NOW,
+  });
   expect(store.listConnections()).toEqual([]);
-  const output = vi.fn(), send = vi.fn(async () => { expect(store.connectionState(peer.did)).toBe('pending'); });
+  const output = vi.fn(),
+    send = vi.fn(async () => {
+      expect(store.connectionState(peer.did)).toBe('pending');
+    });
   const relay: RelayTransport = { send, receive: vi.fn() };
   const review = vi.fn(async (summary: string) => {
-    expect(JSON.parse(summary)).toMatchObject({ localRole: 'requester', localOwnerDid: owner.did, peerOwnerDid: peer.did });
+    expect(JSON.parse(summary)).toMatchObject({
+      localRole: 'requester',
+      localOwnerDid: owner.did,
+      peerOwnerDid: peer.did,
+    });
     return false;
   });
-  const commandOptions = { identityOptions: options, review, now: () => NOW, output, transportFactory: () => relay };
-  await expect(connectionsCommand(['confirm-invite', saved.workerRef], commandOptions)).rejects.toThrow('APPROVAL_REJECTED');
-  expect(send).not.toHaveBeenCalled(); expect(store.listConnections()).toEqual([]);
+  const commandOptions = {
+    identityOptions: options,
+    review,
+    now: () => NOW,
+    output,
+    transportFactory: () => relay,
+  };
+  await expect(
+    connectionsCommand(['confirm-invite', saved.workerRef], commandOptions),
+  ).rejects.toThrow('APPROVAL_REJECTED');
+  expect(send).not.toHaveBeenCalled();
+  expect(store.listConnections()).toEqual([]);
   review.mockImplementationOnce(async () => true);
   await connectionsCommand(['confirm-invite', saved.workerRef], commandOptions);
   expect(send).toHaveBeenCalledOnce();
@@ -84,8 +183,12 @@ it('supports invitation references, identity selection and owner-reviewed confir
   expect(JSON.stringify(output.mock.calls).includes(token)).toBe(false);
 
   const mcp = new AcpMcpServer({ identityOptions: options, now: () => NOW });
-  const result = await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
-    params: { name: 'acp_list_invites', arguments: {} } });
+  const result = await mcp.handle({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'acp_list_invites', arguments: {} },
+  });
   expect(JSON.stringify(result).includes(saved.workerRef)).toBe(true);
   expect(JSON.stringify(result).includes(token)).toBe(false);
   expect(invites.remove(saved.workerRef)).toBe(true);
@@ -93,11 +196,22 @@ it('supports invitation references, identity selection and owner-reviewed confir
 });
 
 it('exports the opt-in scanner and provider without installing them or making network calls', async () => {
-  const owner = generateKeyPair(), peer = generateKeyPair();
-  const manifest = buildTaskManifest({ ownerDid: peer.did, workerDid: owner.did, title: 'Review', description: 'Read text' });
+  const owner = generateKeyPair(),
+    peer = generateKeyPair();
+  const manifest = buildTaskManifest({
+    ownerDid: peer.did,
+    workerDid: owner.did,
+    title: 'Review',
+    description: 'Read text',
+  });
   const report = await inspectRuleContent({ manifest, input: 'system prompt' });
-  expect(report).toMatchObject({ inspectorVersion: CONTENT_INSPECTION_RULESET_VERSION, rulesetDigest: CONTENT_INSPECTION_RULESET_DIGEST,
-    limits: CONTENT_INSPECTION_LIMITS, status: 'ok', verdict: 'warn' });
+  expect(report).toMatchObject({
+    inspectorVersion: CONTENT_INSPECTION_RULESET_VERSION,
+    rulesetDigest: CONTENT_INSPECTION_RULESET_DIGEST,
+    limits: CONTENT_INSPECTION_LIMITS,
+    status: 'ok',
+    verdict: 'warn',
+  });
   expect(CONTENT_INSPECTION_RULES.length).toBeGreaterThan(0);
   expect(typeof createRuleBasedContentReviewProvider().inspect).toBe('function');
   expect(fetch).not.toHaveBeenCalled();

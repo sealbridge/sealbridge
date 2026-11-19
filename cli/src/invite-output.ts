@@ -3,8 +3,11 @@ import * as fs from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { inspectPrivateDirectory, writePrivateFile } from '@acp/runtime/local-identity';
 
-export type InviteOutput = { kind: 'stdout' } | { kind: 'none' } | { kind: 'file'; path: string } |
-  { kind: 'fd'; fd: number };
+export type InviteOutput =
+  | { kind: 'stdout' }
+  | { kind: 'none' }
+  | { kind: 'file'; path: string }
+  | { kind: 'fd'; fd: number };
 
 function requireFdOutputSupport(): void {
   // Windows extra stdio pipes are not plain fds usable by fstatSync/writeSync.
@@ -45,8 +48,8 @@ export function deliverInvite(output: InviteOutput, token: string, singleLine = 
     } else {
       const stat = fs.fstatSync(output.fd);
       if (!stat.isFile() && !stat.isFIFO() && !stat.isSocket()) throw new Error();
-      if (stat.isFile() &&
-          (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0)) throw new Error();
+      if (stat.isFile() && (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0))
+        throw new Error();
       let offset = 0;
       while (offset < bytes.length) {
         const count = fs.writeSync(output.fd, bytes, offset, bytes.length - offset);

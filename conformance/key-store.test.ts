@@ -9,11 +9,23 @@ import { promisify } from 'node:util';
 import { generateKeyPair, signApproval } from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import {
-  FileKeyStore, KeychainKeyStore, inspectStoredIdentity, keychainService,
-  resolveStoredIdentity, selectKeyStore,
+  FileKeyStore,
+  KeychainKeyStore,
+  inspectStoredIdentity,
+  keychainService,
+  resolveStoredIdentity,
+  selectKeyStore,
 } from '../packages/runtime/src/key-store.js';
-import type { IdentityStoreOptions, KeyStore, KeyringModule } from '../packages/runtime/src/key-store.js';
-import { inspectLocalIdentity, resolveDataRoot, resolveOrCreateIdentity } from '../packages/runtime/src/local-identity.js';
+import type {
+  IdentityStoreOptions,
+  KeyStore,
+  KeyringModule,
+} from '../packages/runtime/src/key-store.js';
+import {
+  inspectLocalIdentity,
+  resolveDataRoot,
+  resolveOrCreateIdentity,
+} from '../packages/runtime/src/local-identity.js';
 import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 import { diagnose } from '../cli/src/doctor.js';
 import { networkCommand } from '../cli/src/network.js';
@@ -33,19 +45,29 @@ function fixture() {
   roots.push(home);
   const secrets = new Map<string, string>();
   const entryOptions: unknown[] = [];
-  const module: KeyringModule = { Entry: class {
-    readonly id: string;
-    constructor(service: string, account: string, options: unknown) {
-      this.id = service + '/' + account;
-      entryOptions.push(options);
-    }
-    getPassword() { return secrets.get(this.id) ?? null; }
-    setPassword(value: string) { secrets.set(this.id, value); }
-    deletePassword() { return secrets.delete(this.id); }
-  } };
+  const module: KeyringModule = {
+    Entry: class {
+      readonly id: string;
+      constructor(service: string, account: string, options: unknown) {
+        this.id = service + '/' + account;
+        entryOptions.push(options);
+      }
+      getPassword() {
+        return secrets.get(this.id) ?? null;
+      }
+      setPassword(value: string) {
+        secrets.set(this.id, value);
+      }
+      deletePassword() {
+        return secrets.delete(this.id);
+      }
+    },
+  };
   const loader = vi.fn(async () => module);
   const options: IdentityStoreOptions = {
-    home, env: { SEALBRIDGE_DATA_DIR: join(home, 'data') }, keyringLoader: loader,
+    home,
+    env: { SEALBRIDGE_DATA_DIR: join(home, 'data') },
+    keyringLoader: loader,
   };
   return { home, options, secrets, loader, module, entryOptions };
 }
@@ -53,7 +75,9 @@ function put(path: string, key: KeyPair) {
   fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   fs.writeFileSync(path, JSON.stringify(key) + '\n', { mode: 0o600 });
 }
-function unavailable(): never { throw new Error('native store detail'); }
+function unavailable(): never {
+  throw new Error('native store detail');
+}
 afterEach(() => {
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
@@ -71,7 +95,10 @@ describe('identity store selection', () => {
     expect(store.createIfMissing('requester').did).toBe(key.did);
     expect(store.exists('worker')).toBe(false);
     expect(await inspectStoredIdentity('requester', options)).toMatchObject({
-      backend: 'file', location: path, source: 'default', present: true,
+      backend: 'file',
+      location: path,
+      source: 'default',
+      present: true,
     });
     expect((await resolveStoredIdentity('worker', options)).did).not.toBe(key.did);
     expect(loader).toHaveBeenCalled();
@@ -88,12 +115,19 @@ describe('identity store selection', () => {
     put(legacy, key);
     const before = fs.readFileSync(legacy);
     expect((await resolveStoredIdentity('requester', options)).did).toBe(key.did);
-    expect(await inspectStoredIdentity('requester', options)).toMatchObject({ source: 'legacy', location: legacy });
+    expect(await inspectStoredIdentity('requester', options)).toMatchObject({
+      source: 'legacy',
+      location: legacy,
+    });
     expect(fs.readFileSync(legacy).equals(before)).toBe(true);
     const oldRoot = join(home, 'old');
     put(join(oldRoot, 'owner.private.json'), generateKeyPair());
-    await expect(resolveStoredIdentity('requester', { ...options,
-      env: { ...options.env, ACP_DATA_DIR: oldRoot } })).rejects.toThrow('IDENTITY_SELECTION_REQUIRED');
+    await expect(
+      resolveStoredIdentity('requester', {
+        ...options,
+        env: { ...options.env, ACP_DATA_DIR: oldRoot },
+      }),
+    ).rejects.toThrow('IDENTITY_SELECTION_REQUIRED');
     expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
   });
 
@@ -104,11 +138,24 @@ describe('identity store selection', () => {
     put(path, key);
     const before = fs.readFileSync(path);
     for (const keyStore of ['keychain', {} as KeyStore] as const) {
-      expect((await resolveStoredIdentity('worker', { ...options, explicitKeyPath: path, keyStore,
-        env: { SEALBRIDGE_KEY_STORE: 'unknown' } })).did).toBe(key.did);
+      expect(
+        (
+          await resolveStoredIdentity('worker', {
+            ...options,
+            explicitKeyPath: path,
+            keyStore,
+            env: { SEALBRIDGE_KEY_STORE: 'unknown' },
+          })
+        ).did,
+      ).toBe(key.did);
     }
-    await expect(resolveStoredIdentity('worker', { ...options, keyStore: 'keychain',
-      explicitKeyPath: path + '.missing' })).rejects.toThrow('IDENTITY_UNREADABLE');
+    await expect(
+      resolveStoredIdentity('worker', {
+        ...options,
+        keyStore: 'keychain',
+        explicitKeyPath: path + '.missing',
+      }),
+    ).rejects.toThrow('IDENTITY_UNREADABLE');
     expect(fs.existsSync(path + '.missing')).toBe(false);
     expect(fs.readFileSync(path).equals(before)).toBe(true);
     expect(loader).not.toHaveBeenCalled();
@@ -117,12 +164,18 @@ describe('identity store selection', () => {
   it('validates environment selection and gives programmatic selection precedence', async () => {
     const { options, loader } = fixture();
     for (const value of ['', 'unknown', 'KEYCHAIN'])
-      await expect(selectKeyStore('worker', { ...options, env: { ...options.env,
-        SEALBRIDGE_KEY_STORE: value } })).rejects.toThrow('KEY_STORE_INVALID');
+      await expect(
+        selectKeyStore('worker', {
+          ...options,
+          env: { ...options.env, SEALBRIDGE_KEY_STORE: value },
+        }),
+      ).rejects.toThrow('KEY_STORE_INVALID');
     const env = { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' };
     expect(await selectKeyStore('worker', { ...options, env })).toBeInstanceOf(KeychainKeyStore);
     loader.mockClear();
-    expect(await selectKeyStore('worker', { ...options, env, keyStore: 'file' })).toBeInstanceOf(FileKeyStore);
+    expect(await selectKeyStore('worker', { ...options, env, keyStore: 'file' })).toBeInstanceOf(
+      FileKeyStore,
+    );
     expect(loader).not.toHaveBeenCalled();
     expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
   });
@@ -132,43 +185,64 @@ describe('identity store selection', () => {
     const keyringLoader = vi.fn(async () => unavailable());
     const key = await resolveStoredIdentity('worker', { ...options, keyringLoader });
     expect(inspectLocalIdentity('worker', options).key?.did).toBe(key.did);
-    await expect(resolveStoredIdentity('requester', { ...options, keyringLoader,
-      keyStore: 'keychain' })).rejects.toThrow('KEY_STORE_UNAVAILABLE');
+    await expect(
+      resolveStoredIdentity('requester', { ...options, keyringLoader, keyStore: 'keychain' }),
+    ).rejects.toThrow('KEY_STORE_UNAVAILABLE');
     expect(inspectLocalIdentity('requester', options).key).toBeUndefined();
   });
 
   it('retains unconfigured file operation when credential inspection is unavailable', async () => {
     const { options } = fixture();
-    const keyringLoader = async (): Promise<KeyringModule> => ({ Entry: class {
-      getPassword(): never { return unavailable(); }
-      setPassword(): never { return unavailable(); }
-    } });
+    const keyringLoader = async (): Promise<KeyringModule> => ({
+      Entry: class {
+        getPassword(): never {
+          return unavailable();
+        }
+        setPassword(): never {
+          return unavailable();
+        }
+      },
+    });
     const key = await resolveStoredIdentity('worker', { ...options, keyringLoader });
     expect(inspectLocalIdentity('worker', options).key?.did).toBe(key.did);
-    await expect(resolveStoredIdentity('worker', { ...options, keyringLoader, keyStore: 'keychain' }))
-      .rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
+    await expect(
+      resolveStoredIdentity('worker', { ...options, keyringLoader, keyStore: 'keychain' }),
+    ).rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
   });
 
-  it.each(['default', 'legacy'] as const)('requires explicit selection when keychain and %s file coexist', async source => {
-    const { home, options } = fixture();
-    const keychain = new KeychainKeyStore((await options.keyringLoader!()), options);
-    const remoteKey = keychain.createIfMissing('worker');
-    const fileKey = source === 'legacy' ? remoteKey : generateKeyPair();
-    const path = source === 'default' ? inspectLocalIdentity('worker', options).path
-      : join(home, '.acp', 'worker.private.json');
-    put(path, fileKey);
-    const before = fs.readFileSync(path);
-    await expect(resolveStoredIdentity('worker', options)).rejects.toThrow('KEY_STORE_CONFLICT');
-    expect((await resolveStoredIdentity('worker', { ...options, keyStore: 'keychain' })).did).toBe(remoteKey.did);
-    expect((await resolveStoredIdentity('worker', { ...options, keyStore: 'file' })).did).toBe(fileKey.did);
-    expect((await resolveStoredIdentity('worker', { ...options, explicitKeyPath: path })).did).toBe(fileKey.did);
-    expect(fs.readFileSync(path).equals(before)).toBe(true);
-  });
+  it.each(['default', 'legacy'] as const)(
+    'requires explicit selection when keychain and %s file coexist',
+    async (source) => {
+      const { home, options } = fixture();
+      const keychain = new KeychainKeyStore(await options.keyringLoader!(), options);
+      const remoteKey = keychain.createIfMissing('worker');
+      const fileKey = source === 'legacy' ? remoteKey : generateKeyPair();
+      const path =
+        source === 'default'
+          ? inspectLocalIdentity('worker', options).path
+          : join(home, '.acp', 'worker.private.json');
+      put(path, fileKey);
+      const before = fs.readFileSync(path);
+      await expect(resolveStoredIdentity('worker', options)).rejects.toThrow('KEY_STORE_CONFLICT');
+      expect(
+        (await resolveStoredIdentity('worker', { ...options, keyStore: 'keychain' })).did,
+      ).toBe(remoteKey.did);
+      expect((await resolveStoredIdentity('worker', { ...options, keyStore: 'file' })).did).toBe(
+        fileKey.did,
+      );
+      expect(
+        (await resolveStoredIdentity('worker', { ...options, explicitKeyPath: path })).did,
+      ).toBe(fileKey.did);
+      expect(fs.readFileSync(path).equals(before)).toBe(true);
+    },
+  );
 
   it('does not automatically select an existing keychain-only identity', async () => {
     const { options, module } = fixture();
     new KeychainKeyStore(module, options).createIfMissing('requester');
-    await expect(resolveStoredIdentity('requester', options)).rejects.toThrow('KEY_STORE_SELECTION_REQUIRED');
+    await expect(resolveStoredIdentity('requester', options)).rejects.toThrow(
+      'KEY_STORE_SELECTION_REQUIRED',
+    );
     expect(inspectLocalIdentity('requester', options).key).toBeUndefined();
     expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
   });
@@ -191,44 +265,78 @@ describe('keychain identity storage', () => {
     const other = { ...options, env: { SEALBRIDGE_DATA_DIR: join(options.home!, 'other') } };
     expect(new KeychainKeyStore(module, other).exists('worker')).toBe(false);
     expect(keychainService(other)).not.toBe(keychainService(options));
-    expect(keychainService({ ...options, env: { SEALBRIDGE_DATA_DIR: resolveDataRoot(options) + '/.' } }))
-      .toBe(keychainService(options));
+    expect(
+      keychainService({
+        ...options,
+        env: { SEALBRIDGE_DATA_DIR: resolveDataRoot(options) + '/.' },
+      }),
+    ).toBe(keychainService(options));
     expect(keychainService(options)).toMatch(/^sealbridge:[a-f0-9]{64}$/);
-    expect(entryOptions.every(value => JSON.stringify(value) === '{"linux":{"store":"secret-service"}}')).toBe(true);
+    expect(
+      entryOptions.every(
+        (value) => JSON.stringify(value) === '{"linux":{"store":"secret-service"}}',
+      ),
+    ).toBe(true);
     expect(fs.readdirSync(resolveDataRoot(options))).toEqual([]);
   });
 
-  it.each(['load', 'constructor', 'read', 'write'] as const)('returns a redacted unavailable error for %s failures', async stage => {
-    const { options } = fixture();
-    const module: KeyringModule = { Entry: class {
-      constructor() { if (stage === 'constructor') unavailable(); }
-      getPassword() { if (stage === 'read') unavailable(); return null; }
-      setPassword() { unavailable(); }
-    } };
-    const configured = { ...options, keyStore: 'keychain' as const,
-      keyringLoader: async () => { if (stage === 'load') unavailable(); return module; } };
-    await expect(resolveStoredIdentity('worker', configured)).rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
-    expect(inspectLocalIdentity('worker', options).key).toBeUndefined();
-    if (fs.existsSync(resolveDataRoot(options))) expect(fs.readdirSync(resolveDataRoot(options))).toEqual([]);
-  });
+  it.each(['load', 'constructor', 'read', 'write'] as const)(
+    'returns a redacted unavailable error for %s failures',
+    async (stage) => {
+      const { options } = fixture();
+      const module: KeyringModule = {
+        Entry: class {
+          constructor() {
+            if (stage === 'constructor') unavailable();
+          }
+          getPassword() {
+            if (stage === 'read') unavailable();
+            return null;
+          }
+          setPassword() {
+            unavailable();
+          }
+        },
+      };
+      const configured = {
+        ...options,
+        keyStore: 'keychain' as const,
+        keyringLoader: async () => {
+          if (stage === 'load') unavailable();
+          return module;
+        },
+      };
+      await expect(resolveStoredIdentity('worker', configured)).rejects.toThrow(
+        /^KEY_STORE_UNAVAILABLE$/,
+      );
+      expect(inspectLocalIdentity('worker', options).key).toBeUndefined();
+      if (fs.existsSync(resolveDataRoot(options)))
+        expect(fs.readdirSync(resolveDataRoot(options))).toEqual([]);
+    },
+  );
 
-  it.each(['{', '{}', 'x'.repeat(16385)])('retains an invalid existing entry (case %#)', async raw => {
-    const { options, secrets } = fixture();
-    const id = keychainService(options) + '/requester';
-    secrets.set(id, raw);
-    await expect(resolveStoredIdentity('requester', { ...options, keyStore: 'keychain' }))
-      .rejects.toThrow(/^IDENTITY_INVALID$/);
-    expect(secrets.get(id) === raw).toBe(true);
-    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
-  });
+  it.each(['{', '{}', 'x'.repeat(16385)])(
+    'retains an invalid existing entry (case %#)',
+    async (raw) => {
+      const { options, secrets } = fixture();
+      const id = keychainService(options) + '/requester';
+      secrets.set(id, raw);
+      await expect(
+        resolveStoredIdentity('requester', { ...options, keyStore: 'keychain' }),
+      ).rejects.toThrow(/^IDENTITY_INVALID$/);
+      expect(secrets.get(id) === raw).toBe(true);
+      expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+    },
+  );
 
   it('rejects a JWK with a different DID without replacing it', async () => {
     const { options, secrets } = fixture();
     const jwk = createPrivateKey(generateKeyPair().privateKey).export({ format: 'jwk' });
     const raw = JSON.stringify({ ...jwk, kid: generateKeyPair().did });
     secrets.set(keychainService(options) + '/worker', raw);
-    await expect(resolveStoredIdentity('worker', { ...options, keyStore: 'keychain' }))
-      .rejects.toThrow(/^IDENTITY_INVALID$/);
+    await expect(
+      resolveStoredIdentity('worker', { ...options, keyStore: 'keychain' }),
+    ).rejects.toThrow(/^IDENTITY_INVALID$/);
     expect(secrets.get(keychainService(options) + '/worker') === raw).toBe(true);
   });
 
@@ -238,7 +346,9 @@ describe('keychain identity storage', () => {
     fs.mkdirSync(root, { mode: 0o700 });
     const lock = join(root, '.keychain-worker.lock');
     fs.writeFileSync(lock, '', { mode: 0o600 });
-    expect(() => new KeychainKeyStore(module, options).createIfMissing('worker')).toThrow('KEY_STORE_BUSY');
+    expect(() => new KeychainKeyStore(module, options).createIfMissing('worker')).toThrow(
+      'KEY_STORE_BUSY',
+    );
     expect(fs.existsSync(lock)).toBe(true);
     expect(secrets.size).toBe(0);
   });
@@ -247,13 +357,21 @@ describe('keychain identity storage', () => {
     const { options, module, secrets } = fixture();
     const winner = generateKeyPair();
     const jwk = createPrivateKey(winner.privateKey).export({ format: 'jwk' });
-    const io = { ...fs, openSync: ((...args: Parameters<typeof fs.openSync>) => {
-      const fd = fs.openSync(...args);
-      if (String(args[0]).endsWith('.keychain-worker.lock'))
-        secrets.set(keychainService(options) + '/worker', JSON.stringify({ ...jwk, kid: winner.did }));
-      return fd;
-    }) as typeof fs.openSync };
-    expect(new KeychainKeyStore(module, { ...options, fs: io }).createIfMissing('worker').did).toBe(winner.did);
+    const io = {
+      ...fs,
+      openSync: ((...args: Parameters<typeof fs.openSync>) => {
+        const fd = fs.openSync(...args);
+        if (String(args[0]).endsWith('.keychain-worker.lock'))
+          secrets.set(
+            keychainService(options) + '/worker',
+            JSON.stringify({ ...jwk, kid: winner.did }),
+          );
+        return fd;
+      }) as typeof fs.openSync,
+    };
+    expect(new KeychainKeyStore(module, { ...options, fs: io }).createIfMissing('worker').did).toBe(
+      winner.did,
+    );
     expect(fs.readdirSync(resolveDataRoot(options))).toEqual([]);
   });
 });
@@ -262,13 +380,13 @@ function memoryStore(): KeyStore & { keys: Map<string, KeyPair> } {
   const keys = new Map<string, KeyPair>();
   return {
     keys,
-    load: vi.fn(async role => keys.get(role)),
-    createIfMissing: vi.fn(async role => {
+    load: vi.fn(async (role) => keys.get(role)),
+    createIfMissing: vi.fn(async (role) => {
       if (!keys.has(role)) keys.set(role, generateKeyPair());
       return keys.get(role)!;
     }),
-    exists: vi.fn(async role => keys.has(role)),
-    describe: vi.fn(async role => ({ backend: 'embedded', location: 'app/' + role })),
+    exists: vi.fn(async (role) => keys.has(role)),
+    describe: vi.fn(async (role) => ({ backend: 'embedded', location: 'app/' + role })),
   };
 }
 
@@ -285,64 +403,84 @@ describe('setup identity storage', () => {
 
   it('creates and reuses both roles in the configured keychain without key files', async () => {
     const { options, secrets } = fixture();
-    const configured = { ...setupOptions(options), worker: true,
-      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } };
+    const configured = {
+      ...setupOptions(options),
+      worker: true,
+      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' },
+    };
     const first = summary(await runSetup(configured));
     expect(first.error).toBeUndefined();
-    expect(first.identities.map(i => i.status)).toEqual(['created', 'created']);
-    expect(new Set(first.identities.map(i => i.did)).size).toBe(2);
+    expect(first.identities.map((i) => i.status)).toEqual(['created', 'created']);
+    expect(new Set(first.identities.map((i) => i.did)).size).toBe(2);
     for (const identity of first.identities) {
       expect(identity.path).toBe(keychainService(options) + '/' + identity.role);
       expect(JSON.parse(secrets.get(identity.path)!).kid).toBe(identity.did);
     }
     const second = summary(await runSetup(configured));
     expect(second.error).toBeUndefined();
-    expect(second.identities.map(i => i.status)).toEqual(['reused', 'reused']);
-    expect(second.identities.map(i => i.did)).toEqual(first.identities.map(i => i.did));
+    expect(second.identities.map((i) => i.status)).toEqual(['reused', 'reused']);
+    expect(second.identities.map((i) => i.did)).toEqual(first.identities.map((i) => i.did));
     expect(second.destinations[0].status).toBe('unchanged');
     expect(secrets.size).toBe(2);
     expect(JSON.stringify(first)).not.toContain('privateKey');
     expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
   });
 
-  it.each(['dryRun', 'print'] as const)('%s creates no keychain entries or files', async mode => {
+  it.each(['dryRun', 'print'] as const)('%s creates no keychain entries or files', async (mode) => {
     const { options, secrets, module } = fixture();
     const write = vi.spyOn(module.Entry.prototype, 'setPassword');
-    await runSetup({ ...setupOptions(options), worker: true, [mode]: true,
-      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } });
+    await runSetup({
+      ...setupOptions(options),
+      worker: true,
+      [mode]: true,
+      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' },
+    });
     expect(write).not.toHaveBeenCalled();
     expect(secrets.size).toBe(0);
     expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
     expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
   });
 
-  it.each(['load', 'read', 'write'] as const)('never falls back to files on keychain %s failure', async stage => {
-    const { options, module, loader, secrets } = fixture();
-    if (stage === 'load') loader.mockImplementation(async () => unavailable());
-    else vi.spyOn(module.Entry.prototype, stage === 'read' ? 'getPassword' : 'setPassword')
-      .mockImplementation(unavailable);
-    const configured = { ...setupOptions(options),
-      env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' } };
-    if (stage === 'write') expect(summary(await runSetup(configured)).error).toBe('KEY_STORE_UNAVAILABLE');
-    else await expect(runSetup(configured)).rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
-    expect(secrets.size).toBe(0);
-    expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
-    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
-  });
+  it.each(['load', 'read', 'write'] as const)(
+    'never falls back to files on keychain %s failure',
+    async (stage) => {
+      const { options, module, loader, secrets } = fixture();
+      if (stage === 'load') loader.mockImplementation(async () => unavailable());
+      else
+        vi.spyOn(
+          module.Entry.prototype,
+          stage === 'read' ? 'getPassword' : 'setPassword',
+        ).mockImplementation(unavailable);
+      const configured = {
+        ...setupOptions(options),
+        env: { ...options.env, SEALBRIDGE_KEY_STORE: 'keychain' },
+      };
+      if (stage === 'write')
+        expect(summary(await runSetup(configured)).error).toBe('KEY_STORE_UNAVAILABLE');
+      else await expect(runSetup(configured)).rejects.toThrow(/^KEY_STORE_UNAVAILABLE$/);
+      expect(secrets.size).toBe(0);
+      expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+      expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+    },
+  );
 
-  it.each([false, true])('preserves selection errors with an existing keychain (file present: %s)', async file => {
-    const { options, module } = fixture();
-    new KeychainKeyStore(module, options).createIfMissing('requester');
-    const path = inspectLocalIdentity('requester', options).path;
-    if (file) put(path, generateKeyPair());
-    const before = file ? fs.readFileSync(path) : undefined;
-    await expect(runSetup(setupOptions(options))).rejects.toThrow(
-      file ? /^KEY_STORE_CONFLICT$/ : /^KEY_STORE_SELECTION_REQUIRED$/);
-    expect(fs.existsSync(path)).toBe(file);
-    if (file) expect(fs.readFileSync(path)).toEqual(before);
-    expect(fs.existsSync(join(resolveDataRoot(options), 'config.json'))).toBe(false);
-    expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
-  });
+  it.each([false, true])(
+    'preserves selection errors with an existing keychain (file present: %s)',
+    async (file) => {
+      const { options, module } = fixture();
+      new KeychainKeyStore(module, options).createIfMissing('requester');
+      const path = inspectLocalIdentity('requester', options).path;
+      if (file) put(path, generateKeyPair());
+      const before = file ? fs.readFileSync(path) : undefined;
+      await expect(runSetup(setupOptions(options))).rejects.toThrow(
+        file ? /^KEY_STORE_CONFLICT$/ : /^KEY_STORE_SELECTION_REQUIRED$/,
+      );
+      expect(fs.existsSync(path)).toBe(file);
+      if (file) expect(fs.readFileSync(path)).toEqual(before);
+      expect(fs.existsSync(join(resolveDataRoot(options), 'config.json'))).toBe(false);
+      expect(fs.existsSync(join(options.home!, '.cursor'))).toBe(false);
+    },
+  );
 
   it('preserves a key-store conflict during apply without creating a key file', async () => {
     const { options } = fixture();
@@ -356,128 +494,232 @@ describe('setup identity storage', () => {
 });
 
 describe('embedding and application entry points', () => {
-  it.each(['keychain', 'embedded'] as const)('shares %s requester identities across CLI imports and MCP aliases', async backend => {
-    const { options } = fixture();
-    const store = memoryStore();
-    const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
-    const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner: workerOwner, relay, relayUrl: 'https://relay.example',
-      adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
-      approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
-    const approvalProvider = { approve: vi.fn(async (r: ApprovalRequest) => signApproval(r.taskId, r.gate, r.target,
-      await resolveStoredIdentity('requester', configured), 'APPROVED')) };
-    const serverOptions = { identityOptions: configured, relay, approvalProvider };
-    const server = new AcpMcpServer(serverOptions);
-    const call = async (target: AcpMcpServer, name: string, args = {}) => {
-      const response = await target.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
-        params: { name, arguments: args } }) as any;
-      expect(response.error).toBeUndefined();
-      expect(response.result.isError).toBe(false);
-      return JSON.parse(response.result.content[0].text);
-    };
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await acceptCommand('invites', ['list'], configured);
-    await acceptCommand('invites', ['remove', 'reviewer'], configured);
-    expect(await call(server, 'acp_list_invites')).toEqual({ count: 0, invites: [] });
-    expect(await call(server, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ removed: false });
-    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
-    expect(store.createIfMissing).not.toHaveBeenCalled();
-
-    const token = worker.invite();
-    await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
-    const { verificationNumber, relayContacted, ...imported } = JSON.parse(output.mock.calls.at(-1)![0]);
-    expect(verificationNumber).toMatch(/^\d{6}$/);
-    expect(relayContacted).toBe(false);
-    expect(Object.keys(imported)).toHaveLength(11);
-    expect(imported.aliasExplicit).toBe(true);
-    expect(imported.peerRef).toBe(imported.workerRef);
-    expect(await call(server, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
-    expect(approvalProvider.approve).not.toHaveBeenCalled();
-    // Signing initializes the cached asynchronous owner before the next alias lookup.
-    await call(server, 'acp_revoke_token', { targetType: 'capability', targetId: 'unrelated', reason: 'Test' });
-    const restart = new AcpMcpServer(serverOptions);
-    expect(await call(restart, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
-    const pending = worker.start();
-    try {
-      for (const [target, workerRef] of [[server, 'reviewer'], [restart, imported.workerRef]] as const) {
-        const result = await call(target, 'acp_delegate_task', { workerRef, title: 'Echo',
-          description: 'Return JSON', input: { echo: 'hello' }, taskTimeoutMs: 5000 });
-        expect(result).toMatchObject({ status: 'SETTLED', deliverable: { echo: 'hello' }, auditBundle: { valid: true } });
-        expect(JSON.stringify(result)).not.toContain(token);
-      }
-      expect(JSON.stringify(approvalProvider.approve.mock.calls)).not.toContain(token);
+  it.each(['keychain', 'embedded'] as const)(
+    'shares %s requester identities across CLI imports and MCP aliases',
+    async (backend) => {
+      const { options } = fixture();
+      const store = memoryStore();
+      const configured: IdentityStoreOptions = {
+        ...options,
+        keyStore: backend === 'keychain' ? 'keychain' : store,
+      };
+      const relay = new InMemoryRelay(),
+        workerOwner = generateKeyPair();
+      const worker = new WorkerNode({
+        autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+        checkPeer: () => 'trusted',
+        owner: workerOwner,
+        relay,
+        relayUrl: 'https://relay.example',
+        adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async (ctx) => ctx.input },
+        approvalProvider: {
+          approve: async (r) => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED'),
+        },
+      });
+      const approvalProvider = {
+        approve: vi.fn(async (r: ApprovalRequest) =>
+          signApproval(
+            r.taskId,
+            r.gate,
+            r.target,
+            await resolveStoredIdentity('requester', configured),
+            'APPROVED',
+          ),
+        ),
+      };
+      const serverOptions = { identityOptions: configured, relay, approvalProvider };
+      const server = new AcpMcpServer(serverOptions);
+      const call = async (target: AcpMcpServer, name: string, args = {}) => {
+        const response = (await target.handle({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        })) as any;
+        expect(response.error).toBeUndefined();
+        expect(response.result.isError).toBe(false);
+        return JSON.parse(response.result.content[0].text);
+      };
+      const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       await acceptCommand('invites', ['list'], configured);
-      expect(JSON.parse(output.mock.calls.at(-1)![0])).toEqual({ invites: [imported] });
-      expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({ removed: true });
-      await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
-      await acceptCommand('invites', ['remove', imported.workerRef], configured);
+      await acceptCommand('invites', ['remove', 'reviewer'], configured);
       expect(await call(server, 'acp_list_invites')).toEqual({ count: 0, invites: [] });
-      expect(JSON.stringify(output.mock.calls)).not.toContain(token);
-      expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
-    } finally { worker.stop(); await pending; }
-  });
-
-  it.each(['keychain', 'embedded'] as const)('shares %s pending requests across CLI and MCP without creating identities on listing', async backend => {
-    const { options } = fixture();
-    const store = memoryStore();
-    const configured: IdentityStoreOptions = { ...options, keyStore: backend === 'keychain' ? 'keychain' : store };
-    const relay = new InMemoryRelay(), workerOwner = generateKeyPair();
-    const relayUrl = 'https://relay.example';
-    const application = { identityOptions: configured, transportFactory: () => relay };
-    const server = new AcpMcpServer({ ...application, relay: relayUrl });
-    const call = async (target: AcpMcpServer, name: string, args = {}) => {
-      const response = await target.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call',
-        params: { name, arguments: args } }) as any;
-      expect(response.error).toBeUndefined();
-      return JSON.parse(response.result.content[0].text);
-    };
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await pendingCommand(['list'], application);
-    expect(output).toHaveBeenLastCalledWith('{"requests":[]}');
-    expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [] });
-    expect(store.createIfMissing).not.toHaveBeenCalled();
-    expect((await inspectStoredIdentity('requester', configured)).present).toBe(false);
-    expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
-
-    const intake = new WorkerTrustStore(workerOwner);
-    const worker = new WorkerNode({ owner: workerOwner, relay, relayUrl, intakeStore: intake,
-      adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async ctx => ctx.input },
-      approvalProvider: { approve: async r => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED') } });
-    const task = { title: 'Echo', description: 'Return JSON', input: { retained: 'hello' } };
-    const running = worker.start();
-    try {
-      const held = await networkCommand('delegate', ['--to', workerOwner.did, '--relay', relayUrl,
-        '--title', task.title, '--description', task.description, '--input', JSON.stringify(task.input),
-        '--auto-approve'], application).catch(error => error);
-      expect(held).toMatchObject({ code: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
-      expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [{ id: held.pendingId }] });
-      const mcpHeld = await call(server, 'acp_delegate_task', { ...task, workerDid: workerOwner.did });
-      expect(mcpHeld).toMatchObject({ error: 'PENDING_OWNER_APPROVAL', pendingId: expect.any(String) });
-      // Listing must also await the owner cached by a signing call.
-      expect(await call(server, 'acp_list_pending_requests')).toMatchObject({
-        requests: [{ id: held.pendingId }, { id: mcpHeld.pendingId }],
+      expect(await call(server, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({
+        removed: false,
       });
+      expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+      expect(store.createIfMissing).not.toHaveBeenCalled();
+
+      const token = worker.invite();
+      await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
+      const { verificationNumber, relayContacted, ...imported } = JSON.parse(
+        output.mock.calls.at(-1)![0],
+      );
+      expect(verificationNumber).toMatch(/^\d{6}$/);
+      expect(relayContacted).toBe(false);
+      expect(Object.keys(imported)).toHaveLength(11);
+      expect(imported.aliasExplicit).toBe(true);
+      expect(imported.peerRef).toBe(imported.workerRef);
+      expect(await call(server, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
+      expect(approvalProvider.approve).not.toHaveBeenCalled();
+      // Signing initializes the cached asynchronous owner before the next alias lookup.
+      await call(server, 'acp_revoke_token', {
+        targetType: 'capability',
+        targetId: 'unrelated',
+        reason: 'Test',
+      });
+      const restart = new AcpMcpServer(serverOptions);
+      expect(await call(restart, 'acp_list_invites')).toEqual({ count: 1, invites: [imported] });
+      const pending = worker.start();
+      try {
+        for (const [target, workerRef] of [
+          [server, 'reviewer'],
+          [restart, imported.workerRef],
+        ] as const) {
+          const result = await call(target, 'acp_delegate_task', {
+            workerRef,
+            title: 'Echo',
+            description: 'Return JSON',
+            input: { echo: 'hello' },
+            taskTimeoutMs: 5000,
+          });
+          expect(result).toMatchObject({
+            status: 'SETTLED',
+            deliverable: { echo: 'hello' },
+            auditBundle: { valid: true },
+          });
+          expect(JSON.stringify(result)).not.toContain(token);
+        }
+        expect(JSON.stringify(approvalProvider.approve.mock.calls)).not.toContain(token);
+        await acceptCommand('invites', ['list'], configured);
+        expect(JSON.parse(output.mock.calls.at(-1)![0])).toEqual({ invites: [imported] });
+        expect(await call(restart, 'acp_remove_invite', { workerRef: 'reviewer' })).toEqual({
+          removed: true,
+        });
+        await acceptCommand('accept', [token, '--alias', 'reviewer'], configured);
+        await acceptCommand('invites', ['remove', imported.workerRef], configured);
+        expect(await call(server, 'acp_list_invites')).toEqual({ count: 0, invites: [] });
+        expect(JSON.stringify(output.mock.calls)).not.toContain(token);
+        expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+      } finally {
+        worker.stop();
+        await pending;
+      }
+    },
+  );
+
+  it.each(['keychain', 'embedded'] as const)(
+    'shares %s pending requests across CLI and MCP without creating identities on listing',
+    async (backend) => {
+      const { options } = fixture();
+      const store = memoryStore();
+      const configured: IdentityStoreOptions = {
+        ...options,
+        keyStore: backend === 'keychain' ? 'keychain' : store,
+      };
+      const relay = new InMemoryRelay(),
+        workerOwner = generateKeyPair();
+      const relayUrl = 'https://relay.example';
+      const application = { identityOptions: configured, transportFactory: () => relay };
+      const server = new AcpMcpServer({ ...application, relay: relayUrl });
+      const call = async (target: AcpMcpServer, name: string, args = {}) => {
+        const response = (await target.handle({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        })) as any;
+        expect(response.error).toBeUndefined();
+        return JSON.parse(response.result.content[0].text);
+      };
+      const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       await pendingCommand(['list'], application);
-      expect(JSON.parse(output.mock.calls.at(-1)![0]).requests.map((r: { id: string }) => r.id))
-        .toEqual([held.pendingId, mcpHeld.pendingId]);
-      const requester = await resolveStoredIdentity('requester', configured);
-      expect(intake.list()[0].requesterOwnerDid).toBe(requester.did);
-      intake.decide(intake.list()[0].id, 'approve', 'trusted');
-      // A new server inspects the configured store instead of using a cached owner.
-      const restart = new AcpMcpServer({ ...application, relay: relayUrl });
-      expect(await call(restart, 'acp_resubmit_pending_request', { pendingId: held.pendingId }))
-        .toMatchObject({ status: 'SETTLED', deliverable: task.input });
-      await pendingCommand(['resubmit', mcpHeld.pendingId, '--auto-approve'], application);
-      expect(await call(restart, 'acp_list_pending_requests')).toMatchObject({
-        requests: [{ id: held.pendingId, state: 'resolved' }, { id: mcpHeld.pendingId, state: 'resolved' }],
-      });
-      await pendingCommand(['remove', held.pendingId], application);
-      await pendingCommand(['remove', mcpHeld.pendingId], application);
+      expect(output).toHaveBeenLastCalledWith('{"requests":[]}');
       expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [] });
-      expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
-      if (backend === 'embedded') expect(store.createIfMissing).toHaveBeenCalledTimes(1);
-    } finally { worker.stop(); await running; }
-  });
+      expect(store.createIfMissing).not.toHaveBeenCalled();
+      expect((await inspectStoredIdentity('requester', configured)).present).toBe(false);
+      expect(fs.existsSync(resolveDataRoot(options))).toBe(false);
+
+      const intake = new WorkerTrustStore(workerOwner);
+      const worker = new WorkerNode({
+        owner: workerOwner,
+        relay,
+        relayUrl,
+        intakeStore: intake,
+        adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: async (ctx) => ctx.input },
+        approvalProvider: {
+          approve: async (r) => signApproval(r.taskId, r.gate, r.target, workerOwner, 'APPROVED'),
+        },
+      });
+      const task = { title: 'Echo', description: 'Return JSON', input: { retained: 'hello' } };
+      const running = worker.start();
+      try {
+        const held = await networkCommand(
+          'delegate',
+          [
+            '--to',
+            workerOwner.did,
+            '--relay',
+            relayUrl,
+            '--title',
+            task.title,
+            '--description',
+            task.description,
+            '--input',
+            JSON.stringify(task.input),
+            '--auto-approve',
+          ],
+          application,
+        ).catch((error) => error);
+        expect(held).toMatchObject({
+          code: 'PENDING_OWNER_APPROVAL',
+          pendingId: expect.any(String),
+        });
+        expect(await call(server, 'acp_list_pending_requests')).toMatchObject({
+          requests: [{ id: held.pendingId }],
+        });
+        const mcpHeld = await call(server, 'acp_delegate_task', {
+          ...task,
+          workerDid: workerOwner.did,
+        });
+        expect(mcpHeld).toMatchObject({
+          error: 'PENDING_OWNER_APPROVAL',
+          pendingId: expect.any(String),
+        });
+        // Listing must also await the owner cached by a signing call.
+        expect(await call(server, 'acp_list_pending_requests')).toMatchObject({
+          requests: [{ id: held.pendingId }, { id: mcpHeld.pendingId }],
+        });
+        await pendingCommand(['list'], application);
+        expect(
+          JSON.parse(output.mock.calls.at(-1)![0]).requests.map((r: { id: string }) => r.id),
+        ).toEqual([held.pendingId, mcpHeld.pendingId]);
+        const requester = await resolveStoredIdentity('requester', configured);
+        expect(intake.list()[0].requesterOwnerDid).toBe(requester.did);
+        intake.decide(intake.list()[0].id, 'approve', 'trusted');
+        // A new server inspects the configured store instead of using a cached owner.
+        const restart = new AcpMcpServer({ ...application, relay: relayUrl });
+        expect(
+          await call(restart, 'acp_resubmit_pending_request', { pendingId: held.pendingId }),
+        ).toMatchObject({ status: 'SETTLED', deliverable: task.input });
+        await pendingCommand(['resubmit', mcpHeld.pendingId, '--auto-approve'], application);
+        expect(await call(restart, 'acp_list_pending_requests')).toMatchObject({
+          requests: [
+            { id: held.pendingId, state: 'resolved' },
+            { id: mcpHeld.pendingId, state: 'resolved' },
+          ],
+        });
+        await pendingCommand(['remove', held.pendingId], application);
+        await pendingCommand(['remove', mcpHeld.pendingId], application);
+        expect(await call(server, 'acp_list_pending_requests')).toMatchObject({ requests: [] });
+        expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
+        if (backend === 'embedded') expect(store.createIfMissing).toHaveBeenCalledTimes(1);
+      } finally {
+        worker.stop();
+        await running;
+      }
+    },
+  );
 
   it('uses injected stores without loading the native module or creating files', async () => {
     const { options, loader } = fixture();
@@ -486,7 +728,9 @@ describe('embedding and application entry points', () => {
     const key = await resolveStoredIdentity('worker', configured);
     expect((await resolveStoredIdentity('worker', configured)).did).toBe(key.did);
     expect(await inspectStoredIdentity('worker', configured)).toMatchObject({
-      backend: 'embedded', location: 'app/worker', present: true,
+      backend: 'embedded',
+      location: 'app/worker',
+      present: true,
     });
     expect(store.createIfMissing).toHaveBeenCalledTimes(1);
     expect(loader).not.toHaveBeenCalled();
@@ -496,12 +740,19 @@ describe('embedding and application entry points', () => {
   it('keeps MCP initialization and discovery lazy and shares one owner across refused invite calls', async () => {
     const { options } = fixture();
     const store = memoryStore();
-    const server = new AcpMcpServer({ identityOptions: { ...options, keyStore: store },
-      transportFactory: () => ({ discover: async () => [] } as never) });
+    const server = new AcpMcpServer({
+      identityOptions: { ...options, keyStore: store },
+      transportFactory: () => ({ discover: async () => [] }) as never,
+    });
     for (const method of ['initialize', 'tools/list', 'ping'])
       await server.handle({ jsonrpc: '2.0', id: 1, method });
-    const call = (name: string, args = {}) => server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call',
-      params: { name, arguments: args } });
+    const call = (name: string, args = {}) =>
+      server.handle({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      });
     await call('acp_discover_workers');
     expect(store.load).not.toHaveBeenCalled();
     const responses = await Promise.all([call('acp_create_invite'), call('acp_create_invite')]);
@@ -520,12 +771,17 @@ describe('embedding and application entry points', () => {
     const { options } = fixture();
     const store = memoryStore();
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await networkCommand('invite', ['create'], { identityOptions: { ...options, keyStore: store } });
+    await networkCommand('invite', ['create'], {
+      identityOptions: { ...options, keyStore: store },
+    });
     expect(output.mock.calls[0][0]).toMatch(/^acp-invite:/);
     expect(store.keys.has('worker')).toBe(true);
     expect(store.keys.has('requester')).toBe(false);
     const reviewOutput = vi.fn();
-    await requestsCommand(['list'], { identityOptions: { ...options, keyStore: store }, output: reviewOutput });
+    await requestsCommand(['list'], {
+      identityOptions: { ...options, keyStore: store },
+      output: reviewOutput,
+    });
     expect(reviewOutput).toHaveBeenCalledWith('{"requests":[]}');
     expect(store.createIfMissing).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(join(resolveDataRoot(options), 'identities'))).toBe(false);
@@ -533,7 +789,9 @@ describe('embedding and application entry points', () => {
 
   it('reports configured backend and presence offline without creating identities or fetching', async () => {
     const { options, module, secrets } = fixture();
-    const fetch = vi.fn(async () => { throw new Error('unexpected fetch'); });
+    const fetch = vi.fn(async () => {
+      throw new Error('unexpected fetch');
+    });
     const configured = { ...options, keyStore: 'keychain' as const };
     const absent = await diagnose({ identityOptions: configured, offline: true, fetch });
     expect(absent[2]).toMatchObject({ ok: true });
@@ -545,8 +803,11 @@ describe('embedding and application entry points', () => {
     const present = await diagnose({ identityOptions: configured, offline: true, fetch });
     expect(present[2].message).toContain('/requester (present) [keychain]');
     expect(present[2].message).toContain('/worker (optional; created on first use) [keychain]');
-    const failed = await diagnose({ identityOptions: { ...configured, keyringLoader: async () => unavailable() },
-      offline: true, fetch });
+    const failed = await diagnose({
+      identityOptions: { ...configured, keyringLoader: async () => unavailable() },
+      offline: true,
+      fetch,
+    });
     expect(failed[2]).toMatchObject({ ok: false });
     expect(failed[2].message).toContain('KEY_STORE_UNAVAILABLE');
     expect(failed[2].message).toContain('[keychain]');
@@ -559,7 +820,13 @@ describe('embedding and application entry points', () => {
   it('honors environment file selection in the built CLI', async () => {
     const { options, home } = fixture();
     await promisify(execFile)(process.execPath, ['cli/dist/index.js', 'invite', 'create'], {
-      env: { ...process.env, ...options.env, HOME: home, USERPROFILE: home, SEALBRIDGE_KEY_STORE: 'file' },
+      env: {
+        ...process.env,
+        ...options.env,
+        HOME: home,
+        USERPROFILE: home,
+        SEALBRIDGE_KEY_STORE: 'file',
+      },
     });
     expect(inspectLocalIdentity('worker', options).key?.did).toMatch(/^did:key:/);
     expect(inspectLocalIdentity('requester', options).key).toBeUndefined();

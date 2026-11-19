@@ -36,7 +36,10 @@ import {
   sanitizedEnvironment,
   subprocessSandboxBoundary,
 } from '../packages/sandbox/src/index.js';
-import type { NodePermissionProbe, SandboxBoundaryMetadata } from '../packages/sandbox/src/index.js';
+import type {
+  NodePermissionProbe,
+  SandboxBoundaryMetadata,
+} from '../packages/sandbox/src/index.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const codeTokens = [
@@ -179,15 +182,18 @@ describe('P2-13 Node permission flag selection', () => {
       permissionModelActive: true,
       kernelNetworkIsolated: false,
     });
-    expect(resolved.args[0] === '--permission' || resolved.args[0] === '--experimental-permission').toBe(
-      true,
-    );
+    expect(
+      resolved.args[0] === '--permission' || resolved.args[0] === '--experimental-permission',
+    ).toBe(true);
     expect(resolved.args.findIndex((arg) => arg.startsWith('--allow-fs-'))).toBeGreaterThan(0);
   });
 
   it('omits --allow-fs-* when neither permission flag is advertised', () => {
     for (const nodeVersion of ['18.20.0', '20.10.0', '22.13.0', '23.0.0']) {
-      const resolved = resolveNodePermissionArgs('/tmp/acp-scratch', probe(nodeVersion, ['--no-addons']));
+      const resolved = resolveNodePermissionArgs(
+        '/tmp/acp-scratch',
+        probe(nodeVersion, ['--no-addons']),
+      );
       expect(resolved.flag).toBeNull();
       expect(resolved.args).toEqual([]);
       expect(resolved.boundary).toEqual({
@@ -205,7 +211,9 @@ describe('P2-13 Node permission flag selection', () => {
   it('refuses a permission allowlist that would cover the whole filesystem', () => {
     const stable = probe('22.23.4', ['--permission']);
     expect(() => resolveNodePermissionArgs('/', stable)).toThrow('INVALID_SANDBOX_DIRECTORY');
-    expect(() => resolveNodePermissionArgs('/tmp/a,b', stable)).toThrow('INVALID_SANDBOX_DIRECTORY');
+    expect(() => resolveNodePermissionArgs('/tmp/a,b', stable)).toThrow(
+      'INVALID_SANDBOX_DIRECTORY',
+    );
     expect(() => resolveNodePermissionArgs('', stable)).toThrow('INVALID_SANDBOX_DIRECTORY');
   });
 
@@ -501,7 +509,12 @@ describe('P2-13 subprocess_restricted boundary', () => {
 
     const owner = generateKeyPair();
     const worker = generateKeyPair();
-    const rejected = await verifyLevel(owner, worker, result.effectiveIsolationLevel, result.sandboxBoundary);
+    const rejected = await verifyLevel(
+      owner,
+      worker,
+      result.effectiveIsolationLevel,
+      result.sandboxBoundary,
+    );
     expect(rejected.accepted).toBe(false);
     expect(rejected.reason).toContain('ISOLATION_LEVEL_MISMATCH');
     const lied = await verifyLevel(owner, worker, 'subprocess_restricted', {
@@ -566,18 +579,17 @@ describe('P2-13 documentation states the vm and permission-model limits', () => 
     expect(text).toContain('kernel network');
   });
 
-  it.each([
-    'SECURITY_PROOF.ja.md',
-    'ARCHITECTURE.ja.md',
-    'spec/README.ja.md',
-  ])('%s states the same boundary in Japanese', (name) => {
-    const text = readDoc(name);
-    for (const token of codeTokens) expect(text, token).toContain(token);
-    expect(text).toContain('セキュリティ機構ではない');
-    expect(text).toContain('カーネル');
-  });
+  it.each(['SECURITY_PROOF.ja.md', 'ARCHITECTURE.ja.md', 'spec/README.ja.md'])(
+    '%s states the same boundary in Japanese',
+    (name) => {
+      const text = readDoc(name);
+      for (const token of codeTokens) expect(text, token).toContain(token);
+      expect(text).toContain('セキュリティ機構ではない');
+      expect(text).toContain('カーネル');
+    },
+  );
 
-  it.each(['', '.ja'])('concise README%s links to the detailed isolation boundaries', suffix => {
+  it.each(['', '.ja'])('concise README%s links to the detailed isolation boundaries', (suffix) => {
     const text = readDoc(`README${suffix}.md`);
     expect(text).toContain(`](ARCHITECTURE${suffix}.md)`);
     expect(text).toContain(`](SECURITY_PROOF${suffix}.md)`);

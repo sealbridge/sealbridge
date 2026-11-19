@@ -6,9 +6,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "entry"
-      ],
+      "required": ["entry"],
       "properties": {
         "entry": {
           "$ref": "https://acp-spec.local/schemas/v0.1/audit-entry.schema.json"
@@ -18,36 +16,22 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "checkpoint"
-      ],
+      "required": ["checkpoint"],
       "properties": {
         "checkpoint": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "actor",
-            "receiver"
-          ],
+          "required": ["actor", "receiver"],
           "properties": {
             "actor": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "payload",
-                "signature"
-              ],
+              "required": ["payload", "signature"],
               "properties": {
                 "payload": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "taskId",
-                    "count",
-                    "head",
-                    "actors"
-                  ],
+                  "required": ["type", "taskId", "count", "head", "actors"],
                   "properties": {
                     "type": {
                       "const": "AuditCheckpoint"
@@ -90,29 +74,17 @@
             "receiver": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "payload",
-                "signature"
-              ],
+              "required": ["payload", "signature"],
               "properties": {
                 "payload": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "payload",
-                    "signature"
-                  ],
+                  "required": ["payload", "signature"],
                   "properties": {
                     "payload": {
                       "type": "object",
                       "additionalProperties": false,
-                      "required": [
-                        "type",
-                        "taskId",
-                        "count",
-                        "head",
-                        "actors"
-                      ],
+                      "required": ["type", "taskId", "count", "head", "actors"],
                       "properties": {
                         "type": {
                           "const": "AuditCheckpoint"
@@ -164,9 +136,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "interruption"
-      ],
+      "required": ["interruption"],
       "properties": {
         "interruption": {
           "$ref": "https://acp-spec.local/schemas/v0.1/audit-interruption.schema.json"

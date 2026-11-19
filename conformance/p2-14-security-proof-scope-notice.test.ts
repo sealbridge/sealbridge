@@ -5,8 +5,7 @@ import { describe, expect, it } from 'vitest';
 const HEAD_LINES = 30;
 
 const ENGLISH_TITLE = '# Security Proof / Red-Team Adversarial Suite';
-const ENGLISH_SWITCHER =
-  '**English** | [日本語 (SECURITY_PROOF.ja.md)](./SECURITY_PROOF.ja.md)';
+const ENGLISH_SWITCHER = '**English** | [日本語 (SECURITY_PROOF.ja.md)](./SECURITY_PROOF.ja.md)';
 const JAPANESE_TITLE = '# セキュリティ証明 / レッドチーム敵対スイート';
 const JAPANESE_SWITCHER = '[English (SECURITY_PROOF.md)](./SECURITY_PROOF.md) | **日本語**';
 

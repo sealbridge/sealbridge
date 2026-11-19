@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
-  AgentCard, Task, Message, Artifact, TaskState, Role, A2A_PROTOCOL_VERSION,
+  AgentCard,
+  Task,
+  Message,
+  Artifact,
+  TaskState,
+  Role,
+  A2A_PROTOCOL_VERSION,
 } from '@a2a-js/sdk';
 import { signEnvelope, verifyEnvelope } from '@acp/core';
 import type { Json, KeyPair, SignedEnvelope, State } from '@acp/core';
@@ -10,7 +16,9 @@ export function agentCard(name: string, url: string): AgentCard {
   return AgentCard.fromJSON({
     name,
     description: 'Sealbridge owner gateway',
-    supportedInterfaces: [{ url, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION }],
+    supportedInterfaces: [
+      { url, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION },
+    ],
     version: '0.9.1',
     capabilities: { streaming: false },
     defaultInputModes: ['application/json'],
@@ -42,9 +50,7 @@ export function a2aTask(taskId: string, state: State, data?: Record<string, unkn
     id: taskId,
     contextId: taskId,
     status: { state: states[state] },
-    ...(data
-      ? { artifacts: [{ artifactId: taskId + '-report', parts: [{ data }] }] }
-      : {}),
+    ...(data ? { artifacts: [{ artifactId: taskId + '-report', parts: [{ data }] }] } : {}),
   });
 }
 export function a2aMessage(
@@ -68,9 +74,12 @@ export function wrapA2A(
   key: KeyPair,
 ): SignedEnvelope {
   // Sign protocol JSON, not the protobuf model (numeric enums, oneofs and undefined fields).
-  const payload = 'id' in wire
-    ? Task.toJSON(wire)
-    : 'messageId' in wire ? Message.toJSON(wire) : Artifact.toJSON(wire);
+  const payload =
+    'id' in wire
+      ? Task.toJSON(wire)
+      : 'messageId' in wire
+        ? Message.toJSON(wire)
+        : Artifact.toJSON(wire);
   return signEnvelope(
     { taskId, recipientDid, seq, eventType: 'A2A', payload: payload as Json },
     key,
@@ -83,8 +92,7 @@ export function unwrapA2A(
   if (!verifyEnvelope(envelope, recipientDid) || envelope.payload.eventType !== 'A2A')
     throw new Error('INVALID_A2A_ENVELOPE');
   const p = envelope.payload.payload;
-  if (!p || typeof p !== 'object' || Array.isArray(p))
-    throw new Error('INVALID_A2A_WIRE');
+  if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('INVALID_A2A_WIRE');
   // A2A 1.0 removes the top-level kind discriminator.
   if ('id' in p) {
     if (p.id !== envelope.payload.taskId || !p.status) throw new Error('INVALID_A2A_TASK');

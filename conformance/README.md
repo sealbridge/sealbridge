@@ -4,14 +4,14 @@ Run `pnpm build && pnpm test` with Node 22 and pnpm 10. The suite is offline aft
 installation; all keys and provider usage are synthetic. `pnpm validate:schemas`
 compiles every Draft 2020-12 schema and validates every JSON example.
 
-* `jcs-signing-vectors.json`: exact UTF-8 JCS serialization, SHA-256 digest,
+- `jcs-signing-vectors.json`: exact UTF-8 JCS serialization, SHA-256 digest,
   synthetic Ed25519 seed, did:key and expected signed object. Metadata is signed
   with the payload; see the exact signature preimage in `spec/README.md`.
-* `capability-attenuation.json`: parent bounds and child patches, including valid
+- `capability-attenuation.json`: parent bounds and child patches, including valid
   reductions and independently invalid resource, tools, schema, call count, time,
   depth and task bindings. Invalid child tokens are signed by the legitimate
   delegatee to ensure the verifier checks authority as well as authenticity.
-* `state-transitions.json`: every state/event combination. A null destination
+- `state-transitions.json`: every state/event combination. A null destination
   means deterministic rejection. PROPOSE establishes PROPOSED.
 
 The automated tests additionally cover aggregate parent usage across sibling

@@ -33,14 +33,14 @@
 ゲートウェイの依頼期限の既定600000ミリ秒は変わりません。依頼の保存内容は
 署名された暗号文と経路の情報で、平文の依頼フィールドを追加しません。
 
-| ライブラリ設定 | Worker バインディング | ローカル `relay start` フラグ | 既定値 |
-| --- | --- | --- | --- |
-| `envelopeTtlMs` | `ACP_ENVELOPE_TTL_MS` | `--envelope-ttl-ms` | 86400000ミリ秒（24時間） |
-| `maxQueueSize` | `ACP_MAX_QUEUE_SIZE` | `--max-queue-size` | 宛先ごと256件 |
-| `maxQueueBytesPerRecipient` | `ACP_MAX_QUEUE_BYTES` | `--max-queue-bytes` | 宛先ごと4194304バイト（JSON の UTF-8） |
-| `maxEnvelopeBytes` | `ACP_MAX_ENVELOPE_BYTES` | `--max-envelope-bytes` | 262144バイト（JSON の UTF-8） |
-| `maxEnvelopesPerSender` | `ACP_MAX_ENVELOPES_PER_SENDER` | `--max-envelopes-per-sender` | 選択した宛先の件数上限、通常256件。送信者・宛先の組ごと |
-| `seenTtlMs` | `ACP_SEEN_TTL_MS` | — | 3600000ミリ秒。再送記録は件数も制限 |
+| ライブラリ設定              | Worker バインディング          | ローカル `relay start` フラグ | 既定値                                                  |
+| --------------------------- | ------------------------------ | ----------------------------- | ------------------------------------------------------- |
+| `envelopeTtlMs`             | `ACP_ENVELOPE_TTL_MS`          | `--envelope-ttl-ms`           | 86400000ミリ秒（24時間）                                |
+| `maxQueueSize`              | `ACP_MAX_QUEUE_SIZE`           | `--max-queue-size`            | 宛先ごと256件                                           |
+| `maxQueueBytesPerRecipient` | `ACP_MAX_QUEUE_BYTES`          | `--max-queue-bytes`           | 宛先ごと4194304バイト（JSON の UTF-8）                  |
+| `maxEnvelopeBytes`          | `ACP_MAX_ENVELOPE_BYTES`       | `--max-envelope-bytes`        | 262144バイト（JSON の UTF-8）                           |
+| `maxEnvelopesPerSender`     | `ACP_MAX_ENVELOPES_PER_SENDER` | `--max-envelopes-per-sender`  | 選択した宛先の件数上限、通常256件。送信者・宛先の組ごと |
+| `seenTtlMs`                 | `ACP_SEEN_TTL_MS`              | —                             | 3600000ミリ秒。再送記録は件数も制限                     |
 
 ライブラリとローカルの値は正の整数です。不正な Worker 設定値は従来どおり
 既定値に戻ります。ライブラリ・ローカルの明示値を既定値より優先し、Worker は
@@ -135,7 +135,6 @@ transport の `send()` 単体は1回の試行のままです。この変更に r
 
 完了済みバッチの削除に失敗した場合は固定の保存エラーを報告し、保守処理で再試行します。relay の受理結果は維持します。
 
-
 `acp_delegate_task`・`acp_delegate_multi`・`acp_resubmit_pending_request` は任意の
 `idempotencyKey` を受け付けます。正規化や空白除去をしない Unicode 文字列で、UTF-8 の
 1〜200バイトです。例: 送信引数に `"idempotencyKey":"review-2026-11-02"` を加えます。
@@ -174,15 +173,15 @@ delivery ルートには内部ファイル `.idempotency-gen` も置きます。
 検査完了や内容表示だけでは開いたことになりません。接続だけの承認では元の保留依頼を
 閉じ、`opened` を記録しません。
 
-| 状態 | 記録元と意味 |
-| --- | --- |
-| `queued` | ローカルで承認済み暗号文を outbox に保存 |
-| `relayed` | relay が受理。相手が開いたことは示さない |
-| `received_held` | 受信側が隔離内容を保存。従来の認証済み保留応答もローカルの記録元になる |
-| `opened` | 検査完了後、人間による契約承認を受信側が記録 |
+| 状態              | 記録元と意味                                                           |
+| ----------------- | ---------------------------------------------------------------------- |
+| `queued`          | ローカルで承認済み暗号文を outbox に保存                               |
+| `relayed`         | relay が受理。相手が開いたことは示さない                               |
+| `received_held`   | 受信側が隔離内容を保存。従来の認証済み保留応答もローカルの記録元になる |
+| `opened`          | 検査完了後、人間による契約承認を受信側が記録                           |
 | `handed_to_agent` | アダプターへ入力を渡す境界を受信側が記録。既読や実行完了の証明ではない |
-| `replied` | 送信側が返答を検証。所有者の最終検収とは別 |
-| `closed` | ローカルの期限・終了、または受信側での保留終了。未実行の証明ではない |
+| `replied`         | 送信側が返答を検証。所有者の最終検収とは別                             |
+| `closed`          | ローカルの期限・終了、または受信側での保留終了。未実行の証明ではない   |
 
 状態の記録は隔離内容の削除後も残り、成功した結果の後片付けは `closed` にしません。
 タスク本文・検査の詳細・終了理由は含みません。既存の署名者別 delivery 保存先に

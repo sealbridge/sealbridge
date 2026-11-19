@@ -5,21 +5,10 @@
   "description": "Context selection and retention declarations; CP5a approval_redelegation requires owner-approved child dispatch.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "deliveryMode",
-    "selectors",
-    "angle",
-    "expiresAt",
-    "maxBytes",
-    "retention"
-  ],
+  "required": ["deliveryMode", "selectors", "angle", "expiresAt", "maxBytes", "retention"],
   "properties": {
     "deliveryMode": {
-      "enum": [
-        "view_only",
-        "approval_redelegation",
-        "hand_over"
-      ],
+      "enum": ["view_only", "approval_redelegation", "hand_over"],
       "default": "view_only"
     },
     "selectors": {
@@ -65,10 +54,7 @@
       "maximum": 65536
     },
     "retention": {
-      "enum": [
-        "ephemeral_view",
-        "keep_deliverable"
-      ]
+      "enum": ["ephemeral_view", "keep_deliverable"]
     },
     "inputRetentionAllowed": {
       "type": "boolean",
@@ -86,9 +72,7 @@
             "const": "view_only"
           }
         },
-        "required": [
-          "deliveryMode"
-        ]
+        "required": ["deliveryMode"]
       },
       "then": {
         "properties": {
@@ -108,9 +92,7 @@
             "const": "hand_over"
           }
         },
-        "required": [
-          "deliveryMode"
-        ]
+        "required": ["deliveryMode"]
       },
       "then": {
         "properties": {
@@ -130,9 +112,7 @@
             "const": "approval_redelegation"
           }
         },
-        "required": [
-          "deliveryMode"
-        ]
+        "required": ["deliveryMode"]
       },
       "then": {
         "properties": {

@@ -172,7 +172,12 @@ owner, intake store, relay and held-content data root:
 
 ```ts
 const admission = new ConnectionAdmissionReview({
-  owner, agentCard, relayUrl, relay, store, heldOptions: identityOptions,
+  owner,
+  agentCard,
+  relayUrl,
+  relay,
+  store,
+  heldOptions: identityOptions,
 });
 const requests = admission.list();
 // Bind these calls to explicit owner actions in the host UI.
@@ -246,7 +251,6 @@ Tasks still need live owner approval; admission review never forwards a task to
 an adapter. Unaccepted active signed offers remain listed even for connected peers.
 Existing store formats and the wire protocol are unchanged. Existing atomic,
 owner-only storage applies; no relay deployment is needed.
-
 
 The optional send-tool `idempotencyKey` caches the first result for the local signer,
 tool and exact request. A cached `PENDING_OWNER_APPROVAL` stays `retryable:false`

@@ -268,7 +268,10 @@ MCP の所有者や鍵を明示した場合はその DID だけが対象です�
 `peer`、由来を確認できなければ `unknown` です。
 
 ```json
-{"name":"acp_delegate_task","arguments":{"to":"review-bot","title":"レビュー","input":{"text":"例"}}}
+{
+  "name": "acp_delegate_task",
+  "arguments": { "to": "review-bot", "title": "レビュー", "input": { "text": "例" } }
+}
 ```
 
 新しい任意の文字列引数 `to` は CLI `delegate --to` と同じ runtime の解決処理を使います。

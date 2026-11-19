@@ -35,7 +35,12 @@ export interface RelayAuthVerification {
   error?: string;
   reason?: string;
 }
-const RELAY_AUTH_ACTIONS = new Set<RelayAuthAction>(['receive', 'stream', 'subscribe', 'invite-manage']);
+const RELAY_AUTH_ACTIONS = new Set<RelayAuthAction>([
+  'receive',
+  'stream',
+  'subscribe',
+  'invite-manage',
+]);
 
 /**
  * Canonical origin for HTTP, SSE, and WebSocket on the same host:port.

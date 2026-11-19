@@ -6,7 +6,12 @@ import https from 'node:https';
 import { Readable } from 'node:stream';
 import type { LookupFunction } from 'node:net';
 import { validateIpAddress, validateRelayEndpointUrl } from '@acp/core';
-import { RelayTimeoutError, relayDeadline, isTransientRelayError, relayProxyError } from './retry.js';
+import {
+  RelayTimeoutError,
+  relayDeadline,
+  isTransientRelayError,
+  relayProxyError,
+} from './retry.js';
 import type { RelayEndpointPolicy } from '@acp/core';
 import type { RelayAuthRecoveryOptions } from './retry.js';
 import { connectRelayProxy, relayProxyFor, type RelayProxy } from './proxy.js';
@@ -68,9 +73,18 @@ function pinnedNodeLookup(addresses: ResolvedAddress[]): LookupFunction {
 }
 
 function benchmarkOnly(addresses: ResolvedAddress[]): boolean {
-  return Array.isArray(addresses) && addresses.length > 0 && addresses.every(item => item &&
-    item.family === 4 && typeof item.address === 'string' && /^198\.(?:18|19)\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})$/.test(item.address) &&
-    item.address.split('.').every(part => Number(part) <= 255));
+  return (
+    Array.isArray(addresses) &&
+    addresses.length > 0 &&
+    addresses.every(
+      (item) =>
+        item &&
+        item.family === 4 &&
+        typeof item.address === 'string' &&
+        /^198\.(?:18|19)\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})$/.test(item.address) &&
+        item.address.split('.').every((part) => Number(part) <= 255),
+    )
+  );
 }
 
 // One bounded canary per process resolver (including injected test resolvers).
@@ -79,9 +93,12 @@ const syntheticResolvers = new WeakMap<RelayLookup, Promise<boolean>>();
 function syntheticResolver(lookup: RelayLookup, timeoutMs: number): Promise<boolean> {
   let pending = syntheticResolvers.get(lookup);
   if (!pending) {
-    pending = relayDeadline(Promise.resolve().then(() =>
-      lookup('sb-' + randomUUID() + '.invalid', { all: true, verbatim: true })),
-      Math.min(timeoutMs, 2000)).then(benchmarkOnly, () => false);
+    pending = relayDeadline(
+      Promise.resolve().then(() =>
+        lookup('sb-' + randomUUID() + '.invalid', { all: true, verbatim: true }),
+      ),
+      Math.min(timeoutMs, 2000),
+    ).then(benchmarkOnly, () => false);
     syntheticResolvers.set(lookup, pending);
   }
   return pending;
@@ -112,7 +129,10 @@ export async function resolveAndValidateRelayEndpoint(
     // direct DNS validation and pinning path below, unchanged.
     return { url, proxy, addresses: [], lookup: pinnedNodeLookup([]) };
   }
-  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+  const hostname = url.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '')
+    .toLowerCase();
   const literal = literalAddress(hostname);
   let addresses: ResolvedAddress[];
   if (literal) {
@@ -121,7 +141,10 @@ export async function resolveAndValidateRelayEndpoint(
   } else {
     let found: ResolvedAddress[];
     try {
-      found = await relayDeadline((options.lookup ?? systemLookup)(hostname, { all: true, verbatim: true }), options.requestTimeoutMs ?? 45_000);
+      found = await relayDeadline(
+        (options.lookup ?? systemLookup)(hostname, { all: true, verbatim: true }),
+        options.requestTimeoutMs ?? 45_000,
+      );
     } catch (error) {
       if (isTransientRelayError(error)) throw error;
       if (error instanceof Error && error.message === 'SSRF_BLOCKED_RELAY_URL') throw error;
@@ -132,8 +155,11 @@ export async function resolveAndValidateRelayEndpoint(
       address: item.address,
       family: item.family === 6 ? 6 : 4,
     }));
-    if ((url.protocol === 'https:' || url.protocol === 'wss:') && benchmarkOnly(addresses) &&
-        await syntheticResolver(options.lookup ?? systemLookup, options.requestTimeoutMs ?? 45_000)) {
+    if (
+      (url.protocol === 'https:' || url.protocol === 'wss:') &&
+      benchmarkOnly(addresses) &&
+      (await syntheticResolver(options.lookup ?? systemLookup, options.requestTimeoutMs ?? 45_000))
+    ) {
       // A random .invalid name cannot resolve on real DNS. This local sinkhole is
       // an SNI egress route: the egress proxy selects the destination by hostname,
       // with the same trust as explicit HTTPS_PROXY. An invite cannot configure
@@ -191,8 +217,14 @@ async function pinnedRequest(
   const lib = secure ? https : http;
   const signal = init?.signal ?? undefined;
   const started = performance.now();
-  const tunnel = pin.proxy ? await connectRelayProxy(pin.proxy, target, options.requestTimeoutMs ?? 45_000, signal) : undefined;
-  const agent = tunnel ? (secure ? new https.Agent({ keepAlive: true }) : new http.Agent({ keepAlive: true })) : undefined;
+  const tunnel = pin.proxy
+    ? await connectRelayProxy(pin.proxy, target, options.requestTimeoutMs ?? 45_000, signal)
+    : undefined;
+  const agent = tunnel
+    ? secure
+      ? new https.Agent({ keepAlive: true })
+      : new http.Agent({ keepAlive: true })
+    : undefined;
   // One agent per request: keep-alive controls the wire header, not tunnel reuse.
   if (agent && tunnel) agent.createConnection = () => tunnel;
   return new Promise<Response>((resolve, reject) => {
@@ -212,9 +244,16 @@ async function pinnedRequest(
       (incoming) => {
         response = incoming;
         // Destroy even an idle/free tunnel once the body ends or is cancelled.
-        if (agent) incoming.once('close', () => { agent.destroy(); tunnel?.destroy(); });
+        if (agent)
+          incoming.once('close', () => {
+            agent.destroy();
+            tunnel?.destroy();
+          });
         // SSE is intentionally long-lived; retain its idle timeout after headers arrive.
-        if (target.pathname.endsWith('/stream') && incoming.headers['content-type']?.startsWith('text/event-stream'))
+        if (
+          target.pathname.endsWith('/stream') &&
+          incoming.headers['content-type']?.startsWith('text/event-stream')
+        )
           clearTimeout(deadline);
         const headers = new Headers();
         for (const [key, value] of Object.entries(incoming.headers)) {
@@ -227,23 +266,28 @@ async function pinnedRequest(
         // 204/205/304 cannot carry a body. A stream argument makes Response throw.
         const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
         if (nullBody) incoming.resume();
-        const rawBody = nullBody
-          ? null
-          : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>);
+        const rawBody = nullBody ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>);
         const reader = pin.proxy ? rawBody?.getReader() : undefined;
-        const body = reader ? new ReadableStream<Uint8Array>({
-          async pull(controller) {
-            try {
-              const chunk = await reader.read();
-              if (chunk.done) controller.close();
-              else controller.enqueue(chunk.value);
-            } catch (error) {
-              controller.error(signal?.aborted ? abortError(signal) :
-                error instanceof RelayTimeoutError ? error : relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', error));
-            }
-          },
-          cancel: reason => reader.cancel(reason),
-        }) : rawBody;
+        const body = reader
+          ? new ReadableStream<Uint8Array>({
+              async pull(controller) {
+                try {
+                  const chunk = await reader.read();
+                  if (chunk.done) controller.close();
+                  else controller.enqueue(chunk.value);
+                } catch (error) {
+                  controller.error(
+                    signal?.aborted
+                      ? abortError(signal)
+                      : error instanceof RelayTimeoutError
+                        ? error
+                        : relayProxyError('RELAY_PROXY_UNAVAILABLE', 'response', error),
+                  );
+                }
+              },
+              cancel: (reason) => reader.cancel(reason),
+            })
+          : rawBody;
         try {
           resolve(
             new Response(body, {
@@ -260,7 +304,12 @@ async function pinnedRequest(
     );
     const fail = (error: Error) => {
       if (signal?.aborted) reject(abortError(signal));
-      else reject(pin.proxy && !(error instanceof RelayTimeoutError) ? relayProxyError('RELAY_PROXY_UNAVAILABLE', response ? 'response' : 'request', error) : error);
+      else
+        reject(
+          pin.proxy && !(error instanceof RelayTimeoutError)
+            ? relayProxyError('RELAY_PROXY_UNAVAILABLE', response ? 'response' : 'request', error)
+            : error,
+        );
     };
     req.on('error', fail);
     const timeout = () => {
@@ -270,11 +319,18 @@ async function pinnedRequest(
       response?.destroy(error);
       req.destroy(error);
     };
-    const deadline = setTimeout(timeout, pin.proxy
-      ? Math.max(1, (options.requestTimeoutMs ?? 45_000) - (performance.now() - started))
-      : options.requestTimeoutMs ?? 45_000);
+    const deadline = setTimeout(
+      timeout,
+      pin.proxy
+        ? Math.max(1, (options.requestTimeoutMs ?? 45_000) - (performance.now() - started))
+        : (options.requestTimeoutMs ?? 45_000),
+    );
     req.setTimeout(options.socketTimeoutMs ?? 35_000, timeout);
-    req.once('close', () => { clearTimeout(deadline); agent?.destroy(); tunnel?.destroy(); });
+    req.once('close', () => {
+      clearTimeout(deadline);
+      agent?.destroy();
+      tunnel?.destroy();
+    });
     if (signal) {
       const onAbort = () => req.destroy(abortError(signal));
       if (signal.aborted) {
@@ -290,9 +346,10 @@ async function pinnedRequest(
     else if (typeof body === 'string' || body instanceof Uint8Array) req.end(body);
     else if (body instanceof URLSearchParams) req.end(body.toString());
     else req.destroy(new Error('UNSUPPORTED_BODY'));
-  }).catch(error => {
+  }).catch((error) => {
     // Also cover synchronous request-construction failures (e.g. invalid headers).
-    agent?.destroy(); tunnel?.destroy();
+    agent?.destroy();
+    tunnel?.destroy();
     throw error;
   });
 }

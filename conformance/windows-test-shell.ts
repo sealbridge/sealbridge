@@ -3,10 +3,17 @@ import { statSync } from 'node:fs';
 import { win32 } from 'node:path';
 
 /** Test fixtures need the first shell, not where.exe's exhaustive PATH scan. */
-export function windowsTestShell(shell: string, env: NodeJS.ProcessEnv = process.env,
-  isFile: (path: string) => boolean = path => {
-    try { return statSync(path).isFile(); } catch { return false; }
-  }): string {
+export function windowsTestShell(
+  shell: string,
+  env: NodeJS.ProcessEnv = process.env,
+  isFile: (path: string) => boolean = (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
+): string {
   const path = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
   const executable = /\.exe$/i.test(shell) ? shell : shell + '.exe';
   for (const item of path.split(';')) {

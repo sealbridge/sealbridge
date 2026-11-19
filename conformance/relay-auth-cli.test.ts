@@ -6,27 +6,46 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { startLocalRelay } from '../packages/relay/src/index.js';
 import { join } from 'node:path';
-import { createInviteToken, createSignedAgentCard, generateKeyPair } from '../packages/core/src/index.js';
+import {
+  createInviteToken,
+  createSignedAgentCard,
+  generateKeyPair,
+} from '../packages/core/src/index.js';
 import type { KeyPair } from '../packages/core/src/index.js';
 import type { RelayClientSecurityOptions } from '../packages/relay/src/index.js';
 
 // Inject only the transport; worker supervision and the CLI error/exit path are real.
-const state = vi.hoisted(() => ({ fetcher: undefined as typeof fetch | undefined,
-  options: undefined as RelayClientSecurityOptions | undefined }));
-vi.mock('../packages/relay/dist/index.js', async original => {
+const state = vi.hoisted(() => ({
+  fetcher: undefined as typeof fetch | undefined,
+  options: undefined as RelayClientSecurityOptions | undefined,
+}));
+vi.mock('../packages/relay/dist/index.js', async (original) => {
   const relay = await original<typeof import('../packages/relay/src/index.js')>();
-  return { ...relay, HttpRelayClient: class extends relay.HttpRelayClient {
-    constructor(...[url, fetcherOrKey, authOrOptions, options]: ConstructorParameters<typeof relay.HttpRelayClient>) {
-      const injected = (input: RequestInfo | URL, init?: RequestInit) => state.fetcher!(input, init);
-      if (typeof fetcherOrKey === 'function') {
-        super(url, injected, authOrOptions, options);
-        state.options = options;
-      } else {
-        super(url, injected, fetcherOrKey as KeyPair, authOrOptions as RelayClientSecurityOptions);
-        state.options = authOrOptions as RelayClientSecurityOptions;
+  return {
+    ...relay,
+    HttpRelayClient: class extends relay.HttpRelayClient {
+      constructor(
+        ...[url, fetcherOrKey, authOrOptions, options]: ConstructorParameters<
+          typeof relay.HttpRelayClient
+        >
+      ) {
+        const injected = (input: RequestInfo | URL, init?: RequestInit) =>
+          state.fetcher!(input, init);
+        if (typeof fetcherOrKey === 'function') {
+          super(url, injected, authOrOptions, options);
+          state.options = options;
+        } else {
+          super(
+            url,
+            injected,
+            fetcherOrKey as KeyPair,
+            authOrOptions as RelayClientSecurityOptions,
+          );
+          state.options = authOrOptions as RelayClientSecurityOptions;
+        }
       }
-    }
-  } };
+    },
+  };
 });
 import { networkCommand } from '../cli/src/network.js';
 import { mcpServerCommand, parseMcpServerArgs, mcpServerOptionsFromArgs } from '../cli/src/mcp.js';
@@ -35,7 +54,7 @@ const dirs: string[] = [];
 const originalArgv = process.argv;
 const originalExitCode = process.exitCode;
 afterEach(() => {
-  dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true }));
+  dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
   process.argv = originalArgv;
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
@@ -49,111 +68,222 @@ function identity() {
   return { key, contacts: join(dir, 'contacts.json') };
 }
 
-it.each(['worker', 'delegate'])('forwards auth settings on %s before creating a relay client', async command => {
-  vi.useFakeTimers();
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const { key, contacts } = identity();
-  const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
-    init?.method === 'POST' ? new Response(null, { status: 204 }) : new Response('ignored response', { status: 401 }));
-  state.fetcher = fetcher;
-  const flags = ['--key', key, '--relay-auth-retries', '1',
-    '--relay-auth-recovery-timeout-ms', '2000'];
-  const target = generateKeyPair();
-  const card = createSignedAgentCard({ name: 'local', agentDid: target.did, relayEndpoint: 'https://relay.example', skills: [] }, target);
-  const invite = createInviteToken({ agentCard: card }, target);
-  const result = command === 'worker'
-    ? networkCommand('worker', ['start', '--once', '--allow-local-pc', ...flags, '--relay', 'https://relay.example', '--contacts', contacts])
-    : networkCommand('delegate', [...flags, '--auto-approve', '--to', invite, '--title', 'local',
-      '--description', 'local task', '--input', '{}']);
-  const checked = expect(result).rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
-  await vi.advanceTimersByTimeAsync(2000);
-  await checked;
-  expect(state.options).toMatchObject({ maxAuthRecoveryAttempts: 1, authRecoveryTimeoutMs: 2000 });
-  expect(fetcher.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2);
-  expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')
-    .map(([, init]) => JSON.parse(String(init?.body)).payload.eventType))
-    .toEqual(command === 'worker' ? [] : ['PROPOSE', 'AUDIT_ENTRY']);
-});
+it.each(['worker', 'delegate'])(
+  'forwards auth settings on %s before creating a relay client',
+  async (command) => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { key, contacts } = identity();
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(null, { status: 204 })
+        : new Response('ignored response', { status: 401 }),
+    );
+    state.fetcher = fetcher;
+    const flags = [
+      '--key',
+      key,
+      '--relay-auth-retries',
+      '1',
+      '--relay-auth-recovery-timeout-ms',
+      '2000',
+    ];
+    const target = generateKeyPair();
+    const card = createSignedAgentCard(
+      { name: 'local', agentDid: target.did, relayEndpoint: 'https://relay.example', skills: [] },
+      target,
+    );
+    const invite = createInviteToken({ agentCard: card }, target);
+    const result =
+      command === 'worker'
+        ? networkCommand('worker', [
+            'start',
+            '--once',
+            '--allow-local-pc',
+            ...flags,
+            '--relay',
+            'https://relay.example',
+            '--contacts',
+            contacts,
+          ])
+        : networkCommand('delegate', [
+            ...flags,
+            '--auto-approve',
+            '--to',
+            invite,
+            '--title',
+            'local',
+            '--description',
+            'local task',
+            '--input',
+            '{}',
+          ]);
+    const checked = expect(result).rejects.toThrow('RELAY_AUTH_RECOVERY_EXHAUSTED');
+    await vi.advanceTimersByTimeAsync(2000);
+    await checked;
+    expect(state.options).toMatchObject({
+      maxAuthRecoveryAttempts: 1,
+      authRecoveryTimeoutMs: 2000,
+    });
+    expect(fetcher.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2);
+    expect(
+      fetcher.mock.calls
+        .filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => JSON.parse(String(init?.body)).payload.eventType),
+    ).toEqual(command === 'worker' ? [] : ['PROPOSE', 'AUDIT_ENTRY']);
+  },
+);
 
-it.each(['worker', 'delegate', 'mcp-server'])('validates auth flags in %s without loading an identity or contacting a relay', async command => {
-  for (const [flag, value] of [['--relay-auth-retries', '-1'], ['--relay-auth-retries', '1.5'],
-    ['--relay-auth-retries', 'Infinity'], ['--relay-auth-retries', '2147483648'],
-    ['--relay-auth-recovery-timeout-ms', '0'], ['--relay-auth-recovery-timeout-ms', 'NaN'],
-    ['--relay-auth-recovery-timeout-ms', '2147483648']]) {
-    const args = [flag, value];
-    const run = command === 'mcp-server' ? mcpServerCommand(args)
-      : networkCommand(command, command === 'worker' ? ['start', '--allow-local-pc', ...args] : args);
-    await expect(run).rejects.toThrow('INVALID_RELAY_AUTH');
-  }
-  const run = command === 'mcp-server' ? mcpServerCommand(['--relay-auth-retries'])
-    : networkCommand(command, command === 'worker' ? ['start', '--allow-local-pc', '--relay-auth-retries'] : ['--relay-auth-retries']);
-  await expect(run).rejects.toThrow('INVALID_RELAY_AUTH_RETRIES');
-});
+it.each(['worker', 'delegate', 'mcp-server'])(
+  'validates auth flags in %s without loading an identity or contacting a relay',
+  async (command) => {
+    for (const [flag, value] of [
+      ['--relay-auth-retries', '-1'],
+      ['--relay-auth-retries', '1.5'],
+      ['--relay-auth-retries', 'Infinity'],
+      ['--relay-auth-retries', '2147483648'],
+      ['--relay-auth-recovery-timeout-ms', '0'],
+      ['--relay-auth-recovery-timeout-ms', 'NaN'],
+      ['--relay-auth-recovery-timeout-ms', '2147483648'],
+    ]) {
+      const args = [flag, value];
+      const run =
+        command === 'mcp-server'
+          ? mcpServerCommand(args)
+          : networkCommand(
+              command,
+              command === 'worker' ? ['start', '--allow-local-pc', ...args] : args,
+            );
+      await expect(run).rejects.toThrow('INVALID_RELAY_AUTH');
+    }
+    const run =
+      command === 'mcp-server'
+        ? mcpServerCommand(['--relay-auth-retries'])
+        : networkCommand(
+            command,
+            command === 'worker'
+              ? ['start', '--allow-local-pc', '--relay-auth-retries']
+              : ['--relay-auth-retries'],
+          );
+    await expect(run).rejects.toThrow('INVALID_RELAY_AUTH_RETRIES');
+  },
+);
 
 it('forwards MCP auth settings and accepts zero retries', () => {
-  const parsed = parseMcpServerArgs(['--relay-auth-retries', '0', '--relay-auth-recovery-timeout-ms', '5000']);
+  const parsed = parseMcpServerArgs([
+    '--relay-auth-retries',
+    '0',
+    '--relay-auth-recovery-timeout-ms',
+    '5000',
+  ]);
   expect(mcpServerOptionsFromArgs(parsed, generateKeyPair())).toMatchObject({
-    maxAuthRecoveryAttempts: 0, authRecoveryTimeoutMs: 5000,
+    maxAuthRecoveryAttempts: 0,
+    authRecoveryTimeoutMs: 5000,
   });
 });
 
-it.each(['worker', 'delegate', 'mcp-server'])('documents auth defaults and attempt semantics in %s help', async command => {
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-  if (command === 'mcp-server') await mcpServerCommand(['--help']);
-  else await networkCommand(command, command === 'worker' ? ['start', '--help'] : ['--help']);
-  const help = String(log.mock.calls[0][0]);
-  expect(help).toContain('--relay-auth-retries');
-  expect(help).toContain('Optional attempt cap');
-  expect(help).toContain('default: full recovery window');
-  expect(help).toContain('--relay-auth-recovery-timeout-ms');
-  expect(help).toContain('120000');
-});
+it.each(['worker', 'delegate', 'mcp-server'])(
+  'documents auth defaults and attempt semantics in %s help',
+  async (command) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    if (command === 'mcp-server') await mcpServerCommand(['--help']);
+    else await networkCommand(command, command === 'worker' ? ['start', '--help'] : ['--help']);
+    const help = String(log.mock.calls[0][0]);
+    expect(help).toContain('--relay-auth-retries');
+    expect(help).toContain('Optional attempt cap');
+    expect(help).toContain('default: full recovery window');
+    expect(help).toContain('--relay-auth-recovery-timeout-ms');
+    expect(help).toContain('120000');
+  },
+);
 
-it.each([true, false])('reports a non-zero worker exit and safe diagnostics on fatal auth (once=%s)', async once => {
-  const { key, contacts } = identity();
-  const server = await startLocalRelay();
-  server.relay.openInbox = () => { throw new Error('RELAY_UNAUTHORIZED'); };
-  // 401 is recoverable for persistent workers; use explicit policy refusal
-  // to exercise the real continuous-worker fatal exit instead.
-  const forbidden = createServer((_request, response) => { response.writeHead(403); response.end(); });
-  if (!once) await new Promise<void>(resolve => forbidden.listen(0, '127.0.0.1', resolve));
-  const url = once ? server.url : 'http://127.0.0.1:' + (forbidden.address() as { port: number }).port;
-  // Exercise the real entry point in its own process. Setting process.exitCode
-  // inside Vitest can mark the test worker failed even after restoring it.
-  const child = spawn(process.execPath, ['cli/dist/index.js', 'worker', 'start', ...(once ? ['--once'] : []),
-    '--relay-auth-retries', once ? '1' : '0', '--relay-auth-recovery-timeout-ms', '2000',
-    '--allow-local-pc', '--allow-private-relay', '--key', key, '--relay', url, '--contacts', contacts], {
-    env: { ...process.env, SEALBRIDGE_DATA_DIR: join(key, '..', 'child-data'),
-      HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '', http_proxy: '', https_proxy: '', all_proxy: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let errors = '';
-  child.stdout.resume();
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', chunk => { errors += chunk; });
-  const timeout = setTimeout(() => child.kill(), 10_000);
-  try {
-    const code = await new Promise<number | null>((resolve, reject) => {
-      child.once('error', reject);
-      child.once('close', resolve);
+it.each([true, false])(
+  'reports a non-zero worker exit and safe diagnostics on fatal auth (once=%s)',
+  async (once) => {
+    const { key, contacts } = identity();
+    const server = await startLocalRelay();
+    server.relay.openInbox = () => {
+      throw new Error('RELAY_UNAUTHORIZED');
+    };
+    // 401 is recoverable for persistent workers; use explicit policy refusal
+    // to exercise the real continuous-worker fatal exit instead.
+    const forbidden = createServer((_request, response) => {
+      response.writeHead(403);
+      response.end();
     });
-    expect(code).toBe(1);
-    if (once) {
-      expect(errors).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
-      expect(errors).toContain('clock');
-    } else {
-      expect(errors).toContain('WORKER_EXIT');
-      expect(errors).toContain('WORKER_TERMINAL');
-      expect(errors).toContain('常駐ワーカーを終了します');
-      expect(errors).toContain('RELAY_REJECTED: 403');
+    if (!once) await new Promise<void>((resolve) => forbidden.listen(0, '127.0.0.1', resolve));
+    const url = once
+      ? server.url
+      : 'http://127.0.0.1:' + (forbidden.address() as { port: number }).port;
+    // Exercise the real entry point in its own process. Setting process.exitCode
+    // inside Vitest can mark the test worker failed even after restoring it.
+    const child = spawn(
+      process.execPath,
+      [
+        'cli/dist/index.js',
+        'worker',
+        'start',
+        ...(once ? ['--once'] : []),
+        '--relay-auth-retries',
+        once ? '1' : '0',
+        '--relay-auth-recovery-timeout-ms',
+        '2000',
+        '--allow-local-pc',
+        '--allow-private-relay',
+        '--key',
+        key,
+        '--relay',
+        url,
+        '--contacts',
+        contacts,
+      ],
+      {
+        env: {
+          ...process.env,
+          SEALBRIDGE_DATA_DIR: join(key, '..', 'child-data'),
+          HTTP_PROXY: '',
+          HTTPS_PROXY: '',
+          ALL_PROXY: '',
+          http_proxy: '',
+          https_proxy: '',
+          all_proxy: '',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    let errors = '';
+    child.stdout.resume();
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      errors += chunk;
+    });
+    const timeout = setTimeout(() => child.kill(), 10_000);
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', resolve);
+      });
+      expect(code).toBe(1);
+      if (once) {
+        expect(errors).toContain('RELAY_AUTH_RECOVERY_EXHAUSTED');
+        expect(errors).toContain('clock');
+      } else {
+        expect(errors).toContain('WORKER_EXIT');
+        expect(errors).toContain('WORKER_TERMINAL');
+        expect(errors).toContain('常駐ワーカーを終了します');
+        expect(errors).toContain('RELAY_REJECTED: 403');
+      }
+      expect(errors).not.toContain('Bearer ');
+    } finally {
+      clearTimeout(timeout);
+      child.kill();
+      await server.close();
+      if (!once)
+        await new Promise<void>((resolve, reject) =>
+          forbidden.close((error) => (error ? reject(error) : resolve())),
+        );
     }
-    expect(errors).not.toContain('Bearer ');
-  } finally {
-    clearTimeout(timeout);
-    child.kill();
-    await server.close();
-    if (!once) await new Promise<void>((resolve, reject) => forbidden.close(error => error ? reject(error) : resolve()));
-  }
-});
+  },
+);

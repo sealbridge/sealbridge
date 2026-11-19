@@ -50,7 +50,8 @@ function inviteFor(relayUrl: string): string {
 }
 
 function lookupOf(...addresses: string[]): RelayLookup {
-  return async () => addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+  return async () =>
+    addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
 }
 
 describe('P1-6 SSRF and DNS rebinding', () => {
@@ -74,9 +75,9 @@ describe('P1-6 SSRF and DNS rebinding', () => {
       expect(() =>
         parseAndVerifyInviteToken(inviteFor(relayUrl), Date.now(), { allowPrivateRelay: true }),
       ).toThrow('SSRF_BLOCKED_RELAY_URL');
-      expect(() => validateIpAddress(new URL(relayUrl).hostname, { allowPrivateRelay: true })).toThrow(
-        'SSRF_BLOCKED_RELAY_URL',
-      );
+      expect(() =>
+        validateIpAddress(new URL(relayUrl).hostname, { allowPrivateRelay: true }),
+      ).toThrow('SSRF_BLOCKED_RELAY_URL');
     }
     expect(() => validateIpAddress('100.64.0.1')).toThrow('SSRF_BLOCKED_RELAY_URL');
     expect(() => validateIpAddress('198.18.0.1')).toThrow('SSRF_BLOCKED_RELAY_URL');
@@ -133,12 +134,14 @@ describe('P1-6 SSRF and DNS rebinding', () => {
     };
     const resolved = await resolveAndValidateRelayEndpoint('https://relay.example/v1', { lookup });
     expect(resolved.addresses).toEqual([{ address: '8.8.8.8', family: 4 }]);
-    const pinned = await new Promise<Array<{ address: string; family: number }>>((resolve, reject) => {
-      resolved.lookup('relay.example', { all: true }, (error, addresses) => {
-        if (error) reject(error);
-        else resolve(addresses as Array<{ address: string; family: number }>);
-      });
-    });
+    const pinned = await new Promise<Array<{ address: string; family: number }>>(
+      (resolve, reject) => {
+        resolved.lookup('relay.example', { all: true }, (error, addresses) => {
+          if (error) reject(error);
+          else resolve(addresses as Array<{ address: string; family: number }>);
+        });
+      },
+    );
     expect(pinned).toEqual([{ address: '8.8.8.8', family: 4 }]);
     expect(calls).toBe(1);
   });

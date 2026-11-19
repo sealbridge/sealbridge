@@ -14,16 +14,16 @@ import {
   WorkerNode,
 } from '../packages/runtime/src/index.js';
 
-const HINTS = [
-  'readOnlyHint',
-  'destructiveHint',
-  'idempotentHint',
-  'openWorldHint',
-] as const;
+const HINTS = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const;
 
 const EXPECTED_HINTS: Record<
   string,
-  { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean }
+  {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+  }
 > = {
   acp_delegate_task: {
     readOnlyHint: false,
@@ -55,8 +55,18 @@ const EXPECTED_HINTS: Record<
     idempotentHint: false,
     openWorldHint: false,
   },
-  acp_list_connections: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  acp_list_connection_requests: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  acp_list_connections: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  acp_list_connection_requests: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   acp_discover_workers: {
     readOnlyHint: true,
     destructiveHint: false,
@@ -70,19 +80,34 @@ const EXPECTED_HINTS: Record<
     openWorldHint: false,
   },
   acp_list_pending_requests: {
-    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
   },
   acp_resubmit_pending_request: {
-    readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true,
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
   },
   acp_list_invites: {
-    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
   },
   acp_remove_invite: {
-    readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
   },
   acp_message_status: {
-    readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
   },
 };
 
@@ -152,7 +177,11 @@ function assertSchema(schema: unknown, data: unknown, label: string): void {
 }
 
 async function outputSchema(server: AcpMcpServer, name: string): Promise<unknown> {
-  const listed = (await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as unknown as {
+  const listed = (await server.handle({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/list',
+  })) as unknown as {
     result: { tools: ToolDefinition[] };
   };
   const tool = listed.result.tools.find((item) => item.name === name);
@@ -167,16 +196,14 @@ async function callTool(server: AcpMcpServer, name: string, args: Record<string,
     method: 'tools/call',
     params: { name, arguments: args },
   });
-  const result = (
-    response as {
-      result?: {
-        isError?: boolean;
-        content?: Array<{ text: string }>;
-        structuredContent?: unknown;
-      };
-      error?: { code: number; message: string };
-    }
-  );
+  const result = response as {
+    result?: {
+      isError?: boolean;
+      content?: Array<{ text: string }>;
+      structuredContent?: unknown;
+    };
+    error?: { code: number; message: string };
+  };
   return result;
 }
 
@@ -200,7 +227,11 @@ describe('MCP tool definition quality', () => {
     expect(instructions).toMatch(/allowedWorkerDids/);
     expect(instructions).toMatch(/transmitted externally/i);
 
-    const listed = (await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as unknown as {
+    const listed = (await server.handle({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+    })) as unknown as {
       result: { tools: ToolDefinition[] };
     };
     const tools = listed.result.tools;
@@ -218,7 +249,10 @@ describe('MCP tool definition quality', () => {
       expect(parts.length, tool.name + ' sentences').toBeLessThanOrEqual(6);
       expect(description.length, tool.name + ' length').toBeGreaterThan(240);
       expect(description.length, tool.name + ' length').toBeLessThan(1100);
-      expect(parts.every((part) => part.endsWith('.')), tool.name).toBe(true);
+      expect(
+        parts.every((part) => part.endsWith('.')),
+        tool.name,
+      ).toBe(true);
       expect(tool.annotations?.title).toBe(tool.title);
       for (const hint of HINTS) {
         expect(typeof tool.annotations?.[hint], tool.name + ' ' + hint).toBe('boolean');
@@ -250,15 +284,24 @@ describe('MCP tool definition quality', () => {
     expect(selectors.taskType).toMatchObject({ type: 'string', minLength: 1 });
     expect(selectors.relayUrl).toMatchObject({ type: 'string' });
     assertSchema(discovery?.inputSchema, {}, 'default discovery');
-    assertSchema(discovery?.inputSchema, { skillId: 'echo', taskType: 'json' }, 'filtered discovery');
+    assertSchema(
+      discovery?.inputSchema,
+      { skillId: 'echo', taskType: 'json' },
+      'filtered discovery',
+    );
     expect(discovery?.description).toContain('workerDid and relayUrl unchanged');
     expect(task?.description).toContain('bare DIDs match exactly');
     expect(task?.description).toContain('post-transmission failures do not undo tasks');
     expect(task?.description).toContain('PENDING_OWNER_APPROVAL, retryable: false');
     expect(task?.description).toContain('do not retry or poll');
-    expect(task?.description).toContain('worker owner review and explicit new delegation are required');
-    assertSchema(task?.inputSchema, { workerDid: 'did:key:example', relayUrl: 'https://relay.example',
-      title: 'Echo', input: {} }, 'description omitted');
+    expect(task?.description).toContain(
+      'worker owner review and explicit new delegation are required',
+    );
+    assertSchema(
+      task?.inputSchema,
+      { workerDid: 'did:key:example', relayUrl: 'https://relay.example', title: 'Echo', input: {} },
+      'description omitted',
+    );
   });
 
   it('returns structuredContent that matches the text payload', async () => {
@@ -285,8 +328,16 @@ describe('MCP tool definition quality', () => {
 
           agentDid: worker.did,
           relayEndpoint: 'https://acp-relay.agent-collab.workers.dev',
-          skills: [{ id: 'json-task', name: 'JSON task', description: 'Echo JSON', taskTypes: ['json'],
-            inputSchema: { type: 'object' }, outputSchema: { type: 'object' } }],
+          skills: [
+            {
+              id: 'json-task',
+              name: 'JSON task',
+              description: 'Echo JSON',
+              taskTypes: ['json'],
+              inputSchema: { type: 'object' },
+              outputSchema: { type: 'object' },
+            },
+          ],
         },
         worker,
       ),
@@ -333,8 +384,15 @@ describe('MCP tool definition quality', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
       const discover = vi.fn(async () => []);
       const factory = vi.fn(() => ({ discover }) as unknown as RelayTransport);
-      const defaults = await callTool(new AcpMcpServer({ owner, transportFactory: factory }), 'acp_discover_workers', {});
-      expect(defaults.result?.structuredContent).toMatchObject({ relayUrl: 'https://relay.sealbridge.dev', count: 0 });
+      const defaults = await callTool(
+        new AcpMcpServer({ owner, transportFactory: factory }),
+        'acp_discover_workers',
+        {},
+      );
+      expect(defaults.result?.structuredContent).toMatchObject({
+        relayUrl: 'https://relay.sealbridge.dev',
+        count: 0,
+      });
       expect(factory).toHaveBeenCalledWith('https://relay.sealbridge.dev', undefined);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
@@ -354,7 +412,9 @@ describe('MCP tool definition quality', () => {
     });
     const invite = JSON.parse(created.result?.content?.[0].text ?? '') as { inviteToken: string };
     expect(invite).not.toHaveProperty('warning');
-    expect((await outputSchema(server, 'acp_create_invite') as { properties: unknown }).properties).not.toHaveProperty('warning');
+    expect(
+      ((await outputSchema(server, 'acp_create_invite')) as { properties: unknown }).properties,
+    ).not.toHaveProperty('warning');
     const targetId = inviteRevocationId(invite.inviteToken);
     const revoked = await callTool(server, 'acp_revoke_token', {
       targetType: 'invite',
@@ -404,7 +464,9 @@ describe('MCP tool definition quality', () => {
     const relay = new InMemoryRelay();
     const server = new AcpMcpServer({ owner, relay });
     const node = (key: ReturnType<typeof generateKeyPair>, tag: string) =>
-      new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+      new WorkerNode({
+        autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+        checkPeer: () => 'trusted',
         owner: key,
         relay,
         adapter: {

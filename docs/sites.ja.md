@@ -6,9 +6,9 @@
 `/media/*` のバイト範囲を処理する小さな Worker も含みます。ビルドや CI は公開しません。
 解析、外部フォント、CDN スクリプト、外部 QR サービスは使用しません。
 
-| 想定ホスト | アセット | 設定 |
-| --- | --- | --- |
-| sealbridge.dev | `sites/dist/site` | `sites/wrangler.site.jsonc`（`sealbridge-site`） |
+| 想定ホスト     | アセット            | 設定                                                 |
+| -------------- | ------------------- | ---------------------------------------------------- |
+| sealbridge.dev | `sites/dist/site`   | `sites/wrangler.site.jsonc`（`sealbridge-site`）     |
 | sealbridge.app | `sites/dist/invite` | `sites/wrangler.invite.jsonc`（`sealbridge-invite`） |
 
 英語・日本語のトップページでは、ヒーローの直下に30秒のコードレビュー実演を表示します。

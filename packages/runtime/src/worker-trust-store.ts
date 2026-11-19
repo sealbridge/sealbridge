@@ -5,37 +5,93 @@ import { join, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { digest, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, TaskManifest, Json, Signed } from '@acp/core';
-import { resolveDataRoot, privateDirectory, checkPath, checkStat, inspectDirectory } from './local-identity.js';
+import {
+  resolveDataRoot,
+  privateDirectory,
+  checkPath,
+  checkStat,
+  inspectDirectory,
+} from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
-import { assertInviteMaxUses, inviteBindingEligibility, emptyConnectionData, validConnectionData, pruneConnectionData, assertConnectionCapacity,
-  projectConnectionState, projectConnectionTrust, validConnectionPeer, validConnectionOffer,
-  validConnectionOutbox, assertConnectionCommit, assertConnectionOwnerDid, connectionInviteDigest, CONNECTION_OFFER_TTL_MS, CONNECTION_REFUSAL_TTL_MS } from './connection-records.js';
-import type { ConnectionData, ConnectionState, ConnectionStatus, ConnectionTrust, ConnectionRecord, ConnectionPeer,
-  PriorApprovedPeer, RecordIncomingConnection, RecordOutgoingConnection, ApproveConnectionInput,
-  ApplyConnectionAcceptedInput, BindInviteFirstUseInput, ConnectionOutboxRecord, ConnectionPersistence } from './connection-records.js';
+import {
+  assertInviteMaxUses,
+  inviteBindingEligibility,
+  emptyConnectionData,
+  validConnectionData,
+  pruneConnectionData,
+  assertConnectionCapacity,
+  projectConnectionState,
+  projectConnectionTrust,
+  validConnectionPeer,
+  validConnectionOffer,
+  validConnectionOutbox,
+  assertConnectionCommit,
+  assertConnectionOwnerDid,
+  connectionInviteDigest,
+  CONNECTION_OFFER_TTL_MS,
+  CONNECTION_REFUSAL_TTL_MS,
+} from './connection-records.js';
+import type {
+  ConnectionData,
+  ConnectionState,
+  ConnectionStatus,
+  ConnectionTrust,
+  ConnectionRecord,
+  ConnectionPeer,
+  PriorApprovedPeer,
+  RecordIncomingConnection,
+  RecordOutgoingConnection,
+  ApproveConnectionInput,
+  ApplyConnectionAcceptedInput,
+  BindInviteFirstUseInput,
+  ConnectionOutboxRecord,
+  ConnectionPersistence,
+} from './connection-records.js';
 
 import { validStoredControls } from './connection-persistence.js';
 import type { StoredControlRecord } from './connection-persistence.js';
 
 export type PeerTrust = 'unknown' | 'limited' | 'trusted' | 'denied';
 export interface IntakeRequest {
-  id: string; requesterOwnerDid: string; requesterAgentDid: string; taskId: string; digest: string;
-  title?: string; description?: string; scope: { skillId?: string; taskType?: string }; budget: TaskManifest['budget']; capabilities: number;
-  receivedAt: number; expiresAt: number; state: 'pending' | 'approved' | 'denied' | 'expired';
+  id: string;
+  requesterOwnerDid: string;
+  requesterAgentDid: string;
+  taskId: string;
+  digest: string;
+  title?: string;
+  description?: string;
+  scope: { skillId?: string; taskType?: string };
+  budget: TaskManifest['budget'];
+  capabilities: number;
+  receivedAt: number;
+  expiresAt: number;
+  state: 'pending' | 'approved' | 'denied' | 'expired';
   trust?: 'limited' | 'trusted';
 }
 interface LegacyTrustState {
-  version: 1; workerOwnerDid: string; requests: IntakeRequest[];
-  grants: Array<{ did: string; trust: 'limited' | 'trusted'; expiresAt: number; origin?: 'explicit-legacy' }>;
+  version: 1;
+  workerOwnerDid: string;
+  requests: IntakeRequest[];
+  grants: Array<{
+    did: string;
+    trust: 'limited' | 'trusted';
+    expiresAt: number;
+    origin?: 'explicit-legacy';
+  }>;
   denials: string[];
 }
-export type ConnectionTrustState = Omit<LegacyTrustState, 'version'> & ConnectionData & { version: 2; controls?: StoredControlRecord[] };
+export type ConnectionTrustState = Omit<LegacyTrustState, 'version'> &
+  ConnectionData & { version: 2; controls?: StoredControlRecord[] };
 type TrustState = LegacyTrustState | ConnectionTrustState;
 
 // A finite grant is evidence of a past decision, never a connection.
 function priorApprovedPeers(state: TrustState): PriorApprovedPeer[] {
-  const peers = new Map<string, PriorApprovedPeer>((state.version === 2 ? state.priorApprovedPeers : [])
-    .map(p => [p.peerOwnerDid, structuredClone(p)]));
+  const peers = new Map<string, PriorApprovedPeer>(
+    (state.version === 2 ? state.priorApprovedPeers : []).map((p) => [
+      p.peerOwnerDid,
+      structuredClone(p),
+    ]),
+  );
   const add = (did: string, trust: 'limited' | 'trusted', requestId?: string) => {
     const p = peers.get(did) ?? { peerOwnerDid: did, sourceRequestIds: [], legacyTrust: trust };
     if (trust === 'trusted') p.legacyTrust = trust;
@@ -44,12 +100,16 @@ function priorApprovedPeers(state: TrustState): PriorApprovedPeer[] {
     p.sourceRequestIds = p.sourceRequestIds.slice(-200);
     peers.set(did, p);
   };
-  for (const r of state.requests) if (r.state === 'approved') add(r.requesterOwnerDid, r.trust ?? 'limited', r.id);
+  for (const r of state.requests)
+    if (r.state === 'approved') add(r.requesterOwnerDid, r.trust ?? 'limited', r.id);
   for (const g of state.grants) add(g.did, g.trust);
-  if (state.version === 2) for (const p of peers.values()) {
-    const name = state.connections.find(c => c.peerOwnerDid === p.peerOwnerDid)?.peerDisplayName;
-    if (name !== undefined) p.peerDisplayName ??= name;
-  }
+  if (state.version === 2)
+    for (const p of peers.values()) {
+      const name = state.connections.find(
+        (c) => c.peerOwnerDid === p.peerOwnerDid,
+      )?.peerDisplayName;
+      if (name !== undefined) p.peerDisplayName ??= name;
+    }
   return [...peers.values()];
 }
 export interface WorkerIntakeStore {
@@ -59,13 +119,21 @@ export interface WorkerIntakeStore {
   pendingTask(did: string, taskId: string, proposalDigest: string): boolean;
 }
 const ceiling = 1024 * 1024;
-export const PENDING_MESSAGE = 'Task inspection and live worker owner approval are required separately from connection consent. No task was accepted. Review with tasks list/show; check connections review list for connection consent. Explicitly submit a fresh task after review. Do not retry automatically.';
+export const PENDING_MESSAGE =
+  'Task inspection and live worker owner approval are required separately from connection consent. No task was accepted. Review with tasks list/show; check connections review list for connection consent. Explicitly submit a fresh task after review. Do not retry automatically.';
 export function workerIntakePath(ownerDid: string, options: LocalIdentityOptions = {}): string {
-  return join(resolveDataRoot(options), 'workers', createHash('sha256').update(ownerDid).digest('hex'), 'intake.json');
+  return join(
+    resolveDataRoot(options),
+    'workers',
+    createHash('sha256').update(ownerDid).digest('hex'),
+    'intake.json',
+  );
 }
 /** JSON output also escapes controls; store previews never carry terminal control sequences. */
 function preview(value: string, length: number): string {
-  return value.slice(0, length).replace(/[\p{Cc}\p{Cf}]/gu, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  return value
+    .slice(0, length)
+    .replace(/[\p{Cc}\p{Cf}]/gu, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
 export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistence {
   private state: TrustState;
@@ -73,30 +141,51 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   private readonly io: typeof fs;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
-  constructor(private readonly owner: KeyPair, private readonly options: {
-    path?: string; fs?: typeof fs; platform?: NodeJS.Platform; now?: () => number;
-  } = {}) {
-    this.io = options.fs ?? fs; this.platform = options.platform ?? process.platform;
+  constructor(
+    private readonly owner: KeyPair,
+    private readonly options: {
+      path?: string;
+      fs?: typeof fs;
+      platform?: NodeJS.Platform;
+      now?: () => number;
+    } = {},
+  ) {
+    this.io = options.fs ?? fs;
+    this.platform = options.platform ?? process.platform;
     this.now = options.now ?? Date.now;
     this.state = { version: 1, workerOwnerDid: owner.did, requests: [], grants: [], denials: [] };
   }
   private read(): TrustState {
     if (!this.options.path) return structuredClone(this.state);
-    const path = this.options.path, io = this.io;
-    let fd: number | undefined, observed = false;
+    const path = this.options.path,
+      io = this.io;
+    let fd: number | undefined,
+      observed = false;
     try {
-      for (const directory of [dirname(dirname(dirname(path))), dirname(dirname(path)), dirname(path)]) {
-        try { inspectDirectory(directory, io, this.platform); }
-        catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+      for (const directory of [
+        dirname(dirname(dirname(path))),
+        dirname(dirname(path)),
+        dirname(path),
+      ]) {
+        try {
+          inspectDirectory(directory, io, this.platform);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        }
       }
       checkPath(path, io, this.platform);
       const before = io.lstatSync(path);
       observed = true;
       checkStat(before);
       if (before.size > ceiling) throw new Error();
-      fd = io.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
-      const stat = io.fstatSync(fd); checkStat(stat);
-      if (stat.ino !== before.ino || stat.dev !== before.dev || stat.size > ceiling) throw new Error();
+      fd = io.openSync(
+        path,
+        fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0),
+      );
+      const stat = io.fstatSync(fd);
+      checkStat(stat);
+      if (stat.ino !== before.ino || stat.dev !== before.dev || stat.size > ceiling)
+        throw new Error();
       const bytes = Buffer.alloc(ceiling + 1);
       let size = 0;
       while (size < bytes.length) {
@@ -107,32 +196,64 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (size > ceiling) throw new Error();
       const signed = JSON.parse(bytes.subarray(0, size).toString('utf8')) as Signed<TrustState>;
       const s = signed.payload;
-      if (!verifySigned(signed, this.owner.did) || ![1, 2].includes(s.version) || s.workerOwnerDid !== this.owner.did ||
-          !Array.isArray(s.requests) || !Array.isArray(s.grants) || !Array.isArray(s.denials) ||
-          s.requests.length > 200 || s.requests.some(r => !r || typeof r.id !== 'string' ||
+      if (
+        !verifySigned(signed, this.owner.did) ||
+        ![1, 2].includes(s.version) ||
+        s.workerOwnerDid !== this.owner.did ||
+        !Array.isArray(s.requests) ||
+        !Array.isArray(s.grants) ||
+        !Array.isArray(s.denials) ||
+        s.requests.length > 200 ||
+        s.requests.some(
+          (r) =>
+            !r ||
+            typeof r.id !== 'string' ||
             !['pending', 'approved', 'denied', 'expired'].includes(r.state) ||
-            !Number.isFinite(r.expiresAt) || typeof r.requesterOwnerDid !== 'string' ||
-            Buffer.byteLength(JSON.stringify(r)) > 4096) ||
-          s.grants.some(g => !g || !['limited', 'trusted'].includes(g.trust) ||
-            typeof g.did !== 'string' || !Number.isFinite(g.expiresAt)) ||
-          s.denials.some(d => typeof d !== 'string') ||
-          (s.version === 2 && ((!validConnectionData(s, this.owner.did) ||
-            (s.controls !== undefined && !validStoredControls(s.controls, this.owner.did))) ||
-            s.connections.some(c => s.denials.includes(c.peerOwnerDid)) ||
-            s.outbox.some(e => s.denials.includes(e.peerOwnerDid))))) throw new Error();
+            !Number.isFinite(r.expiresAt) ||
+            typeof r.requesterOwnerDid !== 'string' ||
+            Buffer.byteLength(JSON.stringify(r)) > 4096,
+        ) ||
+        s.grants.some(
+          (g) =>
+            !g ||
+            !['limited', 'trusted'].includes(g.trust) ||
+            typeof g.did !== 'string' ||
+            !Number.isFinite(g.expiresAt),
+        ) ||
+        s.denials.some((d) => typeof d !== 'string') ||
+        (s.version === 2 &&
+          (!validConnectionData(s, this.owner.did) ||
+            (s.controls !== undefined && !validStoredControls(s.controls, this.owner.did)) ||
+            s.connections.some((c) => s.denials.includes(c.peerOwnerDid)) ||
+            s.outbox.some((e) => s.denials.includes(e.peerOwnerDid))))
+      )
+        throw new Error();
       return s;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT' && !observed)
-        return { version: 1, workerOwnerDid: this.owner.did, requests: [], grants: [], denials: [] };
+        return {
+          version: 1,
+          workerOwnerDid: this.owner.did,
+          requests: [],
+          grants: [],
+          denials: [],
+        };
       throw new Error('INTAKE_STORE_INVALID');
-    } finally { if (fd !== undefined) io.closeSync(fd); }
+    } finally {
+      if (fd !== undefined) io.closeSync(fd);
+    }
   }
-  private mutate<T>(change: (state: TrustState) => T, connectionMutation = false, reserveRoom = false): T {
+  private mutate<T>(
+    change: (state: TrustState) => T,
+    connectionMutation = false,
+    reserveRoom = false,
+  ): T {
     let until: number | undefined;
     const sleeper = new Int32Array(new SharedArrayBuffer(4));
     for (let attempt = 0; ; attempt++) {
-      try { return this.mutateOnce(change, connectionMutation, reserveRoom); }
-      catch (error) {
+      try {
+        return this.mutateOnce(change, connectionMutation, reserveRoom);
+      } catch (error) {
         if (!(error instanceof Error) || error.message !== 'INTAKE_STORE_BUSY') throw error;
         // A cold initial read/flush can be slow without waiting for a writer.
         // Start the bounded contention window only when BUSY is first observed.
@@ -140,115 +261,196 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
         if (performance.now() >= until) throw error;
         // Retry local state derivation after releasing the lock, never admission
         // or execution. This also covers Windows pending-delete/sharing refusals.
-        Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
+        Atomics.wait(
+          sleeper,
+          0,
+          0,
+          Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)),
+        );
       }
     }
   }
-  private mutateOnce<T>(change: (state: TrustState) => T, connectionMutation: boolean, reserveRoom: boolean): T {
-    const path = this.options.path, io = this.io;
-    let locked = false, temporary: string | undefined;
+  private mutateOnce<T>(
+    change: (state: TrustState) => T,
+    connectionMutation: boolean,
+    reserveRoom: boolean,
+  ): T {
+    const path = this.options.path,
+      io = this.io;
+    let locked = false,
+      temporary: string | undefined;
     try {
       if (path) {
         // Apply P1's private-directory policy to every store-owned directory.
         privateDirectory(dirname(dirname(dirname(path))), io, this.platform);
         privateDirectory(dirname(dirname(path)), io, this.platform);
         privateDirectory(dirname(path), io, this.platform);
-        try { io.writeFileSync(path + '.lock', '', { flag: 'wx', mode: 0o600 }); locked = true; }
-        catch (e) { if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('INTAKE_STORE_BUSY'); throw e; }
+        try {
+          io.writeFileSync(path + '.lock', '', { flag: 'wx', mode: 0o600 });
+          locked = true;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('INTAKE_STORE_BUSY');
+          throw e;
+        }
       }
       let state = this.read();
       const now = this.now();
       if (connectionMutation && state.version === 1)
-        state = { ...state, ...emptyConnectionData(), version: 2, priorApprovedPeers: priorApprovedPeers(state) };
+        state = {
+          ...state,
+          ...emptyConnectionData(),
+          version: 2,
+          priorApprovedPeers: priorApprovedPeers(state),
+        };
       if (state.version === 2) {
         state.priorApprovedPeers = priorApprovedPeers(state);
       }
-      state.grants = state.grants.filter(g => g.expiresAt > now);
-      for (const r of state.requests) if (r.state === 'pending' && r.expiresAt <= now) r.state = 'expired';
+      state.grants = state.grants.filter((g) => g.expiresAt > now);
+      for (const r of state.requests)
+        if (r.state === 'pending' && r.expiresAt <= now) r.state = 'expired';
       const result = change(state);
-      state.requests = [...state.requests.filter(r => r.state !== 'pending').slice(-100),
-        ...state.requests.filter(r => r.state === 'pending')];
+      state.requests = [
+        ...state.requests.filter((r) => r.state !== 'pending').slice(-100),
+        ...state.requests.filter((r) => r.state === 'pending'),
+      ];
       if (state.version === 2) {
-        if (state.controls) state.controls = state.controls.filter(r => Date.parse(r.offer.expiresAt) > now);
-        if (state.controls && !validStoredControls(state.controls, this.owner.did)) throw new Error('INTAKE_STORE_INVALID');
+        if (state.controls)
+          state.controls = state.controls.filter((r) => Date.parse(r.offer.expiresAt) > now);
+        if (state.controls && !validStoredControls(state.controls, this.owner.did))
+          throw new Error('INTAKE_STORE_INVALID');
         state.priorApprovedPeers = priorApprovedPeers(state);
         pruneConnectionData(state, now);
         assertConnectionCapacity(state);
-        if (new Set([...state.requests.filter(r => r.state === 'pending').map(r => r.requesterOwnerDid),
-          ...state.connections.filter(c => c.state === 'pending').map(c => c.peerOwnerDid)]).size > 100)
+        if (
+          new Set([
+            ...state.requests.filter((r) => r.state === 'pending').map((r) => r.requesterOwnerDid),
+            ...state.connections.filter((c) => c.state === 'pending').map((c) => c.peerOwnerDid),
+          ]).size > 100
+        )
           throw new Error('CONNECTION_STORE_FULL');
         if (!validConnectionData(state, this.owner.did)) throw new Error('INTAKE_STORE_INVALID');
       }
-      const bytes = JSON.stringify(signPayload(state, this.owner, new Date(now).toISOString())) + '\n';
+      const bytes =
+        JSON.stringify(signPayload(state, this.owner, new Date(now).toISOString())) + '\n';
       // Leave room for owner decisions when intake fills the queue.
       if (Buffer.byteLength(bytes) > ceiling - (reserveRoom ? 32 * 1024 : 0))
         throw new Error(connectionMutation ? 'CONNECTION_STORE_FULL' : 'INTAKE_QUEUE_FULL');
       if (path) {
         temporary = path + '.' + randomUUID() + '.tmp';
         const fd = io.openSync(temporary, 'wx', 0o600);
-        try { io.writeFileSync(fd, bytes); io.fsyncSync(fd); } finally { io.closeSync(fd); }
+        try {
+          io.writeFileSync(fd, bytes);
+          io.fsyncSync(fd);
+        } finally {
+          io.closeSync(fd);
+        }
         checkPath(path, io, this.platform);
         io.renameSync(temporary, path);
       } else this.state = state;
       return result;
     } catch (e) {
-      if (e instanceof Error && /^(INTAKE_|REQUEST_|CONNECTION_|INVITE_|INVALID_INVITE_)/.test(e.message)) throw e;
-      if (this.platform === 'win32' && ['open', 'rename'].includes((e as NodeJS.ErrnoException).syscall ?? '') &&
-          ['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '')) throw new Error('INTAKE_STORE_BUSY');
+      if (
+        e instanceof Error &&
+        /^(INTAKE_|REQUEST_|CONNECTION_|INVITE_|INVALID_INVITE_)/.test(e.message)
+      )
+        throw e;
+      if (
+        this.platform === 'win32' &&
+        ['open', 'rename'].includes((e as NodeJS.ErrnoException).syscall ?? '') &&
+        ['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '')
+      )
+        throw new Error('INTAKE_STORE_BUSY');
       throw new Error('INTAKE_STORE_UNWRITABLE');
     } finally {
-      if (temporary) try { io.unlinkSync(temporary); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+      if (temporary)
+        try {
+          io.unlinkSync(temporary);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        }
       if (locked) io.unlinkSync(path + '.lock');
     }
   }
-  get ownerDid(): string { return this.owner.did; }
+  get ownerDid(): string {
+    return this.owner.did;
+  }
   /** Persist policy before exposing the token. A digest's policy cannot be changed. */
   recordInviteLimit(invite: import('@acp/core').Invite, maxUses = 1): void {
     assertInviteMaxUses(maxUses);
     const inviteDigest = connectionInviteDigest(invite);
-    const tokenExpiresAt = Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt));
-    if (invite.ownerDid !== this.owner.did || !Number.isFinite(tokenExpiresAt)) throw new Error('INTAKE_STORE_INVALID');
+    const tokenExpiresAt = Math.min(
+      Date.parse(invite.expiresAt),
+      Date.parse(invite.agentCard.payload.expiresAt),
+    );
+    if (invite.ownerDid !== this.owner.did || !Number.isFinite(tokenExpiresAt))
+      throw new Error('INTAKE_STORE_INVALID');
     if (tokenExpiresAt <= this.now()) throw new Error('INVITE_EXPIRED');
     // Preserve the default issuance path, including its lack of store I/O.
     if (maxUses === 1) return;
-    this.mutateConnections(s => {
-      const previous = s.inviteLimits?.find(l => l.inviteDigest === inviteDigest);
+    this.mutateConnections((s) => {
+      const previous = s.inviteLimits?.find((l) => l.inviteDigest === inviteDigest);
       if (previous) {
         if (previous.maxUses !== maxUses) throw new Error('INVALID_INVITE_MAX_USES');
         return;
       }
-      if (s.inviteBindings.some(b => b.inviteDigest === inviteDigest)) throw new Error('INVALID_INVITE_MAX_USES');
+      if (s.inviteBindings.some((b) => b.inviteDigest === inviteDigest))
+        throw new Error('INVALID_INVITE_MAX_USES');
       (s.inviteLimits ??= []).push({ inviteDigest, maxUses, tokenExpiresAt });
     });
   }
   controlSnapshot(): StoredControlRecord[] {
-    const s = this.read(); return s.version === 2 ? s.controls ?? [] : [];
+    const s = this.read();
+    return s.version === 2 ? (s.controls ?? []) : [];
   }
-  updateControls<T>(change: (state: ConnectionTrustState) => T): T { return this.mutateConnections(change); }
+  updateControls<T>(change: (state: ConnectionTrustState) => T): T {
+    return this.mutateConnections(change);
+  }
   level(did: string): PeerTrust {
     const state = this.read();
     if (state.denials.includes(did)) return 'denied';
-    return state.grants.find(g => g.did === did && g.expiresAt > this.now())?.trust ?? 'unknown';
+    return state.grants.find((g) => g.did === did && g.expiresAt > this.now())?.trust ?? 'unknown';
   }
   hasExplicitLegacyGrant(did: string): boolean {
     const s = this.read();
-    return !s.denials.includes(did) && s.grants.some(g => g.did === did && g.trust === 'trusted' && g.origin === 'explicit-legacy' && g.expiresAt > this.now());
+    return (
+      !s.denials.includes(did) &&
+      s.grants.some(
+        (g) =>
+          g.did === did &&
+          g.trust === 'trusted' &&
+          g.origin === 'explicit-legacy' &&
+          g.expiresAt > this.now(),
+      )
+    );
   }
   hasTrustedGrant(): boolean {
     const s = this.read();
-    return s.grants.some(g => g.trust === 'trusted' && g.origin === 'explicit-legacy' && g.expiresAt > this.now() && !s.denials.includes(g.did));
+    return s.grants.some(
+      (g) =>
+        g.trust === 'trusted' &&
+        g.origin === 'explicit-legacy' &&
+        g.expiresAt > this.now() &&
+        !s.denials.includes(g.did),
+    );
   }
   list(): IntakeRequest[] {
-    return this.read().requests.map(r => r.state === 'pending' && r.expiresAt <= this.now() ? { ...r, state: 'expired' } : r);
+    return this.read().requests.map((r) =>
+      r.state === 'pending' && r.expiresAt <= this.now() ? { ...r, state: 'expired' } : r,
+    );
   }
   pendingTask(did: string, taskId: string, _proposalDigest: string): boolean {
     // A reviewed entry still identifies an admission-only attempt; never replay it.
-    return this.read().requests.some(r => r.requesterOwnerDid === did && r.taskId === taskId);
+    return this.read().requests.some((r) => r.requesterOwnerDid === did && r.taskId === taskId);
   }
   /** Connection projection is separate from level(), which retains legacy grant semantics. */
   connectionState(peerOwnerDid: string): ConnectionState {
     const state = this.read();
-    return projectConnectionState(state.version === 2 ? state : emptyConnectionData(), state.denials, peerOwnerDid, this.now());
+    return projectConnectionState(
+      state.version === 2 ? state : emptyConnectionData(),
+      state.denials,
+      peerOwnerDid,
+      this.now(),
+    );
   }
   connectionLevel(peerOwnerDid: string): ConnectionTrust {
     return projectConnectionTrust(this.connectionState(peerOwnerDid));
@@ -256,73 +458,140 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   /** Read one local snapshot without polling, writing, pruning or changing consent. */
   connectionStatus(peerOwnerDid: string): ConnectionStatus {
     assertConnectionOwnerDid(peerOwnerDid);
-    const snapshot = this.read(), now = this.now();
+    const snapshot = this.read(),
+      now = this.now();
     const data = snapshot.version === 2 ? snapshot : emptyConnectionData();
     const state = projectConnectionState(data, snapshot.denials, peerOwnerDid, now);
-    const connection = data.connections.find(c => c.peerOwnerDid === peerOwnerDid);
-    const controls = snapshot.version === 2 ? (snapshot.controls ?? []).filter(r =>
-      (r.offer.fromOwnerDid === this.owner.did ? r.offer.toOwnerDid : r.offer.fromOwnerDid) === peerOwnerDid) : [];
+    const connection = data.connections.find((c) => c.peerOwnerDid === peerOwnerDid);
+    const controls =
+      snapshot.version === 2
+        ? (snapshot.controls ?? []).filter(
+            (r) =>
+              (r.offer.fromOwnerDid === this.owner.did
+                ? r.offer.toOwnerDid
+                : r.offer.fromOwnerDid) === peerOwnerDid,
+          )
+        : [];
     // Prefer the exchange that established this connection, then the current offer.
-    const control = state === 'connected' ? controls.find(r => r.active && r.accepted &&
-      r.accepted.payload.connectionId === connection?.connectionId &&
-      (connection.remoteAcceptanceDigest ? digest(r.accepted) === connection.remoteAcceptanceDigest :
-        r.consentDigest === connection.localConsentDigest)) :
-      controls.find(r => r.offer.requestId === connection?.outgoing?.requestId) ??
-      controls.find(r => r.offer.requestId === connection?.incoming?.requestId) ?? controls.at(-1);
+    const control =
+      state === 'connected'
+        ? controls.find(
+            (r) =>
+              r.active &&
+              r.accepted &&
+              r.accepted.payload.connectionId === connection?.connectionId &&
+              (connection.remoteAcceptanceDigest
+                ? digest(r.accepted) === connection.remoteAcceptanceDigest
+                : r.consentDigest === connection.localConsentDigest),
+          )
+        : (controls.find((r) => r.offer.requestId === connection?.outgoing?.requestId) ??
+          controls.find((r) => r.offer.requestId === connection?.incoming?.requestId) ??
+          controls.at(-1));
     const offer = control?.offer;
     const legacyOffer = connection?.outgoing ?? connection?.incoming;
-    const direction = control?.direction ?? (connection?.outgoing ? 'outgoing' : connection?.incoming ? 'incoming' : undefined);
+    const direction =
+      control?.direction ??
+      (connection?.outgoing ? 'outgoing' : connection?.incoming ? 'incoming' : undefined);
     const expiresAt = offer ? Date.parse(offer.expiresAt) : legacyOffer?.expiresAt;
-    const status: ConnectionStatus['status'] = state === 'blocked' ? 'blocked' : state === 'connected' ? 'connected' :
-      control && !control.active ? 'inactive' : expiresAt !== undefined && expiresAt <= now ? 'expired' :
-      direction === 'outgoing' ? 'pending_peer' : direction === 'incoming' ? 'pending_owner' : 'none';
+    const status: ConnectionStatus['status'] =
+      state === 'blocked'
+        ? 'blocked'
+        : state === 'connected'
+          ? 'connected'
+          : control && !control.active
+            ? 'inactive'
+            : expiresAt !== undefined && expiresAt <= now
+              ? 'expired'
+              : direction === 'outgoing'
+                ? 'pending_peer'
+                : direction === 'incoming'
+                  ? 'pending_owner'
+                  : 'none';
     const peerDisplayName = connection?.peerDisplayName ?? offer?.peerDisplayName;
-    return { peerOwnerDid, state, status,
+    return {
+      peerOwnerDid,
+      state,
+      status,
       ...(peerDisplayName === undefined ? {} : { peerDisplayName }),
-      ...(offer ? { requestId: offer.requestId, direction: control!.direction,
-        createdAt: Date.parse(offer.createdAt), expiresAt } : legacyOffer ? {
-        requestId: legacyOffer.requestId, direction, expiresAt,
-        ...('createdAt' in legacyOffer ? { createdAt: legacyOffer.createdAt } : {}),
-      } : {}),
-      ...(state === 'connected' ? { connectionId: connection!.connectionId, connectedAt: connection!.connectedAt } : {}),
-      ...(state === 'connected' && control?.accepted ? { acknowledgementPending: control.outbox.some(b =>
-        b.envelope.payload.eventType === (control.direction === 'outgoing' ? 'CONNECTION_ACK' : 'CONNECTION_ACCEPTED')) } : {}),
+      ...(offer
+        ? {
+            requestId: offer.requestId,
+            direction: control!.direction,
+            createdAt: Date.parse(offer.createdAt),
+            expiresAt,
+          }
+        : legacyOffer
+          ? {
+              requestId: legacyOffer.requestId,
+              direction,
+              expiresAt,
+              ...('createdAt' in legacyOffer ? { createdAt: legacyOffer.createdAt } : {}),
+            }
+          : {}),
+      ...(state === 'connected'
+        ? { connectionId: connection!.connectionId, connectedAt: connection!.connectedAt }
+        : {}),
+      ...(state === 'connected' && control?.accepted
+        ? {
+            acknowledgementPending: control.outbox.some(
+              (b) =>
+                b.envelope.payload.eventType ===
+                (control.direction === 'outgoing' ? 'CONNECTION_ACK' : 'CONNECTION_ACCEPTED'),
+            ),
+          }
+        : {}),
     };
   }
-  listConnections(): Array<(ConnectionRecord | { peerOwnerDid: string; peerDisplayName?: string }) & { state: Exclude<ConnectionState, 'none'> }> {
-    const state = this.read(), data = state.version === 2 ? state : emptyConnectionData();
+  listConnections(): Array<
+    (ConnectionRecord | { peerOwnerDid: string; peerDisplayName?: string }) & {
+      state: Exclude<ConnectionState, 'none'>;
+    }
+  > {
+    const state = this.read(),
+      data = state.version === 2 ? state : emptyConnectionData();
     pruneConnectionData(data, this.now());
-    return [...data.connections.filter(c => !state.denials.includes(c.peerOwnerDid)),
-      ...state.denials.map(peerOwnerDid => ({ peerOwnerDid, state: 'blocked' as const }))];
+    return [
+      ...data.connections.filter((c) => !state.denials.includes(c.peerOwnerDid)),
+      ...state.denials.map((peerOwnerDid) => ({ peerOwnerDid, state: 'blocked' as const })),
+    ];
   }
   setConnectionAcceptance(peerOwnerDid: string, acceptance: 'off' | 'read-only' | 'write'): void {
-    if (!['off', 'read-only', 'write'].includes(acceptance)) throw new Error('INVALID_CONNECTION_ACCEPTANCE');
-    this.mutateConnections(s => {
-      const c = s.connections.find(c => c.peerOwnerDid === peerOwnerDid && c.state === 'connected');
+    if (!['off', 'read-only', 'write'].includes(acceptance))
+      throw new Error('INVALID_CONNECTION_ACCEPTANCE');
+    this.mutateConnections((s) => {
+      const c = s.connections.find(
+        (c) => c.peerOwnerDid === peerOwnerDid && c.state === 'connected',
+      );
       if (!c || s.denials.includes(peerOwnerDid)) throw new Error('CONNECTION_NOT_CONNECTED');
       c.acceptance = acceptance;
     });
   }
-  listPriorApprovedPeers(): PriorApprovedPeer[] { return priorApprovedPeers(this.read()); }
+  listPriorApprovedPeers(): PriorApprovedPeer[] {
+    return priorApprovedPeers(this.read());
+  }
   private mutateConnections<T>(change: (state: ConnectionTrustState) => T, reserveRoom = false): T {
-    return this.mutate(s => change(s as ConnectionTrustState), true, reserveRoom);
+    return this.mutate((s) => change(s as ConnectionTrustState), true, reserveRoom);
   }
   private assertAvailable(s: ConnectionTrustState, peer: string, incoming = false): void {
     assertConnectionOwnerDid(peer);
     if (s.denials.includes(peer)) throw new Error('CONNECTION_ALREADY_DECIDED');
-    if (incoming && s.refusals.some(r => r.peerOwnerDid === peer && r.refuseUntil > this.now()))
+    if (incoming && s.refusals.some((r) => r.peerOwnerDid === peer && r.refuseUntil > this.now()))
       throw new Error('CONNECTION_REQUEST_COOLDOWN');
   }
-  private recordOffer(input: RecordIncomingConnection | RecordOutgoingConnection, outgoing: boolean): void {
-    this.mutateConnections(s => {
+  private recordOffer(
+    input: RecordIncomingConnection | RecordOutgoingConnection,
+    outgoing: boolean,
+  ): void {
+    this.mutateConnections((s) => {
       pruneConnectionData(s, this.now());
       const offer = 'outgoing' in input ? input.outgoing : input.incoming;
-      if (!validConnectionPeer(input) || !validConnectionOffer(offer, outgoing)) throw new Error('INTAKE_STORE_INVALID');
+      if (!validConnectionPeer(input) || !validConnectionOffer(offer, outgoing))
+        throw new Error('INTAKE_STORE_INVALID');
       const start = 'createdAt' in offer ? offer.createdAt : offer.receivedAt;
       if (offer.expiresAt <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
       if (start > this.now()) throw new Error('INTAKE_STORE_INVALID');
       this.assertAvailable(s, input.peerOwnerDid, !outgoing);
-      let c = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);
+      let c = s.connections.find((c) => c.peerOwnerDid === input.peerOwnerDid);
       if (c?.state === 'connected') throw new Error('CONNECTION_ALREADY_DECIDED');
       const previous = outgoing ? c?.outgoing : c?.incoming;
       if (previous) {
@@ -341,190 +610,321 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
       if (input.peerDisplayName !== undefined) c.peerDisplayName ??= input.peerDisplayName;
       if ('outgoing' in input) c.outgoing = structuredClone(input.outgoing);
       else c.incoming = structuredClone(input.incoming);
-      if (new Set([...s.requests.filter(r => r.state === 'pending').map(r => r.requesterOwnerDid),
-        ...s.connections.filter(c => c.state === 'pending').map(c => c.peerOwnerDid)]).size > 100)
+      if (
+        new Set([
+          ...s.requests.filter((r) => r.state === 'pending').map((r) => r.requesterOwnerDid),
+          ...s.connections.filter((c) => c.state === 'pending').map((c) => c.peerOwnerDid),
+        ]).size > 100
+      )
         throw new Error('CONNECTION_STORE_FULL');
     }, true);
   }
-  recordOutgoing(input: RecordOutgoingConnection): void { this.recordOffer(input, true); }
-  recordIncoming(input: RecordIncomingConnection): void { this.recordOffer(input, false); }
-  private queueAcceptance(s: ConnectionTrustState, peer: ConnectionPeer, event: ConnectionOutboxRecord, deadline: number): void {
-    if (!validConnectionOutbox(event, this.owner.did) || event.peerOwnerDid !== peer.peerOwnerDid ||
-      event.relayUrl !== peer.relayUrl || event.state !== 'pending' ||
-      event.deliveryDeadline <= this.now() || event.deliveryDeadline > deadline) throw new Error('INTAKE_STORE_INVALID');
-    const existing = s.outbox.find(e => e.eventId === event.eventId && e.deliveryDeadline > this.now());
+  recordOutgoing(input: RecordOutgoingConnection): void {
+    this.recordOffer(input, true);
+  }
+  recordIncoming(input: RecordIncomingConnection): void {
+    this.recordOffer(input, false);
+  }
+  private queueAcceptance(
+    s: ConnectionTrustState,
+    peer: ConnectionPeer,
+    event: ConnectionOutboxRecord,
+    deadline: number,
+  ): void {
+    if (
+      !validConnectionOutbox(event, this.owner.did) ||
+      event.peerOwnerDid !== peer.peerOwnerDid ||
+      event.relayUrl !== peer.relayUrl ||
+      event.state !== 'pending' ||
+      event.deliveryDeadline <= this.now() ||
+      event.deliveryDeadline > deadline
+    )
+      throw new Error('INTAKE_STORE_INVALID');
+    const existing = s.outbox.find(
+      (e) => e.eventId === event.eventId && e.deliveryDeadline > this.now(),
+    );
     if (existing) throw new Error('CONNECTION_ALREADY_DECIDED');
     s.outbox.push(structuredClone(event));
   }
   approveConnection(input: ApproveConnectionInput): void {
-    this.mutateConnections(s => {
+    this.mutateConnections((s) => {
       this.assertAvailable(s, input.peerOwnerDid);
       assertConnectionCommit(input.connectionId, input.localConsentDigest);
-      const c = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);
+      const c = s.connections.find((c) => c.peerOwnerDid === input.peerOwnerDid);
       if (!c?.incoming) throw new Error('CONNECTION_NOT_FOUND');
-      if (c.incoming.requestId !== input.requestId || c.incoming.requestDigest !== input.requestDigest)
+      if (
+        c.incoming.requestId !== input.requestId ||
+        c.incoming.requestDigest !== input.requestDigest
+      )
         throw new Error('CONNECTION_ALREADY_DECIDED');
       if (c.state === 'connected') {
-        if (c.connectionId === input.connectionId && c.localConsentDigest === input.localConsentDigest) return;
+        if (
+          c.connectionId === input.connectionId &&
+          c.localConsentDigest === input.localConsentDigest
+        )
+          return;
         throw new Error('CONNECTION_ALREADY_DECIDED');
       }
       if (c.incoming.expiresAt <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
-      if (input.source !== undefined && !['request', 'prior-approval'].includes(input.source)) throw new Error('INTAKE_STORE_INVALID');
-      if (input.source === 'prior-approval' && !s.priorApprovedPeers.some(p => p.peerOwnerDid === c.peerOwnerDid))
+      if (input.source !== undefined && !['request', 'prior-approval'].includes(input.source))
+        throw new Error('INTAKE_STORE_INVALID');
+      if (
+        input.source === 'prior-approval' &&
+        !s.priorApprovedPeers.some((p) => p.peerOwnerDid === c.peerOwnerDid)
+      )
         throw new Error('CONNECTION_NOT_FOUND');
       this.queueAcceptance(s, c, input.outbox, c.incoming.expiresAt);
-      Object.assign(c, { state: 'connected', connectionId: input.connectionId, connectedAt: this.now(),
-        source: input.source ?? 'request', localConsentDigest: input.localConsentDigest });
+      Object.assign(c, {
+        state: 'connected',
+        connectionId: input.connectionId,
+        connectedAt: this.now(),
+        source: input.source ?? 'request',
+        localConsentDigest: input.localConsentDigest,
+      });
     });
   }
   applyAccepted(input: ApplyConnectionAcceptedInput): void {
-    this.mutateConnections(s => {
+    this.mutateConnections((s) => {
       this.assertAvailable(s, input.peerOwnerDid);
       assertConnectionCommit(input.connectionId, input.remoteAcceptanceDigest);
-      const c = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);
+      const c = s.connections.find((c) => c.peerOwnerDid === input.peerOwnerDid);
       if (!c?.outgoing) throw new Error('CONNECTION_NOT_FOUND');
-      if (c.outgoing.requestId !== input.requestId || c.outgoing.requestDigest !== input.requestDigest)
+      if (
+        c.outgoing.requestId !== input.requestId ||
+        c.outgoing.requestDigest !== input.requestDigest
+      )
         throw new Error('CONNECTION_ALREADY_DECIDED');
       if (c.state === 'connected') {
-        if (c.connectionId === input.connectionId && c.remoteAcceptanceDigest === input.remoteAcceptanceDigest) return;
+        if (
+          c.connectionId === input.connectionId &&
+          c.remoteAcceptanceDigest === input.remoteAcceptanceDigest
+        )
+          return;
         throw new Error('CONNECTION_ALREADY_DECIDED');
       }
       if (c.outgoing.expiresAt <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
-      Object.assign(c, { state: 'connected', connectionId: input.connectionId, connectedAt: this.now(),
-        source: 'request', localConsentDigest: c.outgoing.ownerConsentDigest, remoteAcceptanceDigest: input.remoteAcceptanceDigest });
+      Object.assign(c, {
+        state: 'connected',
+        connectionId: input.connectionId,
+        connectedAt: this.now(),
+        source: 'request',
+        localConsentDigest: c.outgoing.ownerConsentDigest,
+        remoteAcceptanceDigest: input.remoteAcceptanceDigest,
+      });
     });
   }
   rejectConnection(peerOwnerDid: string): void {
-    this.mutateConnections(s => {
+    this.mutateConnections((s) => {
       this.assertAvailable(s, peerOwnerDid);
-      const c = s.connections.find(c => c.peerOwnerDid === peerOwnerDid);
+      const c = s.connections.find((c) => c.peerOwnerDid === peerOwnerDid);
       if (!c?.incoming) throw new Error('CONNECTION_NOT_FOUND');
       if (c.state !== 'pending') throw new Error('CONNECTION_ALREADY_DECIDED');
       if (c.incoming.expiresAt <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
       this.removeConnection(s, peerOwnerDid, false);
-      s.refusals = s.refusals.filter(r => r.peerOwnerDid !== peerOwnerDid);
+      s.refusals = s.refusals.filter((r) => r.peerOwnerDid !== peerOwnerDid);
       s.refusals.push({ peerOwnerDid, refuseUntil: this.now() + CONNECTION_REFUSAL_TTL_MS });
     });
   }
-  private removeConnection(s: ConnectionTrustState, peerOwnerDid: string, removeLegacyGrants = true): void {
+  private removeConnection(
+    s: ConnectionTrustState,
+    peerOwnerDid: string,
+    removeLegacyGrants = true,
+  ): void {
     assertConnectionOwnerDid(peerOwnerDid);
-    s.connections = s.connections.filter(c => c.peerOwnerDid !== peerOwnerDid);
-    for (const r of s.controls ?? []) if (r.offer.fromOwnerDid === peerOwnerDid || r.offer.toOwnerDid === peerOwnerDid) {
-      r.active = false; r.outbox = [];
-    }
-    if (removeLegacyGrants) s.grants = s.grants.filter(g => g.did !== peerOwnerDid);
-    s.outbox = s.outbox.filter(e => e.peerOwnerDid !== peerOwnerDid);
+    s.connections = s.connections.filter((c) => c.peerOwnerDid !== peerOwnerDid);
+    for (const r of s.controls ?? [])
+      if (r.offer.fromOwnerDid === peerOwnerDid || r.offer.toOwnerDid === peerOwnerDid) {
+        r.active = false;
+        r.outbox = [];
+      }
+    if (removeLegacyGrants) s.grants = s.grants.filter((g) => g.did !== peerOwnerDid);
+    s.outbox = s.outbox.filter((e) => e.peerOwnerDid !== peerOwnerDid);
   }
   withdrawConnection(peerOwnerDid: string, requestId: string): void {
-    this.mutateConnections(s => {
-      const c = s.connections.find(c => c.peerOwnerDid === peerOwnerDid);
-      if (!c?.outgoing || c.outgoing.requestId !== requestId || c.state !== 'pending') throw new Error('CONNECTION_NOT_FOUND');
-      for (const r of s.controls ?? []) if (r.offer.requestId === requestId) { r.active = false; r.outbox = []; }
+    this.mutateConnections((s) => {
+      const c = s.connections.find((c) => c.peerOwnerDid === peerOwnerDid);
+      if (!c?.outgoing || c.outgoing.requestId !== requestId || c.state !== 'pending')
+        throw new Error('CONNECTION_NOT_FOUND');
+      for (const r of s.controls ?? [])
+        if (r.offer.requestId === requestId) {
+          r.active = false;
+          r.outbox = [];
+        }
       delete c.outgoing;
-      if (!c.incoming) s.connections = s.connections.filter(r => r !== c);
+      if (!c.incoming) s.connections = s.connections.filter((r) => r !== c);
     });
   }
   finishRequestReview(id: string, discard = false): void {
-    this.mutate(s => {
-      const r = s.requests.find(r => r.id === id);
+    this.mutate((s) => {
+      const r = s.requests.find((r) => r.id === id);
       if (!r) throw new Error('REQUEST_NOT_FOUND');
       if (r.state !== 'pending') throw new Error('REQUEST_ALREADY_DECIDED');
       r.state = discard ? 'expired' : 'approved';
       if (!discard) r.trust = 'limited';
     });
   }
-  disconnect(peerOwnerDid: string): void { this.mutateConnections(s => this.removeConnection(s, peerOwnerDid)); }
+  disconnect(peerOwnerDid: string): void {
+    this.mutateConnections((s) => this.removeConnection(s, peerOwnerDid));
+  }
   block(peerOwnerDid: string): void {
-    this.mutateConnections(s => {
+    this.mutateConnections((s) => {
       this.removeConnection(s, peerOwnerDid);
       if (!s.denials.includes(peerOwnerDid)) s.denials.push(peerOwnerDid);
     });
   }
   unblock(peerOwnerDid: string): void {
-    this.mutateConnections(s => {
+    this.mutateConnections((s) => {
       this.removeConnection(s, peerOwnerDid);
-      s.denials = s.denials.filter(d => d !== peerOwnerDid);
+      s.denials = s.denials.filter((d) => d !== peerOwnerDid);
     });
   }
   /** A validated task can redeem inviter consent without granting execution or recipient consent. */
-  redeemTaskInvite(invite: import('@acp/core').Invite, peer: ConnectionPeer, connectionId: string): 'first' | 'same' | 'other' | 'inactive' {
-    return this.mutateConnections(s => {
-      const inviteDigest = connectionInviteDigest(invite), deadline = Math.min(Date.parse(invite.expiresAt), Date.parse(invite.agentCard.payload.expiresAt));
-      if (invite.ownerDid !== this.owner.did || !Number.isFinite(deadline) || !validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
+  redeemTaskInvite(
+    invite: import('@acp/core').Invite,
+    peer: ConnectionPeer,
+    connectionId: string,
+  ): 'first' | 'same' | 'other' | 'inactive' {
+    return this.mutateConnections((s) => {
+      const inviteDigest = connectionInviteDigest(invite),
+        deadline = Math.min(
+          Date.parse(invite.expiresAt),
+          Date.parse(invite.agentCard.payload.expiresAt),
+        );
+      if (
+        invite.ownerDid !== this.owner.did ||
+        !Number.isFinite(deadline) ||
+        !validConnectionPeer(peer)
+      )
+        throw new Error('INTAKE_STORE_INVALID');
       if (deadline <= this.now()) throw new Error('INVITE_EXPIRED');
       const eligibility = inviteBindingEligibility(s, inviteDigest, peer.peerOwnerDid, this.now());
       if (eligibility === 'other') return 'other';
-      if (eligibility === 'same') return s.connections.some(c => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected') ? 'same' : 'inactive';
+      if (eligibility === 'same')
+        return s.connections.some(
+          (c) => c.peerOwnerDid === peer.peerOwnerDid && c.state === 'connected',
+        )
+          ? 'same'
+          : 'inactive';
       this.assertAvailable(s, peer.peerOwnerDid);
-      s.inviteBindings.push({ inviteDigest, requesterOwnerDid: peer.peerOwnerDid, boundAt: this.now(), tokenExpiresAt: deadline, connectionId });
-      const previous = s.connections.find(c => c.peerOwnerDid === peer.peerOwnerDid);
+      s.inviteBindings.push({
+        inviteDigest,
+        requesterOwnerDid: peer.peerOwnerDid,
+        boundAt: this.now(),
+        tokenExpiresAt: deadline,
+        connectionId,
+      });
+      const previous = s.connections.find((c) => c.peerOwnerDid === peer.peerOwnerDid);
       if (previous?.state !== 'connected') {
         const peerDisplayName = previous?.peerDisplayName ?? peer.peerDisplayName;
-        s.connections = s.connections.filter(c => c.peerOwnerDid !== peer.peerOwnerDid);
-        s.connections.push({ ...peer, ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
-          state: 'connected', connectionId, connectedAt: this.now(), source: 'invite', localConsentDigest: inviteDigest });
+        s.connections = s.connections.filter((c) => c.peerOwnerDid !== peer.peerOwnerDid);
+        s.connections.push({
+          ...peer,
+          ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+          state: 'connected',
+          connectionId,
+          connectedAt: this.now(),
+          source: 'invite',
+          localConsentDigest: inviteDigest,
+        });
       }
       return 'first';
     });
   }
   /** Caller verified the invite and the matching peer's signed task ACCEPT.
    * Explicit outbound consent connects identities, never authorizes inbound work. */
-  recordAcceptedInviteTask(peer: ConnectionPeer, connectionId: string, consentDigest: string, acceptanceDigest: string,
-    task: Pick<TaskManifest, 'taskId' | 'createdAt' | 'deadline'>): boolean {
-    return this.mutateConnections(s => {
+  recordAcceptedInviteTask(
+    peer: ConnectionPeer,
+    connectionId: string,
+    consentDigest: string,
+    acceptanceDigest: string,
+    task: Pick<TaskManifest, 'taskId' | 'createdAt' | 'deadline'>,
+  ): boolean {
+    return this.mutateConnections((s) => {
       if (!validConnectionPeer(peer)) throw new Error('INTAKE_STORE_INVALID');
       this.assertAvailable(s, peer.peerOwnerDid);
       assertConnectionCommit(connectionId, consentDigest);
       assertConnectionCommit(connectionId, acceptanceDigest);
-      const previous = s.connections.find(c => c.peerOwnerDid === peer.peerOwnerDid);
+      const previous = s.connections.find((c) => c.peerOwnerDid === peer.peerOwnerDid);
       if (previous?.state === 'connected') return false;
-      s.connections = s.connections.filter(c => c.peerOwnerDid !== peer.peerOwnerDid);
+      s.connections = s.connections.filter((c) => c.peerOwnerDid !== peer.peerOwnerDid);
       // Retain task-derived outgoing consent evidence in the existing record shape; no control offer/outbox is sent.
-      s.connections.push({ ...peer, state: 'connected', connectionId, connectedAt: this.now(),
-        source: 'request', localConsentDigest: consentDigest, remoteAcceptanceDigest: acceptanceDigest,
-        outgoing: { requestId: task.taskId, requestDigest: consentDigest, ownerConsentDigest: consentDigest,
+      s.connections.push({
+        ...peer,
+        state: 'connected',
+        connectionId,
+        connectedAt: this.now(),
+        source: 'request',
+        localConsentDigest: consentDigest,
+        remoteAcceptanceDigest: acceptanceDigest,
+        outgoing: {
+          requestId: task.taskId,
+          requestDigest: consentDigest,
+          ownerConsentDigest: consentDigest,
           createdAt: Date.parse(task.createdAt),
-          expiresAt: Math.min(Date.parse(task.deadline), Date.parse(task.createdAt) + CONNECTION_OFFER_TTL_MS) },
-        acceptance: 'off' });
+          expiresAt: Math.min(
+            Date.parse(task.deadline),
+            Date.parse(task.createdAt) + CONNECTION_OFFER_TTL_MS,
+          ),
+        },
+        acceptance: 'off',
+      });
       return true;
     });
   }
   bindInviteFirstUse(input: BindInviteFirstUseInput): 'first' | 'same' | 'other' {
-    return this.mutateConnections(s => {
+    return this.mutateConnections((s) => {
       const inviteDigest = connectionInviteDigest(input.invite);
-      const deadline = Math.min(Date.parse(input.invite.expiresAt), Date.parse(input.invite.agentCard.payload.expiresAt));
-      if (input.invite.ownerDid !== this.owner.did || !Number.isFinite(deadline)) throw new Error('INTAKE_STORE_INVALID');
+      const deadline = Math.min(
+        Date.parse(input.invite.expiresAt),
+        Date.parse(input.invite.agentCard.payload.expiresAt),
+      );
+      if (input.invite.ownerDid !== this.owner.did || !Number.isFinite(deadline))
+        throw new Error('INTAKE_STORE_INVALID');
       if (deadline <= this.now()) throw new Error('CONNECTION_REQUEST_EXPIRED');
       if (!validConnectionPeer(input)) throw new Error('INTAKE_STORE_INVALID');
       const eligibility = inviteBindingEligibility(s, inviteDigest, input.peerOwnerDid, this.now());
       if (eligibility !== 'first') return eligibility;
       this.assertAvailable(s, input.peerOwnerDid, true);
       assertConnectionCommit(input.connectionId, input.localConsentDigest);
-      const previous = s.connections.find(c => c.peerOwnerDid === input.peerOwnerDid);
+      const previous = s.connections.find((c) => c.peerOwnerDid === input.peerOwnerDid);
       const connected = previous?.state === 'connected' ? previous : undefined;
       if (connected && connected.connectionId !== input.connectionId)
         throw new Error('CONNECTION_ALREADY_DECIDED');
       this.queueAcceptance(s, input, input.outbox, deadline);
       if (!connected) {
         const peerDisplayName = previous?.peerDisplayName ?? input.peerDisplayName;
-        s.connections = s.connections.filter(c => c.peerOwnerDid !== input.peerOwnerDid);
-        s.connections.push({ peerOwnerDid: input.peerOwnerDid, ...(input.peerAgentDid ? { peerAgentDid: input.peerAgentDid } : {}),
+        s.connections = s.connections.filter((c) => c.peerOwnerDid !== input.peerOwnerDid);
+        s.connections.push({
+          peerOwnerDid: input.peerOwnerDid,
+          ...(input.peerAgentDid ? { peerAgentDid: input.peerAgentDid } : {}),
           ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
-          relayUrl: input.relayUrl, state: 'connected', connectionId: input.connectionId, connectedAt: this.now(),
-          source: 'invite', localConsentDigest: input.localConsentDigest });
+          relayUrl: input.relayUrl,
+          state: 'connected',
+          connectionId: input.connectionId,
+          connectedAt: this.now(),
+          source: 'invite',
+          localConsentDigest: input.localConsentDigest,
+        });
       }
-      s.inviteBindings.push({ inviteDigest, requesterOwnerDid: input.peerOwnerDid, boundAt: this.now(),
-        tokenExpiresAt: deadline, connectionId: input.connectionId });
+      s.inviteBindings.push({
+        inviteDigest,
+        requesterOwnerDid: input.peerOwnerDid,
+        boundAt: this.now(),
+        tokenExpiresAt: deadline,
+        connectionId: input.connectionId,
+      });
       return 'first';
     });
   }
   listConnectionOutbox(): ConnectionOutboxRecord[] {
     const s = this.read();
-    return s.version === 2 ? s.outbox.filter(e => e.state === 'pending' && e.deliveryDeadline > this.now()) : [];
+    return s.version === 2
+      ? s.outbox.filter((e) => e.state === 'pending' && e.deliveryDeadline > this.now())
+      : [];
   }
   markConnectionEventDelivered(eventId: string): void {
-    this.mutateConnections(s => {
-      const e = s.outbox.find(e => e.eventId === eventId);
+    this.mutateConnections((s) => {
+      const e = s.outbox.find((e) => e.eventId === eventId);
       if (!e) throw new Error('CONNECTION_NOT_FOUND');
       e.state = 'delivered';
     });
@@ -532,46 +932,76 @@ export class WorkerTrustStore implements WorkerIntakeStore, ConnectionPersistenc
   /** One process-local limiter shared by task and connection intake on this store. */
   consumeAdmission(did: string, id: string): void {
     const now = this.now();
-    this.times = this.times.filter(t => now - t.at < 60_000);
-    if (this.times.some(t => t.did === did && t.id === id)) return;
-    if (this.times.length >= 60 || this.times.filter(t => t.did === did).length >= 5) throw new Error('INTAKE_RATE_LIMITED');
+    this.times = this.times.filter((t) => now - t.at < 60_000);
+    if (this.times.some((t) => t.did === did && t.id === id)) return;
+    if (this.times.length >= 60 || this.times.filter((t) => t.did === did).length >= 5)
+      throw new Error('INTAKE_RATE_LIMITED');
     this.times.push({ did, at: now, id });
   }
   enqueue(manifest: TaskManifest, input: Json): void {
-    const now = this.now(), did = manifest.requester.ownerDid;
+    const now = this.now(),
+      did = manifest.requester.ownerDid;
     this.consumeAdmission(did, manifest.taskId);
-    this.mutate(s => {
+    this.mutate((s) => {
       if (s.denials.includes(did)) throw new Error('REQUEST_DENIED');
-      if (s.requests.some(r => r.requesterOwnerDid === did &&
-          (r.state === 'pending' || (r.taskId === manifest.taskId && r.digest === digest({ manifest, input }))))) return;
-      if (s.requests.filter(r => r.state === 'pending').length >= 100 ||
-          Buffer.byteLength(JSON.stringify(s)) > ceiling - 32 * 1024) throw new Error('INTAKE_QUEUE_FULL');
-      const entry: IntakeRequest = { id: randomUUID(), requesterOwnerDid: did,
-        requesterAgentDid: manifest.requester.agentDid, taskId: manifest.taskId,
+      if (
+        s.requests.some(
+          (r) =>
+            r.requesterOwnerDid === did &&
+            (r.state === 'pending' ||
+              (r.taskId === manifest.taskId && r.digest === digest({ manifest, input }))),
+        )
+      )
+        return;
+      if (
+        s.requests.filter((r) => r.state === 'pending').length >= 100 ||
+        Buffer.byteLength(JSON.stringify(s)) > ceiling - 32 * 1024
+      )
+        throw new Error('INTAKE_QUEUE_FULL');
+      const entry: IntakeRequest = {
+        id: randomUUID(),
+        requesterOwnerDid: did,
+        requesterAgentDid: manifest.requester.agentDid,
+        taskId: manifest.taskId,
         digest: digest({ manifest, input }),
-        scope: { ...(manifest.task.skillId ? { skillId: preview(manifest.task.skillId, 64) } : {}),
-          ...(manifest.task.taskType ? { taskType: preview(manifest.task.taskType, 64) } : {}) }, budget: manifest.budget,
-        capabilities: manifest.permissions.grantedCapabilities.length, receivedAt: now,
-        expiresAt: Math.min(Date.parse(manifest.deadline), now + 24 * 60 * 60_000), state: 'pending' };
+        scope: {
+          ...(manifest.task.skillId ? { skillId: preview(manifest.task.skillId, 64) } : {}),
+          ...(manifest.task.taskType ? { taskType: preview(manifest.task.taskType, 64) } : {}),
+        },
+        budget: manifest.budget,
+        capabilities: manifest.permissions.grantedCapabilities.length,
+        receivedAt: now,
+        expiresAt: Math.min(Date.parse(manifest.deadline), now + 24 * 60 * 60_000),
+        state: 'pending',
+      };
       if (Buffer.byteLength(JSON.stringify(entry)) > 4096) throw new Error('INTAKE_QUEUE_FULL');
       s.requests.push(entry);
     });
   }
   decide(id: string, decision: 'approve' | 'deny', trust: 'limited' | 'trusted' = 'limited'): void {
-    this.mutate(s => {
-      const r = s.requests.find(r => r.id === id);
+    this.mutate((s) => {
+      const r = s.requests.find((r) => r.id === id);
       if (!r) throw new Error('REQUEST_NOT_FOUND');
       if (decision === 'deny') {
         if (!s.denials.includes(r.requesterOwnerDid)) s.denials.push(r.requesterOwnerDid);
         if (s.version === 2) this.removeConnection(s, r.requesterOwnerDid);
-        s.grants = s.grants.filter(g => g.did !== r.requesterOwnerDid); r.state = 'denied'; return;
+        s.grants = s.grants.filter((g) => g.did !== r.requesterOwnerDid);
+        r.state = 'denied';
+        return;
       }
       if (r.state === 'approved' && r.trust === trust) return;
       if (r.state === 'expired') throw new Error('REQUEST_EXPIRED');
-      if (r.state !== 'pending' || s.denials.includes(r.requesterOwnerDid)) throw new Error('REQUEST_ALREADY_DECIDED');
-      s.grants = s.grants.filter(g => g.did !== r.requesterOwnerDid);
-      s.grants.push({ did: r.requesterOwnerDid, trust, origin: 'explicit-legacy', expiresAt: this.now() + 24 * 60 * 60_000 });
-      r.state = 'approved'; r.trust = trust;
+      if (r.state !== 'pending' || s.denials.includes(r.requesterOwnerDid))
+        throw new Error('REQUEST_ALREADY_DECIDED');
+      s.grants = s.grants.filter((g) => g.did !== r.requesterOwnerDid);
+      s.grants.push({
+        did: r.requesterOwnerDid,
+        trust,
+        origin: 'explicit-legacy',
+        expiresAt: this.now() + 24 * 60 * 60_000,
+      });
+      r.state = 'approved';
+      r.trust = trust;
     });
   }
 }

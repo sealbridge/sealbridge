@@ -112,7 +112,9 @@ async function session(
     bob = generateKeyPair(),
     { client } = await network(),
     dir = await directory();
-  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: !workerApproval, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  const worker = new WorkerNode({
+    autoAccept: { version: 1, enabled: !workerApproval, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner: bob,
     relay: client,
     adapter,
@@ -306,7 +308,9 @@ describe('WP-7/10/11 real adapter sessions across owner boundaries', () => {
     const alice = generateKeyPair(),
       bob = generateKeyPair(),
       relay = new InMemoryRelay();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: new SandboxAgentAdapter(),
@@ -364,9 +368,9 @@ describe('WP-8 signed discovery, invite and relay transports', () => {
     expect((await fetcher(url + '/health')).status).toBe(200);
     for (const format of ['acp', 'acp-invite'] as const) {
       const token = createInviteToken({ agentCard: card, format }, owner);
-      expect(parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true }).ownerDid).toBe(
-        owner.did,
-      );
+      expect(
+        parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay: true }).ownerDid,
+      ).toBe(owner.did);
       expect(() => parseAndVerifyInviteToken(token, Date.now() + 7200000)).toThrow(/INVITE/);
     }
     const token = createInviteToken({ agentCard: card }, owner);
@@ -560,44 +564,79 @@ describe('WP-11 adversarial session enforcement', () => {
   it('preserves isolation rejection codes from worker adapters, including an unknown runner level', async () => {
     for (const isolation of ['unknown-future-level', 'mismatch']) {
       const adapter: AgentAdapter = {
-        id: 'isolation-check', name: 'Isolation check', skills: [],
+        id: 'isolation-check',
+        name: 'Isolation check',
+        skills: [],
         executeTask: async () => {
           if (isolation === 'mismatch') throw new Error('ISOLATION_LEVEL_MISMATCH');
-          return (await runContainerOrSubprocessSandbox({ isolationLevel: isolation,
-            code: 'throw new Error("MUST_NOT_EXECUTE");', timeoutMs: 1000, onTool: async () => null })).output;
+          return (
+            await runContainerOrSubprocessSandbox({
+              isolationLevel: isolation,
+              code: 'throw new Error("MUST_NOT_EXECUTE");',
+              timeoutMs: 1000,
+              onTool: async () => null,
+            })
+          ).output;
         },
       };
       const { results } = await session(adapter);
-      expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
-        message: expect.stringContaining(isolation === 'mismatch' ? 'ISOLATION_LEVEL_MISMATCH' : 'ISOLATION_LEVEL_UNSUPPORTED'),
-      }) });
+      expect(results[0]).toMatchObject({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: expect.stringContaining(
+            isolation === 'mismatch' ? 'ISOLATION_LEVEL_MISMATCH' : 'ISOLATION_LEVEL_UNSUPPORTED',
+          ),
+        }),
+      });
     }
   });
 
-  it.each(['wasm', 'microvm'])('rejects unsupported sandbox isolation %s with a dedicated code', async minimumIsolationLevel => {
-    const { results, dir } = await session(new SandboxAgentAdapter('throw new Error("MUST_NOT_EXECUTE");'), { minimumIsolationLevel });
-    expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
-      message: expect.stringContaining('ISOLATION_LEVEL_UNSUPPORTED'),
-    }) });
-    const audit = await readFile(join(dir, 'bob.jsonl'), 'utf8');
-    expect(audit).not.toContain('EXECUTION_FAILED');
-    expect(audit.trim().split('\n').map(line => JSON.parse(line).entry?.body.eventType)).not.toContain('DELIVER');
-  });
+  it.each(['wasm', 'microvm'])(
+    'rejects unsupported sandbox isolation %s with a dedicated code',
+    async (minimumIsolationLevel) => {
+      const { results, dir } = await session(
+        new SandboxAgentAdapter('throw new Error("MUST_NOT_EXECUTE");'),
+        { minimumIsolationLevel },
+      );
+      expect(results[0]).toMatchObject({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: expect.stringContaining('ISOLATION_LEVEL_UNSUPPORTED'),
+        }),
+      });
+      const audit = await readFile(join(dir, 'bob.jsonl'), 'utf8');
+      expect(audit).not.toContain('EXECUTION_FAILED');
+      expect(
+        audit
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line).entry?.body.eventType),
+      ).not.toContain('DELIVER');
+    },
+  );
 
-  it.each(['wasm', 'microvm'])('R1 rejects a host adapter delivery for minimumIsolationLevel=%s', async (level) => {
-    const adapter: AgentAdapter = {
-      id: 'r1-host', name: 'R1 host', skills: [],
-      executeTask: async (context) => {
-        expect(context.manifest.sandboxPolicy.isolationLevel).toBe(level);
-        expect(context.manifest.verification.requireExecutionAttestation).toBe(true);
-        return { value: 7 };
-      },
-    };
-    const { results } = await session(adapter, { minimumIsolationLevel: level });
-    expect(results[0]).toMatchObject({ status: 'rejected', reason: expect.objectContaining({
-      message: 'VERIFICATION_REJECTED: Error: ISOLATION_LEVEL_MISMATCH',
-    }) });
-  });
+  it.each(['wasm', 'microvm'])(
+    'R1 rejects a host adapter delivery for minimumIsolationLevel=%s',
+    async (level) => {
+      const adapter: AgentAdapter = {
+        id: 'r1-host',
+        name: 'R1 host',
+        skills: [],
+        executeTask: async (context) => {
+          expect(context.manifest.sandboxPolicy.isolationLevel).toBe(level);
+          expect(context.manifest.verification.requireExecutionAttestation).toBe(true);
+          return { value: 7 };
+        },
+      };
+      const { results } = await session(adapter, { minimumIsolationLevel: level });
+      expect(results[0]).toMatchObject({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          message: 'VERIFICATION_REJECTED: Error: ISOLATION_LEVEL_MISMATCH',
+        }),
+      });
+    },
+  );
 
   it('rejects an unapproved contract before adapter execution', async () => {
     let executed = false;
@@ -717,10 +756,14 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
   await writeFile(join(dir, 'bob.private.json'), JSON.stringify(bob), { mode: 0o600 });
   // This session covers CLI transport and settlement under explicit contact permission.
   const contacts = join(dir, 'contacts.json');
-  const aliceCard = createSignedAgentCard({ name: 'Requester', agentDid: alice.did,
-    relayEndpoint: n.url, skills: [] }, alice);
+  const aliceCard = createSignedAgentCard(
+    { name: 'Requester', agentDid: alice.did, relayEndpoint: n.url, skills: [] },
+    alice,
+  );
   addContact(contacts, bob, createInviteToken({ agentCard: aliceCard }, alice), undefined, true);
-  updateContacts(contacts, bob, items => { items[0].allow = true; });
+  updateContacts(contacts, bob, (items) => {
+    items[0].allow = true;
+  });
   if (!n.wsUrl) {
     // Exercise command parsing/discovery using an in-process fetch bridge below.
     const { networkCommand } = await import('../cli/src/network.js');
@@ -739,7 +782,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       await networkCommand('discover', ['--relay', n.url, '--allow-private-relay']);
       await Promise.all([
         networkCommand('worker', [
-          'start', '--allow-local-pc',
+          'start',
+          '--allow-local-pc',
           '--contacts',
           contacts,
           '--key',
@@ -785,9 +829,9 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     const invite = (
       await cli(['invite', 'create', '--key', join(dir, 'bob.private.json'), '--relay', n.url]).done
     ).trim();
-    expect(parseAndVerifyInviteToken(invite, Date.now(), { allowPrivateRelay: true }).ownerDid).toBe(
-      bob.did,
-    );
+    expect(
+      parseAndVerifyInviteToken(invite, Date.now(), { allowPrivateRelay: true }).ownerDid,
+    ).toBe(bob.did);
     let ready!: (line: string) => void;
     const token = new Promise<string>((resolve) => {
       ready = resolve;
@@ -795,7 +839,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     const worker = cli(
       [
         'worker',
-        'start', '--allow-local-pc',
+        'start',
+        '--allow-local-pc',
         '--contacts',
         contacts,
         '--key',
@@ -867,7 +912,9 @@ it('completes a full session using persistent SSE transport', async () => {
     () => aTransport.close(),
     () => bTransport.close(),
   );
-  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  const worker = new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner: bob,
     relay: bTransport,
     relayUrl: n.url,
@@ -949,7 +996,8 @@ it('persists the edge relay registry, queue and replay protection across restart
       await second.fetch(
         new Request('https://relay.local/envelopes?recipient=' + encodeURIComponent(peer.did), {
           headers: {
-            authorization: 'Bearer ' + createRelayAuthToken(peer, { origin: 'https://relay.local' }),
+            authorization:
+              'Bearer ' + createRelayAuthToken(peer, { origin: 'https://relay.local' }),
           },
         }),
       )

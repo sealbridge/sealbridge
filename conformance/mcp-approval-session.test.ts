@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, signApproval } from '../packages/core/src/index.js';
 import { verifyAudit } from '../packages/ledger/src/index.js';
 import { InMemoryRelay } from '../packages/relay/src/index.js';
-import { AcpMcpServer, PolicyAutoApprovalProvider, RequesterClient, WorkerNode } from '../packages/runtime/src/index.js';
+import {
+  AcpMcpServer,
+  PolicyAutoApprovalProvider,
+  RequesterClient,
+  WorkerNode,
+} from '../packages/runtime/src/index.js';
 import { body, deferred, form, harness, initialize, toolCall } from './mcp-approval-helpers.js';
 
 function worker(relay: InMemoryRelay) {
@@ -11,13 +16,22 @@ function worker(relay: InMemoryRelay) {
   const policy = new PolicyAutoApprovalProvider(owner);
   const approve = vi.spyOn(policy, 'approve');
   const execute = vi.fn(async (context) => ({ echoed: context.input }));
-  const node = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted', owner, relay, relayUrl: 'https://relay.example',
+  const node = new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
+    owner,
+    relay,
+    relayUrl: 'https://relay.example',
     approvalProvider: policy,
     adapter: { id: 'echo', name: 'Echo', skills: [], executeTask: execute },
   });
   return { node, approve, execute };
 }
-const accept = (id: string) => ({ jsonrpc: '2.0', id, result: { action: 'accept', content: { approved: true } } });
+const accept = (id: string) => ({
+  jsonrpc: '2.0',
+  id,
+  result: { action: 'accept', content: { approved: true } },
+});
 const review = (message: any) => JSON.parse(message.params.message.split('\n').slice(1).join('\n'));
 
 describe('resolved MCP approval sessions', () => {
@@ -30,13 +44,29 @@ describe('resolved MCP approval sessions', () => {
     const h = harness({ owner, relay, requireInteractiveApproval: true });
     try {
       await initialize(h, { elicitation: { form: {} } });
-      h.send(toolCall('task', { inviteToken: remote.node.invite(), title: 'Echo', description: 'Return the JSON', input: { n: 42 } }));
+      h.send(
+        toolCall('task', {
+          inviteToken: remote.node.invite(),
+          title: 'Echo',
+          description: 'Return the JSON',
+          input: { n: 42 },
+        }),
+      );
       const outbound = await form(h);
       const action = review(outbound);
-      expect(action).toMatchObject({ gate: 'external_side_effect', target: {
-        fanOut: 1, input: { n: 42 }, relay: 'injected transport',
-        manifest: { taskId: action.taskId, requester: { ownerDid: owner.did }, worker: { ownerDid: remote.node.options.owner.did } },
-      } });
+      expect(action).toMatchObject({
+        gate: 'external_side_effect',
+        target: {
+          fanOut: 1,
+          input: { n: 42 },
+          relay: 'injected transport',
+          manifest: {
+            taskId: action.taskId,
+            requester: { ownerDid: owner.did },
+            worker: { ownerDid: remote.node.options.owner.did },
+          },
+        },
+      });
       expect(action.target.manifest.budget.maxWallClockSeconds).toBe(60);
       expect(action.target.manifest.deadline).toBeDefined();
       expect(outbound.params.message).not.toContain('acp-invite:');
@@ -47,9 +77,15 @@ describe('resolved MCP approval sessions', () => {
       const connection = await form(h, 1);
       expect(connection.params.requestedSchema.properties).toHaveProperty('connect');
       expect(connection.params.message).toContain('Separate connection consent');
-      h.send({ jsonrpc: '2.0', id: connection.id, result: { action: 'accept', content: { connect: false } } });
+      h.send({
+        jsonrpc: '2.0',
+        id: connection.id,
+        result: { action: 'accept', content: { connect: false } },
+      });
       const final = await form(h, 2);
-      expect(review(final)).toMatchObject({ taskId: action.taskId, gate: 'final_verification',
+      expect(review(final)).toMatchObject({
+        taskId: action.taskId,
+        gate: 'final_verification',
         target: { artifact: { payload: { data: { echoed: { n: 42 } } } } },
         details: { manifest: action.target.manifest },
       });
@@ -66,7 +102,11 @@ describe('resolved MCP approval sessions', () => {
       expect(result.taskId).toBe(action.taskId);
       expect(events()).toContain('VERIFY_ACCEPT');
       expect(events()).toContain('SETTLED');
-    } finally { await h.close(); remote.node.stop(); await running; }
+    } finally {
+      await h.close();
+      remote.node.stop();
+      await running;
+    }
   });
 
   it('requires distinct final consent after execution', async () => {
@@ -77,20 +117,41 @@ describe('resolved MCP approval sessions', () => {
     const h = harness({ owner: generateKeyPair(), relay, requireInteractiveApproval: true });
     try {
       await initialize(h, { elicitation: {} });
-      h.send(toolCall('denied-final', { inviteToken: remote.node.invite(), title: 'Echo', description: 'Review final result', input: {} }));
+      h.send(
+        toolCall('denied-final', {
+          inviteToken: remote.node.invite(),
+          title: 'Echo',
+          description: 'Review final result',
+          input: {},
+        }),
+      );
       h.send(accept((await form(h)).id));
       const connection = await form(h, 1);
       expect(connection.params.requestedSchema.properties).toHaveProperty('connect');
       expect(connection.params.message).toContain('Separate connection consent');
-      h.send({ jsonrpc: '2.0', id: connection.id, result: { action: 'accept', content: { connect: false } } });
+      h.send({
+        jsonrpc: '2.0',
+        id: connection.id,
+        result: { action: 'accept', content: { connect: false } },
+      });
       const final = await form(h, 2);
-      h.send({ jsonrpc: '2.0', id: final.id, result: { action: 'accept', content: { approved: false } } });
-      expect(body(await h.next((m) => m.id === 'denied-final')).error).toContain('APPROVAL_REJECTED');
+      h.send({
+        jsonrpc: '2.0',
+        id: final.id,
+        result: { action: 'accept', content: { approved: false } },
+      });
+      expect(body(await h.next((m) => m.id === 'denied-final')).error).toContain(
+        'APPROVAL_REJECTED',
+      );
       expect(remote.execute).toHaveBeenCalledTimes(1);
       const events = send.mock.calls.map(([envelope]) => envelope.payload.eventType);
       expect(events).not.toContain('VERIFY_ACCEPT');
       expect(events).not.toContain('SETTLED');
-    } finally { await h.close(); remote.node.stop(); await running; }
+    } finally {
+      await h.close();
+      remote.node.stop();
+      await running;
+    }
   });
 
   it('checks a custom outbound receipt against the resolved owner and action', async () => {
@@ -98,12 +159,23 @@ describe('resolved MCP approval sessions', () => {
     const owner = generateKeyPair();
     const other = generateKeyPair();
     const send = vi.spyOn(relay, 'send');
-    const server = new AcpMcpServer({ owner, relay, approvalProvider: {
-      async approve(request) { return signApproval(request.taskId, request.gate, request.target, other); },
-    } });
-    const response = await server.handle(toolCall('wrong-owner', {
-      workerDid: other.did, title: 'Echo', description: 'Review this task', input: {},
-    }));
+    const server = new AcpMcpServer({
+      owner,
+      relay,
+      approvalProvider: {
+        async approve(request) {
+          return signApproval(request.taskId, request.gate, request.target, other);
+        },
+      },
+    });
+    const response = await server.handle(
+      toolCall('wrong-owner', {
+        workerDid: other.did,
+        title: 'Echo',
+        description: 'Review this task',
+        input: {},
+      }),
+    );
     expect(body(response).error).toBe('APPROVAL_REJECTED');
     expect(send).not.toHaveBeenCalled();
   });
@@ -118,25 +190,40 @@ describe('resolved MCP approval sessions', () => {
     const input = { n: 1 };
     const budget = { maxOutputTokens: 30 };
     const outputSchema = { type: 'object' };
-    const client = new RequesterClient({ owner, relay, approvalProvider: new PolicyAutoApprovalProvider(owner) });
+    const client = new RequesterClient({
+      owner,
+      relay,
+      approvalProvider: new PolicyAutoApprovalProvider(owner),
+    });
     const result = client.delegate({
-      to: remote.node.invite(), title: 'Frozen', description: 'Review exact values', input, budget, outputSchema,
+      to: remote.node.invite(),
+      title: 'Frozen',
+      description: 'Review exact values',
+      input,
+      budget,
+      outputSchema,
       beforePropose: async (action) => {
         expect(Object.isFrozen(action.manifest.budget)).toBe(true);
         expect(Object.isFrozen(action.input)).toBe(true);
         expect(action.manifest.budget.maxOutputTokens).toBe(30);
-        entered.resolve(); await decision.promise;
+        entered.resolve();
+        await decision.promise;
         expect(action.input).toEqual({ n: 1 });
       },
     });
     try {
       await entered.promise;
-      input.n = 2; budget.maxOutputTokens = 99; outputSchema.type = 'string';
+      input.n = 2;
+      budget.maxOutputTokens = 99;
+      outputSchema.type = 'string';
       decision.resolve();
       const settled = await result;
       expect(settled.deliverable).toEqual({ echoed: { n: 1 } });
       expect(verifyAudit(settled.bundle).valid).toBe(true);
-    } finally { remote.node.stop(); await running; }
+    } finally {
+      remote.node.stop();
+      await running;
+    }
   });
 
   it('rechecks invite expiry after review without transmitting a proposal', async () => {
@@ -148,14 +235,23 @@ describe('resolved MCP approval sessions', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
     const client = new RequesterClient({ owner, relay });
     try {
-      await expect(client.delegate({
-        to: remote.node.invite(3600), title: 'Expires', description: 'Wait for expiry', input: {},
-        // The manifest remains valid longer than the one-hour invitation.
-        taskTimeoutMs: 7200000,
-        beforePropose: async () => { clock.mockReturnValue(now + 3600001); },
-      })).rejects.toThrow(/INVITE_EXPIRED/);
+      await expect(
+        client.delegate({
+          to: remote.node.invite(3600),
+          title: 'Expires',
+          description: 'Wait for expiry',
+          input: {},
+          // The manifest remains valid longer than the one-hour invitation.
+          taskTimeoutMs: 7200000,
+          beforePropose: async () => {
+            clock.mockReturnValue(now + 3600001);
+          },
+        }),
+      ).rejects.toThrow(/INVITE_EXPIRED/);
       expect(send).not.toHaveBeenCalled();
-    } finally { clock.mockRestore(); }
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('queues one approval per multi-worker recipient with total fan-out disclosed', async () => {
@@ -165,10 +261,22 @@ describe('resolved MCP approval sessions', () => {
     const h = harness({ owner: generateKeyPair(), relay, requireInteractiveApproval: true });
     try {
       await initialize(h, { elicitation: {} });
-      h.send(toolCall('multi', {
-        mode: 'race', title: 'Both', description: 'Review both recipients', input: {},
-        workers: remotes.map((remote) => ({ workerDid: remote.node.options.owner.did, inviteToken: remote.node.invite() })),
-      }, 'acp_delegate_multi'));
+      h.send(
+        toolCall(
+          'multi',
+          {
+            mode: 'race',
+            title: 'Both',
+            description: 'Review both recipients',
+            input: {},
+            workers: remotes.map((remote) => ({
+              workerDid: remote.node.options.owner.did,
+              inviteToken: remote.node.invite(),
+            })),
+          },
+          'acp_delegate_multi',
+        ),
+      );
       for (let index = 0; index < 2; index++) {
         const pending = await form(h, index);
         expect(review(pending).target.fanOut).toBe(2);
@@ -177,7 +285,9 @@ describe('resolved MCP approval sessions', () => {
       }
       expect(body(await h.next((m) => m.id === 'multi')).error).toBe('APPROVAL_REJECTED');
       expect(send).not.toHaveBeenCalled();
-    } finally { await h.close(); }
+    } finally {
+      await h.close();
+    }
   });
 
   it('rejects an oversized final review without accepting or settling the delivery', async () => {
@@ -190,14 +300,27 @@ describe('resolved MCP approval sessions', () => {
     remote.execute.mockImplementation(async () => ({ echoed: 'x'.repeat(65536) }));
     try {
       await initialize(h, { elicitation: {} });
-      h.send(toolCall('large', { inviteToken: remote.node.invite(), title: 'Large', description: 'Review result', input: {} }));
+      h.send(
+        toolCall('large', {
+          inviteToken: remote.node.invite(),
+          title: 'Large',
+          description: 'Review result',
+          input: {},
+        }),
+      );
       h.send(accept((await form(h)).id));
       const connection = await form(h, 1);
       h.send({ jsonrpc: '2.0', id: connection.id, result: { action: 'decline' } });
-      expect(body(await h.next((m) => m.id === 'large')).error).toContain('APPROVAL_REVIEW_TOO_LARGE');
+      expect(body(await h.next((m) => m.id === 'large')).error).toContain(
+        'APPROVAL_REVIEW_TOO_LARGE',
+      );
       const events = send.mock.calls.map(([envelope]) => envelope.payload.eventType);
       expect(events).not.toContain('VERIFY_ACCEPT');
       expect(events).not.toContain('SETTLED');
-    } finally { await h.close(); remote.node.stop(); await running; }
+    } finally {
+      await h.close();
+      remote.node.stop();
+      await running;
+    }
   });
 });

@@ -26,7 +26,11 @@ function spell(token: string, spelling: Spelling): string {
   if (spelling === 'uri') return 'acp://invite?token=' + raw;
   const signed = JSON.parse(Buffer.from(raw, 'base64url').toString());
   signed.payload = Object.fromEntries(Object.entries(signed.payload).reverse());
-  const serialized = JSON.stringify({ signature: signed.signature, payload: signed.payload }, null, 2);
+  const serialized = JSON.stringify(
+    { signature: signed.signature, payload: signed.payload },
+    null,
+    2,
+  );
   return 'acp://invite?token=' + Buffer.from(serialized).toString('base64url');
 }
 
@@ -36,10 +40,13 @@ function fixture(relayUrl?: string, expiresInSeconds?: number) {
   const registry = new RevocationRegistry();
   const calls: Json[] = [];
   const events: string[] = [];
-  const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+  const worker = new WorkerNode({
+    autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+    checkPeer: () => 'trusted',
     owner,
     relay,
-    relayUrl, allowPrivateRelay: relayUrl?.startsWith('http://127.'),
+    relayUrl,
+    allowPrivateRelay: relayUrl?.startsWith('http://127.'),
     revocation: registry,
     adapter: {
       id: 'normalization-echo',
@@ -72,11 +79,17 @@ async function expectAdmissionRevoked(
     approvalProvider: new PolicyAutoApprovalProvider(requester),
     timeoutMs: 10000,
   });
-  const running = mode === 'runOnce' ? context.worker.runOnce() : context.worker.start({ once: true });
+  const running =
+    mode === 'runOnce' ? context.worker.runOnce() : context.worker.start({ once: true });
   try {
     const results = await Promise.allSettled([
       running,
-      client.delegate({ to, title: 'Invite normalization', description: 'Admission validation', input: {} }),
+      client.delegate({
+        to,
+        title: 'Invite normalization',
+        description: 'Admission validation',
+        input: {},
+      }),
     ]);
     for (const result of results) {
       expect(result.status).toBe('rejected');
@@ -110,7 +123,8 @@ describe('invite revocation normalization', () => {
     async (spelling) => {
       const context = fixture();
       context.registry.revoke(context.noticeFor(spell(context.token, spelling)));
-      const presented = spelling === 'uri' || spelling === 'reserialized' ? 'prefixed' : 'reserialized';
+      const presented =
+        spelling === 'uri' || spelling === 'reserialized' ? 'prefixed' : 'reserialized';
       await expectAdmissionRevoked(context, spell(context.token, presented));
     },
   );
@@ -137,7 +151,9 @@ describe('invite revocation normalization', () => {
         registry.revoke(noticeFor(spell(token, 'uri')));
         const copy = new RevocationRegistry();
         copy.importNotices(JSON.parse(JSON.stringify(registry.exportNotices())));
-        expect(() => copy.assertNotRevoked('invite', spell(token, 'reserialized'))).toThrow('TOKEN_REVOKED');
+        expect(() => copy.assertNotRevoked('invite', spell(token, 'reserialized'))).toThrow(
+          'TOKEN_REVOKED',
+        );
         expect(copy.isRevoked('invite', targetId)).toBe(true);
       } finally {
         clock.mockRestore();
@@ -207,7 +223,9 @@ describe('invite revocation normalization', () => {
         notice,
       });
       await expectAdmissionRevoked(context, spell(context.token, 'reserialized'), mode);
-      expect(context.registry.noticesFor('invite', inviteRevocationId(context.token))).toEqual([notice]);
+      expect(context.registry.noticesFor('invite', inviteRevocationId(context.token))).toEqual([
+        notice,
+      ]);
       expect(context.worker.revocation.isRevoked('invite', context.token)).toBe(true);
     },
   );

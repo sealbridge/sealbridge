@@ -6,39 +6,116 @@ import { dirname, join } from 'node:path';
 import { digest, signPayload, verifySigned } from '@acp/core';
 import type { KeyPair, SignedEnvelope } from '@acp/core';
 import { retryDeliveryBusy } from './delivery-retry.js';
-import { checkPath, checkStat, inspectDirectory, privateDirectory, readPrivateFile, resolveDataRoot } from './local-identity.js';
+import {
+  checkPath,
+  checkStat,
+  inspectDirectory,
+  privateDirectory,
+  readPrivateFile,
+  resolveDataRoot,
+} from './local-identity.js';
 import type { LocalIdentityOptions } from './local-identity.js';
 import {
-  DEFAULT_DELIVERY_LIMITS, DELIVERY_RETENTION_MS, UUID, deliveryError, effectiveMessage,
-  requireDelivery, receiptFileId, validateDeliveryRecord, validateSignedShape,
+  DEFAULT_DELIVERY_LIMITS,
+  DELIVERY_RETENTION_MS,
+  UUID,
+  deliveryError,
+  effectiveMessage,
+  requireDelivery,
+  receiptFileId,
+  validateDeliveryRecord,
+  validateSignedShape,
 } from './delivery-records.js';
-import type { DeliveryLimits, DeliveryRecords, InboundReceiptV1, MessageRecordV1, OutboxBatchV1, OutboxRecordV1, RecipientDeliveryRecordV1 } from './delivery-records.js';
+import type {
+  DeliveryLimits,
+  DeliveryRecords,
+  InboundReceiptV1,
+  MessageRecordV1,
+  OutboxBatchV1,
+  OutboxRecordV1,
+  RecipientDeliveryRecordV1,
+} from './delivery-records.js';
 
-export interface DeliveryStoreOptions extends LocalIdentityOptions { now?: () => number; limits?: Partial<DeliveryLimits> }
-export function deliveryRoot(did: string, options: LocalIdentityOptions = {}): string {
-  return join(resolveDataRoot(options), 'delivery', createHash('sha256').update(did, 'utf8').digest('hex'));
+export interface DeliveryStoreOptions extends LocalIdentityOptions {
+  now?: () => number;
+  limits?: Partial<DeliveryLimits>;
 }
-const kinds = ['observations', 'messages', 'outbox', 'batches', 'receipts', 'operations', 'idempotency'] as const;
+export function deliveryRoot(did: string, options: LocalIdentityOptions = {}): string {
+  return join(
+    resolveDataRoot(options),
+    'delivery',
+    createHash('sha256').update(did, 'utf8').digest('hex'),
+  );
+}
+const kinds = [
+  'observations',
+  'messages',
+  'outbox',
+  'batches',
+  'receipts',
+  'operations',
+  'idempotency',
+] as const;
 type Kind = keyof DeliveryRecords;
-export interface DeliveryWrite { kind: Kind; id: string; record: DeliveryRecords[Kind] }
-export interface PreparedDeliveryWrite extends DeliveryWrite { temporary: string; bytes: Buffer; published?: true }
+export interface DeliveryWrite {
+  kind: Kind;
+  id: string;
+  record: DeliveryRecords[Kind];
+}
+export interface PreparedDeliveryWrite extends DeliveryWrite {
+  temporary: string;
+  bytes: Buffer;
+  published?: true;
+}
 type IdempotencyKind = 'operations' | 'idempotency';
 const idempotencyKinds = ['operations', 'idempotency'] as const;
-const isIdempotencyKind = (kind: Kind): kind is IdempotencyKind => kind === 'operations' || kind === 'idempotency';
-type IdempotencySummary = { operationId: string; createdAt: number; retainUntil: number; bytes?: number };
+const isIdempotencyKind = (kind: Kind): kind is IdempotencyKind =>
+  kind === 'operations' || kind === 'idempotency';
+type IdempotencySummary = {
+  operationId: string;
+  createdAt: number;
+  retainUntil: number;
+  bytes?: number;
+};
 function summarizeIdempotency(record: DeliveryRecords[IdempotencyKind]): IdempotencySummary {
-  return { operationId: record.operationId, createdAt: record.createdAt, retainUntil: record.retainUntil,
-    bytes: 'response' in record && record.response ? Buffer.byteLength(JSON.stringify(record)) : undefined };
+  return {
+    operationId: record.operationId,
+    createdAt: record.createdAt,
+    retainUntil: record.retainUntil,
+    bytes:
+      'response' in record && record.response
+        ? Buffer.byteLength(JSON.stringify(record))
+        : undefined,
+  };
 }
-type StatusMessage = Pick<MessageRecordV1, 'messageId' | 'relayUrl' | 'protocolVersion' | 'retainUntil'>;
+type StatusMessage = Pick<
+  MessageRecordV1,
+  'messageId' | 'relayUrl' | 'protocolVersion' | 'retainUntil'
+>;
 function statusMessage(r: MessageRecordV1): StatusMessage {
-  return { messageId: r.messageId, relayUrl: r.relayUrl, protocolVersion: r.protocolVersion, retainUntil: r.retainUntil };
+  return {
+    messageId: r.messageId,
+    relayUrl: r.relayUrl,
+    protocolVersion: r.protocolVersion,
+    retainUntil: r.retainUntil,
+  };
 }
-type OutboxSummary = Pick<OutboxRecordV1, 'envelopeId' | 'messageId' | 'batchId' | 'state' | 'kind' | 'ordinal' | 'nextAttemptAt' | 'lease'> & { bytes: number };
+type OutboxSummary = Pick<
+  OutboxRecordV1,
+  'envelopeId' | 'messageId' | 'batchId' | 'state' | 'kind' | 'ordinal' | 'nextAttemptAt' | 'lease'
+> & { bytes: number };
 function summarize(r: OutboxRecordV1): OutboxSummary {
-  return { envelopeId: r.envelopeId, messageId: r.messageId, batchId: r.batchId, kind: r.kind,
-    state: r.state, ordinal: r.ordinal, nextAttemptAt: r.nextAttemptAt, lease: r.lease ? { ...r.lease } : undefined,
-    bytes: Buffer.byteLength(JSON.stringify(r.envelope)) };
+  return {
+    envelopeId: r.envelopeId,
+    messageId: r.messageId,
+    batchId: r.batchId,
+    kind: r.kind,
+    state: r.state,
+    ordinal: r.ordinal,
+    nextAttemptAt: r.nextAttemptAt,
+    lease: r.lease ? { ...r.lease } : undefined,
+    bytes: Buffer.byteLength(JSON.stringify(r.envelope)),
+  };
 }
 const errno = (e: unknown) => (e as NodeJS.ErrnoException).code;
 // Atomic record replacement changes these attributes, including across store instances.
@@ -48,11 +125,19 @@ function fingerprint(stat: fs.BigIntStats): string {
 const VERIFIED_CACHE_ENTRIES = 256;
 const VERIFIED_CACHE_BYTES = 4 * 1024 * 1024;
 function recordIdentity(kind: Kind, id: string, record: DeliveryRecords[Kind]): void {
-  const recordId = kind === 'idempotency' ? (record as DeliveryRecords['idempotency']).keyHash
-    : kind === 'operations' ? (record as DeliveryRecords['operations']).operationId
-    : kind === 'messages' || kind === 'observations' ? (record as MessageRecordV1).messageId
-    : 'envelopeId' in record ? record.envelopeId : (record as OutboxBatchV1).batchId;
-  requireDelivery(kind === 'receipts' ? receiptFileId(recordId) === receiptFileId(id) : recordId === id);
+  const recordId =
+    kind === 'idempotency'
+      ? (record as DeliveryRecords['idempotency']).keyHash
+      : kind === 'operations'
+        ? (record as DeliveryRecords['operations']).operationId
+        : kind === 'messages' || kind === 'observations'
+          ? (record as MessageRecordV1).messageId
+          : 'envelopeId' in record
+            ? record.envelopeId
+            : (record as OutboxBatchV1).batchId;
+  requireDelivery(
+    kind === 'receipts' ? receiptFileId(recordId) === receiptFileId(id) : recordId === id,
+  );
 }
 
 /** Signer-scoped records. Construction and reads have no publication or cleanup side effects. */
@@ -66,25 +151,42 @@ class DeliveryStoreImplementation {
   private stagedWrites?: DeliveryWrite[];
   private transactionDirectories?: Set<string>;
   private transactionReads?: Map<string, DeliveryRecords[Kind] | undefined>;
-  private readonly verified = new Map<string, { stamp: string; data: string; record: DeliveryRecords[Kind] }>();
+  private readonly verified = new Map<
+    string,
+    { stamp: string; data: string; record: DeliveryRecords[Kind] }
+  >();
   private verifiedBytes = 0;
   private preparedMode = false;
   private readonly idempotencyLeaseMs: number;
   private outboxIndex?: { stamp: string; entries: Map<string, OutboxSummary> };
-  private readonly idempotencyIndexes = new Map<Kind, { stamp: string; entries: Map<string, IdempotencySummary> }>();
+  private readonly idempotencyIndexes = new Map<
+    Kind,
+    { stamp: string; entries: Map<string, IdempotencySummary> }
+  >();
   private messageIndex?: { stamp: string; entries: Map<string, StatusMessage> };
   private readonly inspected = new Map<string, string>();
   private readonly listings = new Map<Kind, { stamp: string; ids: string[] }>();
   private forget(path: string): void {
     const cached = this.verified.get(path);
-    if (cached) { this.verifiedBytes -= Buffer.byteLength(cached.data); this.verified.delete(path); }
+    if (cached) {
+      this.verifiedBytes -= Buffer.byteLength(cached.data);
+      this.verified.delete(path);
+    }
   }
   /** Reuse verified records only while file identity, permissions and timestamps match. */
-  private remember(path: string, data: string, record: DeliveryRecords[Kind], stamp = fingerprint(this.io.lstatSync(path, { bigint: true }))): void {
+  private remember(
+    path: string,
+    data: string,
+    record: DeliveryRecords[Kind],
+    stamp = fingerprint(this.io.lstatSync(path, { bigint: true })),
+  ): void {
     this.forget(path);
     const bytes = Buffer.byteLength(data);
     if (bytes > VERIFIED_CACHE_BYTES) return;
-    while (this.verified.size >= VERIFIED_CACHE_ENTRIES || this.verifiedBytes + bytes > VERIFIED_CACHE_BYTES) {
+    while (
+      this.verified.size >= VERIFIED_CACHE_ENTRIES ||
+      this.verifiedBytes + bytes > VERIFIED_CACHE_BYTES
+    ) {
       const oldest = this.verified.keys().next().value!;
       this.verifiedBytes -= Buffer.byteLength(this.verified.get(oldest)!.data);
       this.verified.delete(oldest);
@@ -92,15 +194,26 @@ class DeliveryStoreImplementation {
     this.verified.set(path, { stamp, data, record: structuredClone(record) });
     this.verifiedBytes += bytes;
   }
-  constructor(readonly owner: KeyPair, readonly options: DeliveryStoreOptions = {}) {
-    try { requireDelivery(owner?.privateKey && verifySigned(signPayload({ type: 'DeliveryStore' }, owner), owner.did)); }
-    catch { throw deliveryError('OUTBOX_STORE_INVALID'); }
+  constructor(
+    readonly owner: KeyPair,
+    readonly options: DeliveryStoreOptions = {},
+  ) {
+    try {
+      requireDelivery(
+        owner?.privateKey && verifySigned(signPayload({ type: 'DeliveryStore' }, owner), owner.did),
+      );
+    } catch {
+      throw deliveryError('OUTBOX_STORE_INVALID');
+    }
     this.root = deliveryRoot(owner.did, options);
-    this.io = options.fs ?? fs; this.platform = options.platform ?? process.platform; this.now = options.now ?? Date.now;
+    this.io = options.fs ?? fs;
+    this.platform = options.platform ?? process.platform;
+    this.now = options.now ?? Date.now;
     // IdempotencyStore forwards its lease option in this same options object.
-    this.idempotencyLeaseMs = (options as DeliveryStoreOptions & { leaseMs?: number }).leaseMs ?? 120_000;
+    this.idempotencyLeaseMs =
+      (options as DeliveryStoreOptions & { leaseMs?: number }).leaseMs ?? 120_000;
     this.limits = { ...DEFAULT_DELIVERY_LIMITS, ...options.limits };
-    requireDelivery(Object.values(this.limits).every(n => Number.isSafeInteger(n) && n > 0));
+    requireDelivery(Object.values(this.limits).every((n) => Number.isSafeInteger(n) && n > 0));
   }
   path(kind: Kind, id: string): string {
     if (kind === 'receipts') id = receiptFileId(id);
@@ -108,13 +221,19 @@ class DeliveryStoreImplementation {
     return join(this.root, kind, id + '.json');
   }
   private directories(kind?: Kind): string[] {
-    return [dirname(dirname(this.root)), dirname(this.root), this.root, ...(kind ? [join(this.root, kind)] : [])];
+    return [
+      dirname(dirname(this.root)),
+      dirname(this.root),
+      this.root,
+      ...(kind ? [join(this.root, kind)] : []),
+    ];
   }
   private inspectPath(dir: string, create = false): void {
     if (this.transactionDirectories?.has(dir)) return;
     let stat: fs.Stats;
-    try { stat = this.io.lstatSync(dir); }
-    catch (error) {
+    try {
+      stat = this.io.lstatSync(dir);
+    } catch (error) {
       if (!create || errno(error) !== 'ENOENT') throw error;
       privateDirectory(dir, this.io, this.platform);
       stat = this.io.lstatSync(dir);
@@ -128,31 +247,50 @@ class DeliveryStoreImplementation {
     this.transactionDirectories?.add(dir);
   }
   private inspect(kind?: Kind): void {
-    if (!this.transactionDirectories) checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
+    if (!this.transactionDirectories)
+      checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
     for (const dir of this.directories(kind)) {
-      try { this.inspectPath(dir); } catch (e) { if (errno(e) !== 'ENOENT') throw e; }
+      try {
+        this.inspectPath(dir);
+      } catch (e) {
+        if (errno(e) !== 'ENOENT') throw e;
+      }
     }
   }
   private directoryStamp(kind: Kind): string {
-    try { return fingerprint(this.io.lstatSync(join(this.root, kind), { bigint: true })); }
-    catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw error; }
+    try {
+      return fingerprint(this.io.lstatSync(join(this.root, kind), { bigint: true }));
+    } catch (error) {
+      if (errno(error) === 'ENOENT') return 'absent';
+      throw error;
+    }
   }
   private generationStamp(): string {
     try {
       const stat = this.io.lstatSync(join(this.root, '.idempotency-gen'), { bigint: true });
-      requireDelivery(stat.isFile() && (this.platform === 'win32' || stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o077n) === 0n));
+      requireDelivery(
+        stat.isFile() &&
+          (this.platform === 'win32' ||
+            (stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o077n) === 0n)),
+      );
       return [stat.ino, stat.size].join(':');
-    } catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw deliveryError('OUTBOX_STORE_UNWRITABLE'); }
+    } catch (error) {
+      if (errno(error) === 'ENOENT') return 'absent';
+      throw deliveryError('OUTBOX_STORE_UNWRITABLE');
+    }
   }
   private listingStamp(kind: Kind): string {
     if (!isIdempotencyKind(kind)) return this.directoryStamp(kind);
     // Older writers do not increment the generation. Keep directory values too;
     // concurrent writes by two older versions can still share those values.
-    return [this.generationStamp(), ...idempotencyKinds.map(k => this.directoryStamp(k))].join('|');
+    return [this.generationStamp(), ...idempotencyKinds.map((k) => this.directoryStamp(k))].join(
+      '|',
+    );
   }
   private adoptIdempotencyStamp(before: string, after: string, publishedKind?: Kind): void {
     for (const kind of idempotencyKinds) {
-      const index = this.idempotencyIndexes.get(kind), listing = this.listings.get(kind);
+      const index = this.idempotencyIndexes.get(kind),
+        listing = this.listings.get(kind);
       if (index?.stamp === before) index.stamp = after;
       if (kind !== publishedKind && listing?.stamp === before) listing.stamp = after;
     }
@@ -161,16 +299,27 @@ class DeliveryStoreImplementation {
   private openGeneration(): number {
     if (!this.transactionDirectories) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
     if (this.generationFd !== undefined) return this.generationFd;
-    const fd = this.io.openSync(join(this.root, '.idempotency-gen'),
-      fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
-    try { checkStat(this.io.fstatSync(fd)); }
-    catch (error) { this.io.closeSync(fd); throw error; }
+    const fd = this.io.openSync(
+      join(this.root, '.idempotency-gen'),
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0),
+      0o600,
+    );
+    try {
+      checkStat(this.io.fstatSync(fd));
+    } catch (error) {
+      this.io.closeSync(fd);
+      throw error;
+    }
     this.generationFd = fd;
     return fd;
   }
   private publishIdempotencyChange(kind: Kind, change: () => void): void {
-    if (!isIdempotencyKind(kind)) { change(); return; }
-    const before = this.listingStamp(kind), fd = this.openGeneration();
+    if (!isIdempotencyKind(kind)) {
+      change();
+      return;
+    }
+    const before = this.listingStamp(kind),
+      fd = this.openGeneration();
     const size = this.io.fstatSync(fd).size;
     if (!Number.isSafeInteger(size + 1)) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
     // Never shrink or replace this file. An interruption before publication only
@@ -182,19 +331,35 @@ class DeliveryStoreImplementation {
   ids(kind: Kind, onError?: (error: Error) => void): string[] {
     try {
       this.inspect(kind);
-      const stamp = this.listingStamp(kind), cached = this.listings.get(kind);
+      const stamp = this.listingStamp(kind),
+        cached = this.listings.get(kind);
       if (cached?.stamp === stamp) return [...cached.ids];
-      if (stamp === 'absent' || isIdempotencyKind(kind) && this.directoryStamp(kind) === 'absent') { this.listings.set(kind, { stamp, ids: [] }); return []; }
+      if (
+        stamp === 'absent' ||
+        (isIdempotencyKind(kind) && this.directoryStamp(kind) === 'absent')
+      ) {
+        this.listings.set(kind, { stamp, ids: [] });
+        return [];
+      }
       let invalid = false;
-      const ids = this.io.readdirSync(join(this.root, kind)).filter(n => n.endsWith('.json')).flatMap(n => {
-        const id = n.slice(0, -5);
-        if (kind === 'idempotency' ? /^[a-f0-9]{64}$/.test(id) : UUID.test(id)) return [id];
-        if (!onError) throw deliveryError('OUTBOX_STORE_INVALID');
-        invalid = true; onError(deliveryError('OUTBOX_STORE_INVALID')); return [];
-      }).sort();
+      const ids = this.io
+        .readdirSync(join(this.root, kind))
+        .filter((n) => n.endsWith('.json'))
+        .flatMap((n) => {
+          const id = n.slice(0, -5);
+          if (kind === 'idempotency' ? /^[a-f0-9]{64}$/.test(id) : UUID.test(id)) return [id];
+          if (!onError) throw deliveryError('OUTBOX_STORE_INVALID');
+          invalid = true;
+          onError(deliveryError('OUTBOX_STORE_INVALID'));
+          return [];
+        })
+        .sort();
       if (!invalid) this.listings.set(kind, { stamp, ids });
       return ids;
-    } catch (e) { if (errno(e) === 'ENOENT') return []; throw deliveryError('OUTBOX_STORE_INVALID'); }
+    } catch (e) {
+      if (errno(e) === 'ENOENT') return [];
+      throw deliveryError('OUTBOX_STORE_INVALID');
+    }
   }
   read<K extends Kind>(kind: K, id: string): DeliveryRecords[K] | undefined {
     // Private identity reads reject a stat/open inode change. Mutable delivery
@@ -202,12 +367,17 @@ class DeliveryStoreImplementation {
     const path = this.path(kind, id);
     for (let attempt = 0; ; attempt++) {
       const stamp = () => {
-        try { return fingerprint(this.io.lstatSync(path, { bigint: true })); }
-        catch (error) { if (errno(error) === 'ENOENT') return 'absent'; throw error; }
+        try {
+          return fingerprint(this.io.lstatSync(path, { bigint: true }));
+        } catch (error) {
+          if (errno(error) === 'ENOENT') return 'absent';
+          throw error;
+        }
       };
       const before = stamp();
-      try { return this.readOnce(kind, id); }
-      catch (error) {
+      try {
+        return this.readOnce(kind, id);
+      } catch (error) {
         const after = stamp();
         // Publication and pruning can both occur within this unlocked read.
         // Even absent -> present -> absent is completed cleanup, not corruption.
@@ -220,17 +390,23 @@ class DeliveryStoreImplementation {
   private readOnce<K extends Kind>(kind: K, id: string): DeliveryRecords[K] | undefined {
     const path = this.path(kind, id);
     try {
-      if (this.transactionReads?.has(path)) return structuredClone(this.transactionReads.get(path)) as DeliveryRecords[K] | undefined;
+      if (this.transactionReads?.has(path))
+        return structuredClone(this.transactionReads.get(path)) as DeliveryRecords[K] | undefined;
       this.inspect(kind);
       let stamp: string;
       try {
         const stat = this.io.lstatSync(path, { bigint: true });
-        requireDelivery(stat.isFile() && (this.platform === 'win32' || stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o077n) === 0n));
+        requireDelivery(
+          stat.isFile() &&
+            (this.platform === 'win32' ||
+              (stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o077n) === 0n)),
+        );
         stamp = fingerprint(stat);
       } catch (error) {
         if (errno(error) !== 'ENOENT') throw error;
         this.forget(path);
-        this.transactionReads?.set(path, undefined); return;
+        this.transactionReads?.set(path, undefined);
+        return;
       }
       const cached = this.verified.get(path);
       if (cached?.stamp === stamp) {
@@ -240,7 +416,12 @@ class DeliveryStoreImplementation {
       // Once a change was observed, old validation must not become usable again
       // if a later write returns to the same size and filesystem timestamp tick.
       this.forget(path);
-      const data = readPrivateFile(path, this.io, kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes, this.platform);
+      const data = readPrivateFile(
+        path,
+        this.io,
+        kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes,
+        this.platform,
+      );
       requireDelivery(data !== undefined);
       const signed: unknown = JSON.parse(data);
       validateSignedShape(signed);
@@ -249,20 +430,30 @@ class DeliveryStoreImplementation {
       const r = signed.payload;
       recordIdentity(kind, id, r);
       // Do not associate bytes read through an old descriptor with a newer replacement.
-      if (fingerprint(this.io.lstatSync(path, { bigint: true })) === stamp) this.remember(path, data, r, stamp);
+      if (fingerprint(this.io.lstatSync(path, { bigint: true })) === stamp)
+        this.remember(path, data, r, stamp);
       this.transactionReads?.set(path, structuredClone(r));
       return r;
-    } catch { this.forget(path); throw deliveryError('OUTBOX_STORE_INVALID'); }
+    } catch {
+      this.forget(path);
+      throw deliveryError('OUTBOX_STORE_INVALID');
+    }
   }
   snapshot<K extends Kind>(kind: K, onError?: (error: Error) => void): DeliveryRecords[K][] {
-    return this.ids(kind, onError).flatMap(id => {
-      try { const r = this.read(kind, id); return r ? [r] : []; }
-      catch (error) { if (!onError) throw error; onError(deliveryError('OUTBOX_STORE_INVALID')); return []; }
+    return this.ids(kind, onError).flatMap((id) => {
+      try {
+        const r = this.read(kind, id);
+        return r ? [r] : [];
+      } catch (error) {
+        if (!onError) throw error;
+        onError(deliveryError('OUTBOX_STORE_INVALID'));
+        return [];
+      }
     });
   }
   async *scan<K extends Kind>(kind: K, signal: AbortSignal): AsyncGenerator<DeliveryRecords[K]> {
     for (const id of this.ids(kind)) {
-      await new Promise<void>(resolve => setImmediate(resolve));
+      await new Promise<void>((resolve) => setImmediate(resolve));
       signal.throwIfAborted();
       const record = this.read(kind, id);
       if (record) yield record;
@@ -278,7 +469,9 @@ class DeliveryStoreImplementation {
     return r && effectiveMessage(r, this.now());
   }
   findTask(taskId: string): MessageRecordV1[] {
-    return this.snapshot('messages').filter(r => r.taskId === taskId).flatMap(r => this.getMessage(r.messageId) ?? []);
+    return this.snapshot('messages')
+      .filter((r) => r.taskId === taskId)
+      .flatMap((r) => this.getMessage(r.messageId) ?? []);
   }
   /** All cross-process changes use this short lock; no callback performs I/O to a relay. */
   transaction<T>(change: () => T): T {
@@ -294,38 +487,71 @@ class DeliveryStoreImplementation {
         let fd: number;
         for (let attempt = 0; ; attempt++) {
           try {
-            fd = this.io.openSync(lock, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-              (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+            fd = this.io.openSync(
+              lock,
+              fs.constants.O_WRONLY |
+                fs.constants.O_CREAT |
+                fs.constants.O_EXCL |
+                (fs.constants.O_NOFOLLOW ?? 0),
+              0o600,
+            );
             break;
           } catch (error) {
-            const busy = errno(error) === 'EEXIST' || this.platform === 'win32' &&
-              (error as NodeJS.ErrnoException).syscall === 'open' && ['EPERM', 'EACCES', 'EBUSY'].includes(errno(error) ?? '');
+            const busy =
+              errno(error) === 'EEXIST' ||
+              (this.platform === 'win32' &&
+                (error as NodeJS.ErrnoException).syscall === 'open' &&
+                ['EPERM', 'EACCES', 'EBUSY'].includes(errno(error) ?? ''));
             if (!busy) throw error;
             if (performance.now() >= until) throw deliveryError('OUTBOX_STORE_BUSY');
             // Bridge synchronous lifecycle callbacks without spinning. Bound this
             // slice so signal handlers run promptly; async callers wait longer.
-            Atomics.wait(sleeper, 0, 0, Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)));
+            Atomics.wait(
+              sleeper,
+              0,
+              0,
+              Math.min(until - performance.now(), 2 * 2 ** Math.min(attempt, 3)),
+            );
           }
         }
         acquired = true;
-        try { checkStat(this.io.fstatSync(fd)); } finally { this.io.closeSync(fd); }
+        try {
+          checkStat(this.io.fstatSync(fd));
+        } finally {
+          this.io.closeSync(fd);
+        }
+      } catch (e) {
+        if (errno(e) === 'EEXIST') throw deliveryError('OUTBOX_STORE_BUSY');
+        throw e;
       }
-      catch (e) { if (errno(e) === 'EEXIST') throw deliveryError('OUTBOX_STORE_BUSY'); throw e; }
       this.transactionReads = new Map();
       this.transactionDirectories = new Set(this.directories());
       return change();
     } catch (e) {
-      if (e instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(e.message)) throw e;
+      if (
+        e instanceof Error &&
+        /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(
+          e.message,
+        )
+      )
+        throw e;
       // Windows can refuse atomic replacement while another process briefly
       // has the destination open. Release the signer lock before retrying.
-      if (this.platform === 'win32' && (e as NodeJS.ErrnoException).syscall === 'rename' &&
-          ['EPERM', 'EACCES', 'EBUSY'].includes(errno(e) ?? '')) throw deliveryError('OUTBOX_STORE_BUSY');
+      if (
+        this.platform === 'win32' &&
+        (e as NodeJS.ErrnoException).syscall === 'rename' &&
+        ['EPERM', 'EACCES', 'EBUSY'].includes(errno(e) ?? '')
+      )
+        throw deliveryError('OUTBOX_STORE_BUSY');
       throw deliveryError('OUTBOX_STORE_UNWRITABLE');
     } finally {
       if (acquired) {
-        try { if (this.generationFd !== undefined) this.io.closeSync(this.generationFd); }
-        finally {
-          this.generationFd = undefined; this.transactionReads = undefined; this.transactionDirectories = undefined;
+        try {
+          if (this.generationFd !== undefined) this.io.closeSync(this.generationFd);
+        } finally {
+          this.generationFd = undefined;
+          this.transactionReads = undefined;
+          this.transactionDirectories = undefined;
           this.io.unlinkSync(lock);
         }
       }
@@ -341,28 +567,45 @@ class DeliveryStoreImplementation {
       return;
     }
     const listingId = kind === 'receipts' ? receiptFileId(id) : id;
-    const path = this.path(kind, id), temporary = join(this.root, '.' + randomUUID() + '.tmp');
+    const path = this.path(kind, id),
+      temporary = join(this.root, '.' + randomUUID() + '.tmp');
     const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
-    if (bytes.length > (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes)) throw deliveryError(kind === 'operations' ? 'IDEMPOTENCY_STORE_FULL' : 'OUTBOX_FULL');
+    if (
+      bytes.length > (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes)
+    )
+      throw deliveryError(kind === 'operations' ? 'IDEMPOTENCY_STORE_FULL' : 'OUTBOX_FULL');
     const retained = this.idempotencyIndexes.get(kind);
-    const knownRetained = retained && retained.stamp === this.listingStamp(kind) ? retained : undefined;
+    const knownRetained =
+      retained && retained.stamp === this.listingStamp(kind) ? retained : undefined;
     if (kind === 'messages' && !this.messageIndex && this.listingStamp('messages') === 'absent')
       this.messageIndex = { stamp: 'absent', entries: new Map() };
-    const priorMessages = kind === 'messages' && this.messageIndex?.stamp === 'absent' ? this.messageIndex : undefined;
-    const priorIndex = kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
+    const priorMessages =
+      kind === 'messages' && this.messageIndex?.stamp === 'absent' ? this.messageIndex : undefined;
+    const priorIndex =
+      kind === 'outbox' && this.outboxIndex?.stamp === 'absent' ? this.outboxIndex : undefined;
     this.inspectPath(dirname(path), true);
     if (priorIndex) priorIndex.stamp = this.listingStamp('outbox');
     if (priorMessages) priorMessages.stamp = this.listingStamp('messages');
     const listing = this.listings.get(kind);
     const beforeStamp = this.listingStamp(kind);
     const knownListing = listing?.stamp === beforeStamp ? listing : undefined;
-    const knownIndex = kind === 'outbox' && this.outboxIndex?.stamp === beforeStamp ? this.outboxIndex : undefined;
-    const knownMessages = kind === 'messages' && this.messageIndex?.stamp === beforeStamp ? this.messageIndex : undefined;
+    const knownIndex =
+      kind === 'outbox' && this.outboxIndex?.stamp === beforeStamp ? this.outboxIndex : undefined;
+    const knownMessages =
+      kind === 'messages' && this.messageIndex?.stamp === beforeStamp
+        ? this.messageIndex
+        : undefined;
     let created = false;
     try {
       // Parent directories were checked under the signer lock. Exclusive creation owns this temp.
-      const fd = this.io.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
-        (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+      const fd = this.io.openSync(
+        temporary,
+        fs.constants.O_WRONLY |
+          fs.constants.O_CREAT |
+          fs.constants.O_EXCL |
+          (fs.constants.O_NOFOLLOW ?? 0),
+        0o600,
+      );
       created = true;
       try {
         checkStat(this.io.fstatSync(fd));
@@ -372,13 +615,21 @@ class DeliveryStoreImplementation {
           if (!written) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
           offset += written;
         }
-      } finally { this.io.closeSync(fd); }
+      } finally {
+        this.io.closeSync(fd);
+      }
       const previous = this.read(kind, id);
       this.checkObservation(kind, previous, record);
-      if (kind === 'outbox' && previous && 'envelopeDigest' in previous &&
-        previous.envelopeDigest !== (record as OutboxRecordV1).envelopeDigest) throw deliveryError('DELIVERY_RECORD_CONFLICT');
+      if (
+        kind === 'outbox' &&
+        previous &&
+        'envelopeDigest' in previous &&
+        previous.envelopeDigest !== (record as OutboxRecordV1).envelopeDigest
+      )
+        throw deliveryError('DELIVERY_RECORD_CONFLICT');
       this.publishIdempotencyChange(kind, () => {
-        this.io.renameSync(temporary, path); created = false;
+        this.io.renameSync(temporary, path);
+        created = false;
         this.remember(path, bytes.toString('utf8'), record);
         this.transactionReads?.set(path, structuredClone(record));
         if (knownIndex) {
@@ -386,54 +637,107 @@ class DeliveryStoreImplementation {
           knownIndex.stamp = this.listingStamp('outbox');
         }
         if (knownRetained) {
-          knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
+          knownRetained.entries.set(
+            id,
+            summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]),
+          );
           knownRetained.stamp = this.listingStamp(kind);
         }
-        if (knownMessages) { knownMessages.entries.set(id, statusMessage(record as MessageRecordV1)); knownMessages.stamp = this.listingStamp('messages'); }
-        if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: [...new Set([...knownListing.ids, listingId])].sort() });
+        if (knownMessages) {
+          knownMessages.entries.set(id, statusMessage(record as MessageRecordV1));
+          knownMessages.stamp = this.listingStamp('messages');
+        }
+        if (knownListing)
+          this.listings.set(kind, {
+            stamp: this.listingStamp(kind),
+            ids: [...new Set([...knownListing.ids, listingId])].sort(),
+          });
         else this.listings.delete(kind);
       });
-    } finally { if (created) this.io.unlinkSync(temporary); }
-  }
-  private checkObservation(kind: Kind, previous: DeliveryRecords[Kind] | undefined, record: DeliveryRecords[Kind]): void {
-    if (kind === 'observations' && previous) {
-      const before = previous as RecipientDeliveryRecordV1, after = record as RecipientDeliveryRecordV1;
-      requireDelivery(['senderDid', 'taskId', 'originalEnvelopeDigest', 'createdAt', 'deliveryDeadline', 'retainUntil', 'protocolVersion', 'disclosure']
-        .every(k => before[k as keyof RecipientDeliveryRecordV1] === after[k as keyof RecipientDeliveryRecordV1]) &&
-        before.facts.every((f, i) => digest(f) === digest(after.facts[i])) &&
-        before.published.every((p, i) => digest(p) === digest(after.published[i])));
+    } finally {
+      if (created) this.io.unlinkSync(temporary);
     }
   }
-  private stageWrites(writes: DeliveryWrite[], prepared: PreparedDeliveryWrite[], descriptors: number[]): void {
+  private checkObservation(
+    kind: Kind,
+    previous: DeliveryRecords[Kind] | undefined,
+    record: DeliveryRecords[Kind],
+  ): void {
+    if (kind === 'observations' && previous) {
+      const before = previous as RecipientDeliveryRecordV1,
+        after = record as RecipientDeliveryRecordV1;
+      requireDelivery(
+        [
+          'senderDid',
+          'taskId',
+          'originalEnvelopeDigest',
+          'createdAt',
+          'deliveryDeadline',
+          'retainUntil',
+          'protocolVersion',
+          'disclosure',
+        ].every(
+          (k) =>
+            before[k as keyof RecipientDeliveryRecordV1] ===
+            after[k as keyof RecipientDeliveryRecordV1],
+        ) &&
+          before.facts.every((f, i) => digest(f) === digest(after.facts[i])) &&
+          before.published.every((p, i) => digest(p) === digest(after.published[i])),
+      );
+    }
+  }
+  private stageWrites(
+    writes: DeliveryWrite[],
+    prepared: PreparedDeliveryWrite[],
+    descriptors: number[],
+  ): void {
     // Unique unpublished files need no writer lock. Publication alone changes visible records.
     checkPath(dirname(dirname(dirname(this.root))), this.io, this.platform);
     for (const dir of this.directories()) this.inspectPath(dir, true);
     this.openWrites(writes, prepared, descriptors);
   }
-  private openWrites(writes: DeliveryWrite[], prepared: PreparedDeliveryWrite[], descriptors: number[]): void {
+  private openWrites(
+    writes: DeliveryWrite[],
+    prepared: PreparedDeliveryWrite[],
+    descriptors: number[],
+  ): void {
     for (const { kind, id, record: input } of writes) {
       const record = structuredClone(input);
-      validateDeliveryRecord(kind, record, this.owner.did); recordIdentity(kind, id, record);
-      const path = this.path(kind, id), temporary = join(this.root, '.' + randomUUID() + '.tmp');
+      validateDeliveryRecord(kind, record, this.owner.did);
+      recordIdentity(kind, id, record);
+      const path = this.path(kind, id),
+        temporary = join(this.root, '.' + randomUUID() + '.tmp');
       const bytes = Buffer.from(JSON.stringify(signPayload(record, this.owner)) + '\n');
-      if (bytes.length > (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes))
+      if (
+        bytes.length >
+        (kind === 'operations' ? this.limits.operationBytes : this.limits.recordBytes)
+      )
         throw deliveryError(kind === 'operations' ? 'IDEMPOTENCY_STORE_FULL' : 'OUTBOX_FULL');
       // Only published records change indexed directories. Do not adopt another
       // process's publication when creating a directory or staging a file.
       this.inspectPath(dirname(path), true);
-      const fd = this.io.openSync(temporary,
-        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
-      descriptors.push(fd); prepared.push({ kind, id, record, temporary, bytes });
+      const fd = this.io.openSync(
+        temporary,
+        fs.constants.O_WRONLY |
+          fs.constants.O_CREAT |
+          fs.constants.O_EXCL |
+          (fs.constants.O_NOFOLLOW ?? 0),
+        0o600,
+      );
+      descriptors.push(fd);
+      prepared.push({ kind, id, record, temporary, bytes });
       checkStat(this.io.fstatSync(fd));
     }
   }
   /** Synchronous callers also close written handles before acquiring the publication lock. */
   prepareWritesSync(writes: DeliveryWrite[]): PreparedDeliveryWrite[] {
-    const prepared: PreparedDeliveryWrite[] = [], descriptors: number[] = [];
+    const prepared: PreparedDeliveryWrite[] = [],
+      descriptors: number[] = [];
     try {
       this.stageWrites(writes, prepared, descriptors);
       for (let i = 0; i < prepared.length; i++) {
-        const { bytes } = prepared[i], fd = descriptors[i];
+        const { bytes } = prepared[i],
+          fd = descriptors[i];
         let offset = 0;
         while (offset < bytes.length) {
           const written = this.io.writeSync(fd, bytes, offset, bytes.length - offset);
@@ -445,32 +749,48 @@ class DeliveryStoreImplementation {
     } catch (error) {
       for (const fd of descriptors.splice(0)) this.io.closeSync(fd);
       this.discardWrites(prepared);
-      if (error instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_)/.test(error.message)) throw error;
+      if (
+        error instanceof Error &&
+        /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_)/.test(error.message)
+      )
+        throw error;
       throw deliveryError('OUTBOX_STORE_UNWRITABLE');
-    } finally { for (const fd of descriptors) this.io.closeSync(fd); }
+    } finally {
+      for (const fd of descriptors) this.io.closeSync(fd);
+    }
   }
   /** Complete unique temporary writes outside the signer lock; close handles before publication. */
   async prepareWrites(writes: DeliveryWrite[]): Promise<PreparedDeliveryWrite[]> {
-    const prepared: PreparedDeliveryWrite[] = [], descriptors: number[] = [];
+    const prepared: PreparedDeliveryWrite[] = [],
+      descriptors: number[] = [];
     try {
       this.stageWrites(writes, prepared, descriptors);
-      const results = await Promise.allSettled(prepared.map(async ({ bytes }, i) => {
-        const fd = descriptors[i];
-        let offset = 0;
-        while (offset < bytes.length) {
-          const written = await new Promise<number>((resolve, reject) => this.io.write(fd, bytes, offset,
-            bytes.length - offset, null, (error, count) => error ? reject(error) : resolve(count)));
-          if (!written) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
-          offset += written;
-        }
-      }));
-      const failed = results.find(r => r.status === 'rejected');
+      const results = await Promise.allSettled(
+        prepared.map(async ({ bytes }, i) => {
+          const fd = descriptors[i];
+          let offset = 0;
+          while (offset < bytes.length) {
+            const written = await new Promise<number>((resolve, reject) =>
+              this.io.write(fd, bytes, offset, bytes.length - offset, null, (error, count) =>
+                error ? reject(error) : resolve(count),
+              ),
+            );
+            if (!written) throw deliveryError('OUTBOX_STORE_UNWRITABLE');
+            offset += written;
+          }
+        }),
+      );
+      const failed = results.find((r) => r.status === 'rejected');
       if (failed?.status === 'rejected') throw failed.reason;
       return prepared;
     } catch (error) {
       for (const fd of descriptors.splice(0)) this.io.closeSync(fd);
       this.discardWrites(prepared);
-      if (error instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_)/.test(error.message)) throw error;
+      if (
+        error instanceof Error &&
+        /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|IDEMPOTENCY_)/.test(error.message)
+      )
+        throw error;
       throw deliveryError('OUTBOX_STORE_UNWRITABLE');
     } finally {
       for (const fd of descriptors) this.io.closeSync(fd);
@@ -480,17 +800,24 @@ class DeliveryStoreImplementation {
    * Callbacks only read and stage record replacements; they may run again after a concurrent writer.
    */
   preparedTransaction<T>(change: () => T): T {
-    const stamps = () => kinds.map(kind => this.listingStamp(kind));
-    const matches = (expected: string[]) => expected.every((stamp, i) => stamp === this.listingStamp(kinds[i]));
+    const stamps = () => kinds.map((kind) => this.listingStamp(kind));
+    const matches = (expected: string[]) =>
+      expected.every((stamp, i) => stamp === this.listingStamp(kinds[i]));
     for (;;) {
-      const writes: DeliveryWrite[] = [], prepared: PreparedDeliveryWrite[] = [], descriptors: number[] = [];
+      const writes: DeliveryWrite[] = [],
+        prepared: PreparedDeliveryWrite[] = [],
+        descriptors: number[] = [];
       try {
         const plan = this.transaction(() => {
           this.stagedWrites = writes;
           let result!: T, failure: { error: unknown } | undefined;
-          try { result = change(); }
-          catch (error) { failure = { error }; }
-          finally { this.stagedWrites = undefined; }
+          try {
+            result = change();
+          } catch (error) {
+            failure = { error };
+          } finally {
+            this.stagedWrites = undefined;
+          }
           this.openWrites(writes, prepared, descriptors);
           return { result, failure, stamps: stamps() };
         });
@@ -500,7 +827,8 @@ class DeliveryStoreImplementation {
         }
         try {
           for (let i = 0; i < prepared.length; i++) {
-            const { bytes } = prepared[i], fd = descriptors[i];
+            const { bytes } = prepared[i],
+              fd = descriptors[i];
             let offset = 0;
             while (offset < bytes.length) {
               const written = this.io.writeSync(fd, bytes, offset, bytes.length - offset);
@@ -508,7 +836,9 @@ class DeliveryStoreImplementation {
               offset += written;
             }
           }
-        } finally { for (const fd of descriptors.splice(0)) this.io.closeSync(fd); }
+        } finally {
+          for (const fd of descriptors.splice(0)) this.io.closeSync(fd);
+        }
         const published = this.transaction(() => {
           if (!matches(plan.stamps)) return false;
           for (const write of prepared) this.publishWrite(write);
@@ -520,7 +850,13 @@ class DeliveryStoreImplementation {
           return plan.result;
         }
       } catch (error) {
-        if (error instanceof Error && /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(error.message)) throw error;
+        if (
+          error instanceof Error &&
+          /^(OUTBOX_|DELIVERY_RECORD_CONFLICT|INVALID_DELIVERY_STATUS|DELIVERY_STATUS_CONFLICT)/.test(
+            error.message,
+          )
+        )
+          throw error;
         throw deliveryError('OUTBOX_STORE_UNWRITABLE');
       } finally {
         for (const fd of descriptors) this.io.closeSync(fd);
@@ -530,41 +866,66 @@ class DeliveryStoreImplementation {
   }
   /** Caller holds the signer lock. Prepared writes have completed and their handles are closed. */
   publishWrite(write: PreparedDeliveryWrite): void {
-    const { kind, id, record, temporary, bytes } = write, path = this.path(kind, id);
+    const { kind, id, record, temporary, bytes } = write,
+      path = this.path(kind, id);
     this.inspectPath(dirname(path));
     const previous = this.read(kind, id);
     this.checkObservation(kind, previous, record);
-    if (kind === 'outbox' && previous && 'envelopeDigest' in previous &&
-        previous.envelopeDigest !== (record as OutboxRecordV1).envelopeDigest) throw deliveryError('DELIVERY_RECORD_CONFLICT');
-    const before = this.listingStamp(kind), listing = this.listings.get(kind);
-    const index = kind === 'outbox' && this.outboxIndex?.stamp === before ? this.outboxIndex : undefined;
+    if (
+      kind === 'outbox' &&
+      previous &&
+      'envelopeDigest' in previous &&
+      previous.envelopeDigest !== (record as OutboxRecordV1).envelopeDigest
+    )
+      throw deliveryError('DELIVERY_RECORD_CONFLICT');
+    const before = this.listingStamp(kind),
+      listing = this.listings.get(kind);
+    const index =
+      kind === 'outbox' && this.outboxIndex?.stamp === before ? this.outboxIndex : undefined;
     const retained = this.idempotencyIndexes.get(kind);
     const knownRetained = retained?.stamp === before ? retained : undefined;
-    const messages = kind === 'messages' && this.messageIndex?.stamp === before ? this.messageIndex : undefined;
+    const messages =
+      kind === 'messages' && this.messageIndex?.stamp === before ? this.messageIndex : undefined;
     this.publishIdempotencyChange(kind, () => {
       this.io.renameSync(temporary, path);
       write.published = true;
       this.remember(path, bytes.toString('utf8'), record);
       this.transactionReads?.set(path, structuredClone(record));
-      if (index) { index.entries.set(id, summarize(record as OutboxRecordV1)); index.stamp = this.listingStamp(kind); }
+      if (index) {
+        index.entries.set(id, summarize(record as OutboxRecordV1));
+        index.stamp = this.listingStamp(kind);
+      }
       if (knownRetained) {
-        knownRetained.entries.set(id, summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]));
+        knownRetained.entries.set(
+          id,
+          summarizeIdempotency(record as DeliveryRecords[IdempotencyKind]),
+        );
         knownRetained.stamp = this.listingStamp(kind);
       }
-      if (messages) { messages.entries.set(id, statusMessage(record as MessageRecordV1)); messages.stamp = this.listingStamp(kind); }
-      if (listing?.stamp === before) this.listings.set(kind, { stamp: this.listingStamp(kind),
-        ids: [...new Set([...listing.ids, kind === 'receipts' ? receiptFileId(id) : id])].sort() });
+      if (messages) {
+        messages.entries.set(id, statusMessage(record as MessageRecordV1));
+        messages.stamp = this.listingStamp(kind);
+      }
+      if (listing?.stamp === before)
+        this.listings.set(kind, {
+          stamp: this.listingStamp(kind),
+          ids: [...new Set([...listing.ids, kind === 'receipts' ? receiptFileId(id) : id])].sort(),
+        });
       else this.listings.delete(kind);
     });
   }
   discardWrites(writes: PreparedDeliveryWrite[]): void {
-    const remaining = writes.filter(write => !write.published);
+    const remaining = writes.filter((write) => !write.published);
     if (!remaining.length) return;
     // These unique unpublished files are owned by this call. Cleanup must not
     // acquire another writer's lock or mask cancellation with STORE_BUSY.
     this.inspect();
     for (const { temporary } of remaining) {
-      try { this.io.unlinkSync(temporary); } catch (error) { if (errno(error) !== 'ENOENT') throw deliveryError('OUTBOX_STORE_UNWRITABLE'); }
+      try {
+        this.io.unlinkSync(temporary);
+      } catch (error) {
+        if (errno(error) !== 'ENOENT') throw deliveryError('OUTBOX_STORE_UNWRITABLE');
+      }
     }
   }
   remove(kind: Kind, id: string): void {
@@ -573,19 +934,36 @@ class DeliveryStoreImplementation {
     const listing = this.listings.get(kind);
     const beforeStamp = this.listingStamp(kind);
     const knownListing = listing?.stamp === beforeStamp ? listing : undefined;
-    const knownIndex = kind === 'outbox' && this.outboxIndex?.stamp === beforeStamp ? this.outboxIndex : undefined;
+    const knownIndex =
+      kind === 'outbox' && this.outboxIndex?.stamp === beforeStamp ? this.outboxIndex : undefined;
     const retained = this.idempotencyIndexes.get(kind);
     const knownRetained = retained?.stamp === beforeStamp ? retained : undefined;
-    const knownMessages = kind === 'messages' && this.messageIndex?.stamp === beforeStamp ? this.messageIndex : undefined;
+    const knownMessages =
+      kind === 'messages' && this.messageIndex?.stamp === beforeStamp
+        ? this.messageIndex
+        : undefined;
     if (this.read(kind, id)) {
       this.publishIdempotencyChange(kind, () => {
         this.io.unlinkSync(path);
         this.transactionReads?.set(path, undefined);
-        if (knownIndex) { knownIndex.entries.delete(id); knownIndex.stamp = this.listingStamp('outbox'); }
-        if (knownRetained) { knownRetained.entries.delete(id); knownRetained.stamp = this.listingStamp(kind); }
-        if (knownMessages) { knownMessages.entries.delete(id); knownMessages.stamp = this.listingStamp('messages'); }
+        if (knownIndex) {
+          knownIndex.entries.delete(id);
+          knownIndex.stamp = this.listingStamp('outbox');
+        }
+        if (knownRetained) {
+          knownRetained.entries.delete(id);
+          knownRetained.stamp = this.listingStamp(kind);
+        }
+        if (knownMessages) {
+          knownMessages.entries.delete(id);
+          knownMessages.stamp = this.listingStamp('messages');
+        }
         this.forget(path);
-        if (knownListing) this.listings.set(kind, { stamp: this.listingStamp(kind), ids: knownListing.ids.filter(entry => entry !== listingId) });
+        if (knownListing)
+          this.listings.set(kind, {
+            stamp: this.listingStamp(kind),
+            ids: knownListing.ids.filter((entry) => entry !== listingId),
+          });
         else this.listings.delete(kind);
       });
     }
@@ -596,16 +974,21 @@ class DeliveryStoreImplementation {
     for (;;) {
       signal?.throwIfAborted();
       const stamp = this.listingStamp('outbox');
-      if (this.outboxIndex?.stamp === stamp) { this.preparedMode = true; return; }
+      if (this.outboxIndex?.stamp === stamp) {
+        this.preparedMode = true;
+        return;
+      }
       const entries = new Map<string, OutboxSummary>();
       for (const id of this.ids('outbox')) {
-        await new Promise<void>(resolve => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
         signal?.throwIfAborted();
         const record = this.read('outbox', id);
         if (record) entries.set(id, summarize(record));
       }
       if (this.listingStamp('outbox') === stamp) {
-        this.outboxIndex = { stamp, entries }; this.preparedMode = true; return;
+        this.outboxIndex = { stamp, entries };
+        this.preparedMode = true;
+        return;
       }
     }
   }
@@ -616,23 +999,35 @@ class DeliveryStoreImplementation {
       const stamp = this.listingStamp('messages');
       if (this.messageIndex?.stamp === stamp) return;
       const entries = new Map<string, StatusMessage>();
-      for await (const r of this.scan('messages', signal ?? new AbortController().signal)) entries.set(r.messageId, statusMessage(r));
-      if (this.listingStamp('messages') === stamp) { this.messageIndex = { stamp, entries }; return; }
+      for await (const r of this.scan('messages', signal ?? new AbortController().signal))
+        entries.set(r.messageId, statusMessage(r));
+      if (this.listingStamp('messages') === stamp) {
+        this.messageIndex = { stamp, entries };
+        return;
+      }
     }
   }
   statusMessages(onError?: (error: Error) => void): StatusMessage[] {
     const stamp = this.listingStamp('messages');
     if (this.messageIndex?.stamp !== stamp) {
-      const entries = new Map(this.snapshot('messages', onError).map(r => [r.messageId, statusMessage(r)]));
+      const entries = new Map(
+        this.snapshot('messages', onError).map((r) => [r.messageId, statusMessage(r)]),
+      );
       this.messageIndex = { stamp, entries };
     }
-    return [...this.messageIndex.entries.values()].map(r => ({ ...r }));
+    return [...this.messageIndex.entries.values()].map((r) => ({ ...r }));
   }
   /** Resolve status candidates from metadata without reopening unrelated task ciphertext. */
   statusOutbox(messageId?: string, published: readonly string[] = []): OutboxRecordV1[] {
     const known = new Set(published);
-    return this.summaries().filter(r => r.kind === 'delivery-status' && (!messageId || r.messageId === messageId) && !known.has(r.envelopeId))
-      .flatMap(r => this.read('outbox', r.envelopeId) ?? []);
+    return this.summaries()
+      .filter(
+        (r) =>
+          r.kind === 'delivery-status' &&
+          (!messageId || r.messageId === messageId) &&
+          !known.has(r.envelopeId),
+      )
+      .flatMap((r) => this.read('outbox', r.envelopeId) ?? []);
   }
   /** Metadata only: local atomic writes update this index without scanning retained ciphertext. */
   private summaries(): OutboxSummary[] {
@@ -640,28 +1035,41 @@ class DeliveryStoreImplementation {
     if (this.outboxIndex?.stamp !== stamp) {
       // A concurrent publisher requires another bounded preparation, never a scan inside a live send.
       if (this.preparedMode) throw deliveryError('OUTBOX_STORE_BUSY');
-      const entries = new Map(this.snapshot('outbox').map(r => [r.envelopeId, summarize(r)]));
+      const entries = new Map(this.snapshot('outbox').map((r) => [r.envelopeId, summarize(r)]));
       this.outboxIndex = { stamp, entries };
     }
     return [...this.outboxIndex.entries.values()];
   }
   pending(messageId: string): OutboxSummary[] {
-    return this.summaries().filter(r => r.messageId === messageId && r.state === 'pending' &&
-      this.read('batches', r.batchId)?.envelopeIds.includes(r.envelopeId)).map(r => structuredClone(r));
+    return this.summaries()
+      .filter(
+        (r) =>
+          r.messageId === messageId &&
+          r.state === 'pending' &&
+          this.read('batches', r.batchId)?.envelopeIds.includes(r.envelopeId),
+      )
+      .map((r) => structuredClone(r));
   }
   /** Reconcile C2 capacity metadata outside the signer lock, yielding between retained records. */
   async prepareIdempotency(): Promise<void> {
     for (;;) {
       const current = this.listingStamp('operations');
-      if (idempotencyKinds.every(kind => this.idempotencyIndexes.get(kind)?.stamp === current)) return;
+      if (idempotencyKinds.every((kind) => this.idempotencyIndexes.get(kind)?.stamp === current))
+        return;
       // Sample both ends under the signer lock: an unlocked scan must not adopt
       // an increment whose corresponding rename/unlink has not finished yet.
       const stamp = this.transaction(() => this.listingStamp('operations'));
-      const indexes = new Map<IdempotencyKind, { stamp: string; entries: Map<string, IdempotencySummary> }>();
+      const indexes = new Map<
+        IdempotencyKind,
+        { stamp: string; entries: Map<string, IdempotencySummary> }
+      >();
       for (const kind of idempotencyKinds) {
         const entries = new Map<string, IdempotencySummary>();
         for await (const record of this.scan(kind, new AbortController().signal)) {
-          const id = kind === 'operations' ? record.operationId : (record as DeliveryRecords['idempotency']).keyHash;
+          const id =
+            kind === 'operations'
+              ? record.operationId
+              : (record as DeliveryRecords['idempotency']).keyHash;
           entries.set(id, summarizeIdempotency(record));
         }
         indexes.set(kind, { stamp, entries });
@@ -679,8 +1087,14 @@ class DeliveryStoreImplementation {
     for (const kind of ['operations', 'idempotency'] as const) {
       // A matching directory stamp alone does not confirm the inventory for orphan cleanup.
       this.listings.delete(kind);
-      const entries = new Map(this.snapshot(kind).map(record => [kind === 'operations' ? record.operationId
-        : (record as DeliveryRecords['idempotency']).keyHash, summarizeIdempotency(record)]));
+      const entries = new Map(
+        this.snapshot(kind).map((record) => [
+          kind === 'operations'
+            ? record.operationId
+            : (record as DeliveryRecords['idempotency']).keyHash,
+          summarizeIdempotency(record),
+        ]),
+      );
       this.idempotencyIndexes.set(kind, { stamp: this.listingStamp(kind), entries });
     }
   }
@@ -693,43 +1107,82 @@ class DeliveryStoreImplementation {
       for (const kind of idempotencyKinds) this.listings.delete(kind);
       this.openGeneration();
     }
-    let operations = this.idempotencyIndexes.get('operations'), bindings = this.idempotencyIndexes.get('idempotency');
-    if (!operations || !bindings || operations.stamp !== this.listingStamp('operations') || bindings.stamp !== this.listingStamp('idempotency'))
+    let operations = this.idempotencyIndexes.get('operations'),
+      bindings = this.idempotencyIndexes.get('idempotency');
+    if (
+      !operations ||
+      !bindings ||
+      operations.stamp !== this.listingStamp('operations') ||
+      bindings.stamp !== this.listingStamp('idempotency')
+    )
       throw deliveryError('IDEMPOTENCY_STORE_BUSY');
     const leaseMs = this.idempotencyLeaseMs;
-    const retainedBindings = new Set([...bindings.entries.values()].filter(b => b.retainUntil > now).map(b => b.operationId));
+    const retainedBindings = new Set(
+      [...bindings.entries.values()].filter((b) => b.retainUntil > now).map((b) => b.operationId),
+    );
     let refreshed = false;
-    if (this.transactionReads && [...operations.entries.values()].some(r => r.retainUntil > now &&
-        !retainedBindings.has(r.operationId) && r.createdAt + leaseMs <= now)) {
+    if (
+      this.transactionReads &&
+      [...operations.entries.values()].some(
+        (r) =>
+          r.retainUntil > now &&
+          !retainedBindings.has(r.operationId) &&
+          r.createdAt + leaseMs <= now,
+      )
+    ) {
       // Only an aged orphan candidate needs this extra I/O; warm reservations reuse their indexes.
       this.refreshIdempotencyIndexes();
-      operations = this.idempotencyIndexes.get('operations')!; bindings = this.idempotencyIndexes.get('idempotency')!;
+      operations = this.idempotencyIndexes.get('operations')!;
+      bindings = this.idempotencyIndexes.get('idempotency')!;
       refreshed = true;
     }
-    for (const [id, binding] of bindings.entries) if (binding.retainUntil <= now) this.remove('idempotency', id);
-    const bound = new Set([...bindings.entries.values()].map(b => b.operationId));
-    for (const [id, record] of operations.entries) if (record.retainUntil <= now ||
-        refreshed && !bound.has(id) && record.createdAt + leaseMs <= now) this.remove('operations', id);
-    const bytes = [...operations.entries.values()].reduce((n, r) => n + (r.bytes ?? this.limits.operationBytes), 0);
-    if (operations.entries.size >= this.limits.operations || bytes + this.limits.operationBytes > this.limits.cachedResultBytes)
+    for (const [id, binding] of bindings.entries)
+      if (binding.retainUntil <= now) this.remove('idempotency', id);
+    const bound = new Set([...bindings.entries.values()].map((b) => b.operationId));
+    for (const [id, record] of operations.entries)
+      if (
+        record.retainUntil <= now ||
+        (refreshed && !bound.has(id) && record.createdAt + leaseMs <= now)
+      )
+        this.remove('operations', id);
+    const bytes = [...operations.entries.values()].reduce(
+      (n, r) => n + (r.bytes ?? this.limits.operationBytes),
+      0,
+    );
+    if (
+      operations.entries.size >= this.limits.operations ||
+      bytes + this.limits.operationBytes > this.limits.cachedResultBytes
+    )
       throw deliveryError('IDEMPOTENCY_STORE_FULL');
   }
   assertCapacity(records: OutboxRecordV1[], message?: MessageRecordV1): void {
-    const all = this.summaries(), active = all.filter(r => r.state === 'pending');
-    if (active.length + records.length > this.limits.activeEnvelopes ||
-      all.reduce((n, r) => n + r.bytes, 0) + records.reduce((n, r) => n + Buffer.byteLength(JSON.stringify(r.envelope)), 0) > this.limits.envelopeBytes ||
-      records.some(r => Buffer.byteLength(JSON.stringify(r.envelope)) > this.limits.wireBytes) ||
-      message && !this.read('messages', message.messageId) && this.ids('messages').length >= this.limits.messages)
+    const all = this.summaries(),
+      active = all.filter((r) => r.state === 'pending');
+    if (
+      active.length + records.length > this.limits.activeEnvelopes ||
+      all.reduce((n, r) => n + r.bytes, 0) +
+        records.reduce((n, r) => n + Buffer.byteLength(JSON.stringify(r.envelope)), 0) >
+        this.limits.envelopeBytes ||
+      records.some((r) => Buffer.byteLength(JSON.stringify(r.envelope)) > this.limits.wireBytes) ||
+      (message &&
+        !this.read('messages', message.messageId) &&
+        this.ids('messages').length >= this.limits.messages)
+    )
       throw deliveryError('OUTBOX_FULL');
   }
   /** Read-only preflight; publication rechecks capacity under the signer lock. */
   checkAvailable(envelopes = 2): void {
-    if (this.summaries().filter(r => r.state === 'pending').length + envelopes > this.limits.activeEnvelopes ||
-        this.ids('messages').length >= this.limits.messages) throw deliveryError('OUTBOX_FULL');
+    if (
+      this.summaries().filter((r) => r.state === 'pending').length + envelopes >
+        this.limits.activeEnvelopes ||
+      this.ids('messages').length >= this.limits.messages
+    )
+      throw deliveryError('OUTBOX_FULL');
   }
   committed(batchId: string): OutboxRecordV1[] {
-    try { return this.committedSnapshot(batchId); }
-    catch (error) {
+    try {
+      return this.committedSnapshot(batchId);
+    } catch (error) {
       // finishBatch removes the marker before members. An unlocked reader can
       // cross that boundary; disappearance is completed cleanup, not corruption.
       if (!this.read('batches', batchId)) return [];
@@ -739,34 +1192,66 @@ class DeliveryStoreImplementation {
   private committedSnapshot(batchId: string): OutboxRecordV1[] {
     const b = this.read('batches', batchId);
     if (!b) return [];
-    const records = b.envelopeIds.map(id => this.read('outbox', id));
-    requireDelivery(records.every((r): r is OutboxRecordV1 => !!r && r.batchId === b.batchId && r.messageId === b.messageId));
+    const records = b.envelopeIds.map((id) => this.read('outbox', id));
+    requireDelivery(
+      records.every(
+        (r): r is OutboxRecordV1 => !!r && r.batchId === b.batchId && r.messageId === b.messageId,
+      ),
+    );
     const members = records as OutboxRecordV1[];
-    requireDelivery(members.every(r => r.localOwnerDid === b.localOwnerDid && r.peerOwnerDid === members[0].peerOwnerDid &&
-      r.relayUrl === members[0].relayUrl && r.deliveryDeadline === members[0].deliveryDeadline && r.kind === members[0].kind) &&
-      (members.length === 1 || members[0].kind === 'task' && members[1].ordinal === members[0].ordinal + 1 &&
-        members[1].envelope.payload.eventType === 'AUDIT_ENTRY' && members[0].envelope.payload.taskId === members[1].envelope.payload.taskId));
-    const proposal = members.find(r => r.envelope.payload.eventType === 'PROPOSE');
+    requireDelivery(
+      members.every(
+        (r) =>
+          r.localOwnerDid === b.localOwnerDid &&
+          r.peerOwnerDid === members[0].peerOwnerDid &&
+          r.relayUrl === members[0].relayUrl &&
+          r.deliveryDeadline === members[0].deliveryDeadline &&
+          r.kind === members[0].kind,
+      ) &&
+        (members.length === 1 ||
+          (members[0].kind === 'task' &&
+            members[1].ordinal === members[0].ordinal + 1 &&
+            members[1].envelope.payload.eventType === 'AUDIT_ENTRY' &&
+            members[0].envelope.payload.taskId === members[1].envelope.payload.taskId)),
+    );
+    const proposal = members.find((r) => r.envelope.payload.eventType === 'PROPOSE');
     if (proposal) {
       const message = this.read('messages', b.messageId);
-      requireDelivery(message && message.messageId === proposal.envelopeId && message.proposalEnvelopeDigest === proposal.envelopeDigest &&
-        message.peerOwnerDid === proposal.peerOwnerDid && message.relayUrl === proposal.relayUrl &&
-        message.taskId === proposal.envelope.payload.taskId && message.deliveryDeadline === proposal.deliveryDeadline);
+      requireDelivery(
+        message &&
+          message.messageId === proposal.envelopeId &&
+          message.proposalEnvelopeDigest === proposal.envelopeDigest &&
+          message.peerOwnerDid === proposal.peerOwnerDid &&
+          message.relayUrl === proposal.relayUrl &&
+          message.taskId === proposal.envelope.payload.taskId &&
+          message.deliveryDeadline === proposal.deliveryDeadline,
+      );
     }
     return members;
   }
   finishBatch(batchId: string): void {
     const records = this.committed(batchId);
-    if (!records.length || records.some(r => r.state === 'pending')) return;
+    if (!records.length || records.some((r) => r.state === 'pending')) return;
     // The marker is removed first; an interrupted unlink cannot make members dispatchable.
     this.remove('batches', batchId);
     for (const r of records) this.remove('outbox', r.envelopeId);
   }
-  receipt(envelope: SignedEnvelope, deadline: number, state: InboundReceiptV1['state'], outcomeCode?: string): InboundReceiptV1 {
+  receipt(
+    envelope: SignedEnvelope,
+    deadline: number,
+    state: InboundReceiptV1['state'],
+    outcomeCode?: string,
+  ): InboundReceiptV1 {
     return this.transaction(() => this.receiptLocked(envelope, deadline, state, outcomeCode));
   }
-  async receiptPrepared(envelope: SignedEnvelope, deadline: number, state: InboundReceiptV1['state'], signal?: AbortSignal): Promise<void> {
-    const now = this.now(), id = envelope.payload.envelopeId;
+  async receiptPrepared(
+    envelope: SignedEnvelope,
+    deadline: number,
+    state: InboundReceiptV1['state'],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const now = this.now(),
+      id = envelope.payload.envelopeId;
     for (;;) {
       signal?.throwIfAborted();
       const record = this.nextReceipt(envelope, deadline, state, undefined, now);
@@ -774,75 +1259,133 @@ class DeliveryStoreImplementation {
       const prepared = await this.prepareWrites([{ kind: 'receipts', id, record }]);
       try {
         signal?.throwIfAborted();
-        const published = await retryDeliveryBusy(() => this.transaction(() => {
-          const current = this.nextReceipt(envelope, deadline, state, undefined, now);
-          if (JSON.stringify(current) !== JSON.stringify(record)) return false;
-          if (JSON.stringify(this.read('receipts', id)) !== JSON.stringify(record)) this.publishWrite(prepared[0]);
-          return true;
-        }), signal);
+        const published = await retryDeliveryBusy(
+          () =>
+            this.transaction(() => {
+              const current = this.nextReceipt(envelope, deadline, state, undefined, now);
+              if (JSON.stringify(current) !== JSON.stringify(record)) return false;
+              if (JSON.stringify(this.read('receipts', id)) !== JSON.stringify(record))
+                this.publishWrite(prepared[0]);
+              return true;
+            }),
+          signal,
+        );
         if (published) return;
-      } finally { this.discardWrites(prepared); }
+      } finally {
+        this.discardWrites(prepared);
+      }
     }
   }
   /** Caller holds the signer lock, including when publishing a task checkpoint. */
-  receiptLocked(envelope: SignedEnvelope, deadline: number, state: InboundReceiptV1['state'], outcomeCode?: string): InboundReceiptV1 {
-    const id = envelope.payload.envelopeId, r = this.nextReceipt(envelope, deadline, state, outcomeCode);
+  receiptLocked(
+    envelope: SignedEnvelope,
+    deadline: number,
+    state: InboundReceiptV1['state'],
+    outcomeCode?: string,
+  ): InboundReceiptV1 {
+    const id = envelope.payload.envelopeId,
+      r = this.nextReceipt(envelope, deadline, state, outcomeCode);
     const prior = this.read('receipts', id);
     if (!prior || JSON.stringify(prior) !== JSON.stringify(r)) this.write('receipts', id, r);
     return r;
   }
-  private nextReceipt(envelope: SignedEnvelope, deadline: number, state: InboundReceiptV1['state'], outcomeCode?: string, now = this.now()): InboundReceiptV1 {
-    const id = envelope.payload.envelopeId, prior = this.read('receipts', id);
-    if (prior && (prior.envelopeId !== id || prior.senderDid !== envelope.payload.senderDid || prior.taskId !== envelope.payload.taskId || prior.envelopeDigest !== digest(envelope)))
+  private nextReceipt(
+    envelope: SignedEnvelope,
+    deadline: number,
+    state: InboundReceiptV1['state'],
+    outcomeCode?: string,
+    now = this.now(),
+  ): InboundReceiptV1 {
+    const id = envelope.payload.envelopeId,
+      prior = this.read('receipts', id);
+    if (
+      prior &&
+      (prior.envelopeId !== id ||
+        prior.senderDid !== envelope.payload.senderDid ||
+        prior.taskId !== envelope.payload.taskId ||
+        prior.envelopeDigest !== digest(envelope))
+    )
       throw deliveryError('DELIVERY_RECORD_CONFLICT');
-    if (!prior && this.ids('receipts').length >= this.limits.receipts) throw deliveryError('OUTBOX_FULL');
+    if (!prior && this.ids('receipts').length >= this.limits.receipts)
+      throw deliveryError('OUTBOX_FULL');
     const rank = { persisted: 0, processed: 1, terminal: 2 };
-    const r: InboundReceiptV1 = { version: 1, envelopeId: id, localOwnerDid: this.owner.did,
-      senderDid: envelope.payload.senderDid, taskId: envelope.payload.taskId, envelopeDigest: digest(envelope),
-      receivedAt: prior?.receivedAt ?? now, retainUntil: prior?.retainUntil ?? Math.max(now, deadline) + DELIVERY_RETENTION_MS,
-      state: prior && rank[prior.state] > rank[state] ? prior.state : state, ...(outcomeCode ? { outcomeCode } : {}) };
+    const r: InboundReceiptV1 = {
+      version: 1,
+      envelopeId: id,
+      localOwnerDid: this.owner.did,
+      senderDid: envelope.payload.senderDid,
+      taskId: envelope.payload.taskId,
+      envelopeDigest: digest(envelope),
+      receivedAt: prior?.receivedAt ?? now,
+      retainUntil: prior?.retainUntil ?? Math.max(now, deadline) + DELIVERY_RETENTION_MS,
+      state: prior && rank[prior.state] > rank[state] ? prior.state : state,
+      ...(outcomeCode ? { outcomeCode } : {}),
+    };
     return r;
   }
   private *maintenanceSteps(onError: (error: Error) => void): Generator<() => void> {
-    for (const id of this.ids('batches', onError)) yield () => this.transaction(() => {
-      const records = this.committed(id);
-      // Close members before pruning their message metadata, including after a long shutdown.
-      const now = this.now();
-      for (const r of records) if (r.state === 'pending' && r.deliveryDeadline <= now) {
-        const next = { ...r, state: 'closed' as const, lastError: 'OUTBOX_DEADLINE_EXPIRED' };
-        delete next.lease;
-        this.write('outbox', r.envelopeId, next);
-        const message = r.kind === 'task' && this.read('messages', r.messageId);
-        if (message && ['queued', 'relayed'].includes(message.status)) this.write('messages', message.messageId,
-          { ...message, status: 'closed', closedBy: 'deadline', lastError: 'OUTBOX_DEADLINE_EXPIRED', updatedAt: now });
-      }
-      this.finishBatch(id);
-    });
-    for (const kind of kinds) for (const id of this.ids(kind, onError)) yield () => this.transaction(() => {
-      const r = this.read(kind, id);
-      if (!r) return;
-      // Recheck under this lock: another process may publish work between maintenance slices.
-      const orphan = kind === 'outbox' && !this.read('batches', (r as OutboxRecordV1).batchId)?.envelopeIds.includes(id);
-      if (orphan || 'retainUntil' in r && r.retainUntil <= this.now()) this.remove(kind, id);
-    });
+    for (const id of this.ids('batches', onError))
+      yield () =>
+        this.transaction(() => {
+          const records = this.committed(id);
+          // Close members before pruning their message metadata, including after a long shutdown.
+          const now = this.now();
+          for (const r of records)
+            if (r.state === 'pending' && r.deliveryDeadline <= now) {
+              const next = { ...r, state: 'closed' as const, lastError: 'OUTBOX_DEADLINE_EXPIRED' };
+              delete next.lease;
+              this.write('outbox', r.envelopeId, next);
+              const message = r.kind === 'task' && this.read('messages', r.messageId);
+              if (message && ['queued', 'relayed'].includes(message.status))
+                this.write('messages', message.messageId, {
+                  ...message,
+                  status: 'closed',
+                  closedBy: 'deadline',
+                  lastError: 'OUTBOX_DEADLINE_EXPIRED',
+                  updatedAt: now,
+                });
+            }
+          this.finishBatch(id);
+        });
+    for (const kind of kinds)
+      for (const id of this.ids(kind, onError))
+        yield () =>
+          this.transaction(() => {
+            const r = this.read(kind, id);
+            if (!r) return;
+            // Recheck under this lock: another process may publish work between maintenance slices.
+            const orphan =
+              kind === 'outbox' &&
+              !this.read('batches', (r as OutboxRecordV1).batchId)?.envelopeIds.includes(id);
+            if (orphan || ('retainUntil' in r && r.retainUntil <= this.now()))
+              this.remove(kind, id);
+          });
   }
   maintain(onError: (error: Error) => void = () => {}): void {
     for (const step of this.maintenanceSteps(onError)) {
-      try { step(); } catch (error) { onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID')); }
+      try {
+        step();
+      } catch (error) {
+        onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID'));
+      }
     }
   }
   /** One batch (at most two frames) or one retained record per event-loop turn. */
   async maintainInBackground(onError: (error: Error) => void, signal: AbortSignal): Promise<void> {
     for (const step of this.maintenanceSteps(onError)) {
-      await new Promise<void>(resolve => setImmediate(resolve));
+      await new Promise<void>((resolve) => setImmediate(resolve));
       if (signal.aborted) return;
-      try { await retryDeliveryBusy(step, signal); }
-      catch (error) { if (signal.aborted) return; onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID')); }
+      try {
+        await retryDeliveryBusy(step, signal);
+      } catch (error) {
+        if (signal.aborted) return;
+        onError(error instanceof Error ? error : deliveryError('OUTBOX_STORE_INVALID'));
+      }
     }
   }
 }
 export type DeliveryStore = Pick<DeliveryStoreImplementation, keyof DeliveryStoreImplementation>;
 export const DeliveryStore: {
-  new(owner: KeyPair, options?: DeliveryStoreOptions): DeliveryStore;
+  new (owner: KeyPair, options?: DeliveryStoreOptions): DeliveryStore;
   readonly prototype: DeliveryStore;
 } = DeliveryStoreImplementation;

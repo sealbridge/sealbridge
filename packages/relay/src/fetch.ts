@@ -12,7 +12,12 @@ import {
   createRelayAuthToken,
 } from '@acp/core/edge';
 import type { SignedEnvelope, SignedAgentCard, RelayAuthAction, KeyPair } from '@acp/core/edge';
-import type { RelayWakeOptions, RelayWakeAttempt, RelayOperation, SignedRelayDeliveryStatus } from './notifications.js';
+import type {
+  RelayWakeOptions,
+  RelayWakeAttempt,
+  RelayOperation,
+  SignedRelayDeliveryStatus,
+} from './notifications.js';
 export * from './notifications.js';
 // Same outer wire shape as envelope.schema.json, without filesystem schema loads.
 export function verifyRelayEnvelope(e: SignedEnvelope, recipient?: string): boolean {
@@ -160,8 +165,7 @@ export function classifyEnvelopeRole(
   const { eventType: type, seq, senderDid, recipientDid } = envelope.payload;
   // Control delivery does not participate in bilateral task role/sequence inference.
   if (type === 'DELIVERY_STATUS') return 'requester';
-  if (CONNECTION_CONTROL_EVENTS.has(type))
-    return 'worker';
+  if (CONNECTION_CONTROL_EVENTS.has(type)) return 'worker';
   const cross = senderDid !== recipientDid;
   if (WORKER_PRIMARY_EVENTS.has(type)) {
     if (state) {
@@ -231,8 +235,7 @@ export function classifyEnvelopeRole(
       if (seq === state.requesterSeq && seq !== state.workerSeq) return 'requester';
       if (seq === state.workerSeq && seq !== state.requesterSeq) return 'worker';
       if (state.pendingAckRoles.length > 0) return state.pendingAckRoles.shift()!;
-      if (state.lastPrimaryRole)
-        return state.lastPrimaryRole === 'worker' ? 'requester' : 'worker';
+      if (state.lastPrimaryRole) return state.lastPrimaryRole === 'worker' ? 'requester' : 'worker';
     }
     return 'worker';
   }
@@ -282,7 +285,8 @@ export function parseReceiveFilterFromUrl(url: URL): RelayReceiveFilter | undefi
     .map((v) => v.trim())
     .filter(Boolean);
   const leaseParam = url.searchParams.get('lease');
-  if (leaseParam !== null && leaseParam !== 'true' && leaseParam !== 'false') throw new Error('INVALID_REQUEST');
+  if (leaseParam !== null && leaseParam !== 'true' && leaseParam !== 'false')
+    throw new Error('INVALID_REQUEST');
   const lease = leaseParam === 'true';
   const peek = peekParam === 'true' || peekParam === '1';
   if (!roleParam && taskIdParams.length === 0 && !peek && !lease) return undefined;
@@ -372,9 +376,13 @@ export class InMemoryRelay {
   private readonly wake?: RelayWakeOptions;
   readonly notificationTtlMs: number;
   private flushing?: Promise<void>;
-  get notificationDid(): string { return this.notificationKey.did; }
+  get notificationDid(): string {
+    return this.notificationKey.did;
+  }
   /** Durable hosts install the persisted relay identity before restoring queues. */
-  setNotificationKey(key: KeyPair): void { this.notificationKey = key; }
+  setNotificationKey(key: KeyPair): void {
+    this.notificationKey = key;
+  }
   private queues = new Map<string, StoredEnvelope[]>();
   private taskStates = new Map<string, TaskRoleState>();
   private seen = new Map<string, number>();
@@ -410,9 +418,16 @@ export class InMemoryRelay {
     if (this.wake) {
       positiveLimit(this.wake.maxAttempts, 5);
       positiveLimit(this.wake.retryBaseMs, 1000);
-      if (positiveLimit(this.wake.timeoutMs, 5000) > 2_147_483_647) throw new Error('INVALID_RELAY_LIMIT');
+      if (positiveLimit(this.wake.timeoutMs, 5000) > 2_147_483_647)
+        throw new Error('INVALID_RELAY_LIMIT');
       const url = new URL(this.wake.relay);
-      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+      if (
+        !['http:', 'https:'].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
         throw new Error('INVALID_REQUEST');
     }
     this.notificationTtlMs = positiveLimit(config.notificationTtlMs, DEFAULT_SEEN_TTL_MS);
@@ -420,10 +435,7 @@ export class InMemoryRelay {
     this.requireAuth = config.requireAuth ?? false;
     this.allowUnboundRelayAuth = config.allowUnboundRelayAuth ?? false;
     this.maxSeenEntries = positiveLimit(config.maxSeenEntries, DEFAULT_MAX_SEEN_ENTRIES);
-    this.maxAuthSeenEntries = positiveLimit(
-      config.maxAuthSeenEntries,
-      this.maxSeenEntries,
-    );
+    this.maxAuthSeenEntries = positiveLimit(config.maxAuthSeenEntries, this.maxSeenEntries);
     this.maxQueues = positiveLimit(config.maxQueues, DEFAULT_MAX_QUEUES);
     this.maxQueueSize = positiveLimit(config.maxQueueSize, DEFAULT_MAX_QUEUE_SIZE);
     this.maxEnvelopeBytes = positiveLimit(config.maxEnvelopeBytes, DEFAULT_MAX_ENVELOPE_BYTES);
@@ -431,10 +443,7 @@ export class InMemoryRelay {
       config.maxQueueBytesPerRecipient,
       DEFAULT_MAX_QUEUE_BYTES_PER_RECIPIENT,
     );
-    this.maxEnvelopesPerSender = positiveLimit(
-      config.maxEnvelopesPerSender,
-      this.maxQueueSize,
-    );
+    this.maxEnvelopesPerSender = positiveLimit(config.maxEnvelopesPerSender, this.maxQueueSize);
     this.maxAgents = positiveLimit(config.maxAgents, DEFAULT_MAX_AGENTS);
     this.envelopeTtlMs = positiveLimit(config.envelopeTtlMs, DEFAULT_ENVELOPE_TTL_MS);
     this.seenTtlMs = positiveLimit(config.seenTtlMs, DEFAULT_SEEN_TTL_MS);
@@ -524,8 +533,14 @@ export class InMemoryRelay {
     this.operations.set(id, operation);
     this.version++;
   }
-  registerWake(recipientDid: string, channel: string | null, token?: string, check?: RelayAuthContext): void {
-    if (!this.authenticate(recipientDid, token, 'receive', check)) throw new Error('RELAY_UNAUTHORIZED');
+  registerWake(
+    recipientDid: string,
+    channel: string | null,
+    token?: string,
+    check?: RelayAuthContext,
+  ): void {
+    if (!this.authenticate(recipientDid, token, 'receive', check))
+      throw new Error('RELAY_UNAUTHORIZED');
     if (channel === null) {
       this.operations.delete('registration:' + recipientDid);
       for (const [id, op] of this.operations)
@@ -533,9 +548,13 @@ export class InMemoryRelay {
       this.version++;
       return;
     }
-    if (!this.wake || !Object.hasOwn(this.wake.channels, channel)) throw new Error('INVALID_REQUEST');
+    if (!this.wake || !Object.hasOwn(this.wake.channels, channel))
+      throw new Error('INVALID_REQUEST');
     this.putOperation('registration:' + recipientDid, {
-      kind: 'registration', recipientDid, channel, expiresAt: this.now() + this.notificationTtlMs,
+      kind: 'registration',
+      recipientDid,
+      channel,
+      expiresAt: this.now() + this.notificationTtlMs,
     });
   }
   private queueWake(envelope: SignedEnvelope): void {
@@ -543,20 +562,43 @@ export class InMemoryRelay {
     if (!this.wake || this.listeners.get(recipientDid)?.size) return;
     const reg = this.operations.get('registration:' + recipientDid);
     const id = 'wake:' + recipientDid + ':' + taskId;
-    if (reg?.kind !== 'registration' || reg.expiresAt <= this.now() || this.operations.has(id)) return;
-    this.putOperation(id, { kind: 'wake', recipientDid, taskId, channel: reg.channel,
-      attempts: 0, nextAttempt: this.now(), done: false, expiresAt: this.now() + this.notificationTtlMs });
+    if (reg?.kind !== 'registration' || reg.expiresAt <= this.now() || this.operations.has(id))
+      return;
+    this.putOperation(id, {
+      kind: 'wake',
+      recipientDid,
+      taskId,
+      channel: reg.channel,
+      attempts: 0,
+      nextAttempt: this.now(),
+      done: false,
+      expiresAt: this.now() + this.notificationTtlMs,
+    });
   }
   /** Claim inside a durable mutation turn and persist before invoking the channel. */
   claimWakeNotification(): RelayWakeAttempt | undefined {
     if (!this.wake) return;
     for (const [id, op] of this.operations) {
-      if (op.kind !== 'wake' || op.done || op.nextAttempt > this.now() || op.expiresAt <= this.now()) continue;
+      if (
+        op.kind !== 'wake' ||
+        op.done ||
+        op.nextAttempt > this.now() ||
+        op.expiresAt <= this.now()
+      )
+        continue;
       const registration = this.operations.get('registration:' + op.recipientDid);
-      if (op.attempts >= (this.wake.maxAttempts ?? 5) || registration?.kind !== 'registration' ||
-          registration.expiresAt <= this.now() || registration.channel !== op.channel ||
-          this.listeners.get(op.recipientDid)?.size ||
-          !this.queues.get(op.recipientDid)?.some(item => item.expiresAt > this.now() && item.envelope.payload.taskId === op.taskId)) {
+      if (
+        op.attempts >= (this.wake.maxAttempts ?? 5) ||
+        registration?.kind !== 'registration' ||
+        registration.expiresAt <= this.now() ||
+        registration.channel !== op.channel ||
+        this.listeners.get(op.recipientDid)?.size ||
+        !this.queues
+          .get(op.recipientDid)
+          ?.some(
+            (item) => item.expiresAt > this.now() && item.envelope.payload.taskId === op.taskId,
+          )
+      ) {
         op.done = true;
         this.version++;
         continue;
@@ -564,10 +606,20 @@ export class InMemoryRelay {
       const channel = this.wake.channels[op.channel];
       if (!channel || !Object.hasOwn(this.wake.channels, op.channel)) continue;
       op.attempts++;
-      op.nextAttempt = this.now() + Math.min(60_000, (this.wake.retryBaseMs ?? 1000) * 2 ** Math.min(op.attempts - 1, 16));
+      op.nextAttempt =
+        this.now() +
+        Math.min(60_000, (this.wake.retryBaseMs ?? 1000) * 2 ** Math.min(op.attempts - 1, 16));
       this.version++;
-      return { id, attempt: op.attempts, deliver: channel, timeoutMs: this.wake.timeoutMs ?? 5000,
-        notice: signPayload({ recipientDid: op.recipientDid, taskId: op.taskId, relay: this.wake.relay }, this.notificationKey) };
+      return {
+        id,
+        attempt: op.attempts,
+        deliver: channel,
+        timeoutMs: this.wake.timeoutMs ?? 5000,
+        notice: signPayload(
+          { recipientDid: op.recipientDid, taskId: op.taskId, relay: this.wake.relay },
+          this.notificationKey,
+        ),
+      };
     }
   }
   /** Run outside the durable mutation turn so notification latency cannot stall inbox delivery. */
@@ -577,20 +629,28 @@ export class InMemoryRelay {
     try {
       await Promise.race([
         attempt.deliver(attempt.notice, controller.signal),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => {
-          controller.abort(); reject(new Error('WAKE_TIMEOUT'));
-        }, attempt.timeoutMs); }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error('WAKE_TIMEOUT'));
+          }, attempt.timeoutMs);
+        }),
       ]);
       return !controller.signal.aborted;
-    } catch { return false; }
-    finally { clearTimeout(timer); }
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
   completeWakeNotification(attempt: RelayWakeAttempt, delivered: boolean): void {
     const op = this.operations.get(attempt.id);
     if (op?.kind !== 'wake' || op.attempts !== attempt.attempt) return;
     op.done = delivered || op.attempts >= (this.wake?.maxAttempts ?? 5);
     if (!op.done)
-      op.nextAttempt = this.now() + Math.min(60_000, (this.wake?.retryBaseMs ?? 1000) * 2 ** Math.min(op.attempts - 1, 16));
+      op.nextAttempt =
+        this.now() +
+        Math.min(60_000, (this.wake?.retryBaseMs ?? 1000) * 2 ** Math.min(op.attempts - 1, 16));
     this.version++;
   }
   /** In-memory hosts call periodically; durable hosts commit claims and completion separately. */
@@ -602,36 +662,78 @@ export class InMemoryRelay {
         const delivered = await this.deliverWakeNotification(attempt);
         this.completeWakeNotification(attempt, delivered);
       }
-    })().finally(() => { this.flushing = undefined; });
+    })().finally(() => {
+      this.flushing = undefined;
+    });
     return this.flushing;
   }
-  getDeliveryStatus(recipientDid: string, envelopeId: string, senderDid: string, relay: string,
-    token?: string, check?: RelayAuthContext): SignedRelayDeliveryStatus {
-    if (!this.authenticate(senderDid, token, 'receive', check)) throw new Error('RELAY_UNAUTHORIZED');
+  getDeliveryStatus(
+    recipientDid: string,
+    envelopeId: string,
+    senderDid: string,
+    relay: string,
+    token?: string,
+    check?: RelayAuthContext,
+  ): SignedRelayDeliveryStatus {
+    if (!this.authenticate(senderDid, token, 'receive', check))
+      throw new Error('RELAY_UNAUTHORIZED');
     const expired = this.operations.get('expiry:' + envelopeId);
-    if (expired?.kind === 'expiry' && expired.notice.payload.senderDid === senderDid &&
-        expired.notice.payload.recipientDid === recipientDid)
+    if (
+      expired?.kind === 'expiry' &&
+      expired.notice.payload.senderDid === senderDid &&
+      expired.notice.payload.recipientDid === recipientDid
+    )
       return signPayload({ ...expired.notice.payload, relay }, this.notificationKey);
-    const item = this.queues.get(recipientDid)?.find(row => row.envelope.payload.envelopeId === envelopeId && row.envelope.payload.senderDid === senderDid);
-    return signPayload({ type: 'RelayDeliveryStatus', state: item ? 'pending' : 'unknown', envelopeId,
-      senderDid, recipientDid, relay,
-      ...(item ? { taskId: item.envelope.payload.taskId, expiresAt: item.expiresAt } : {}),
-    }, this.notificationKey);
+    const item = this.queues
+      .get(recipientDid)
+      ?.find(
+        (row) =>
+          row.envelope.payload.envelopeId === envelopeId &&
+          row.envelope.payload.senderDid === senderDid,
+      );
+    return signPayload(
+      {
+        type: 'RelayDeliveryStatus',
+        state: item ? 'pending' : 'unknown',
+        envelopeId,
+        senderDid,
+        recipientDid,
+        relay,
+        ...(item ? { taskId: item.envelope.payload.taskId, expiresAt: item.expiresAt } : {}),
+      },
+      this.notificationKey,
+    );
   }
   /** Drop queued envelopes, replay ids, and agent cards whose TTL has elapsed. */
   evictExpired(): void {
     const now = this.now();
     let changed = false;
-    for (const [id, op] of this.operations) if (op.expiresAt <= now) {
-      this.operations.delete(id); changed = true;
-    }
+    for (const [id, op] of this.operations)
+      if (op.expiresAt <= now) {
+        this.operations.delete(id);
+        changed = true;
+      }
     for (const [did, queue] of this.queues) {
       const live = queue.filter((item) => {
         if (item.expiresAt > now) return true;
         const { envelopeId, senderDid, recipientDid, taskId } = item.envelope.payload;
-        this.putOperation('expiry:' + envelopeId, { kind: 'expiry', expiresAt: now + this.notificationTtlMs,
-          notice: signPayload({ type: 'RelayDeliveryStatus', state: 'expired', envelopeId, senderDid,
-            recipientDid, taskId, relay: this.wake?.relay ?? '', expiresAt: item.expiresAt }, this.notificationKey) });
+        this.putOperation('expiry:' + envelopeId, {
+          kind: 'expiry',
+          expiresAt: now + this.notificationTtlMs,
+          notice: signPayload(
+            {
+              type: 'RelayDeliveryStatus',
+              state: 'expired',
+              envelopeId,
+              senderDid,
+              recipientDid,
+              taskId,
+              relay: this.wake?.relay ?? '',
+              expiresAt: item.expiresAt,
+            },
+            this.notificationKey,
+          ),
+        });
         return false;
       });
       if (live.length === queue.length) continue;
@@ -672,8 +774,11 @@ export class InMemoryRelay {
     this.evictExpired();
     const id = envelope.payload.envelopeId;
     if (
-      this.seen.has(id) || this.operations.has('expiry:' + id) ||
-      [...this.queues.values()].some(queue => queue.some(item => item.envelope.payload.envelopeId === id))
+      this.seen.has(id) ||
+      this.operations.has('expiry:' + id) ||
+      [...this.queues.values()].some((queue) =>
+        queue.some((item) => item.envelope.payload.envelopeId === id),
+      )
     )
       throw new Error('REPLAYED_ENVELOPE');
     const did = envelope.payload.recipientDid;
@@ -691,8 +796,12 @@ export class InMemoryRelay {
     if (this.senderCount(queue, envelope.payload.senderDid) >= this.maxEnvelopesPerSender)
       throw new Error('RELAY_RETRY_LATER');
     this.remember(this.seen, envelope.payload.envelopeId, this.maxSeenEntries, this.seenTtlMs);
-    const role = classifyEnvelopeRole(envelope, CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
-      ? undefined : this.stateForTask(envelope.payload.taskId));
+    const role = classifyEnvelopeRole(
+      envelope,
+      CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
+        ? undefined
+        : this.stateForTask(envelope.payload.taskId),
+    );
     const wire = structuredClone(envelope);
     const stored = this.tamper ? this.tamper(wire) : wire;
     queue.push({
@@ -714,7 +823,10 @@ export class InMemoryRelay {
   ): SignedEnvelope | undefined {
     const isFilter =
       checkOrFilter !== undefined &&
-      ('role' in checkOrFilter || 'taskId' in checkOrFilter || 'peek' in checkOrFilter || 'lease' in checkOrFilter);
+      ('role' in checkOrFilter ||
+        'taskId' in checkOrFilter ||
+        'peek' in checkOrFilter ||
+        'lease' in checkOrFilter);
     const check = isFilter ? undefined : (checkOrFilter as RelayAuthContext | undefined);
     const filter = isFilter ? (checkOrFilter as RelayReceiveFilter) : maybeFilter;
     const normalized = normalizeReceiveFilter(filter);
@@ -779,7 +891,8 @@ export class InMemoryRelay {
     );
     if (index < 0) return undefined;
     const item = normalized.peek || normalized.lease ? q[index] : q.splice(index, 1)[0];
-    if (item && normalized.lease && !normalized.peek) item.leasedUntil = Math.min(item.expiresAt, this.now() + 30_000);
+    if (item && normalized.lease && !normalized.peek)
+      item.leasedUntil = Math.min(item.expiresAt, this.now() + 30_000);
     if (!normalized.peek) {
       if (!q.length && !this.listeners.get(recipientDid)?.size) this.queues.delete(recipientDid);
       if (item) this.version++;
@@ -834,14 +947,16 @@ export class InMemoryRelay {
   withRecipient(key: KeyPair) {
     return {
       send: (e: SignedEnvelope) => this.send(e),
-      deliveryStatus: (e: SignedEnvelope) => this.getDeliveryStatus(e.payload.recipientDid, e.payload.envelopeId,
-        key.did, this.wake?.relay ?? '', createRelayAuthToken(key)),
-      receive: (
-        did: string,
-        _waitMs?: number,
-        signal?: AbortSignal,
-        filter?: RelayReceiveFilter,
-      ) => this.receive(did, createRelayAuthToken(key), signal, undefined, filter),
+      deliveryStatus: (e: SignedEnvelope) =>
+        this.getDeliveryStatus(
+          e.payload.recipientDid,
+          e.payload.envelopeId,
+          key.did,
+          this.wake?.relay ?? '',
+          createRelayAuthToken(key),
+        ),
+      receive: (did: string, _waitMs?: number, signal?: AbortSignal, filter?: RelayReceiveFilter) =>
+        this.receive(did, createRelayAuthToken(key), signal, undefined, filter),
       peek: (did: string, filter?: Omit<RelayReceiveFilter, 'peek'>) =>
         this.peek(did, createRelayAuthToken(key), undefined, filter),
       pollInbox: (
@@ -869,7 +984,11 @@ export class InMemoryRelay {
     const q = this.queues.get(did);
     if (!q?.length) return false;
     const normalized = normalizeReceiveFilter(filter);
-    return q.some((item) => (normalized.peek || (item.leasedUntil ?? 0) <= this.now()) && matchesStoredEnvelope(item, normalized));
+    return q.some(
+      (item) =>
+        (normalized.peek || (item.leasedUntil ?? 0) <= this.now()) &&
+        matchesStoredEnvelope(item, normalized),
+    );
   }
   async wait(
     did: string,
@@ -881,7 +1000,9 @@ export class InMemoryRelay {
     if (signal?.aborted || ms <= 0 || this.hasMatching(did, filter)) return;
     const normalized = normalizeReceiveFilter(filter);
     const leaseWait = (this.queues.get(did) ?? [])
-      .filter(item => matchesStoredEnvelope(item, normalized) && (item.leasedUntil ?? 0) > this.now())
+      .filter(
+        (item) => matchesStoredEnvelope(item, normalized) && (item.leasedUntil ?? 0) > this.now(),
+      )
       .reduce((delay, item) => Math.min(delay, item.leasedUntil! - this.now()), ms);
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -912,7 +1033,8 @@ export class InMemoryRelay {
       const envelopes: SignedEnvelope[] = [];
       for (const item of queue) {
         envelopes.push(item.envelope);
-        if (item.leasedUntil) leaseExpiry.push([item.envelope.payload.envelopeId, item.leasedUntil]);
+        if (item.leasedUntil)
+          leaseExpiry.push([item.envelope.payload.envelopeId, item.leasedUntil]);
         envelopeExpiry.push([item.envelope.payload.envelopeId, item.expiresAt]);
       }
       queues.push([did, envelopes]);
@@ -949,16 +1071,23 @@ export class InMemoryRelay {
         for (const envelope of queue) {
           if (!verifyRelayEnvelope(envelope, did)) return true;
           bytes += Buffer.byteLength(JSON.stringify(envelope));
-          if (bytes > this.maxQueueBytesPerRecipient || bytes > this.maxEnvelopeBytes * queue.length)
+          if (
+            bytes > this.maxQueueBytesPerRecipient ||
+            bytes > this.maxEnvelopeBytes * queue.length
+          )
             return true;
         }
-        return queue.some((envelope) => Buffer.byteLength(JSON.stringify(envelope)) > this.maxEnvelopeBytes);
+        return queue.some(
+          (envelope) => Buffer.byteLength(JSON.stringify(envelope)) > this.maxEnvelopeBytes,
+        );
       })
     )
       throw new Error('INVALID_RELAY_SNAPSHOT');
     this.operations = new Map(structuredClone(snapshot.operations ?? []));
     for (const kind of ['registration', 'wake', 'expiry'])
-      if ([...this.operations.values()].filter(op => op.kind === kind).length > this.maxSeenEntries)
+      if (
+        [...this.operations.values()].filter((op) => op.kind === kind).length > this.maxSeenEntries
+      )
         throw new Error('INVALID_RELAY_SNAPSHOT');
     this.queues = new Map();
     this.taskStates = new Map();
@@ -971,8 +1100,12 @@ export class InMemoryRelay {
           bytes: Buffer.byteLength(JSON.stringify(envelope)),
           expiresAt:
             envelopeExpiry.get(envelope.payload.envelopeId) ?? this.now() + this.envelopeTtlMs,
-          role: classifyEnvelopeRole(envelope, CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
-            ? undefined : this.stateForTask(envelope.payload.taskId)),
+          role: classifyEnvelopeRole(
+            envelope,
+            CONNECTION_CONTROL_EVENTS.has(envelope.payload.eventType)
+              ? undefined
+              : this.stateForTask(envelope.payload.taskId),
+          ),
         })),
       );
     }
@@ -980,7 +1113,10 @@ export class InMemoryRelay {
       snapshot.seen.map((id) => [id, seenExpiry.get(id) ?? this.now() + this.seenTtlMs]),
     );
     this.authSeen = new Map(
-      (snapshot.authSeen ?? []).map((id) => [id, authExpiry.get(id) ?? this.now() + this.authSeenTtlMs]),
+      (snapshot.authSeen ?? []).map((id) => [
+        id,
+        authExpiry.get(id) ?? this.now() + this.authSeenTtlMs,
+      ]),
     );
     this.agents.clear();
     this.agentExpiry.clear();
@@ -998,15 +1134,17 @@ export class InMemoryRelay {
     this.version++;
   }
   /** Authenticate even expired cards before allowing restore to discard them. */
-  private assertValidAgentSnapshot(snapshot: RelaySnapshot, agentExpiry: Map<string, number>): void {
+  private assertValidAgentSnapshot(
+    snapshot: RelaySnapshot,
+    agentExpiry: Map<string, number>,
+  ): void {
     if (!Array.isArray(snapshot.agents)) throw new Error('INVALID_AGENT_SNAPSHOT');
     const seen = new Set<string>();
     for (const card of snapshot.agents) {
       // Verification at the last millisecond of its lifetime skips only current
       // expiry, retaining all signature, delegation, structure and TTL checks.
       const expiresAt = Date.parse(card?.payload?.expiresAt);
-      if (!verifySignedAgentCard(card, expiresAt - 1))
-        throw new Error('INVALID_AGENT_SNAPSHOT');
+      if (!verifySignedAgentCard(card, expiresAt - 1)) throw new Error('INVALID_AGENT_SNAPSHOT');
       const key = agentRegistryKey(card.payload.ownerDid, card.payload.agentDid);
       const stored = agentExpiry.get(key);
       if (seen.has(key) || (stored !== undefined && !Number.isFinite(stored)))
@@ -1031,7 +1169,10 @@ export class InMemoryRelay {
       throw new Error('AGENT_OWNER_OR_VERSION_MISMATCH');
     if (!old && this.agents.size >= this.maxAgents) throw new Error('RELAY_CAPACITY');
     const copy = structuredClone(card);
-    const expiresAt = Math.min(this.now() + this.agentCardTtlMs, Date.parse(copy.payload.expiresAt));
+    const expiresAt = Math.min(
+      this.now() + this.agentCardTtlMs,
+      Date.parse(copy.payload.expiresAt),
+    );
     if (!(expiresAt > this.now())) throw new Error('INVALID_AGENT_CARD');
     this.agents.set(key, copy);
     this.agentExpiry.set(key, expiresAt);
@@ -1242,7 +1383,11 @@ export function relayAuthFailure(error: unknown): string | undefined {
   return RELAY_ERROR_STATUS[code] === 401 ? code : undefined;
 }
 /** Shared HTTP and WebSocket admission error fields. */
-export function relayErrorBody(error: unknown): { error: string; retryable?: true; retryAfterMs?: number } {
+export function relayErrorBody(error: unknown): {
+  error: string;
+  retryable?: true;
+  retryAfterMs?: number;
+} {
   const code = sanitizeRelayErrorCode(error);
   return code === 'RELAY_RETRY_LATER'
     ? { error: code, retryable: true, retryAfterMs: 60_000 }
@@ -1252,19 +1397,17 @@ export function relayErrorResponse(error: unknown, relay?: InMemoryRelay): Respo
   const mapped = mapRelayError(error);
   const body = relayErrorBody(error);
   if (mapped.status === 429) {
-    const retryAfter = body.retryAfterMs !== undefined
-      ? Math.ceil(body.retryAfterMs / 1000)
-      : (relay?.retryAfterSeconds() ?? 60);
-    return Response.json(
-      body,
-      {
-        status: 429,
-        headers: {
-          ...relayHttpHeaders('json'),
-          'retry-after': String(retryAfter),
-        },
+    const retryAfter =
+      body.retryAfterMs !== undefined
+        ? Math.ceil(body.retryAfterMs / 1000)
+        : (relay?.retryAfterSeconds() ?? 60);
+    return Response.json(body, {
+      status: 429,
+      headers: {
+        ...relayHttpHeaders('json'),
+        'retry-after': String(retryAfter),
       },
-    );
+    });
   }
   return relayJson({ error: mapped.error }, mapped.status);
 }
@@ -1388,7 +1531,11 @@ export function createRelayFetchHandler(
   }
   const inviteHandler = createMemoryInviteHandler();
   return async (request) => {
-    if (new URL(request.url).pathname.startsWith('/v1/invites') || new URL(request.url).pathname === '/v1/capabilities') return inviteHandler(request);
+    if (
+      new URL(request.url).pathname.startsWith('/v1/invites') ||
+      new URL(request.url).pathname === '/v1/capabilities'
+    )
+      return inviteHandler(request);
     try {
       relay.evictExpired();
       const url = new URL(request.url),
@@ -1427,26 +1574,42 @@ export function createRelayFetchHandler(
       if (request.method === 'POST' && path === '/wake') {
         const recipient = url.searchParams.get('recipient') ?? '';
         resolveDid(recipient);
-        const value = await body(request) as { channel?: unknown };
-        if (value.channel !== null && typeof value.channel !== 'string') throw new Error('INVALID_REQUEST');
-        relay.registerWake(recipient, value.channel, extractRelayAuthToken(request, authOptions, url),
-          relayAuthContext(request, relay, authOptions));
+        const value = (await body(request)) as { channel?: unknown };
+        if (value.channel !== null && typeof value.channel !== 'string')
+          throw new Error('INVALID_REQUEST');
+        relay.registerWake(
+          recipient,
+          value.channel,
+          extractRelayAuthToken(request, authOptions, url),
+          relayAuthContext(request, relay, authOptions),
+        );
         return json({ registered: value.channel !== null, relayDid: relay.notificationDid });
       }
       if (request.method === 'GET' && path === '/delivery-status') {
         const recipient = url.searchParams.get('recipient') ?? '';
         const sender = url.searchParams.get('sender') ?? '';
-        resolveDid(recipient); resolveDid(sender);
+        resolveDid(recipient);
+        resolveDid(sender);
         const id = url.searchParams.get('envelopeId') ?? '';
         if (!id) throw new Error('MISSING_ENVELOPE_ID');
-        return json(relay.getDeliveryStatus(recipient, id, sender, url.origin,
-          extractRelayAuthToken(request, authOptions, url), relayAuthContext(request, relay, authOptions)));
+        return json(
+          relay.getDeliveryStatus(
+            recipient,
+            id,
+            sender,
+            url.origin,
+            extractRelayAuthToken(request, authOptions, url),
+            relayAuthContext(request, relay, authOptions),
+          ),
+        );
       }
       if (request.method === 'POST' && path === '/envelopes') {
         relay.send((await body(request)) as SignedEnvelope);
         if (!options.deferNotifications) void relay.flushWakeNotifications().catch(() => {});
-        return new Response(null, { status: 202, headers: { ...relayHttpHeaders('empty'),
-          'x-acp-relay-did': relay.notificationDid } });
+        return new Response(null, {
+          status: 202,
+          headers: { ...relayHttpHeaders('empty'), 'x-acp-relay-did': relay.notificationDid },
+        });
       }
       if (
         request.method === 'DELETE' &&

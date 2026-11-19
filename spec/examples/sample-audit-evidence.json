@@ -62,10 +62,7 @@
                 "filesystemScope": "ephemeral_workspace_only"
               },
               "hitlPolicy": {
-                "requiredGates": [
-                  "GATE_CONTRACT_ACCEPT",
-                  "GATE_DELIVERY_ACCEPT"
-                ]
+                "requiredGates": ["GATE_CONTRACT_ACCEPT", "GATE_DELIVERY_ACCEPT"]
               }
             },
             "signature": {

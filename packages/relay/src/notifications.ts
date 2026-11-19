@@ -38,18 +38,37 @@ export interface RelayWakeAttempt {
 }
 export type RelayOperation =
   | { kind: 'registration'; recipientDid: string; channel: string; expiresAt: number }
-  | { kind: 'wake'; recipientDid: string; taskId: string; channel: string; expiresAt: number;
-      attempts: number; nextAttempt: number; done: boolean }
+  | {
+      kind: 'wake';
+      recipientDid: string;
+      taskId: string;
+      channel: string;
+      expiresAt: number;
+      attempts: number;
+      nextAttempt: number;
+      done: boolean;
+    }
   | { kind: 'expiry'; notice: SignedRelayDeliveryStatus; expiresAt: number };
 
 /** Pin the relay identity obtained from the operator; reject stale or extra-content wakes. */
-export function verifyRelayWake(wake: SignedRelayWake, relayDid: string, relay: string, now = Date.now()): boolean {
+export function verifyRelayWake(
+  wake: SignedRelayWake,
+  relayDid: string,
+  relay: string,
+  now = Date.now(),
+): boolean {
   try {
-    return Object.keys(wake.payload).sort().join() === 'recipientDid,relay,taskId' &&
-      typeof wake.payload.recipientDid === 'string' && typeof wake.payload.taskId === 'string' &&
-      wake.payload.relay === relay && Math.abs(now - Date.parse(wake.signature.signedAt)) <= 300_000 &&
-      verifySigned(wake, relayDid);
-  } catch { return false; }
+    return (
+      Object.keys(wake.payload).sort().join() === 'recipientDid,relay,taskId' &&
+      typeof wake.payload.recipientDid === 'string' &&
+      typeof wake.payload.taskId === 'string' &&
+      wake.payload.relay === relay &&
+      Math.abs(now - Date.parse(wake.signature.signedAt)) <= 300_000 &&
+      verifySigned(wake, relayDid)
+    );
+  } catch {
+    return false;
+  }
 }
 export class RelayEnvelopeExpiredError extends Error {
   readonly code = 'RELAY_ENVELOPE_EXPIRED';
@@ -64,7 +83,13 @@ export function relayWakeFromEnv(env?: Record<string, unknown>): RelayWakeOption
   if (typeof env.ACP_WAKE_ENDPOINT !== 'string' || typeof env.ACP_WAKE_RELAY !== 'string')
     throw new Error('INVALID_REQUEST');
   const endpoint = new URL(env.ACP_WAKE_ENDPOINT);
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+  if (
+    endpoint.protocol !== 'https:' ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  )
     throw new Error('INVALID_REQUEST');
   const count = (name: string): number | undefined => {
     const value = env[name];
@@ -78,11 +103,18 @@ export function relayWakeFromEnv(env?: Record<string, unknown>): RelayWakeOption
     maxAttempts: count('ACP_WAKE_MAX_ATTEMPTS'),
     retryBaseMs: count('ACP_WAKE_RETRY_BASE_MS'),
     timeoutMs: count('ACP_WAKE_TIMEOUT_MS'),
-    channels: { default: async (wake, signal) => {
-      const response = await fetch(endpoint, { method: 'POST', redirect: 'error', signal,
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify(wake) });
-      await response.body?.cancel();
-      if (!response.ok) throw new Error('RELAY_WAKE_FAILED');
-    } },
+    channels: {
+      default: async (wake, signal) => {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          redirect: 'error',
+          signal,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(wake),
+        });
+        await response.body?.cancel();
+        if (!response.ok) throw new Error('RELAY_WAKE_FAILED');
+      },
+    },
   };
 }

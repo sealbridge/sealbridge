@@ -14,10 +14,15 @@ export function createReceiveHook(command: string): (record: string) => void {
       });
       let reported = false;
       const failed = () => {
-        if (!reported) { reported = true; warn(); }
+        if (!reported) {
+          reported = true;
+          warn();
+        }
       };
       child.on('error', failed);
-      child.on('exit', (code) => { if (code !== 0) failed(); });
+      child.on('exit', (code) => {
+        if (code !== 0) failed();
+      });
       child.stdin!.on('error', failed);
       child.stdin!.end(record);
       // A notification must not keep a --once worker alive until the hook exits.

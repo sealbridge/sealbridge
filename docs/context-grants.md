@@ -7,11 +7,11 @@ A peer with the older closed 0.2.0 schema will reject this optional extension;
 use it only with CP1-capable peers. There is no automatic downgrade that strips
 the grant.
 
-| Delivery mode | Delegation depth | Retention declaration | Input retention |
-| --- | --- | --- | --- |
-| `view_only` (builder default) | 0 | `ephemeral_view` | false |
-| `hand_over` | 0 | `keep_deliverable` | false |
-| `approval_redelegation` (explicit opt-in) | 1 | either; default `ephemeral_view` | false |
+| Delivery mode                             | Delegation depth | Retention declaration            | Input retention |
+| ----------------------------------------- | ---------------- | -------------------------------- | --------------- |
+| `view_only` (builder default)             | 0                | `ephemeral_view`                 | false           |
+| `hand_over`                               | 0                | `keep_deliverable`               | false           |
+| `approval_redelegation` (explicit opt-in) | 1                | either; default `ephemeral_view` | false           |
 
 `hand_over` permits keeping the agreed, accepted deliverable. It does not permit
 keeping the input selection. CP5a enables `approval_redelegation` only with the
@@ -23,7 +23,9 @@ owner decision and host prerequisites described below. Desktop controls are outs
 import { buildTaskManifest, validateManifest, validateContextGrantUse } from 'sealbridge/sdk';
 
 const manifest = buildTaskManifest({
-  ownerDid, workerDid, title: 'Production feasibility',
+  ownerDid,
+  workerDid,
+  title: 'Production feasibility',
   description: 'Review selected dimensions and material.',
   contextGrant: {
     selectors: ['$.items[*]'],
@@ -119,7 +121,6 @@ Schemas: [ContextGrant](../spec/context-grant.schema.json),
 Examples: [view only](../spec/examples/context-pooling/view_only/sample-task-manifest.0.2.0.json),
 [hand over](../spec/examples/context-pooling/hand_over/sample-task-manifest.0.2.0.json).
 
-
 ## CP5a: one approved child edge
 
 For A → B → C, A explicitly selects `approval_redelegation` on A → B at depth 1.
@@ -139,16 +140,23 @@ CP1 task; its host handles inspection and owner opening.
 import { WorkerNode, RequesterClient } from 'sealbridge/sdk';
 
 const childRequester = new RequesterClient({
-  owner: bOwner, relay, approvalProvider: bOwnerDecisionProvider,
+  owner: bOwner,
+  relay,
+  approvalProvider: bOwnerDecisionProvider,
 });
 const worker = new WorkerNode({
-  owner: bOwner, relay, adapter, auditPath,
+  owner: bOwner,
+  relay,
+  adapter,
+  auditPath,
   approvalProvider: bOwnerDecisionProvider,
   redelegation: { requester: childRequester, ownerApprovalProvider: bOwnerDecisionProvider },
 });
 // Inside an admitted root adapter:
 const partial = await context.redelegate!({
-  to: cInvitation, manifest: fullyBuiltChildManifest, input: alreadySelectedJson,
+  to: cInvitation,
+  manifest: fullyBuiltChildManifest,
+  input: alreadySelectedJson,
 });
 ```
 

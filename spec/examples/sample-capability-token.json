@@ -3,15 +3,11 @@
     "audience": "did:key:z6MkpbX9WrS8mmVFD4ThkenxbkMs9V7AoT3nNL8xkoSt8PDk",
     "taskId": "task_examples01",
     "resource": "mcp://alice/docs/*",
-    "allowedTools": [
-      "docs/read"
-    ],
+    "allowedTools": ["docs/read"],
     "argConstraints": {
       "docs/read": {
         "type": "object",
-        "required": [
-          "uri"
-        ],
+        "required": ["uri"],
         "properties": {
           "uri": {
             "type": "string"

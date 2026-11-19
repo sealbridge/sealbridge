@@ -1,10 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "parentContract",
-    "children"
-  ],
+  "required": ["parentContract", "children"],
   "properties": {
     "parentContract": {
       "$ref": "#/$defs/contract"
@@ -15,10 +12,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "link",
-          "childContract"
-        ],
+        "required": ["link", "childContract"],
         "properties": {
           "link": {
             "$ref": "https://acp-spec.local/schemas/v0.2/delegation-link.schema.json"
@@ -37,12 +31,7 @@
     "contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "manifest",
-        "proposal",
-        "acceptance",
-        "contractDigest"
-      ],
+      "required": ["manifest", "proposal", "acceptance", "contractDigest"],
       "properties": {
         "manifest": {
           "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json"
@@ -50,10 +39,7 @@
         "proposal": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "payload",
-            "signature"
-          ],
+          "required": ["payload", "signature"],
           "properties": {
             "payload": {
               "$ref": "https://acp-spec.local/schemas/v0.2/task-manifest.schema.json"
@@ -95,19 +81,12 @@
         "acceptance": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "payload",
-            "signature"
-          ],
+          "required": ["payload", "signature"],
           "properties": {
             "payload": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "type",
-                "manifestDigest",
-                "taskId"
-              ],
+              "required": ["type", "manifestDigest", "taskId"],
               "properties": {
                 "type": {
                   "const": "ACCEPT"

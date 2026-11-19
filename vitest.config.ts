@@ -13,8 +13,27 @@ const unbuiltHelpers = [
   ['@acp/core/edge', 'packages/core', 'edge'],
   ['@acp/core', 'packages/core', 'index'],
   ['@acp/relay', 'packages/relay', 'index'],
-  ...['key-store', 'secret-store', 'local-identity'].map(entry =>
-    ['@acp/runtime-local/' + entry, 'packages/runtime-local', entry]),
-].flatMap(([find, directory, entry]) => existsSync(new URL(`./${directory}/dist/${entry}.js`, import.meta.url))
-  ? [] : [{ find, replacement: fileURLToPath(new URL(`./${directory}/src/${entry}.ts`, import.meta.url)) }]);
-export default defineConfig({ resolve: { alias: unbuiltHelpers }, test: { include: ['conformance/**/*.test.ts'], setupFiles: ['conformance/application-test-env.ts'], testTimeout: 20000, fileParallelism: false } });
+  ...['key-store', 'secret-store', 'local-identity'].map((entry) => [
+    '@acp/runtime-local/' + entry,
+    'packages/runtime-local',
+    entry,
+  ]),
+].flatMap(([find, directory, entry]) =>
+  existsSync(new URL(`./${directory}/dist/${entry}.js`, import.meta.url))
+    ? []
+    : [
+        {
+          find,
+          replacement: fileURLToPath(new URL(`./${directory}/src/${entry}.ts`, import.meta.url)),
+        },
+      ],
+);
+export default defineConfig({
+  resolve: { alias: unbuiltHelpers },
+  test: {
+    include: ['conformance/**/*.test.ts'],
+    setupFiles: ['conformance/application-test-env.ts'],
+    testTimeout: 20000,
+    fileParallelism: false,
+  },
+});

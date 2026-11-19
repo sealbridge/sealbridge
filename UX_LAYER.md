@@ -45,15 +45,15 @@ Both end in the same three steps a non-technical user can understand:
 
 ## 2. Vocabulary mapping
 
-| User-facing word | Protocol object (existing) |
-| :-- | :-- |
-| Friend | Local contact + independently confirmed connection + latest signed AgentCard |
-| Invite link / QR | `AgentInvite` token (24 h TTL) |
-| Job | Task manifest (`spec/task-manifest.schema.json`) |
-| Budget | Manifest budget caps; local general host budgets |
-| Public profile | Published signed AgentCard |
-| Receipt | Bilateral hash-chained audit log for one task |
-| Track record | Aggregates computed from a worker's settled receipts |
+| User-facing word | Protocol object (existing)                                                   |
+| :--------------- | :--------------------------------------------------------------------------- |
+| Friend           | Local contact + independently confirmed connection + latest signed AgentCard |
+| Invite link / QR | `AgentInvite` token (24 h TTL)                                               |
+| Job              | Task manifest (`spec/task-manifest.schema.json`)                             |
+| Budget           | Manifest budget caps; local general host budgets                             |
+| Public profile   | Published signed AgentCard                                                   |
+| Receipt          | Bilateral hash-chained audit log for one task                                |
+| Track record     | Aggregates computed from a worker's settled receipts                         |
 
 ## 3. Entry point A — Friends (explicit connection consent)
 
@@ -134,15 +134,15 @@ See [implemented workflows and migration](docs/connections/admission.md).
 
 ## 5. The common flow: Request → Approve → Result + Receipt
 
-| Protocol state | User-facing status |
-| :-- | :-- |
-| (local draft) | "Draft — not sent yet" |
-| PROPOSE sent | "Waiting for them to accept…" |
-| ACCEPT | "Accepted — working on it" |
-| PROGRESS | "Working… (step in plain words, if provided)" |
-| Delivery proposed | "**Check the result**" (final-verification gate) |
-| SETTLED | "Done — receipt saved" |
-| REJECTED / ERROR | Plain-language reason + suggested next step (§1.4) |
+| Protocol state    | User-facing status                                 |
+| :---------------- | :------------------------------------------------- |
+| (local draft)     | "Draft — not sent yet"                             |
+| PROPOSE sent      | "Waiting for them to accept…"                      |
+| ACCEPT            | "Accepted — working on it"                         |
+| PROGRESS          | "Working… (step in plain words, if provided)"      |
+| Delivery proposed | "**Check the result**" (final-verification gate)   |
+| SETTLED           | "Done — receipt saved"                             |
+| REJECTED / ERROR  | Plain-language reason + suggested next step (§1.4) |
 
 The **approve screen** is the same in both entry points and shows only:
 **who** (display name), **what** (one-paragraph summary), **max cost**
@@ -237,12 +237,12 @@ remain unchanged for compatibility.
 
 ## 9. Phased roadmap
 
-| Phase | Scope | Depends on |
-| :-- | :-- | :-- |
-| UX-1 | Friends list, invite link/QR + one-tap re-issue, approve screen, receipt rendering (text/CLI first) | existing invite, `--allow-requester`, audit-verify |
-| UX-2 | Job board (metadata-only), candidate rendering, "Go public" settings screen | connections admission and host budgets |
-| UX-3 | Track-record aggregates, two-way ratings as signed receipts | UX-2 |
-| UX-4 | Payments pilot (x402 for board micro-jobs), AP2 mandate reference, A2A gateway sketch | §7 decisions |
+| Phase | Scope                                                                                               | Depends on                                         |
+| :---- | :-------------------------------------------------------------------------------------------------- | :------------------------------------------------- |
+| UX-1  | Friends list, invite link/QR + one-tap re-issue, approve screen, receipt rendering (text/CLI first) | existing invite, `--allow-requester`, audit-verify |
+| UX-2  | Job board (metadata-only), candidate rendering, "Go public" settings screen                         | connections admission and host budgets             |
+| UX-3  | Track-record aggregates, two-way ratings as signed receipts                                         | UX-2                                               |
+| UX-4  | Payments pilot (x402 for board micro-jobs), AP2 mandate reference, A2A gateway sketch               | §7 decisions                                       |
 
 ## 10. Open questions
 
@@ -260,7 +260,7 @@ remain unchanged for compatibility.
 
 ---
 
-*End of proposal. Discussion and review happen on the pull request that
-carries this document.*
+_End of proposal. Discussion and review happen on the pull request that
+carries this document._
 
 Host rate / ホストの頻度: `--max-requests-per-minute`.

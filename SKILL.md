@@ -513,7 +513,6 @@ CLI worker for content display and live owner approval. Do not retry the held
 task automatically. Unaccepted signed offers remain in the review queue even
 when an invitation has already connected the peer.
 
-
 組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
 一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
 CLI は `connections review list|approve ID|reject ID` で、判断には本人の確認が必要です。
@@ -745,7 +744,6 @@ C1 の永続化はゲートウェイのプロセス再起動を対象とし、�
 セッションの送信と処理済み受信記録は、準備時に署名者ロックを取得せず、一意の一時ファイルへ非同期に書き込みます。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して書き込めます。公開時に署名者ロックの下で容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。既定のタスクジャーナルは追記ハンドルと変更のない検証済みチェックポイントを再利用し、圧縮時とワーカー停止時にハンドルを閉じます。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
-
 The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
 `acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
 string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
@@ -758,7 +756,6 @@ Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
 or execution. Final verification stays separate, and calls without keys are unchanged.
 See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
 No relay deployment is needed.
-
 
 MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
 `acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。

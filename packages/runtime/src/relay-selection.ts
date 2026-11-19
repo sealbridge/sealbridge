@@ -26,23 +26,56 @@ export function selectApplicationRelay(options: RelaySelectionOptions = {}): {
 } {
   const { configured, explicit, inviteRelay } = options;
   const transport = configured !== undefined && typeof configured !== 'string';
-  const relay = configured && transport ? configured : explicit ?? configured ?? inviteRelay ?? options.fallbackCandidates?.[0] ?? DEFAULT_PUBLIC_RELAY;
-  const urls = [explicit, typeof configured === 'string' ? configured : undefined, inviteRelay,
-    typeof relay === 'string' ? relay : undefined].filter((v): v is string => v !== undefined);
+  const relay =
+    configured && transport
+      ? configured
+      : (explicit ??
+        configured ??
+        inviteRelay ??
+        options.fallbackCandidates?.[0] ??
+        DEFAULT_PUBLIC_RELAY);
+  const urls = [
+    explicit,
+    typeof configured === 'string' ? configured : undefined,
+    inviteRelay,
+    typeof relay === 'string' ? relay : undefined,
+  ].filter((v): v is string => v !== undefined);
   for (const url of urls) validateRelayEndpointUrl(url, options);
   if (options.allowedRelayUrls !== undefined) {
     const allow = new Set(options.allowedRelayUrls.map(normalizeRelayUrl));
-    if (urls.some(url => !allow.has(normalizeRelayUrl(url))))
+    if (urls.some((url) => !allow.has(normalizeRelayUrl(url))))
       throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
   } else if (!options.allowAnyRelay) {
-    if (typeof configured === 'string' && [explicit, inviteRelay].some(url =>
-      url !== undefined && normalizeRelayUrl(url) !== normalizeRelayUrl(configured)))
+    if (
+      typeof configured === 'string' &&
+      [explicit, inviteRelay].some(
+        (url) => url !== undefined && normalizeRelayUrl(url) !== normalizeRelayUrl(configured),
+      )
+    )
       throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
-    if (transport && explicit !== undefined) throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
+    if (transport && explicit !== undefined)
+      throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
   }
-  if (options.allowedRelayUrls === undefined && !options.allowAnyRelay && explicit !== undefined && inviteRelay !== undefined &&
-      normalizeRelayUrl(explicit) !== normalizeRelayUrl(inviteRelay))
+  if (
+    options.allowedRelayUrls === undefined &&
+    !options.allowAnyRelay &&
+    explicit !== undefined &&
+    inviteRelay !== undefined &&
+    normalizeRelayUrl(explicit) !== normalizeRelayUrl(inviteRelay)
+  )
     throw new Error(options.conflictError ?? 'CONFLICTING_RELAY');
-  return { relay, source: transport ? 'transport' : explicit ? 'explicit' : configured ? 'configured'
-    : inviteRelay ? 'invite' : options.fallbackCandidates?.length ? 'local-default' : 'default' };
+  return {
+    relay,
+    source: transport
+      ? 'transport'
+      : explicit
+        ? 'explicit'
+        : configured
+          ? 'configured'
+          : inviteRelay
+            ? 'invite'
+            : options.fallbackCandidates?.length
+              ? 'local-default'
+              : 'default',
+  };
 }

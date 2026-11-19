@@ -45,10 +45,21 @@ export function agentCardDelegationStatement(fields: {
 }
 /** Bounded version identifiers retain future advertisements without interpreting them. */
 function validProtocolVersions(value: unknown): boolean {
-  return value === undefined || (Array.isArray(value) && value.length > 0 && value.length <= 16 &&
-    value.every(version => typeof version === 'string' && version.length <= 64 &&
-      /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$(?![\s\S])/.test(version)) &&
-    new Set(value).size === value.length);
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.length <= 16 &&
+      value.every(
+        (version) =>
+          typeof version === 'string' &&
+          version.length <= 64 &&
+          /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$(?![\s\S])/.test(
+            version,
+          ),
+      ) &&
+      new Set(value).size === value.length)
+  );
 }
 
 export interface DiscoveryAgentCard {
@@ -96,7 +107,11 @@ function ssrfBlocked(): never {
   throw new Error('SSRF_BLOCKED_RELAY_URL');
 }
 function normalizeHost(value: string): string {
-  return value.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0].replace(/\.+$/, '');
+  return value
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .split('%')[0]
+    .replace(/\.+$/, '');
 }
 function parseNumericPart(part: string): number | undefined {
   if (/^0x[0-9a-f]+$/i.test(part)) return parseInt(part, 16);
@@ -234,7 +249,10 @@ function assertIpv6Allowed(words: number[], privateBlocked: boolean): void {
   for (const ip of embedded) if (ipv4Disallowed(ip, privateBlocked)) ssrfBlocked();
   if (privateBlocked && (words[0] & 0xfe00) === 0xfc00) ssrfBlocked();
 }
-function assertIpv4Allowed(octets: [number, number, number, number], privateBlocked: boolean): void {
+function assertIpv4Allowed(
+  octets: [number, number, number, number],
+  privateBlocked: boolean,
+): void {
   if (ipv4Disallowed(octets, privateBlocked)) ssrfBlocked();
 }
 function rawAuthorityHost(value: string): string | undefined {
@@ -322,7 +340,8 @@ export function createSignedAgentCard(
   const resolvedAgentKey = resolveAgentKey(options, agentKey);
   const signedAt = new Date(options.now ?? Date.now()).toISOString();
   const expiresAt =
-    options.expiresAt ?? new Date(Date.parse(signedAt) + DEFAULT_AGENT_CARD_EXPIRY_MS).toISOString();
+    options.expiresAt ??
+    new Date(Date.parse(signedAt) + DEFAULT_AGENT_CARD_EXPIRY_MS).toISOString();
   if (options.agentDid !== owner.did) {
     if (!resolvedAgentKey || resolvedAgentKey.did !== options.agentDid)
       throw new Error('AGENT_DELEGATION_REQUIRED');
@@ -346,17 +365,22 @@ export function createSignedAgentCard(
       version: options.version ?? '0.2.0',
       description: options.description ?? 'Sealbridge worker',
       costModes: options.costModes ?? (['worker_byok'] as BudgetSpec['costBearer'][]),
-      ...(options.autoAccept !== undefined ? { autoAccept: structuredClone(options.autoAccept) } : {}),
+      ...(options.autoAccept !== undefined
+        ? { autoAccept: structuredClone(options.autoAccept) }
+        : {}),
       name: options.name,
       skills: options.skills,
-      ...(options.protocolVersions !== undefined ? { protocolVersions: [...options.protocolVersions] } : {}),
+      ...(options.protocolVersions !== undefined
+        ? { protocolVersions: [...options.protocolVersions] }
+        : {}),
       ...delegationFields,
       ...(agentDelegation ? { agentDelegation } : {}),
     },
     owner,
     signedAt,
   );
-  if (!verifySignedAgentCard(card, options.now ?? Date.now())) throw new Error('INVALID_AGENT_CARD');
+  if (!verifySignedAgentCard(card, options.now ?? Date.now()))
+    throw new Error('INVALID_AGENT_CARD');
   return card;
 }
 function validAgentCardExpiry(expiresAt: string, signedAt: string, now: number): boolean {
@@ -406,8 +430,14 @@ export function verifySignedAgentCard(card: SignedAgentCard, now = Date.now()): 
       typeof p.description === 'string' &&
       typeof p.version === 'string' &&
       Array.isArray(p.skills) &&
-      p.skills.every((s) => typeof s.id === 'string' && !!s.id && typeof s.name === 'string' &&
-        (s.taskTypes === undefined || (Array.isArray(s.taskTypes) && s.taskTypes.every((t) => typeof t === 'string' && !!t)))) &&
+      p.skills.every(
+        (s) =>
+          typeof s.id === 'string' &&
+          !!s.id &&
+          typeof s.name === 'string' &&
+          (s.taskTypes === undefined ||
+            (Array.isArray(s.taskTypes) && s.taskTypes.every((t) => typeof t === 'string' && !!t))),
+      ) &&
       new Set(p.skills.map((s) => s.id)).size === p.skills.length &&
       Array.isArray(p.costModes) &&
       p.costModes.length > 0 &&
@@ -426,9 +456,13 @@ export function findDiscoveredAgentCard(
   now = Date.now(),
 ): SignedAgentCard | undefined {
   if (!Array.isArray(rawCards)) return undefined;
-  const valid = rawCards.filter((card): card is SignedAgentCard => verifySignedAgentCard(card, now));
+  const valid = rawCards.filter((card): card is SignedAgentCard =>
+    verifySignedAgentCard(card, now),
+  );
   const exact = valid.filter((card) => card.payload.agentDid === targetDid);
-  const matches = exact.length ? exact : valid.filter((card) => card.payload.ownerDid === targetDid);
+  const matches = exact.length
+    ? exact
+    : valid.filter((card) => card.payload.ownerDid === targetDid);
   const candidateAgents = new Set(matches.map((card) => card.payload.agentDid));
   const owners = new Map<string, string>();
   for (const card of valid) {
@@ -443,7 +477,8 @@ export function findDiscoveredAgentCard(
     if (signed) return signed;
     // Equal timestamps also need a stable tie-breaker, including different agents
     // reached through the same owner alias. Avoid locale-dependent ordering.
-    const left = canonicalize(a), right = canonicalize(b);
+    const left = canonicalize(a),
+      right = canonicalize(b);
     return left < right ? -1 : left > right ? 1 : 0;
   });
   return matches[0];
@@ -521,15 +556,30 @@ export function createInviteToken(
 export function inviteTokenFromUri(uri: string): string {
   if (uri.startsWith('acp-invite:')) return uri;
   let url: URL;
-  try { url = new URL(uri); } catch { throw new Error('INVALID_OR_EXPIRED_INVITE'); }
+  try {
+    url = new URL(uri);
+  } catch {
+    throw new Error('INVALID_OR_EXPIRED_INVITE');
+  }
   if (url.protocol === 'https:') {
     if (!url.hash.startsWith('#acp-invite:') || url.hash === '#acp-invite:')
-      throw new Error('INVITE_LINK_TOKEN_REQUIRED: ask the sender for the complete link including #acp-invite:...');
-    if (url.username || url.password || url.search || !/^#acp-invite:[A-Za-z0-9_-]+$/.test(url.hash))
+      throw new Error(
+        'INVITE_LINK_TOKEN_REQUIRED: ask the sender for the complete link including #acp-invite:...',
+      );
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      !/^#acp-invite:[A-Za-z0-9_-]+$/.test(url.hash)
+    )
       throw new Error('INVALID_INVITE_LINK');
     return url.hash.slice(1);
   }
-  if (url.protocol === 'acp:' && url.hostname === 'invite' && url.searchParams.getAll('token').length === 1)
+  if (
+    url.protocol === 'acp:' &&
+    url.hostname === 'invite' &&
+    url.searchParams.getAll('token').length === 1
+  )
     return 'acp-invite:' + url.searchParams.get('token');
   throw new Error('INVALID_OR_EXPIRED_INVITE');
 }
@@ -563,34 +613,63 @@ export function parseAndVerifyInviteToken(
       Date.parse(p.expiresAt) <= Date.parse(p.issuedAt)
     )
       throw new Error();
-    if (!options.allowExpired &&
-        (Date.parse(p.expiresAt) <= now || Date.parse(p.agentCard.payload.expiresAt) <= now))
+    if (
+      !options.allowExpired &&
+      (Date.parse(p.expiresAt) <= now || Date.parse(p.agentCard.payload.expiresAt) <= now)
+    )
       throw new Error('INVITE_EXPIRED');
     validateRelayEndpointUrl(p.relayUrl, options);
     return p;
   } catch (error) {
-    if (error instanceof Error && (['SSRF_BLOCKED_RELAY_URL', 'INVITE_EXPIRED', 'INVALID_INVITE_LINK'].includes(error.message) || error.message.startsWith('INVITE_LINK_TOKEN_REQUIRED:'))) throw error;
+    if (
+      error instanceof Error &&
+      (['SSRF_BLOCKED_RELAY_URL', 'INVITE_EXPIRED', 'INVALID_INVITE_LINK'].includes(
+        error.message,
+      ) ||
+        error.message.startsWith('INVITE_LINK_TOKEN_REQUIRED:'))
+    )
+      throw error;
     throw new Error('INVALID_OR_EXPIRED_INVITE');
   }
 }
 
 /** Resolve and verify original signed cards before projecting current advertisements. */
-export function discoverAgentCards(rawCards: unknown, query: {
-  did?: string; skillId?: string; taskType?: string;
-} = {}, now = Date.now()): SignedAgentCard[] {
+export function discoverAgentCards(
+  rawCards: unknown,
+  query: {
+    did?: string;
+    skillId?: string;
+    taskType?: string;
+  } = {},
+  now = Date.now(),
+): SignedAgentCard[] {
   assertConnectionsOptions(query);
   if (!Array.isArray(rawCards)) return [];
-  const valid = rawCards.filter((card): card is SignedAgentCard => verifySignedAgentCard(card, now));
-  const targets = query.did ? [query.did] : [...new Set(valid.map((c) => c.payload.agentDid))].sort();
-  return targets.map((did) => findDiscoveredAgentCard(valid, did, now)).filter((c): c is SignedAgentCard => {
-    if (!c) return false;
-    return (!query.skillId && !query.taskType) || c.payload.skills.some((s) =>
-      (!query.skillId || s.id === query.skillId) && (!query.taskType || s.taskTypes?.includes(query.taskType)));
-  });
+  const valid = rawCards.filter((card): card is SignedAgentCard =>
+    verifySignedAgentCard(card, now),
+  );
+  const targets = query.did
+    ? [query.did]
+    : [...new Set(valid.map((c) => c.payload.agentDid))].sort();
+  return targets
+    .map((did) => findDiscoveredAgentCard(valid, did, now))
+    .filter((c): c is SignedAgentCard => {
+      if (!c) return false;
+      return (
+        (!query.skillId && !query.taskType) ||
+        c.payload.skills.some(
+          (s) =>
+            (!query.skillId || s.id === query.skillId) &&
+            (!query.taskType || s.taskTypes?.includes(query.taskType)),
+        )
+      );
+    });
 }
 
 /** Retired options are errors, including explicitly supplied undefined values. */
 export function assertConnectionsOptions(options: object): void {
-  if (['accessMode', 'openPolicy', 'allowAnyRequester'].some(key => Object.hasOwn(options, key)))
-    throw new Error('ACCESS_MODE_REMOVED: Use connections for owner consent and general host budgets.');
+  if (['accessMode', 'openPolicy', 'allowAnyRequester'].some((key) => Object.hasOwn(options, key)))
+    throw new Error(
+      'ACCESS_MODE_REMOVED: Use connections for owner consent and general host budgets.',
+    );
 }

@@ -139,7 +139,11 @@ export function verifySigned<T>(value: Signed<T>, expectedDid?: string): boolean
     if (!/^ed25519:[A-Za-z0-9_-]{86}$/.test(signature)) return false;
     const encoded = signature.slice(8);
     const decoded = Buffer.from(encoded, 'base64url');
-    const canonical = decoded.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const canonical = decoded
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
     if (decoded.length !== 64 || canonical !== encoded) return false;
     return (
       (!expectedDid || metadata.signerDid === expectedDid) &&

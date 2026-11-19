@@ -10,16 +10,27 @@ const VERIFIED_VERSION = '0.163.0';
 const TOKEN_ENV = 'SEALBRIDGE_CODEX_PROXY_TOKEN';
 
 function checkVersion(stdout: string, exitCode = 0): void {
-  const match = /^(?:codex(?:-cli)?\s+)?v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(stdout.trim());
+  const match =
+    /^(?:codex(?:-cli)?\s+)?v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      stdout.trim(),
+    );
   const parts = match?.slice(1, 4).map((part) => BigInt(part));
   const verified = [0n, 163n, 0n];
   const different = parts?.findIndex((part, i) => part !== verified[i]) ?? -1;
-  const comparison = parts && different >= 0 ? (parts[different] > verified[different] ? 1 : -1) : 0;
-  if (exitCode !== 0 || !match || comparison < 0 || comparison === 0 && match[4])
-    throw new Error('CODEX_PROXY_UNSUPPORTED_VERSION: install @openai/codex ' + VERIFIED_VERSION + ' or newer');
+  const comparison =
+    parts && different >= 0 ? (parts[different] > verified[different] ? 1 : -1) : 0;
+  if (exitCode !== 0 || !match || comparison < 0 || (comparison === 0 && match[4]))
+    throw new Error(
+      'CODEX_PROXY_UNSUPPORTED_VERSION: install @openai/codex ' + VERIFIED_VERSION + ' or newer',
+    );
   if (comparison > 0)
-    console.warn('CODEX_PROXY_NEWER_VERSION: Codex CLI ' + match[0].replace(/^codex(?:-cli)?\s+/, '') +
-      ' is newer than verified version ' + VERIFIED_VERSION + '; continuing with proxy routing checks.');
+    console.warn(
+      'CODEX_PROXY_NEWER_VERSION: Codex CLI ' +
+        match[0].replace(/^codex(?:-cli)?\s+/, '') +
+        ' is newer than verified version ' +
+        VERIFIED_VERSION +
+        '; continuing with proxy routing checks.',
+    );
 }
 
 /** Only inference and sandbox options may accompany the generated provider configuration. */
@@ -34,7 +45,12 @@ function validateExtraArgs(args: readonly string[]): void {
 }
 
 function validateInvocation(args: readonly string[]): void {
-  if (args[0] !== 'exec' || args[1] !== '--json' || args[2] !== '--skip-git-repo-check' || args.at(-1) !== '-')
+  if (
+    args[0] !== 'exec' ||
+    args[1] !== '--json' ||
+    args[2] !== '--skip-git-repo-check' ||
+    args.at(-1) !== '-'
+  )
     throw new Error('CODEX_PROXY_UNSUPPORTED_ARGUMENT: expected the task exec invocation');
   validateExtraArgs(args.slice(3, -1));
 }
@@ -55,23 +71,42 @@ function verifyRouting(config: string, args: readonly string[], proxyUrl: string
     if (line.startsWith('[')) table = line.slice(1, -1) + '.';
     else if (line) fileSettings.push(table + line);
   }
-  const overrides = args.flatMap((arg, i) => arg === '-c' ? [args[i + 1]] : []);
+  const overrides = args.flatMap((arg, i) => (arg === '-c' ? [args[i + 1]] : []));
   for (const settings of [fileSettings, overrides]) {
     for (const [key, value] of Object.entries(expected)) {
-      const matches = settings.filter((setting) => setting.slice(0, setting.indexOf('=')).trim() === key);
-      if (matches.length !== 1 || matches[0].slice(matches[0].indexOf('=') + 1).trim() !== JSON.stringify(value))
-        throw new Error('CODEX_PROXY_INVALID_CONFIG: expected the task loopback provider and matching overrides');
+      const matches = settings.filter(
+        (setting) => setting.slice(0, setting.indexOf('=')).trim() === key,
+      );
+      if (
+        matches.length !== 1 ||
+        matches[0].slice(matches[0].indexOf('=') + 1).trim() !== JSON.stringify(value)
+      )
+        throw new Error(
+          'CODEX_PROXY_INVALID_CONFIG: expected the task loopback provider and matching overrides',
+        );
     }
   }
 }
 
 function proxyConfig(proxy: Pick<CredentialProxyHandle, 'url' | 'token'>): string {
   let url: URL;
-  try { url = new URL(proxy.url); }
-  catch { throw new Error('CODEX_PROXY_INVALID_URL: expected the task loopback proxy'); }
-  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port ||
-      url.pathname !== '/' || url.search || url.hash || url.username || url.password ||
-      url.origin !== proxy.url || !proxy.token)
+  try {
+    url = new URL(proxy.url);
+  } catch {
+    throw new Error('CODEX_PROXY_INVALID_URL: expected the task loopback proxy');
+  }
+  if (
+    url.protocol !== 'http:' ||
+    url.hostname !== '127.0.0.1' ||
+    !url.port ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash ||
+    url.username ||
+    url.password ||
+    url.origin !== proxy.url ||
+    !proxy.token
+  )
     throw new Error('CODEX_PROXY_INVALID_URL: expected the task loopback proxy');
   return `model_provider = "sealbridge-proxy"
 forced_login_method = "api"
@@ -152,8 +187,10 @@ export async function prepareCodexProxy(options: {
       input: '',
     });
     checkVersion(version.stdout, version.exitCode);
-    if (await readFile(configPath, 'utf8') !== config ||
-        (await readdir(home)).some((name) => /^auth\./i.test(name)))
+    if (
+      (await readFile(configPath, 'utf8')) !== config ||
+      (await readdir(home)).some((name) => /^auth\./i.test(name))
+    )
       throw new Error('CODEX_PROXY_INVALID_CONFIG: use a fresh CLI home');
     // Codex 0.163.0 help (exec, debug, features, doctor) exposes no documented
     // offline resolved-provider dump. Verify our file and exact argv instead;
@@ -169,7 +206,15 @@ export async function prepareCodexProxy(options: {
       if (line.startsWith('[')) table = line.slice(1, -1) + '.';
       else overrides.push('-c', table + line);
     }
-    args.splice(1, 0, '--strict-config', '--ignore-user-config', '--ephemeral', '--ignore-rules', ...overrides);
+    args.splice(
+      1,
+      0,
+      '--strict-config',
+      '--ignore-user-config',
+      '--ephemeral',
+      '--ignore-rules',
+      ...overrides,
+    );
     verifyRouting(await readFile(configPath, 'utf8'), args, options.proxy.url);
     return { invocation: { command: options.invocation.command, args }, env, close };
   } catch (error) {

@@ -430,8 +430,7 @@ describe('Proof 3: cross-session state bleed and isolation downgrade', () => {
     const denied = await handler(
       new Request('https://relay.example/envelopes?recipient=' + encodeURIComponent(bob.did), {
         headers: {
-          authorization:
-            'Bearer ' + createRelayAuthToken(eve, { origin: 'https://relay.example' }),
+          authorization: 'Bearer ' + createRelayAuthToken(eve, { origin: 'https://relay.example' }),
         },
       }),
     );
@@ -439,8 +438,7 @@ describe('Proof 3: cross-session state bleed and isolation downgrade', () => {
     const allowed = await handler(
       new Request('https://relay.example/envelopes?recipient=' + encodeURIComponent(bob.did), {
         headers: {
-          authorization:
-            'Bearer ' + createRelayAuthToken(bob, { origin: 'https://relay.example' }),
+          authorization: 'Bearer ' + createRelayAuthToken(bob, { origin: 'https://relay.example' }),
         },
       }),
     );
@@ -803,7 +801,9 @@ describe('Proof 9: end-to-end payload encryption', () => {
       traffic.push(structuredClone(envelope));
       snapshots.push(JSON.stringify(relay.snapshot()));
     };
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -896,7 +896,9 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const mallory = generateKeyPair();
     const relay = new InMemoryRelay();
     const registry = new RevocationRegistry();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -985,7 +987,9 @@ describe('Proof 10: token revocation and live cancellation', () => {
     const bob = generateKeyPair();
     const relay = new InMemoryRelay();
     const abort = new AbortController();
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: new SandboxAgentAdapter('while (true) {}'),
@@ -1044,7 +1048,9 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
       send(envelope);
       traffic.push(structuredClone(envelope));
     };
-    const worker = new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
+    const worker = new WorkerNode({
+      autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+      checkPeer: () => 'trusted',
       owner: bob,
       relay,
       adapter: {
@@ -1111,8 +1117,9 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
       expect(result.incompleteReceipts).toEqual([]);
       for (const receipt of result.receipts) expect(verifyAudit(receipt.bundle).valid).toBe(true);
       expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBe(true);
-      expect(outcomes.map((outcome) => outcome.status === 'fulfilled' && outcome.value?.state))
-        .toEqual(['SETTLED', 'SETTLED', ordering === 'running' ? 'CANCELLED' : 'SETTLED']);
+      expect(
+        outcomes.map((outcome) => outcome.status === 'fulfilled' && outcome.value?.state),
+      ).toEqual(['SETTLED', 'SETTLED', ordering === 'running' ? 'CANCELLED' : 'SETTLED']);
       if (ordering !== 'running') {
         expect(result.receipts).toHaveLength(3);
         expect(result.receipts.map((receipt) => receipt.deliverable)).toEqual(
@@ -1133,24 +1140,35 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
     expect(result.incompleteReceipts).toEqual([]);
     expect(result.winners.every((winner) => winner.workerDid !== minorityDid)).toBe(true);
     expect(outcomes[2].status).toBe('rejected');
-    if (outcomes[2].status === 'rejected') expect(String(outcomes[2].reason)).toContain('VERIFICATION_REJECTED');
+    if (outcomes[2].status === 'rejected')
+      expect(String(outcomes[2].reason)).toContain('VERIFICATION_REJECTED');
   });
 
   it.each([0, -1, 1.5, NaN, Infinity, 2_147_483_648])(
-    'rejects an invalid completion timeout (%s) before starting delegation', async (completionTimeoutMs) => {
+    'rejects an invalid completion timeout (%s) before starting delegation',
+    async (completionTimeoutMs) => {
       const alice = generateKeyPair();
       const requester = new RequesterClient({ owner: alice, relay: new InMemoryRelay() });
-      await expect(requester.delegateMulti({
-        workers: [{ workerDid: generateKeyPair().did }], mode: 'quorum', completionTimeoutMs,
-        title: 'Quorum', description: 'Validate completion grace', input: {},
-      })).rejects.toThrow('INVALID_COMPLETION_TIMEOUT');
+      await expect(
+        requester.delegateMulti({
+          workers: [{ workerDid: generateKeyPair().did }],
+          mode: 'quorum',
+          completionTimeoutMs,
+          title: 'Quorum',
+          description: 'Validate completion grace',
+          input: {},
+        }),
+      ).rejects.toThrow('INVALID_COMPLETION_TIMEOUT');
     },
   );
 
   it.each(['missing', 'invalid'] as const)(
     'retains verified minority evidence separately when its checkpoint acknowledgement is %s',
     async (completion) => {
-      const { result, outcomes, minorityDid, incompleteErrors } = await quorumWithBarrier('settled', completion);
+      const { result, outcomes, minorityDid, incompleteErrors } = await quorumWithBarrier(
+        'settled',
+        completion,
+      );
       expect(result.deliverable).toEqual({ tag: 'honest' });
       expect(result.winners).toHaveLength(2);
       expect(result.receipts).toHaveLength(2);
@@ -1160,16 +1178,24 @@ describe('Proof 11: encrypted progress and Byzantine quorum', () => {
       expect(incompleteErrors[0]).toBeInstanceOf(IncompleteSettlementError);
       expect(incompleteErrors[0].incompleteReceipt).toBe(partial);
       expect(incompleteErrors[0].cause).toBeInstanceOf(Error);
-      expect(partial).toMatchObject({ workerDid: minorityDid, deliverable: { tag: 'poison' },
-        outputDigest: digest({ tag: 'poison' }), accepted: true, checkpointComplete: false,
-        verification: { accepted: true } });
+      expect(partial).toMatchObject({
+        workerDid: minorityDid,
+        deliverable: { tag: 'poison' },
+        outputDigest: digest({ tag: 'poison' }),
+        accepted: true,
+        checkpointComplete: false,
+        verification: { accepted: true },
+      });
       expect(partial).not.toHaveProperty('bundle');
       expect(partial.entries.at(-1)?.body.eventType).toBe('SETTLED');
       expect(verifyEnvelope(partial.delivery, partial.delivery.payload.recipientDid)).toBe(true);
       const minority = outcomes[2];
       expect(minority.status).toBe('fulfilled');
-      if (minority.status === 'fulfilled') expect(partial.entries).toEqual(minority.value?.bundle.entries);
-      expect(partial.completionError).toMatch(completion === 'missing' ? /COMPLETION_TIMEOUT/ : /INVALID/);
+      if (minority.status === 'fulfilled')
+        expect(partial.entries).toEqual(minority.value?.bundle.entries);
+      expect(partial.completionError).toMatch(
+        completion === 'missing' ? /COMPLETION_TIMEOUT/ : /INVALID/,
+      );
       expect(result.cancelled).toEqual([]);
       for (const receipt of result.receipts) expect(verifyAudit(receipt.bundle).valid).toBe(true);
     },
@@ -1182,7 +1208,7 @@ it('retains a delivered minority checkpoint when final verification takes longer
   expect(result.incompleteReceipts).toEqual([]);
   expect(result.receipts).toHaveLength(3);
   for (const receipt of result.receipts) expect(verifyAudit(receipt.bundle).valid).toBe(true);
-  expect(outcomes.every(outcome => outcome.status === 'fulfilled')).toBe(true);
+  expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBe(true);
 });
 
 /** Hold execution or the last checkpoint until two majority delegates have returned. */
@@ -1193,7 +1219,9 @@ async function quorumWithBarrier(
 ) {
   const barrier = () => {
     let resolve!: () => void;
-    const promise = new Promise<void>((done) => { resolve = done; });
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
     return { promise, resolve };
   };
   const minorityReady = barrier();
@@ -1206,7 +1234,10 @@ async function quorumWithBarrier(
   const send = relay.send.bind(relay);
   let heldCheckpoint: SignedEnvelope | undefined;
   relay.send = (envelope) => {
-    if (envelope.payload.eventType === 'CHECKPOINT_ACK' && envelope.payload.senderDid === minority.did) {
+    if (
+      envelope.payload.eventType === 'CHECKPOINT_ACK' &&
+      envelope.payload.senderDid === minority.did
+    ) {
       heldCheckpoint = envelope;
       checkpointReady.resolve();
       minorityReady.resolve();
@@ -1220,40 +1251,59 @@ async function quorumWithBarrier(
       send(signEnvelope({ ...heldCheckpoint.payload, payload: {} }, minority, { encrypt: true }));
     } else send(heldCheckpoint);
   });
-  const workers = keys.map((owner, index) => new WorkerNode({ autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} }, checkPeer: () => 'trusted',
-    owner, relay, timeoutMs: 10000,
-    approvalProvider: new PolicyAutoApprovalProvider(owner),
-    onEvent: (event) => {
-      if (index === 2 && event === 'REJECTED') minorityReady.resolve();
-    },
-    adapter: {
-      id: 'barrier', name: 'barrier', skills: [],
-      executeTask: async (context) => {
-        if (index < 2) await minorityReady.promise;
-        else if (ordering === 'running') {
+  const workers = keys.map(
+    (owner, index) =>
+      new WorkerNode({
+        autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
+        checkPeer: () => 'trusted',
+        owner,
+        relay,
+        timeoutMs: 10000,
+        approvalProvider: new PolicyAutoApprovalProvider(owner),
+        onEvent: (event) => {
+          if (index === 2 && event === 'REJECTED') minorityReady.resolve();
+        },
+        adapter: {
+          id: 'barrier',
+          name: 'barrier',
+          skills: [],
+          executeTask: async (context) => {
+            if (index < 2) await minorityReady.promise;
+            else if (ordering === 'running') {
+              minorityReady.resolve();
+              await new Promise<never>((_, reject) => {
+                const abort = () => reject(context.signal.reason);
+                context.signal.addEventListener('abort', abort, { once: true });
+                if (context.signal.aborted) abort();
+              });
+            }
+            return { tag: index < 2 ? 'honest' : 'poison' };
+          },
+        },
+      }),
+  );
+  const approvals = new PolicyAutoApprovalProvider(alice);
+  const requester = new RequesterClient({
+    owner: alice,
+    relay,
+    timeoutMs: 10000,
+    approvalProvider: {
+      approve: async (request) => {
+        const delivery = request.target as Delivery;
+        if (
+          ordering === 'delivered' &&
+          request.gate === 'final_verification' &&
+          (delivery.artifact.payload.data as { tag: string }).tag === 'poison'
+        ) {
           minorityReady.resolve();
-          await new Promise<never>((_, reject) => {
-            const abort = () => reject(context.signal.reason);
-            context.signal.addEventListener('abort', abort, { once: true });
-            if (context.signal.aborted) abort();
-          });
+          await majorityComplete.promise;
+          if (finalVerificationDelayMs)
+            await new Promise((resolve) => setTimeout(resolve, finalVerificationDelayMs));
         }
-        return { tag: index < 2 ? 'honest' : 'poison' };
+        return approvals.approve(request);
       },
     },
-  }));
-  const approvals = new PolicyAutoApprovalProvider(alice);
-  const requester = new RequesterClient({ owner: alice, relay, timeoutMs: 10000,
-    approvalProvider: { approve: async (request) => {
-      const delivery = request.target as Delivery;
-      if (ordering === 'delivered' && request.gate === 'final_verification' &&
-          (delivery.artifact.payload.data as { tag: string }).tag === 'poison') {
-        minorityReady.resolve();
-        await majorityComplete.promise;
-        if (finalVerificationDelayMs) await new Promise(resolve => setTimeout(resolve, finalVerificationDelayMs));
-      }
-      return approvals.approve(request);
-    } } });
+  });
   const delegate = requester.delegate.bind(requester);
   let majorityReceipts = 0;
   const incompleteErrors: IncompleteSettlementError[] = [];
@@ -1261,26 +1311,45 @@ async function quorumWithBarrier(
     const pending = delegate(options, hooks);
     // Register before delegateMulti awaits pending. Resolving the barrier queues its
     // release after delegateMulti's receipt/selection continuation on the same promise.
-    void pending.then((result) => {
-      if (result.deliverable && (result.deliverable as { tag?: string }).tag === 'honest' &&
-          ++majorityReceipts === 2) majorityComplete.resolve();
-    }, (error) => {
-      if (error instanceof IncompleteSettlementError) incompleteErrors.push(error);
-    });
+    void pending.then(
+      (result) => {
+        if (
+          result.deliverable &&
+          (result.deliverable as { tag?: string }).tag === 'honest' &&
+          ++majorityReceipts === 2
+        )
+          majorityComplete.resolve();
+      },
+      (error) => {
+        if (error instanceof IncompleteSettlementError) incompleteErrors.push(error);
+      },
+    );
     return pending;
   });
   const pending = Promise.allSettled(workers.map((worker) => worker.start({ once: true })));
   try {
     const result = await requester.delegateMulti({
-      workers: workers.map((worker) => ({ workerDid: worker.options.owner.did, inviteToken: worker.invite() })),
+      workers: workers.map((worker) => ({
+        workerDid: worker.options.owner.did,
+        inviteToken: worker.invite(),
+      })),
       // A successful minority still performs final verification and signs/persists
       // its checkpoint after the majority barrier. 100ms is not a load-safe budget.
       // Keep the deliberately missing/invalid checkpoint paths short.
-      mode: 'quorum', quorumSize: 2, completionTimeoutMs: completion === 'release' ? 5000 : 100,
-      title: 'Quorum', description: 'Agree on the tag', input: { ok: true },
-      outputSchema: completion === 'rejected' ? {
-        type: 'object', required: ['tag'], properties: { tag: { const: 'honest' } },
-      } : undefined,
+      mode: 'quorum',
+      quorumSize: 2,
+      completionTimeoutMs: completion === 'release' ? 5000 : 100,
+      title: 'Quorum',
+      description: 'Agree on the tag',
+      input: { ok: true },
+      outputSchema:
+        completion === 'rejected'
+          ? {
+              type: 'object',
+              required: ['tag'],
+              properties: { tag: { const: 'honest' } },
+            }
+          : undefined,
     });
     await releaseCheckpoint;
     return { result, outcomes: await pending, minorityDid: minority.did, incompleteErrors };

@@ -104,12 +104,12 @@ See [relay reliability](docs/relay-reliability.md#retention-and-admission).
 
 ## Role determination / 役割の判断
 
-| Owner request / オーナーの指示 | Action / 選ぶ役割 |
-| --- | --- |
-| 「ワーカーとして待機して」「招待トークンを出して」 / “Act as a worker and wait for tasks” | Follow the Worker flow; keep the worker running and return its invite token. |
-| 「この acp-invite:... トークンに仕事を依頼して」 / “Delegate this task to <acp-invite:...>” | Follow the Requester flow using the supplied task and invite or DID. |
-| 「エージェントを探して」 / “Discover remote agents” | Use discovery below; select a worker according to the owner's task. |
-| 「監査ログを検証して」 / “Verify the audit ledger” | Run offline audit verification on the supplied log. |
+| Owner request / オーナーの指示                                                              | Action / 選ぶ役割                                                            |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 「ワーカーとして待機して」「招待トークンを出して」 / “Act as a worker and wait for tasks”   | Follow the Worker flow; keep the worker running and return its invite token. |
+| 「この acp-invite:... トークンに仕事を依頼して」 / “Delegate this task to <acp-invite:...>” | Follow the Requester flow using the supplied task and invite or DID.         |
+| 「エージェントを探して」 / “Discover remote agents”                                         | Use discovery below; select a worker according to the owner's task.          |
+| 「監査ログを検証して」 / “Verify the audit ledger”                                          | Run offline audit verification on the supplied log.                          |
 
 If the role or task is genuinely unspecified, ask the owner for that missing
 information. Do not invent a task, choose paid execution, or authorize approval
@@ -275,17 +275,18 @@ For the optional audit paths below, create the audit directory first:
    environment. Command/CLI adapters are not OS sandboxes. `subprocess_restricted`
    is a separate OS process with a sanitized environment, a scratch directory, a
    timeout and SIGKILL, and an output byte cap. It uses `--permission` (Node.js
-   >= 22.13 and Node.js 23+) or `--experimental-permission` (earlier Node.js 20
-   and 22) with `--allow-fs-read` and `--allow-fs-write` when that flag exists.
-   That model restricts filesystem, child process, worker, and native addon access.
-   It does not block `fetch`, `node:net`, `node:http`, `node:https`, `node:dns`,
-   or `node:dgram`, and it is not a kernel network namespace. `node:vm` is not a security mechanism.
-   Untrusted third-party code requires `oci_container` (`isolationLevel: 'oci_container'`):
-   `--network none`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`,
-   and PID/memory limits. `ExecutionAttestation.effectiveIsolationLevel` records the path that ran.
-   See [README.md](README.md).
-   コマンド / CLI アダプタは OS サンドボックスではありません。`node:vm` はセキュリティ機構ではないです。
-   信頼できない第三者コードには `isolationLevel: 'oci_container'` が必要です。カーネルのネットワーク隔離は OCI だけです。
+
+   > = 22.13 and Node.js 23+) or `--experimental-permission` (earlier Node.js 20
+   > and 22) with `--allow-fs-read` and `--allow-fs-write` when that flag exists.
+   > That model restricts filesystem, child process, worker, and native addon access.
+   > It does not block `fetch`, `node:net`, `node:http`, `node:https`, `node:dns`,
+   > or `node:dgram`, and it is not a kernel network namespace. `node:vm` is not a security mechanism.
+   > Untrusted third-party code requires `oci_container` (`isolationLevel: 'oci_container'`):
+   > `--network none`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`,
+   > and PID/memory limits. `ExecutionAttestation.effectiveIsolationLevel` records the path that ran.
+   > See [README.md](README.md).
+   > コマンド / CLI アダプタは OS サンドボックスではありません。`node:vm` はセキュリティ機構ではないです。
+   > 信頼できない第三者コードには `isolationLevel: 'oci_container'` が必要です。カーネルのネットワーク隔離は OCI だけです。
 
    The worker does not join the public relay directory unless `--publish` is
    set. `--allow-requester` may be repeated or comma-separated.
@@ -509,7 +510,6 @@ tasks. After connection consent, explicitly submit a fresh task to the interacti
 CLI worker for content display and live owner approval. Do not retry the held
 task automatically. Unaccepted signed offers remain in the review queue even
 when an invitation has already connected the peer.
-
 
 組み込み側は `ConnectionAdmissionReview` を明示的に使い、保留中の受信接続の公開情報を
 一覧し、所有者の操作後に `approve(id)`（limited の同意）または `reject(id)` を呼べます。
@@ -747,7 +747,6 @@ C1 の永続化はゲートウェイのプロセス再起動を対象とし、�
 セッションの送信と処理済み受信記録は、準備時に署名者ロックを取得せず、一意の一時ファイルへ非同期に書き込みます。ハンドルを閉じてからアトミックに公開し、同じ署名者・relay の独立したタスクは並行して書き込めます。公開時に署名者ロックの下で容量と受信記録の状態を再確認し、ファイルシステムの再試行待機は行いません。既定のタスクジャーナルは追記ハンドルと変更のない検証済みチェックポイントを再利用し、圧縮時とワーカー停止時にハンドルを閉じます。
 [relay の動作](docs/relay-reliability.ja.md)を参照してください。
 
-
 The three MCP send tools (`acp_delegate_task`, `acp_delegate_multi`,
 `acp_resubmit_pending_request`) accept optional `idempotencyKey`, an exact Unicode
 string of 1–200 UTF-8 bytes, e.g. `"idempotencyKey":"review-2026-11-02"`.
@@ -760,7 +759,6 @@ Another server may return `IDEMPOTENCY_IN_PROGRESS`; interruption returns
 or execution. Final verification stays separate, and calls without keys are unchanged.
 See [relay reliability](docs/relay-reliability.md) for retention, runtime hooks and recovery.
 No relay deployment is needed.
-
 
 MCP の送信の3道具 (`acp_delegate_task`・`acp_delegate_multi`・
 `acp_resubmit_pending_request`) は任意の `idempotencyKey` を受け付けます。

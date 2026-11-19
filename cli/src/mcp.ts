@@ -19,7 +19,9 @@ const KNOWN = new Set([
   '--relay-auth-recovery-timeout-ms',
 ]);
 const USAGE =
-  'Usage: ' + cliName + ' mcp-server [--key <file>] [--relay URL] [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]';
+  'Usage: ' +
+  cliName +
+  ' mcp-server [--key <file>] [--relay URL] [--allow-private-relay] [--allow-worker <did>] [--allow-relay <url>] [--require-approval | --approval-webhook <url>]';
 
 function flags(args: string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();
@@ -109,12 +111,31 @@ export function mcpServerOptionsFromArgs(
 }
 
 /** `acp mcp-server` speaks MCP over stdio with an outbound allowlist and approval policy. */
-export async function mcpServerCommand(args: string[], identityOptions: IdentityStoreOptions = {}): Promise<void> {
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE + '\n' + RELAY_AUTH_HELP); return; }
+export async function mcpServerCommand(
+  args: string[],
+  identityOptions: IdentityStoreOptions = {},
+): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(USAGE + '\n' + RELAY_AUTH_HELP);
+    return;
+  }
   const parsed = parseMcpServerArgs(args);
-  const server = new AcpMcpServer(mcpServerOptionsFromArgs(parsed, parsed.keyFile
-    ? await resolveStoredIdentity('requester', { ...identityOptions, explicitKeyPath: parsed.keyFile }) : undefined, identityOptions));
+  const server = new AcpMcpServer(
+    mcpServerOptionsFromArgs(
+      parsed,
+      parsed.keyFile
+        ? await resolveStoredIdentity('requester', {
+            ...identityOptions,
+            explicitKeyPath: parsed.keyFile,
+          })
+        : undefined,
+      identityOptions,
+    ),
+  );
   await server.startDelivery();
-  try { await server.serve(process.stdin, process.stdout); }
-  finally { server.stopDelivery(); }
+  try {
+    await server.serve(process.stdin, process.stdout);
+  } finally {
+    server.stopDelivery();
+  }
 }

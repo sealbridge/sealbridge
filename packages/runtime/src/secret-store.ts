@@ -7,5 +7,4 @@ export interface SecretStore {
   delete(id: string): void;
 }
 
-
 export { KeychainSecretStore, openKeychainSecretStore } from '@acp/runtime-local/secret-store';
