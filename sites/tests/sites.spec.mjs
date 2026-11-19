@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { parse } from 'jsonc-parser';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -254,9 +255,13 @@ test('missing, malformed and query-only invitations never enable acceptance', as
 
 test('deployment bundles carry the headers and media-only Worker configuration', async () => {
   for (const target of ['site', 'invite']) {
-    const config = JSON.parse(
+    const errors = [];
+    const config = parse(
       await readFile(path.join(directory, `../wrangler.${target}.jsonc`), 'utf8'),
+      errors,
+      { allowTrailingComma: true },
     );
+    expect(errors).toEqual([]);
     expect(config.assets.directory).toBe(`./dist/${target}`);
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
