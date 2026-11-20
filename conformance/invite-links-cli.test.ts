@@ -629,3 +629,9 @@ it('checks MCP relay restrictions before consuming a short link', async () => {
   expect(response.result.isError).toBe(true);
   expect(s.sent).toHaveLength(before);
 });
+
+it('keeps the usable-as-is short-link diagnostic through the synchronous token parser', () => {
+  expect(() => parseAndVerifyInviteToken('https://sealbridge.app/j#v=1&k=short')).toThrow(
+    'this is a short link, it can be used as is',
+  );
+});
