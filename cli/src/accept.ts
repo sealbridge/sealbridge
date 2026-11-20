@@ -8,6 +8,7 @@ import { InviteStore, inspectStoredIdentity, resolveStoredIdentity } from '@acp/
 import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 
 interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
+  connectImmediately?: boolean;
   input?: Readable & { isTTY?: boolean; unref?: () => unknown };
   output?: Writable;
   fetch?: typeof fetch;
@@ -147,13 +148,13 @@ export async function acceptCommand(
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
   const shortLink = /^(?:https:\/\/sealbridge\.app\/j|sealbridge:\/\/join)/.test(link!);
-  if (shortLink && noNetwork)
+  if ((shortLink || options.connectImmediately) && noNetwork)
     throw new Error(
       'INVITE_LINK_NETWORK_REQUIRED: this invitation requires the relay; --no-network refused it',
     );
   const relayPolicy = { ...options.relayPolicy, allowPrivateRelay };
-  if (shortLink) {
-    const token = await claimInviteLink(link!, { ...options, relayPolicy });
+  if (shortLink || options.connectImmediately) {
+    const token = shortLink ? await claimInviteLink(link!, { ...options, relayPolicy }) : link!;
     const owner = await resolveStoredIdentity('requester', options);
     const result = await connectInvite(token, owner, { ...options, alias, relayPolicy });
     console.log(JSON.stringify({ ...result, relayContacted: true }));

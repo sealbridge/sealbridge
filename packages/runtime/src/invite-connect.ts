@@ -71,6 +71,22 @@ export async function connectInvite(
       await router.service.request({ toOwnerDid: invite.ownerDid, inviteToken: token });
     await syncConnections(router, { once: true });
     status = store.connectionState(invite.ownerDid);
+    if (status !== 'connected') {
+      const taskIds = store
+        .controlSnapshot()
+        .filter(
+          (r) => r.active && r.direction === 'outgoing' && r.offer.toOwnerDid === invite.ownerDid,
+        )
+        .map((r) => 'conn_' + r.offer.requestId);
+      if (taskIds.length) {
+        const reply = await relay.receive(owner.did, 1000, AbortSignal.timeout(1500), {
+          taskId: taskIds,
+          lease: true,
+        });
+        if (reply) await router.route(reply);
+        status = store.connectionState(invite.ownerDid);
+      }
+    }
   }
   return {
     ...saved,
