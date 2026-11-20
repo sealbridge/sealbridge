@@ -25,6 +25,24 @@ export function readOnlyTask({ manifest, adapter, tools }: AutoAcceptContext): b
     )
   );
 }
+/** Content-free explanation suitable for background worker diagnostics. */
+export function autoAcceptReason(
+  value: AutoAcceptPolicy,
+  context: AutoAcceptContext,
+): string | undefined {
+  const p = autoAcceptPolicy(value);
+  if (!p.enabled) return 'automatic acceptance is off';
+  if (context.manifest.budget.costBearer !== 'worker_byok')
+    return 'paid or quota work requires owner approval';
+  if (context.manifest.contextGrant?.deliveryMode === 'approval_redelegation')
+    return 'redelegation requires owner approval';
+  if (p.from === 'connected' && !context.connected) return 'requester is not connected';
+  if (p.from === 'invited' && !context.invited)
+    return 'requester has no eligible invitation connection';
+  if (p.work === 'read-only' && !readOnlyTask(context))
+    return 'adapter, tools or verification require write/command approval';
+  return undefined;
+}
 /** A future limit provider must atomically check/reserve counting state before returning true. */
 export type AutoAcceptStateGuard = (
   context: AutoAcceptContext,
@@ -36,14 +54,7 @@ export async function matchesAutoAccept(
   guard?: AutoAcceptStateGuard,
 ): Promise<boolean> {
   const p = autoAcceptPolicy(value);
-  if (
-    !p.enabled ||
-    context.manifest.contextGrant?.deliveryMode === 'approval_redelegation' ||
-    (p.from === 'connected' && !context.connected) ||
-    (p.from === 'invited' && !context.invited) ||
-    (p.work === 'read-only' && !readOnlyTask(context))
-  )
-    return false;
+  if (autoAcceptReason(p, context)) return false;
   try {
     return guard ? (await guard(context, p)) === true : true;
   } catch {

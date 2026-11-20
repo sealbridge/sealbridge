@@ -420,6 +420,8 @@ describe('UX-2 public settings', () => {
       perDay: 20,
       dayReset: '00:00 UTC',
     });
-    expect(profile.approval).toBe('Inspection and owner opening required for limited peers');
+    expect(profile.approval).toBe(
+      'Matching read-only work follows the signed automatic rule; other work needs inspection and owner approval',
+    );
   });
 });

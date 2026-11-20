@@ -724,6 +724,26 @@ export async function networkCommand(
             readApplicationConfig({ ...application.identityOptions, allowPrivateRelay: true })
               .autoAccept,
           );
+      if (listenerAutomatic && !autoAccept.enabled)
+        console.error(
+          'AUTO_ACCEPT_SETTINGS_CONFLICT: --auto-accept does not override the disabled owner rule; use config auto-accept to change that rule.',
+        );
+      if (
+        autoAccept.enabled &&
+        autoAccept.work === 'read-only' &&
+        adapter.taskAccess !== 'read-only'
+      )
+        console.error(
+          'AUTO_ACCEPT_ADAPTER_MISMATCH: this adapter is not read-only; tasks require owner approval.',
+        );
+      console.error(
+        JSON.stringify({
+          event: 'acceptance_policy',
+          autoAccept,
+          adapterAccess: adapter.taskAccess ?? 'write/unspecified',
+          background: !(process.stdin.isTTY && process.stderr.isTTY),
+        }),
+      );
       if (adapterName === 'claude' || adapterName === 'codex')
         assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
       const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, {
@@ -809,7 +829,7 @@ export async function networkCommand(
         approvalProvider: contactsApproval(
           contactFile,
           key,
-          listenerAutomatic,
+          false,
           explicitAcceptance,
           approval(key, false, undefined, f.has('--verbose')),
         ),
