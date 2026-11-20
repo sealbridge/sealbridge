@@ -233,7 +233,7 @@ describe('Sealbridge MCP server', () => {
     expect(init).toMatchObject({
       result: {
         protocolVersion: '2024-11-05',
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, logging: {} },
         serverInfo: { name: 'sealbridge-mcp-server', version: '0.9.2' },
       },
     });

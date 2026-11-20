@@ -704,3 +704,33 @@ it('keeps the usable-as-is short-link diagnostic through the synchronous token p
     'this is a short link, it can be used as is',
   );
 });
+
+it('renews consumed live MCP invitations and sends the host a fresh short link', async () => {
+  const s = setup(),
+    refreshed = vi.fn();
+  const server = new AcpMcpServer({
+    owner: s.owner,
+    identityOptions: s.options.identityOptions,
+    fetch: s.options.fetch,
+    relay: 'https://relay.example',
+    onInviteRefreshed: refreshed,
+  });
+  try {
+    const response = (await server.handle({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'acp_create_invite', arguments: {} },
+    })) as any;
+    const first = JSON.parse(response.result.content[0].text);
+    const token = await claimInviteLink(first.link, { fetch: s.options.fetch });
+    await (server as any).refreshInvites();
+    expect(refreshed).toHaveBeenCalledOnce();
+    const next = refreshed.mock.calls[0][0];
+    expect(next.link).not.toBe(first.link);
+    const nextToken = await claimInviteLink(next.link, { fetch: s.options.fetch });
+    expect(nextToken).not.toBe(token);
+  } finally {
+    server.stopDelivery();
+  }
+});
