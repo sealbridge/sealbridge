@@ -537,7 +537,8 @@ describe('multiple local candidates, one active route', () => {
             '{"value":7}',
             '--auto-approve',
             '--task-timeout-ms',
-            '5000',
+            // Includes cold sandbox subprocess startup on loaded Windows CI.
+            '15000',
             '--audit',
             requesterAudit,
           ],
@@ -545,11 +546,15 @@ describe('multiple local candidates, one active route', () => {
         ),
       ]);
       // Invited sandbox work now matches the default connected read-only rule.
-      for (const attempt of attempts) expect(attempt).toMatchObject({ status: 'fulfilled' });
+      for (const attempt of attempts) {
+        if (attempt.status === 'rejected') throw attempt.reason;
+        expect(attempt.status).toBe('fulfilled');
+      }
       expect(fetcher.mock.calls.every(([url]) => String(url).startsWith(loopback + '/'))).toBe(
         true,
       );
     },
+    30000,
   );
   it.each(['success', 'failure', '401'])(
     'never contacts another candidate after discovery %s in CLI or MCP',
