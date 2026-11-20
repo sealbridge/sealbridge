@@ -818,6 +818,12 @@ export const mcpTools: Json = [
     outputSchema: objectSchema(
       'Success payload in structuredContent. Operational failures use isError and do not use this shape.',
       {
+        peerName: described('Verified invitation peer display name to show in chat.', {
+          type: 'string',
+        }),
+        verificationNumber: described('Six-digit invitation confirmation number to show in chat.', {
+          type: 'string',
+        }),
         taskId: described('Protocol task id of the opened session.', { type: 'string' }),
         status: described(
           'SETTLED when the deliverable verified, or CANCELLED when the session was cancelled.',

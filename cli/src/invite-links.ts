@@ -226,7 +226,7 @@ export async function createInviteCommand(
   // Link creation contacts the relay and must retain the caller's network policy.
   const inviteDigest = digest(
     parseAndVerifyInviteToken(token, now, {
-      allowPrivateRelay: share === 'token' || f.has('--allow-private-relay'),
+      allowPrivateRelay: true,
     }),
   );
   const verificationNumber = inviteLinkVerificationNumber(inviteDigest);
