@@ -345,6 +345,7 @@ export class AcpMcpServer {
   private inviteRefreshTimer?: ReturnType<typeof setInterval>;
   private refreshingInvites = false;
   private inviteRenewalStopped = false;
+  private loggingLevel = 'info';
   private trackInvite(args: Record<string, unknown>, shared: SharedInvite): void {
     if (
       this.inviteRenewalStopped ||
@@ -379,11 +380,12 @@ export class AcpMcpServer {
           this.sharedInvites.delete(id);
           if (this.inviteRenewalStopped) return;
           this.options.onInviteRefreshed?.(next);
-          await this.rpc?.notify('notifications/message', {
-            level: 'info',
-            logger: 'sealbridge.invites',
-            data: { event: 'invite_refreshed', ...next },
-          });
+          if (['debug', 'info'].includes(this.loggingLevel))
+            await this.rpc?.notify('notifications/message', {
+              level: 'info',
+              logger: 'sealbridge.invites',
+              data: { event: 'invite_refreshed', ...next },
+            });
         } catch {
           /* Best effort: retry a failed renewal on the next tick without changing work approval. */
         }
@@ -494,6 +496,18 @@ export class AcpMcpServer {
     }
   }
   private async dispatch(method: string, params: unknown, signal?: AbortSignal): Promise<Json> {
+    if (method === 'logging/setLevel') {
+      const level = asRecord(params ?? {}).level;
+      if (
+        typeof level !== 'string' ||
+        !['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'].includes(
+          level,
+        )
+      )
+        throw new RpcError(-32602, 'Invalid logging level');
+      this.loggingLevel = level;
+      return {};
+    }
     if (method === 'initialize') {
       const init = asRecord(params ?? {});
       const version =
