@@ -174,7 +174,10 @@ async function main(args: string[]) {
     case 'invites':
       if (command === 'invites' && rest[0] === 'migrate')
         await invitesMigrateCommand(rest.slice(1));
-      else await acceptCommand(command === 'connect' ? 'accept' : command, rest);
+      else
+        await acceptCommand(command === 'connect' ? 'accept' : command, rest, {
+          connectImmediately: command === 'connect',
+        });
       break;
     case 'receipt':
       receiptCommand(rest);

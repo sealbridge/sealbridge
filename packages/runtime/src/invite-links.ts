@@ -108,8 +108,17 @@ export async function claimInviteLink(
   value: string,
   options: InviteStoreOptions & { fetch?: typeof fetch } = {},
 ): Promise<string> {
-  const parsed = parseInviteLink(value, options.relayPolicy),
-    keys = deriveInviteLinkKeys(parsed.k);
+  let parsed: ReturnType<typeof parseInviteLink>;
+  try {
+    parsed = parseInviteLink(value, options.relayPolicy);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_INVITE_LINK')
+      throw new Error(
+        'INVALID_INVITE_LINK: short link is malformed or truncated; use the complete link including its fragment',
+      );
+    throw error;
+  }
+  const keys = deriveInviteLinkKeys(parsed.k);
   const fetcher = transport(
     parsed.relayOrigin,
     { fetch: options.fetch },
