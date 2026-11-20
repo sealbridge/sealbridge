@@ -148,6 +148,7 @@ async function worker(
   audit: string,
   migrated: boolean,
   endpoint?: string,
+  write = false,
 ) {
   const child = spawn(
     process.execPath,
@@ -163,7 +164,10 @@ async function worker(
       url,
       '--allow-private-relay',
       '--adapter',
-      endpoint ? 'openai' : 'sandbox',
+      endpoint ? 'openai' : write ? 'command' : 'sandbox',
+      ...(write
+        ? ['--cmd', `"${process.execPath}" "${resolve('conformance/fixtures/json-echo.cjs')}"`]
+        : []),
       ...(endpoint ? ['--endpoint', endpoint] : []),
       '--allow-local-pc',
       '--auto-accept',
@@ -496,7 +500,14 @@ it.each([
       }
       // Restart with a write-capable adapter: read-only permission must not allow it.
       await stop(bw);
-      const writeWorker = await worker(b, relay.url, join(root, 'grok-write.jsonl'), migrated);
+      const writeWorker = await worker(
+        b,
+        relay.url,
+        join(root, 'grok-write.jsonl'),
+        migrated,
+        undefined,
+        true,
+      );
       await send('PENDING_OWNER_APPROVAL');
       await cli(b, ['connections', 'allow', 'muse-connected', 'write']);
       const writeResult = await send();
