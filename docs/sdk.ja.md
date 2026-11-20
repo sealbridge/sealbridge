@@ -248,3 +248,21 @@ task 以外は `unavailable` です。既定の検査、CLI の表示、trusted 
 動作は変わりません。protocol・schema・manifest 必須欄・通信形式・保存形式を変えません。
 
 `peerRef` は `workerRef` と同じ保存済み参照値を持つ別名です。MCP は両方を受け付けます。CLI の委任でも従来の `--to` に加えて `--peer-ref` を使えます。解決方法と権限は変わりません。
+
+## 依頼側の任意の分離要求
+
+既定ではホスト上の Codex・Claude・command・OpenAI・MCP ワーカーへ追加設定なしで
+依頼できます。署名付き実行証明の検証と `requireExecutionAttestation` の意味・既定値は
+従来どおりです。
+
+分離を要求する場合だけ、SDK の `RequesterClient.delegate` / `delegateMulti` または
+MCP の `acp_delegate_task` / `acp_delegate_multi` に
+`requireIsolatedExecution: true` を指定します。CLI の `delegate` では
+`--require-isolated-execution` を付けます。ランタイムの検証器を直接使う場合は
+`new VerificationEngine({ requireIsolatedExecution: true })` と指定できます。
+
+この依頼側の任意設定は各依頼に適用され、ホスト実行・レベル未記載・契約の最低レベル未満を
+拒否します。subprocess fallback が有効でも最低レベルを維持します。標準 sandbox は
+利用できますが、`subprocess_restricted` はカーネルのネットワーク隔離を提供しません。
+新しい依頼には再度指定してください。署名付き実行証明の欠落・不正は、設定の有無に
+かかわらず従来どおり拒否します。

@@ -39,7 +39,12 @@ export function approvalSummary(request: ApprovalRequest): string {
     );
   } else if (request.gate === 'final_verification') {
     const data = record(record(record(request.target).artifact).payload).data;
-    lines.push('Review result:', display(data));
+    const attestation = record(record(record(request.target).attestation).payload);
+    lines.push(
+      `Attested isolation level: ${display(attestation.effectiveIsolationLevel ?? 'unspecified (legacy)')}`,
+      'Review result:',
+      display(data),
+    );
   } else {
     // Side effects and budget changes still display the full action being approved.
     lines.push('Action:', display(request.target), 'Details:', display(request.details));

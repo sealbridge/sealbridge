@@ -343,9 +343,14 @@ it('local doctor checks its own CLI on PATH', async () => {
   });
 });
 
-it.each(['delegate', 'mcp-server'])(
-  'settles actual %s requests without local PC opt-in',
-  async (mode) => {
+it.each([
+  ['delegate', false],
+  ['delegate', true],
+  ['mcp-server', false],
+  ['mcp-server', true],
+] as const)(
+  'host-worker delegation via %s with requester isolation opt-in=%s',
+  async (mode, isolated) => {
     const relay = new InMemoryRelay(),
       remote = generateKeyPair();
     const app = application();
@@ -375,7 +380,7 @@ it.each(['delegate', 'mcp-server'])(
     const settled = Promise.allSettled([running]);
     try {
       if (mode === 'delegate') {
-        await networkCommand(
+        const delegated = networkCommand(
           'delegate',
           [
             '--key',
@@ -389,15 +394,20 @@ it.each(['delegate', 'mcp-server'])(
             '--input',
             '{"ok":true}',
             '--auto-approve',
+            ...(isolated ? ['--require-isolated-execution'] : []),
           ],
           {
             ...app,
             transportFactory: () => relay,
           },
         );
-        expect(
-          vi.mocked(console.log).mock.calls.some(([line]) => String(line).includes('SETTLED')),
-        ).toBe(true);
+        if (isolated) await expect(delegated).rejects.toThrow('ISOLATION_LEVEL_MISMATCH');
+        else {
+          await delegated;
+          expect(
+            vi.mocked(console.log).mock.calls.some(([line]) => String(line).includes('SETTLED')),
+          ).toBe(true);
+        }
       } else {
         const server = new AcpMcpServer({
           owner,
@@ -417,14 +427,15 @@ it.each(['delegate', 'mcp-server'])(
               description: 'Remote echo',
               input: { ok: true },
               taskTimeoutMs: 5000,
+              ...(isolated ? { requireIsolatedExecution: true } : {}),
             },
           },
         });
-        expect(JSON.stringify(result)).toContain('SETTLED');
+        expect(JSON.stringify(result)).toContain(isolated ? 'ISOLATION_LEVEL_MISMATCH' : 'SETTLED');
         server.stopDelivery();
       }
       expect(executions).toBe(1);
-      expect((await settled)[0].status).toBe('fulfilled');
+      expect((await settled)[0].status).toBe(isolated ? 'rejected' : 'fulfilled');
     } finally {
       worker.stop();
       await settled;
@@ -559,3 +570,21 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
     else delete (process.stderr as { isTTY?: boolean }).isTTY;
   }
 });
+
+it('describes the sandbox self-signed attestation accurately', () => {
+  const warning = localPcWarning(
+    'task_policy_dependent (determined at execution; hooks use host_adapter)',
+  );
+  expect(warning).not.toContain('No execution attestation');
+  expect(warning).toContain(
+    'self-signed execution attestation (subprocess_restricted, no kernel network isolation)',
+  );
+});
+it.each(['host_adapter', 'workspace_process', 'host_http_adapter', 'mcp_proxy'])(
+  'describes %s attestation without claiming isolation',
+  (level) => {
+    expect(localPcWarning(level)).toContain(
+      `An attestation is attached, but its level is ${level} (no isolation)`,
+    );
+  },
+);

@@ -24,8 +24,13 @@ export function satisfiesIsolation(
   effective: string | undefined,
   requireExecutionAttestation: boolean,
   allowSubprocessFallback: boolean,
+  requireIsolatedExecution = false,
 ): boolean {
   const minimum = isolationOrder.indexOf(required);
+  if (requireIsolatedExecution) {
+    const actual = effective === undefined ? -1 : isolationOrder.indexOf(effective);
+    return minimum >= 0 && actual >= minimum;
+  }
   // Host adapter labels and absent levels are legacy default deliveries, not new
   // contract levels. Preserve that compatibility only at the default floor.
   const actual =

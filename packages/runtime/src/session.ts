@@ -3926,6 +3926,8 @@ export interface DelegateOptions extends SessionTimeoutOptions {
    */
   capabilityChains?: CapabilityToken[][];
   minimumIsolationLevel?: string;
+  /** Opt in to rejecting missing/host runner levels and enforcing the contract minimum. Default false. */
+  requireIsolatedExecution?: boolean;
   onProgress?: (
     progress: ProgressPayload,
     envelope: ProtocolEnvelope<ProgressPayload>,
@@ -4000,6 +4002,8 @@ export interface DelegateMultiOptions extends SessionTimeoutOptions {
   budget?: Partial<BudgetSpec>;
   capabilities?: DelegateOptions['capabilities'];
   minimumIsolationLevel?: string;
+  /** Opt in to rejecting missing/host runner levels and enforcing the contract minimum. Default false. */
+  requireIsolatedExecution?: boolean;
   signal?: AbortSignal;
   onProgress?: DelegateOptions['onProgress'];
   auditPath?: string;
@@ -4098,6 +4102,7 @@ export class RequesterClient {
       'capabilities',
       'capabilityChains',
       'minimumIsolationLevel',
+      'requireIsolatedExecution',
       'onProgress',
       'workers',
       'mode',
@@ -4253,6 +4258,11 @@ export class RequesterClient {
       onDelivered?: () => void;
     },
   ): Promise<SessionResult> {
+    if (
+      options.requireIsolatedExecution !== undefined &&
+      typeof options.requireIsolatedExecution !== 'boolean'
+    )
+      throw new Error('INVALID_REQUIRE_ISOLATED_EXECUTION');
     const managedChild = managedChildHooks.get(options);
     if (options.peerRef !== undefined) {
       if (
@@ -4988,6 +4998,7 @@ export class RequesterClient {
           {
             ...(approvalMode ? { ownerDecision: this.approvalProvider.ownerDecision } : {}),
             allowUnencryptedEnvelopes: this.options.allowUnencryptedEnvelopes === true,
+            requireIsolatedExecution: options.requireIsolatedExecution === true,
             onVerifiedDelivery: async () => {
               if (!wireDelivery) return;
               await wireDelivery.service.withStore(
@@ -5188,6 +5199,11 @@ export class RequesterClient {
     }
   }
   async delegateMulti(options: DelegateMultiOptions): Promise<DelegateMultiResult> {
+    if (
+      options.requireIsolatedExecution !== undefined &&
+      typeof options.requireIsolatedExecution !== 'boolean'
+    )
+      throw new Error('INVALID_REQUIRE_ISOLATED_EXECUTION');
     if (options.idempotencyKey !== undefined && !options.idempotencyOperation) {
       validateIdempotencyKey(options.idempotencyKey);
       options = {
@@ -5294,6 +5310,7 @@ export class RequesterClient {
             budget: options.budget,
             capabilities: options.capabilities,
             minimumIsolationLevel: options.minimumIsolationLevel,
+            requireIsolatedExecution: options.requireIsolatedExecution,
             signal,
             onProgress: options.onProgress,
             beforePropose: options.beforePropose,

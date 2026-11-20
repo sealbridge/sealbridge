@@ -4,6 +4,10 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+### Added
+
+- Optional requester isolation enforcement: set `requireIsolatedExecution: true` on SDK or MCP delegation, or pass `--require-isolated-execution` to CLI `delegate`, to reject missing/host runner levels and enforce the contract minimum. Isolation remains opt-in: default Codex, Claude, command, OpenAI, and MCP host-worker delegation works without new configuration. Existing signed-attestation verification and legacy isolation policy are unchanged. Final CLI approval displays the attested isolation level, and local PC warnings accurately describe the attached attestation.
+
 ## [0.9.2] - 2026-11-19
 
 Contributor onboarding and GitHub issue/PR templates are in the repository (#302). Node 22 remains the minimum, with workspace engines, CI and publish builds aligned to Node 22 and 24 (#303). Type-aware Promise lint rules are required in CI (#304). Sandbox tasks wait for IPC results before treating a child as finished, and concurrent outbox cleanup no longer reports a disappeared record as store corruption (#305). The repository is formatted with Prettier, and `format:check` is required in the lint job (#306). No breaking changes; engines stay Node >=22, and protocol 0.2.0 is unchanged.

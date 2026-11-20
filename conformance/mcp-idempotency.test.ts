@@ -198,6 +198,7 @@ describe('MCP send-tool idempotency', () => {
     { connectTimeoutMs: 60_000 },
     { executionTimeoutMs: 2000 },
     { minimumIsolationLevel: 'oci_container' },
+    { requireIsolatedExecution: true },
     { relayUrl: 'https://other.example' },
     { relayUrl: 'invalid endpoint' },
     { title: 'Changed' },
@@ -576,5 +577,26 @@ it.each(['microvm', 'wasm', '', 'unknown', null, 1, {}, []])(
     expect(f.send).not.toHaveBeenCalled();
     expect(f.execute).not.toHaveBeenCalled();
     expect(fs.existsSync(join(f.root, 'data'))).toBe(false);
+  },
+);
+
+it.each(['true', 1, null, {}])(
+  'rejects invalid requireIsolatedExecution %j before sending',
+  async (value) => {
+    const server = new AcpMcpServer({ owner: generateKeyPair() });
+    for (const name of ['acp_delegate_task', 'acp_delegate_multi']) {
+      const response = await server.handle({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name,
+          arguments: { title: 'No send', requireIsolatedExecution: value },
+        },
+      });
+      expect(response).toMatchObject({
+        error: { code: -32602, message: 'Invalid requireIsolatedExecution: expected boolean' },
+      });
+    }
   },
 );

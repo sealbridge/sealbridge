@@ -430,7 +430,7 @@ const taskDescriptionSchema = described(
 export const MCP_ISOLATION_LEVELS = ['subprocess_restricted', 'oci_container'] as const;
 
 const isolationSchema = described(
-  'Lowest sandbox the worker must attest. Omit it to keep subprocess_restricted, which is not kernel network isolation. Set oci_container for untrusted code; that level requires a network-none container and execution attestation.',
+  'Contract isolation floor. Omit it to keep subprocess_restricted with legacy host and missing-level compatibility. Set requireIsolatedExecution to true to require explicit non-host evidence. Set oci_container for a network-none container; subprocess_restricted does not isolate the kernel network.',
   {
     type: 'string',
     enum: [...MCP_ISOLATION_LEVELS],
@@ -808,6 +808,10 @@ export const mcpTools: Json = [
         budget: budgetSchema,
         ...taskTimeoutProperties,
         minimumIsolationLevel: isolationSchema,
+        requireIsolatedExecution: described(
+          'Optional requester isolation opt-in (default false). Rejects missing or host runner levels and levels below the contract minimum, including subprocess fallback. Signed attestations are verified either way. This does not prove kernel network isolation; select oci_container for that requirement.',
+          { type: 'boolean' },
+        ),
       },
       ['title'],
     ),
@@ -864,6 +868,10 @@ export const mcpTools: Json = [
         budget: budgetSchema,
         ...taskTimeoutProperties,
         minimumIsolationLevel: isolationSchema,
+        requireIsolatedExecution: described(
+          'Optional requester isolation opt-in (default false). Rejects missing or host runner levels and levels below the contract minimum, including subprocess fallback. Signed attestations are verified either way. This does not prove kernel network isolation; select oci_container for that requirement.',
+          { type: 'boolean' },
+        ),
       },
       ['workers', 'mode', 'title'],
     ),

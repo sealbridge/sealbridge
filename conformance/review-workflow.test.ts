@@ -241,3 +241,19 @@ it('summary approval still defaults to rejection on an empty answer', async () =
   const receipt = await pending;
   expect(receipt.payload.decision).toBe('REJECTED');
 });
+
+it.each(['subprocess_restricted', 'host_adapter', undefined])(
+  'shows attested isolation %s at final approval',
+  (level) => {
+    expect(
+      approvalSummary({
+        taskId: 'review',
+        gate: 'final_verification',
+        target: {
+          artifact: { payload: { data: 'result' } },
+          attestation: { payload: { effectiveIsolationLevel: level } },
+        },
+      }),
+    ).toContain(`Attested isolation level: ${level ?? 'unspecified (legacy)'}`);
+  },
+);
