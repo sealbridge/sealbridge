@@ -633,7 +633,8 @@ export function parseAndVerifyInviteToken(
       (['SSRF_BLOCKED_RELAY_URL', 'INVITE_EXPIRED', 'INVALID_INVITE_LINK'].includes(
         error.message,
       ) ||
-        error.message.startsWith('INVITE_LINK_TOKEN_REQUIRED:'))
+        error.message.startsWith('INVITE_LINK_TOKEN_REQUIRED:') ||
+        error.message.startsWith('INVITE_SHORT_LINK:'))
     )
       throw error;
     throw new Error('INVALID_OR_EXPIRED_INVITE');

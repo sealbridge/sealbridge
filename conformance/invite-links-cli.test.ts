@@ -698,3 +698,9 @@ it('MCP creates short invitations by default using only the injected relay', asy
   expect(result).not.toHaveProperty('inviteToken');
   expect(await claimInviteLink(result.link, { fetch: s.options.fetch })).toContain('acp-invite:');
 });
+
+it('keeps the usable-as-is short-link diagnostic through the synchronous token parser', () => {
+  expect(() => parseAndVerifyInviteToken('https://sealbridge.app/j#v=1&k=short')).toThrow(
+    'this is a short link, it can be used as is',
+  );
+});
