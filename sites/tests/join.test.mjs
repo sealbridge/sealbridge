@@ -86,7 +86,8 @@ test('both built /j pages retain CSP, referrer policy and only local script/styl
       ['/style.css', '/join.js', 'https://sealbridge.dev/ja/install/'],
     );
     assert.match(html, /このページは招待の中身を読まず/);
-    assert.match(html, /INVITE_LINK_TOKEN_REQUIRED/);
+    assert.match(html, /Give it directly to Muse or Grok Bot/);
+    assert.match(html, /six-digit confirmation number/);
     assert.equal(
       await readFile(new URL(`../dist/${target}/_headers`, import.meta.url), 'utf8'),
       headers,
