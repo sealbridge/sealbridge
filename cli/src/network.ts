@@ -18,6 +18,8 @@ import { publicSettingsFlags, publicProfileSummary } from './public-settings.js'
 import type { KeyPair, Schema } from '@acp/core';
 import {
   autoAcceptPolicy,
+  digest,
+  inviteLinkVerificationNumber,
   discoverAgentCards,
   isInviteTarget,
   parseAndVerifyInviteToken,
@@ -1250,6 +1252,12 @@ export async function networkCommand(
         state: result.state,
         deliverable: result.deliverable,
         audit: 'VALID',
+        ...(invite
+          ? {
+              peerName: invite.agentCard.payload.name,
+              verificationNumber: inviteLinkVerificationNumber(digest(invite)),
+            }
+          : {}),
         ...(acceptanceWarning ? { acceptanceWarning } : {}),
         ...(connectionRecorded ? { connectionRecorded } : {}),
         ...(connectionRecordWarning ? { connectionRecordWarning } : {}),
