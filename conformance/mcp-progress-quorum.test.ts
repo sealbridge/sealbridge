@@ -259,6 +259,7 @@ describe('Sealbridge MCP server', () => {
       'acp_delegate_task',
       'acp_delegate_multi',
       'acp_verify_audit_bundle',
+      'acp_connect',
       'acp_create_invite',
       'acp_revoke_token',
       'acp_list_connections',
