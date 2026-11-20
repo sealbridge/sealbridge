@@ -334,7 +334,7 @@ describe('application relay provenance', () => {
       application,
     );
     const owner = resolveOrCreateIdentity('worker', identityOptions);
-    await networkCommand('invite', ['create'], application);
+    await networkCommand('invite', ['create', '--share', 'token'], application);
     const token = log.mock.calls.at(-1)![0] as string;
     expect(parseAndVerifyInviteToken(token)).toMatchObject({
       ownerDid: owner.did,
@@ -731,7 +731,10 @@ describe('multiple local candidates, one active route', () => {
         { identityOptions, fetch: fetcher },
       );
       const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);
-      await networkCommand('invite', ['create'], { identityOptions, fetch: fetcher });
+      await networkCommand('invite', ['create', '--share', 'token'], {
+        identityOptions,
+        fetch: fetcher,
+      });
       const token = log.mock.calls.at(-1)![0] as string;
       const minted = await call(server, 'acp_create_invite', { share: 'token' });
       return { preview, token, minted };

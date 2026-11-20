@@ -181,7 +181,10 @@ export async function shareInvite(
   } = {},
 ): Promise<SharedInvite> {
   const now = options.now?.() ?? Date.now();
-  const invite = parseAndVerifyInviteToken(token, now, options.relayPolicy);
+  const invite = parseAndVerifyInviteToken(token, now, {
+    ...options.relayPolicy,
+    allowPrivateRelay: true,
+  });
   const relayOrigin = normalizeRelayOrigin(invite.relayUrl);
   const inviteDigest = digest(invite);
   const verificationNumber = inviteLinkVerificationNumber(inviteDigest);
