@@ -831,7 +831,7 @@ export async function networkCommand(
           notifier.emit({
             event: 'new_connection',
             timestamp: new Date().toISOString(),
-            workerDid: key.did,
+            workerDid: agentKey?.did ?? key.did,
             peerOwnerDid: event.peerOwnerDid,
           });
         },
@@ -885,7 +885,7 @@ export async function networkCommand(
             notifier.emit({
               event: notification,
               timestamp: new Date().toISOString(),
-              workerDid: key.did,
+              workerDid: agentKey?.did ?? key.did,
               taskId,
               status: event,
               ...(notification === 'approval_needed'
