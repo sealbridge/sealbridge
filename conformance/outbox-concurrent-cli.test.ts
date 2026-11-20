@@ -203,6 +203,8 @@ it.each([false, true])(
       const created = await actor(a, [
         'invite',
         'create',
+        '--share',
+        'token',
         '--relay',
         relay.url,
         '--allow-private-relay',

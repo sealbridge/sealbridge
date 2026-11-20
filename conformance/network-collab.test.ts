@@ -774,6 +774,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     try {
       await networkCommand('invite', [
         'create',
+        '--share',
+        'token',
         '--key',
         join(dir, 'bob.private.json'),
         '--relay',
@@ -829,7 +831,16 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
     }
   } else {
     const invite = (
-      await cli(['invite', 'create', '--key', join(dir, 'bob.private.json'), '--relay', n.url]).done
+      await cli([
+        'invite',
+        'create',
+        '--share',
+        'token',
+        '--key',
+        join(dir, 'bob.private.json'),
+        '--relay',
+        n.url,
+      ]).done
     ).trim();
     expect(
       parseAndVerifyInviteToken(invite, Date.now(), { allowPrivateRelay: true }).ownerDid,

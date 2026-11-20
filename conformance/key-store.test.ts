@@ -771,7 +771,7 @@ describe('embedding and application entry points', () => {
     const { options } = fixture();
     const store = memoryStore();
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await networkCommand('invite', ['create'], {
+    await networkCommand('invite', ['create', '--share', 'token'], {
       identityOptions: { ...options, keyStore: store },
     });
     expect(output.mock.calls[0][0]).toMatch(/^acp-invite:/);

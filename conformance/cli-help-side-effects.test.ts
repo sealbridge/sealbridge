@@ -259,7 +259,7 @@ it.each(routes)('%s help prints usage and leaves no files or identities', async 
 });
 
 const withOptions = [
-  ['invite', 'create', '--name', 'Example'],
+  ['invite', 'create', '--share', 'token', '--name', 'Example'],
   ['invite', 'open', '--file', 'invite.txt', '--out', 'reciprocal.txt'],
   ['invite', 'request-reissue', '--file', 'invite.txt', '--out', 'request.json'],
   ['invite', 'reissue', '--file', 'invite.txt', '--out', 'new-invite.txt'],
@@ -330,10 +330,10 @@ const usageErrors = [
   ['demo', '--audit-dir', 'audit', '--unknown'],
   ['invite'],
   ['invite', 'unknown', '--file', 'input.json'],
-  ['invite', 'create', '--name'],
-  ['invite', 'create', '--unknown'],
-  ['invite', 'create', '--expires-in', '0'],
-  ['invite', 'create', '--expires-in', '2592001'],
+  ['invite', 'create', '--share', 'token', '--name'],
+  ['invite', 'create', '--share', 'token', '--unknown'],
+  ['invite', 'create', '--share', 'token', '--expires-in', '0'],
+  ['invite', 'create', '--share', 'token', '--expires-in', '2592001'],
   ['invite', 'request-reissue', '--file', 'input.json'],
   ['invite', 'reissue', '--file', 'input.json'],
   ['worker'],
