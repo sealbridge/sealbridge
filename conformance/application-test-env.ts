@@ -38,3 +38,16 @@ afterAll(() => {
   else process.env.USERPROFILE = previousProfile;
   rmSync(root, { recursive: true, force: true });
 });
+
+// Never send a test request to the production relay or any other public service.
+// In-process handlers and explicit fetch mocks remain available to every test.
+const originalFetch = globalThis.fetch;
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+    return Promise.reject(new Error('TEST_EXTERNAL_NETWORK_BLOCKED'));
+  return originalFetch(input, init);
+}) as typeof fetch;
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
