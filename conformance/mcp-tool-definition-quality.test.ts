@@ -43,6 +43,12 @@ const EXPECTED_HINTS: Record<
     idempotentHint: true,
     openWorldHint: false,
   },
+  acp_connect: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   acp_create_invite: {
     readOnlyHint: false,
     destructiveHint: false,

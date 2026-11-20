@@ -1,13 +1,14 @@
+import { requestInviteJson } from '@acp/runtime';
+export { claimInviteLink } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { cliName } from './distribution.js';
 import * as fs from 'node:fs';
 import { join, dirname } from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import QRCode from 'qrcode';
 import {
   createInviteToken,
   createSignedAgentCard,
-  createRelayAuthToken,
   generateInviteLinkKey,
   deriveInviteLinkKeys,
   inviteLinkClaimTag,
@@ -15,8 +16,6 @@ import {
   encryptInviteLink,
   packInviteLinkCiphertext,
   parseInviteLink,
-  unpackInviteLinkCiphertext,
-  decryptInviteLink,
   parseAndVerifyInviteToken,
   digest,
   normalizeRelayOrigin,
@@ -36,7 +35,7 @@ import {
   workerIntakePath,
   assertInviteMaxUses,
 } from '@acp/runtime';
-import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
+import type { IdentityStoreOptions } from '@acp/runtime';
 import {
   resolveDataRoot,
   ensurePrivateDirectory,
@@ -130,123 +129,6 @@ function transport(
   allowPrivateRelay = false,
 ): typeof fetch {
   return new HttpRelayClient(relay, options.fetch ?? fetch, { allowPrivateRelay }).fetcher;
-}
-async function requestJson(
-  fetcher: typeof fetch,
-  relay: string,
-  path: string,
-  method: string,
-  owner?: KeyPair,
-  body?: unknown,
-): Promise<unknown> {
-  let response: Response;
-  try {
-    response = await fetcher(relay + path, {
-      method,
-      redirect: 'error',
-      signal: AbortSignal.timeout(15000),
-      headers: {
-        ...(owner
-          ? {
-              authorization:
-                'Bearer ' + createRelayAuthToken(owner, { action: 'invite-manage', origin: relay }),
-            }
-          : {}),
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-  } catch {
-    throw new Error('INVITE_LINK_RELAY_UNAVAILABLE');
-  }
-  if (response.status === 404) {
-    throw new Error(
-      path === '/v1/capabilities' || path === '/v1/invites' ? UNSUPPORTED : UNAVAILABLE,
-    );
-  }
-  if (!response.ok)
-    throw new Error(
-      response.status === 429 ? 'INVITE_LINK_RATE_LIMITED' : 'INVITE_LINK_RELAY_REJECTED',
-    );
-  // Bound untrusted responses independently of Content-Length.
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('INVALID_INVITE_LINK_RESPONSE');
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > 24000) {
-        await reader.cancel();
-        throw new Error();
-      }
-      chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString());
-  } catch {
-    throw new Error('INVALID_INVITE_LINK_RESPONSE');
-  } finally {
-    reader.releaseLock();
-  }
-}
-export async function claimInviteLink(
-  value: string,
-  options: InviteStoreOptions & { fetch?: typeof fetch } = {},
-): Promise<string> {
-  const parsed = parseInviteLink(value, options.relayPolicy),
-    keys = deriveInviteLinkKeys(parsed.k);
-  const fetcher = transport(
-    parsed.relayOrigin,
-    { fetch: options.fetch },
-    options.relayPolicy?.allowPrivateRelay,
-  );
-  const capabilities = (await requestJson(
-    fetcher,
-    parsed.relayOrigin,
-    '/v1/capabilities',
-    'GET',
-  )) as { inviteLinks?: number };
-  if (capabilities?.inviteLinks !== 1) throw new Error(UNSUPPORTED);
-  const claim = {
-    id: keys.id.toString('base64url'),
-    tag: inviteLinkClaimTag(keys.accessKey, keys.id).toString('base64url'),
-    claimNonce: randomBytes(32).toString('base64url'),
-  };
-  let response: unknown;
-  try {
-    response = await requestJson(
-      fetcher,
-      parsed.relayOrigin,
-      '/v1/invites/claim',
-      'POST',
-      undefined,
-      claim,
-    );
-  } catch (error) {
-    // A lost reply may follow a successful claim. Reuse the same nonce once,
-    // inside the relay's 120-second recovery window; terminal refusals stay terminal.
-    if (
-      !(error instanceof Error) ||
-      !['INVITE_LINK_RELAY_UNAVAILABLE', 'INVALID_INVITE_LINK_RESPONSE'].includes(error.message)
-    )
-      throw error;
-    response = await requestJson(
-      fetcher,
-      parsed.relayOrigin,
-      '/v1/invites/claim',
-      'POST',
-      undefined,
-      claim,
-    );
-  }
-  const encrypted = unpackInviteLinkCiphertext(response);
-  const token = decryptInviteLink(encrypted, parsed.k, parsed.relayOrigin);
-  const invite = parseAndVerifyInviteToken(token, Date.now(), options.relayPolicy);
-  if (normalizeRelayOrigin(invite.relayUrl) !== parsed.relayOrigin)
-    throw new Error('INVITE_LINK_RELAY_MISMATCH');
-  return token;
 }
 function flags(args: string[]): Map<string, string> {
   const result = new Map<string, string>();
@@ -385,7 +267,12 @@ export async function createInviteCommand(
   );
   const linkRef = encrypted.id;
   const fetcher = transport(relayOrigin, options, f.has('--allow-private-relay'));
-  const capabilities = (await requestJson(fetcher, relayOrigin, '/v1/capabilities', 'GET')) as {
+  const capabilities = (await requestInviteJson(
+    fetcher,
+    relayOrigin,
+    '/v1/capabilities',
+    'GET',
+  )) as {
     inviteLinks?: number;
   };
   if (capabilities?.inviteLinks !== 1) throw new Error(UNSUPPORTED);
@@ -403,7 +290,7 @@ export async function createInviteCommand(
     },
     options.identityOptions ?? {},
   );
-  await requestJson(fetcher, relayOrigin, '/v1/invites', 'POST', owner, {
+  await requestInviteJson(fetcher, relayOrigin, '/v1/invites', 'POST', owner, {
     ...encrypted,
     tagHash: createHash('sha256')
       .update(inviteLinkClaimTag(keys.accessKey, keys.id))
@@ -477,7 +364,7 @@ export async function inviteLinksCommand(
       const fetcher = transport(r.relayOrigin, options, f.has('--allow-private-relay'));
       let value: Record<string, unknown>;
       try {
-        value = (await requestJson(
+        value = (await requestInviteJson(
           fetcher,
           r.relayOrigin,
           '/v1/invites/' + r.id + '/status',
@@ -485,7 +372,8 @@ export async function inviteLinksCommand(
           owner,
         )) as Record<string, unknown>;
       } catch (error) {
-        if (!(error instanceof Error) || error.message !== UNAVAILABLE) throw error;
+        if (!(error instanceof Error) || !error.message.startsWith('INVITE_LINK_UNAVAILABLE'))
+          throw error;
         // An interrupted/failed creation can leave only the local cancellation
         // record. Keep other links inspectable even when this ID is absent.
         links.push({ linkRef: r.id, relay: r.relayOrigin, error: 'INVITE_LINK_UNAVAILABLE' });
@@ -537,7 +425,7 @@ export async function inviteLinksCommand(
       ),
       fs,
     );
-  await requestJson(
+  await requestInviteJson(
     transport(r.relayOrigin, options, f.has('--allow-private-relay')),
     r.relayOrigin,
     '/v1/invites/' + r.id,

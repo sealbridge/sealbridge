@@ -1,6 +1,6 @@
+import { connectInvite, claimInviteLink } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { cliName } from './distribution.js';
-import { claimInviteLink } from './invite-links.js';
 import { digest, parseAndVerifyInviteToken, inviteLinkVerificationNumber } from '@acp/core';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
@@ -8,6 +8,7 @@ import { InviteStore, inspectStoredIdentity, resolveStoredIdentity } from '@acp/
 import type { IdentityStoreOptions, InviteStoreOptions } from '@acp/runtime';
 
 interface AcceptOptions extends InviteStoreOptions, IdentityStoreOptions {
+  connectImmediately?: boolean;
   input?: Readable & { isTTY?: boolean; unref?: () => unknown };
   output?: Writable;
   fetch?: typeof fetch;
@@ -147,17 +148,23 @@ export async function acceptCommand(
   if (usePaste) link = (await paste(options)).trim();
   if (useStdin) link = await readStdin(options);
   const shortLink = /^(?:https:\/\/sealbridge\.app\/j|sealbridge:\/\/join)/.test(link!);
-  if (shortLink && noNetwork)
+  if ((shortLink || options.connectImmediately) && noNetwork)
     throw new Error(
       'INVITE_LINK_NETWORK_REQUIRED: this invitation requires the relay; --no-network refused it',
     );
   const relayPolicy = { ...options.relayPolicy, allowPrivateRelay };
-  if (shortLink) link = await claimInviteLink(link!, { ...options, relayPolicy });
+  if (shortLink || options.connectImmediately) {
+    const token = shortLink ? await claimInviteLink(link!, { ...options, relayPolicy }) : link!;
+    const owner = await resolveStoredIdentity('requester', options);
+    const result = await connectInvite(token, owner, { ...options, alias, relayPolicy });
+    console.log(JSON.stringify({ ...result, relayContacted: true }));
+    return;
+  }
   const invite = parseAndVerifyInviteToken(link!, options.now?.() ?? Date.now(), relayPolicy);
   const verificationNumber = inviteLinkVerificationNumber(digest(invite));
   const owner = await resolveStoredIdentity('requester', options);
   const result = await (
     await InviteStore.open(owner, { ...options, relayPolicy })
-  ).import(link!, alias, shortLink ? { pendingConfirmation: true } : undefined);
+  ).import(link!, alias);
   console.log(JSON.stringify({ ...result, verificationNumber, relayContacted: shortLink }));
 }

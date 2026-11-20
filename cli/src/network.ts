@@ -1,3 +1,4 @@
+import { resolveInviteLink } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
@@ -16,6 +17,8 @@ import { publicSettingsFlags, publicProfileSummary } from './public-settings.js'
 import type { KeyPair, Schema } from '@acp/core';
 import {
   autoAcceptPolicy,
+  digest,
+  inviteLinkVerificationNumber,
   discoverAgentCards,
   isInviteTarget,
   parseAndVerifyInviteToken,
@@ -987,16 +990,18 @@ export async function networkCommand(
       (!connection && target && !isInviteTarget(target) && !target.startsWith('did:')
         ? target
         : undefined);
-    const to =
+    const to = await resolveInviteLink(
       connection?.connection.peerOwnerDid ??
-      (workerRef
-        ? (
-            await InviteStore.open(key, {
-              ...application.identityOptions,
-              relayPolicy: { allowPrivateRelay },
-            })
-          ).resolve(workerRef).inviteToken
-        : target);
+        (workerRef
+          ? (
+              await InviteStore.open(key, {
+                ...application.identityOptions,
+                relayPolicy: { allowPrivateRelay },
+              })
+            ).resolve(workerRef).inviteToken
+          : target),
+      { fetch: application.fetch, relayPolicy: { allowPrivateRelay } },
+    );
     const invite = isInviteTarget(to)
       ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay })
       : undefined;
@@ -1129,6 +1134,12 @@ export async function networkCommand(
         state: result.state,
         deliverable: result.deliverable,
         audit: 'VALID',
+        ...(invite
+          ? {
+              peerName: invite.agentCard.payload.name,
+              verificationNumber: inviteLinkVerificationNumber(digest(invite)),
+            }
+          : {}),
         ...(acceptanceWarning ? { acceptanceWarning } : {}),
         ...(connectionRecorded ? { connectionRecorded } : {}),
         ...(connectionRecordWarning ? { connectionRecordWarning } : {}),

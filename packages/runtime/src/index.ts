@@ -57,3 +57,6 @@ export * from './auto-accept.js';
 export * from './worker-identity.js';
 
 export * from './connection-target.js';
+
+export * from './invite-links.js';
+export * from './invite-connect.js';
