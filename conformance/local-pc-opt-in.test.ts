@@ -203,6 +203,8 @@ it.each(['sandbox', 'command', 'claude', 'codex', 'openai'])(
         'worker',
         [
           'start',
+          '--share',
+          'token',
           '--adapter',
           adapter,
           '--cmd',
@@ -276,6 +278,8 @@ it.each(['claude', 'codex', 'openai'])(
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--adapter',
         adapter,
         '--cmd',
@@ -298,6 +302,8 @@ it('leaves API-only workers, delegate and requester MCP initialization available
     'worker',
     [
       'start',
+      '--share',
+      'token',
       '--adapter',
       'openai',
       '--contacts',
@@ -475,6 +481,8 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
   const audit = join(dir, 'local-worker.jsonl');
   const args = [
     'start',
+    '--share',
+    'token',
     '--adapter',
     'sandbox',
     '--contacts',
@@ -559,6 +567,8 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--adapter',
         'claude',
         '--cmd',

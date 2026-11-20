@@ -322,7 +322,15 @@ describe('application relay provenance', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await networkCommand(
       'worker',
-      ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')],
+      [
+        'start',
+        '--share',
+        'token',
+        '--allow-local-pc',
+        '--preview',
+        '--contacts',
+        join(home, 'contacts.json'),
+      ],
       application,
     );
     const owner = resolveOrCreateIdentity('worker', identityOptions);
@@ -496,6 +504,8 @@ describe('multiple local candidates, one active route', () => {
           'worker',
           [
             'start',
+            '--share',
+            'token',
             '--allow-local-pc',
             '--key',
             keyPath,
@@ -685,7 +695,7 @@ describe('multiple local candidates, one active route', () => {
     for (const [command, args] of [
       ['discover', ['--relay', first]],
       ['invite', ['create']],
-      ['worker', ['start', '--allow-local-pc', '--preview']],
+      ['worker', ['start', '--share', 'token', '--allow-local-pc', '--preview']],
       ['delegate', ['--relay', first]],
     ] as const)
       await expect(
@@ -709,7 +719,15 @@ describe('multiple local candidates, one active route', () => {
       log.mockClear();
       await networkCommand(
         'worker',
-        ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')],
+        [
+          'start',
+          '--share',
+          'token',
+          '--allow-local-pc',
+          '--preview',
+          '--contacts',
+          join(home, 'contacts.json'),
+        ],
         { identityOptions, fetch: fetcher },
       );
       const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);

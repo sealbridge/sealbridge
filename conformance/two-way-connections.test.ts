@@ -177,6 +177,8 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
         'worker',
         [
           'start',
+          '--share',
+          'token',
           '--relay',
           url,
           '--adapter',
