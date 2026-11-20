@@ -269,6 +269,7 @@ $runtime = Get-SealbridgeNode -Prefix $env:SEALBRIDGE_TEST_PREFIX
     signal: AbortSignal,
     useFakeVersion = true,
     usePrefix = false,
+    timeoutMs = 15000,
   ) {
     const env = { ...process.env };
     for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
@@ -284,7 +285,7 @@ $runtime = Get-SealbridgeNode -Prefix $env:SEALBRIDGE_TEST_PREFIX
       shells.get(shell)!,
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver],
       environmentForShell(shell, env),
-      15000,
+      timeoutMs,
       signal,
     );
     expectSuccess(result);
@@ -298,12 +299,14 @@ $runtime = Get-SealbridgeNode -Prefix $env:SEALBRIDGE_TEST_PREFIX
     it('checks a real Node on PATH and reports its resolved executable and version', async ({
       signal,
     }) => {
-      expect(await check(shell, [dirname(process.execPath)], signal, false)).toEqual({
+      // Cold Windows PowerShell plus final JSON serialization can exceed the
+      // normal probe deadline under CI load, even after both Node queries finish.
+      expect(await check(shell, [dirname(process.execPath)], signal, false, false, 30000)).toEqual({
         Path: process.execPath,
         Version: process.versions.node,
         Supported: true,
       });
-    });
+    }, 45000);
 
     it.for([
       ['20.0.0', false],

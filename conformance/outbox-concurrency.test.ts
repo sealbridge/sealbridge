@@ -58,6 +58,56 @@ it('retries an atomic replacement between private-file stat and open without tre
   expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
 });
 
+it('retries a Windows record read sharing refusal without hiding stable corruption', () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  const path = f.service.store.path('outbox', id);
+  let refusals = 1;
+  const store = new DeliveryStore(f.owner, {
+    ...f.identityOptions,
+    platform: 'win32',
+    fs: {
+      ...fs,
+      openSync: ((file, ...args) => {
+        if (String(file) === path && refusals-- > 0)
+          throw Object.assign(new Error('sharing violation'), { code: 'EPERM', syscall: 'open' });
+        return fs.openSync(file, ...args);
+      }) as typeof fs.openSync,
+    },
+  });
+  expect(store.read('outbox', id)?.envelopeId).toBe(id);
+  fs.writeFileSync(path, '{}');
+  expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
+});
+
+it('bounds persistent Windows record read contention and leaves signed bytes untouched', () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  const path = f.service.store.path('outbox', id),
+    bytes = fs.readFileSync(path);
+  let calls = 0;
+  const store = new DeliveryStore(f.owner, {
+    ...f.identityOptions,
+    platform: 'win32',
+    fs: {
+      ...fs,
+      openSync: ((file, ...args) => {
+        if (String(file) === path) {
+          calls++;
+          throw Object.assign(new Error('sharing violation'), { code: 'EACCES', syscall: 'open' });
+        }
+        return fs.openSync(file, ...args);
+      }) as typeof fs.openSync,
+    },
+  });
+  expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_BUSY');
+  expect(calls).toBeGreaterThan(1);
+  expect(calls).toBeLessThanOrEqual(10);
+  expect(fs.readFileSync(path)).toEqual(bytes);
+});
+
 it('treats batch marker removal during an unlocked snapshot as completed cleanup', () => {
   const f = fixture(),
     p = f.prepare(true),
