@@ -20,7 +20,7 @@ for (const port of [4173, 4174])
     const response = await page.goto(`http://127.0.0.1:${port}/j#${fragment}`);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sealbridge の招待リンクです');
     await expect(page.locator('main')).toContainText('スマホでは開けません');
-    await expect(page.locator('main')).toContainText('INVITE_LINK_TOKEN_REQUIRED');
+    await expect(page.locator('main')).toContainText('Give it directly to Muse or Grok Bot');
     await page.getByRole('button', { name: 'リンクをコピー', exact: true }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       'https://sealbridge.app/j#' + fragment,
