@@ -1,3 +1,5 @@
+import { workerJson } from '../cli/src/worker-json.js';
+import { autoAcceptReason } from '../packages/runtime/src/auto-accept.js';
 import { SandboxAgentAdapter } from '../packages/runtime-local/src/sandbox.js';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
@@ -335,3 +337,17 @@ it.each(['bilateral_quota', 'external_settlement_plugin'] as const)(
     ).toBe(false);
   },
 );
+
+it('shows a content-free decline reason instead of redacting the automatic policy diagnostic', () => {
+  const f = fixture(policy({ enabled: false }));
+  const reason = autoAcceptReason(f.worker.autoAccept, {
+    manifest: f.manifest(),
+    connected: true,
+    invited: true,
+    adapter: f.worker.options.adapter,
+    tools: {},
+  });
+  const event = JSON.parse(workerJson({ event: 'AUTO_ACCEPT_NOT_MATCHED', reason }));
+  expect(event.reason).toBe('automatic acceptance is off');
+  expect(workerJson({ reason: 'untrusted task text or invite material' })).toContain('[redacted]');
+});

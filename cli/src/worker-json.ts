@@ -29,6 +29,13 @@ function reason(value: unknown): string {
   if (
     [
       PENDING_MESSAGE,
+      'automatic acceptance is off',
+      'paid or quota work requires owner approval',
+      'redelegation requires owner approval',
+      'requester is not connected',
+      'requester has no eligible invitation connection',
+      'adapter, tools or verification require write/command approval',
+      'automatic acceptance state or prior review requires owner approval',
       'Task inspection is incomplete. Use tasks list/show, then explicitly submit a fresh task to an interactive worker for live owner approval. Connection consent is separate. Do not retry automatically.',
       'Connection consent is missing. Check connections review list or the invitation flow. A fresh task still needs inspection and live owner approval. Do not retry automatically.',
       'This task attempt is terminal pending. Explicitly submit a fresh task for inspection and live owner approval. Do not retry automatically.',
