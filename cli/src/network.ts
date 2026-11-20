@@ -738,14 +738,6 @@ export async function networkCommand(
         console.error(
           'AUTO_ACCEPT_ADAPTER_MISMATCH: this adapter is not read-only; tasks require owner approval.',
         );
-      console.error(
-        JSON.stringify({
-          event: 'acceptance_policy',
-          autoAccept,
-          adapterAccess: adapter.taskAccess ?? 'write/unspecified',
-          background: !(process.stdin.isTTY && process.stderr.isTTY),
-        }),
-      );
       if (adapterName === 'claude' || adapterName === 'codex')
         assertCliAuthentication(adapterName, f.has('--cmd') ? { command: text(f, 'cmd') } : {});
       const workerRelay = new HttpRelayClient(relayUrl, application.fetch ?? fetch, key, {
