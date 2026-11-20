@@ -55,6 +55,9 @@ export class McpRpc {
       });
     });
   }
+  notify(method: string, params: Json): Promise<void> {
+    return this.write({ jsonrpc: '2.0', method, params });
+  }
   private write(value: Json): Promise<void> {
     if (this.closed) return Promise.resolve();
     const json = JSON.stringify(value);

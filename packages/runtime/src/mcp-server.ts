@@ -1,5 +1,11 @@
+import type { SharedInvite } from './invite-links.js';
 import { connectInvite } from './invite-connect.js';
-import { resolveInviteLink, isShortInviteLink, shareInvite } from './invite-links.js';
+import {
+  resolveInviteLink,
+  isShortInviteLink,
+  shareInvite,
+  sharedInviteConsumed,
+} from './invite-links.js';
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import type { ConnectedEvent } from './connection-router.js';
@@ -74,6 +80,8 @@ export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions, ProtocolR
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
   connectionReview?: ConnectionHumanReviewProvider;
+  /** Receives replacement invitations for an embedding host; never an approval callback. */
+  onInviteRefreshed?: (invite: SharedInvite) => void;
   fetch?: typeof fetch;
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
@@ -303,6 +311,7 @@ export class AcpMcpServer {
     return this.deliveryService;
   }
   async startDelivery(): Promise<void> {
+    this.inviteRenewalStopped = false;
     this.deliveryStarted = true;
     let owner = this.options.owner;
     if (!owner) {
@@ -329,9 +338,67 @@ export class AcpMcpServer {
     }
     if (owner) await this.delivery(owner);
   }
+  private readonly sharedInvites = new Map<
+    string,
+    { args: Record<string, unknown>; shared: SharedInvite }
+  >();
+  private inviteRefreshTimer?: ReturnType<typeof setInterval>;
+  private refreshingInvites = false;
+  private inviteRenewalStopped = false;
+  private trackInvite(args: Record<string, unknown>, shared: SharedInvite): void {
+    if (
+      this.inviteRenewalStopped ||
+      !shared.linkRef ||
+      (!this.rpc && !this.options.onInviteRefreshed)
+    )
+      return;
+    this.sharedInvites.set(shared.linkRef, { args: structuredClone(args), shared });
+    this.inviteRefreshTimer ??= setInterval(() => {
+      void this.refreshInvites();
+    }, 5000);
+    this.inviteRefreshTimer.unref();
+  }
+  private async refreshInvites(): Promise<void> {
+    if (this.refreshingInvites) return;
+    this.refreshingInvites = true;
+    try {
+      for (const [id, tracked] of [...this.sharedInvites]) {
+        if (Date.parse(tracked.shared.expiresAt) <= Date.now()) {
+          this.sharedInvites.delete(id);
+          continue;
+        }
+        try {
+          if (
+            !(await sharedInviteConsumed(tracked.shared, await this.owner(), {
+              fetch: this.options.fetch,
+              allowPrivateRelay: this.options.allowPrivateRelay,
+            }))
+          )
+            continue;
+          const next = (await this.createInvite(tracked.args)) as unknown as SharedInvite;
+          this.sharedInvites.delete(id);
+          if (this.inviteRenewalStopped) return;
+          this.options.onInviteRefreshed?.(next);
+          await this.rpc?.notify('notifications/message', {
+            level: 'info',
+            logger: 'sealbridge.invites',
+            data: { event: 'invite_refreshed', ...next },
+          });
+        } catch {
+          /* Best effort: retry a failed renewal on the next tick without changing work approval. */
+        }
+      }
+    } finally {
+      this.refreshingInvites = false;
+    }
+  }
   private readonly connectionServers = new Map<string, AcpMcpServer>();
   stopDelivery(): void {
+    this.inviteRenewalStopped = true;
     this.deliveryStarted = false;
+    if (this.inviteRefreshTimer) clearInterval(this.inviteRefreshTimer);
+    this.inviteRefreshTimer = undefined;
+    this.sharedInvites.clear();
     this.deliveryService?.stop();
     for (const server of this.connectionServers.values()) server.stopDelivery();
   }
@@ -446,7 +513,7 @@ export class AcpMcpServer {
           Object.keys(elicitation).length === 0);
       return {
         protocolVersion: version,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, logging: {} },
         serverInfo: { name: 'sealbridge-mcp-server', version: '0.9.2' },
         instructions: SERVER_INSTRUCTIONS,
       };
@@ -1442,15 +1509,16 @@ export class AcpMcpServer {
       );
     if (share === 'token') return { inviteToken };
     this.assertRelays([relayUrl], []);
-    return {
-      ...(await shareInvite(inviteToken, owner, {
-        ...this.options.identityOptions,
-        fetch: this.options.fetch,
-        fallback: true,
-        relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
-      })),
-    };
+    const shared = await shareInvite(inviteToken, owner, {
+      ...this.options.identityOptions,
+      fetch: this.options.fetch,
+      fallback: true,
+      relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
+    });
+    this.trackInvite(args, shared);
+    return { ...shared };
   }
+
   private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (
       (args.targetType !== 'invite' && args.targetType !== 'capability') ||
