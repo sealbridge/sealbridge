@@ -101,9 +101,13 @@ function runProcess(
       }
     };
     const timer = setTimeout(() => {
+      // The exit event and pipe-close event can be separated on a busy Windows
+      // runner. A process that already exited has met its execution deadline.
+      if (child.exitCode !== null || child.signalCode !== null) return;
       timedOut = true;
       stop();
     }, timeoutMs);
+    child.once('exit', () => clearTimeout(timer));
     signal?.addEventListener('abort', stop, { once: true });
     if (signal?.aborted) stop();
     child.stdout.setEncoding('utf8').on('data', (chunk) => {

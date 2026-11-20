@@ -1934,6 +1934,7 @@ export class WorkerNode {
       if (manifest.contextGrant && this.options.inboxPath)
         throw new Error('CONTEXT_GRANT_INPUT_RETENTION_CONFLICT');
       m = manifest;
+      this.options.onEvent?.('TASK_RECEIVED', m.taskId);
       auditPath = this.options.auditPath
         ? this.completed++ === 0 && !existsSync(this.options.auditPath)
           ? this.options.auditPath
@@ -2541,6 +2542,8 @@ export class WorkerNode {
       const contract = createContract(m, data.proposal, this.options.owner);
       const openingStarted =
         m.contextGrant?.deliveryMode === 'approval_redelegation' ? Date.now() : 0;
+      if (!automatic)
+        this.options.onEvent?.('APPROVAL_NEEDED', m.taskId, { code: 'OWNER_APPROVAL_REQUIRED' });
       const approval = await abortable(
         contractProvider.approve({
           taskId: m.taskId,

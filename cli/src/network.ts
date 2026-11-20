@@ -1,3 +1,4 @@
+import { createEventNotifier } from './notify.js';
 import { resolveInviteLink, shareInvite, sharedInviteConsumed } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
@@ -236,6 +237,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--wake-timeout-ms',
     ],
     worker: [
+      '--notify',
       '--share',
       '--also-requester',
       '--requester-auto-accept',
@@ -364,6 +366,7 @@ const REVIEW_HELP = `
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
   --audit-interruption-format 1  Worker-only PROPOSE interruption terminals (default: 1); requires updated audit readers.
+  --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
   --allow-local-pc              Required for local adapters (including sandbox) and --on-receive.
                                  Explicit opt-in only; never auto-approves tasks.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
@@ -428,6 +431,7 @@ export async function networkCommand(
         ? RELAY_USAGE +
             '\n\n' +
             `Relay notification options:
+  --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
   --allow-local-pc              Required for --wake-command; does not approve tasks.
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
   --wake-relay <url>             Advertised relay URL; required with --wake-command.
@@ -629,6 +633,10 @@ export async function networkCommand(
     });
   const automatic = ['yes', 'auto-accept', 'auto-approve'].some((name) => f.has('--' + name));
   if (command === 'worker') {
+    const notifier = createEventNotifier(f.has('--notify') ? text(f, 'notify') : undefined, {
+      fetch: application.fetch,
+      onError: (code) => console.error(JSON.stringify({ event: 'notification_failed', code })),
+    });
     const onInboxRecord = f.has('--on-receive')
       ? createReceiveHook(text(f, 'on-receive'))
       : undefined;
@@ -810,7 +818,15 @@ export async function networkCommand(
         }),
         protocolPeers: new ProtocolPeerStore(key, application.identityOptions),
         connectionReview: connectionHumanReview(undefined, 'worker'),
-        onConnectionEvent: (event) => console.error(JSON.stringify(event)),
+        onConnectionEvent: (event) => {
+          console.error(JSON.stringify(event));
+          notifier.emit({
+            event: 'new_connection',
+            timestamp: new Date().toISOString(),
+            workerDid: agentKey?.did ?? key.did,
+            peerOwnerDid: event.peerOwnerDid,
+          });
+        },
         ...sessionTimeouts(f),
         owner: key,
         agentKey,
@@ -840,7 +856,7 @@ export async function networkCommand(
           : undefined,
         onInboxRecord,
         onStatus: (status, error) => emitWorkerJson({ status, error }),
-        onEvent: (event, taskId, error) =>
+        onEvent: (event, taskId, error) => {
           emitWorkerJson({
             event,
             taskId,
@@ -848,7 +864,28 @@ export async function networkCommand(
             detail: error?.detail,
             phase: error?.phase,
             reason: (error as { reason?: string } | undefined)?.reason,
-          }),
+          });
+          const notification =
+            event === 'TASK_RECEIVED'
+              ? 'task_received'
+              : event === 'APPROVAL_NEEDED' || error?.code === 'PENDING_OWNER_APPROVAL'
+                ? 'approval_needed'
+                : event === 'SETTLED'
+                  ? 'completed'
+                  : undefined;
+          if (notification)
+            notifier.emit({
+              event: notification,
+              timestamp: new Date().toISOString(),
+              workerDid: agentKey?.did ?? key.did,
+              taskId,
+              status: event,
+              ...(notification === 'approval_needed'
+                ? { held: error?.code === 'PENDING_OWNER_APPROVAL' }
+                : {}),
+              ...(error?.code ? { code: error.code } : {}),
+            });
+        },
         ...localAcceptance,
         allowPrivateRelay,
       });
@@ -1014,6 +1051,7 @@ export async function networkCommand(
       throw error;
     } finally {
       if (rotation) clearInterval(rotation);
+      await notifier.drain();
       if (listeners.length > 1) stop();
       for (const node of listeners) node.stopDelivery();
       process.removeListener('SIGINT', stopFromSignal);

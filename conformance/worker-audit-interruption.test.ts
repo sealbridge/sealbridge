@@ -235,8 +235,16 @@ describe('worker AuditInterruption live scope (#194)', () => {
         expect(JSON.parse(output.at(-1)!).executed).toBe(false);
         expect(readFileSync(f.path, 'utf8')).toBe(text);
         f.reset();
+        // Only the abandoned handshake needs the short interruption deadline.
+        // The fresh task persists a complete bilateral audit; loaded Windows
+        // runners can spend longer than 3/5 seconds flushing those records.
+        f.worker.options.waitTimeoutMs = 30_000;
         const requesterPath = join(f.dir, 'requester-settled.jsonl');
-        const fresh = f.client.delegate({ ...task, auditPath: requesterPath });
+        const fresh = f.client.delegate({
+          ...task,
+          auditPath: requesterPath,
+          waitTimeoutMs: 30_000,
+        });
         await f.prompt();
         f.input.write('y\n');
         const settled = await fresh;
@@ -254,6 +262,7 @@ describe('worker AuditInterruption live scope (#194)', () => {
         f.input.destroy();
       }
     },
+    60_000,
   );
   it('records controlled worker stop before the early idle-signal throw', async () => {
     const f = liveFixture(),
