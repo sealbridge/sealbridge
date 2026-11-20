@@ -995,14 +995,17 @@ export const mcpTools: Json = [
     name: 'acp_connect',
     title: 'Connect an invitation',
     description:
-      'Use a short /j link or a full invitation as is. Save it and immediately send a signed limited connection request. Return peerName, verificationNumber (show both in chat), and connectionState. No terminal or confirm-invite step is needed. A pending connection awaits peer delivery; this grants no task execution, write or paid-work permission.',
+      'Use a short /j link or a full invitation as is. Save it and immediately send a signed limited connection request. Return peerName, verificationNumber (show both in chat), and connectionState. No terminal or confirm-invite step is needed; pending means the connection awaits peer delivery. This grants no task execution, write or paid-work permission.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
     inputSchema: objectSchema(
       'Invitation to connect.',
-      { to: { type: 'string' }, alias: { type: 'string' } },
+      {
+        to: described('Short /j link or full signed invitation to connect.', { type: 'string' }),
+        alias: described('Optional local alias for the saved peer invitation.', { type: 'string' }),
+      },
       ['to'],
     ),
   }),
