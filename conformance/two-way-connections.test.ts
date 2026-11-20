@@ -43,7 +43,7 @@ it.each([
   ['--also-requester', '--key', 'unused'],
 ])('rejects invalid requester-listener options before starting workers: %j', async (...flags) => {
   await expect(
-    networkCommand('worker', ['start', '--allow-local-pc', ...flags], {
+    networkCommand('worker', ['start', '--share', 'token', '--allow-local-pc', ...flags], {
       identityOptions: { home: root, env: { SEALBRIDGE_DATA_DIR: join(root, 'invalid') } },
     }),
   ).rejects.toThrow(/INVALID_|CONFLICTING_REQUESTER_LISTENER_OPTIONS/);
@@ -177,6 +177,8 @@ it.each(['unmigrated', 'worker-key-only', 'migrated', 'pre-migration invite'] as
         'worker',
         [
           'start',
+          '--share',
+          'token',
           '--relay',
           url,
           '--adapter',

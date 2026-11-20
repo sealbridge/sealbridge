@@ -1,3 +1,4 @@
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { afterAll } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,4 +38,34 @@ afterAll(() => {
   if (previousProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = previousProfile;
   rmSync(root, { recursive: true, force: true });
+});
+
+// Never send a test request to the production relay or any other public service.
+// In-process handlers and explicit fetch mocks remain available to every test.
+const originalFetch = globalThis.fetch;
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+    return Promise.reject(new Error('TEST_EXTERNAL_NETWORK_BLOCKED'));
+  return originalFetch(input, init);
+}) as typeof fetch;
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
+
+// HttpRelayClient's native pinned HTTP transport deliberately bypasses fetch.
+// Guard the actual built-in DNS export too, before any public lookup is issued.
+const nativeDns = createRequire(import.meta.url)(
+  'node:dns/promises',
+) as typeof import('node:dns/promises');
+const originalLookup = nativeDns.lookup;
+nativeDns.lookup = ((hostname: string, ...args: unknown[]) => {
+  if (!['localhost', '127.0.0.1', '::1'].includes(hostname))
+    return Promise.reject(new Error('TEST_EXTERNAL_NETWORK_BLOCKED'));
+  return (originalLookup as (...args: unknown[]) => unknown)(hostname, ...args);
+}) as typeof nativeDns.lookup;
+syncBuiltinESMExports();
+afterAll(() => {
+  nativeDns.lookup = originalLookup;
+  syncBuiltinESMExports();
 });

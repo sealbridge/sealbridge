@@ -102,12 +102,16 @@ it.each([
   ...['claude', 'codex', 'command', 'sandbox'].map((adapter) => [
     'worker',
     'start',
+    '--share',
+    'token',
     '--adapter',
     adapter,
   ]),
   [
     'worker',
     'start',
+    '--share',
+    'token',
     '--adapter',
     'openai',
     '--on-receive',
@@ -132,7 +136,7 @@ it.each([
 it('actual CLI prints the code, English migration and existing Japanese error guidance', () => {
   const result = spawnSync(
     process.execPath,
-    ['cli/dist/index.js', 'worker', 'start', '--adapter', 'command'],
+    ['cli/dist/index.js', 'worker', 'start', '--share', 'token', '--adapter', 'command'],
     {
       encoding: 'utf8',
       env: { ...process.env, SEALBRIDGE_DATA_DIR: join(dir, 'data') },
@@ -172,7 +176,7 @@ it.each(['environment', 'configuration'])('does not accept %s opt-in', async (so
     );
   }
   await expect(
-    networkCommand('worker', ['start', '--adapter', 'sandbox'], app),
+    networkCommand('worker', ['start', '--share', 'token', '--adapter', 'sandbox'], app),
   ).rejects.toMatchObject({ code: 'LOCAL_PC_EXECUTION_REQUIRES_OPT_IN' });
   expect(existsSync(join(dir, 'data', 'identities'))).toBe(false);
   expect(app.fetch).not.toHaveBeenCalled();
@@ -180,7 +184,11 @@ it.each(['environment', 'configuration'])('does not accept %s opt-in', async (so
 
 it.each(['false', 'true', '1'])('rejects a flag value (%s)', async (value) => {
   await expect(
-    networkCommand('worker', ['start', '--allow-local-pc', value], application()),
+    networkCommand(
+      'worker',
+      ['start', '--share', 'token', '--allow-local-pc', value],
+      application(),
+    ),
   ).rejects.toThrow('INVALID_ALLOW_LOCAL_PC');
 });
 
@@ -195,6 +203,8 @@ it.each(['sandbox', 'command', 'claude', 'codex', 'openai'])(
         'worker',
         [
           'start',
+          '--share',
+          'token',
           '--adapter',
           adapter,
           '--cmd',
@@ -268,6 +278,8 @@ it.each(['claude', 'codex', 'openai'])(
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--adapter',
         adapter,
         '--cmd',
@@ -290,6 +302,8 @@ it('leaves API-only workers, delegate and requester MCP initialization available
     'worker',
     [
       'start',
+      '--share',
+      'token',
       '--adapter',
       'openai',
       '--contacts',
@@ -467,6 +481,8 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
   const audit = join(dir, 'local-worker.jsonl');
   const args = [
     'start',
+    '--share',
+    'token',
     '--adapter',
     'sandbox',
     '--contacts',
@@ -551,6 +567,8 @@ it('local distribution requires a TTY, persists consent, revokes it, and shares 
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--adapter',
         'claude',
         '--cmd',

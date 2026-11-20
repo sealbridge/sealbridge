@@ -360,7 +360,7 @@ describe('persistent role identities', () => {
       jsonrpc: '2.0',
       id: 3,
       method: 'tools/call',
-      params: { name: 'acp_create_invite', arguments: {} },
+      params: { name: 'acp_create_invite', arguments: { share: 'token' } },
     });
     expect(JSON.stringify(failed)).toContain('IDENTITY_UNREADABLE');
     expect(transportFactory).toHaveBeenCalledTimes(1);

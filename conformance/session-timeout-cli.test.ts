@@ -100,6 +100,8 @@ it('forwards matching worker timeout flags and installs status reporting', async
     writeFileSync(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
     await networkCommand('worker', [
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       key,

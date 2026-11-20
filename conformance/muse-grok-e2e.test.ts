@@ -157,6 +157,8 @@ async function worker(
       resolve('cli/dist/index.js'),
       'worker',
       'start',
+      '--share',
+      'token',
       '--relay',
       url,
       '--allow-private-relay',
@@ -303,6 +305,8 @@ it.each([
               await cli(a, [
                 'invite',
                 'create',
+                '--share',
+                'token',
                 '--relay',
                 relay.url,
                 '--name',
@@ -313,7 +317,7 @@ it.each([
               .trim()
               .split(/\r?\n/)[0],
           }
-        : await call(am.client, 'acp_create_invite', { name: 'Alpha Muse' });
+        : await call(am.client, 'acp_create_invite', { share: 'token', name: 'Alpha Muse' });
       const saved = JSON.parse(
         await cli(
           b,
@@ -517,6 +521,8 @@ it.each([
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--key',
           join(
             a,
@@ -595,6 +601,8 @@ it.each([
               await cli(a, [
                 'invite',
                 'create',
+                '--share',
+                'token',
                 '--relay',
                 relay.url,
                 '--name',
@@ -607,7 +615,11 @@ it.each([
               .trim()
               .split(/\r?\n/)[0],
           }
-        : await call(am.client, 'acp_create_invite', { name: 'Muse', expiresInSeconds: 3 });
+        : await call(am.client, 'acp_create_invite', {
+            share: 'token',
+            name: 'Muse',
+            expiresInSeconds: 3,
+          });
       await cli(
         b,
         ['accept', '--stdin', '--alias', 'muse-connected', '--allow-private-relay'],
@@ -686,6 +698,8 @@ it.each(['unreachable', 'DID mismatch'] as const)(
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -755,6 +769,8 @@ it.each([false, true])(
           await cli(a, [
             'invite',
             'create',
+            '--share',
+            'token',
             '--relay',
             relay.url,
             '--name',
@@ -911,6 +927,8 @@ it.each(['cli', 'mcp'] as const)(
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -1019,6 +1037,8 @@ it.each([
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -1131,6 +1151,8 @@ async function legacyAliasProcessCase(kind: 'old-write' | 'held-lock' | 'read-on
       await cli(a, [
         'invite',
         'create',
+        '--share',
+        'token',
         '--relay',
         relay.url,
         '--name',

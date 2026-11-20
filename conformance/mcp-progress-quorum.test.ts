@@ -233,7 +233,7 @@ describe('Sealbridge MCP server', () => {
     expect(init).toMatchObject({
       result: {
         protocolVersion: '2024-11-05',
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, logging: {} },
         serverInfo: { name: 'sealbridge-mcp-server', version: '0.9.2' },
       },
     });
@@ -284,7 +284,11 @@ describe('Sealbridge MCP server', () => {
       method: 'tools/call',
       params: {
         name: 'acp_create_invite',
-        arguments: { relayUrl: 'https://acp-relay.agent-collab.workers.dev', name: 'MCP Worker' },
+        arguments: {
+          share: 'token',
+          relayUrl: 'https://acp-relay.agent-collab.workers.dev',
+          name: 'MCP Worker',
+        },
       },
     });
     const invite = JSON.parse(

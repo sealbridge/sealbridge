@@ -80,6 +80,8 @@ function start(extra: string[] = []) {
     'worker',
     [
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       join(dir, 'worker.private.json'),
@@ -152,6 +154,8 @@ it('suppresses invitation stdout and emits exact invitation metadata', async () 
 it('reuses the existing data root and role key bytes with invitation suppression', async () => {
   const args = () => [
     'start',
+    '--share',
+    'token',
     '--allow-local-pc',
     '--relay',
     'https://relay.example',
@@ -184,7 +188,16 @@ it('retains explicit keychain failure without creating a file identity', async (
   await expect(
     networkCommand(
       'worker',
-      ['start', '--allow-local-pc', '--relay', 'https://relay.example', '--invite-output', 'none'],
+      [
+        'start',
+        '--share',
+        'token',
+        '--allow-local-pc',
+        '--relay',
+        'https://relay.example',
+        '--invite-output',
+        'none',
+      ],
       {
         identityOptions: {
           home: dir,
@@ -242,7 +255,7 @@ it('rejects fd output on Windows before identity creation or worker startup', as
     await expect(
       networkCommand(
         'worker',
-        ['start', '--allow-local-pc', '--invite-output', 'fd:3', '--publish'],
+        ['start', '--share', 'token', '--allow-local-pc', '--invite-output', 'fd:3', '--publish'],
         {
           identityOptions: { home: dir, env: { SEALBRIDGE_DATA_DIR: root } },
         },

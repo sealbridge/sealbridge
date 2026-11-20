@@ -299,7 +299,7 @@ describe('application relay provenance', () => {
         const requester = resolveOrCreateIdentity('requester', identityOptions);
         expect(requester.did).not.toBe(owner.did);
         const restarted = new AcpMcpServer({ owner: requester, identityOptions });
-        const next = await call(restarted, 'acp_create_invite');
+        const next = await call(restarted, 'acp_create_invite', { share: 'token' });
         expect(parseAndVerifyInviteToken(next.value.inviteToken).ownerDid).toBe(requester.did);
         expect(parseAndVerifyInviteToken(next.value.inviteToken).relayUrl).toBe(
           DEFAULT_PUBLIC_RELAY,
@@ -322,11 +322,19 @@ describe('application relay provenance', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await networkCommand(
       'worker',
-      ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')],
+      [
+        'start',
+        '--share',
+        'token',
+        '--allow-local-pc',
+        '--preview',
+        '--contacts',
+        join(home, 'contacts.json'),
+      ],
       application,
     );
     const owner = resolveOrCreateIdentity('worker', identityOptions);
-    await networkCommand('invite', ['create'], application);
+    await networkCommand('invite', ['create', '--share', 'token'], application);
     const token = log.mock.calls.at(-1)![0] as string;
     expect(parseAndVerifyInviteToken(token)).toMatchObject({
       ownerDid: owner.did,
@@ -496,6 +504,8 @@ describe('multiple local candidates, one active route', () => {
           'worker',
           [
             'start',
+            '--share',
+            'token',
             '--allow-local-pc',
             '--key',
             keyPath,
@@ -685,7 +695,7 @@ describe('multiple local candidates, one active route', () => {
     for (const [command, args] of [
       ['discover', ['--relay', first]],
       ['invite', ['create']],
-      ['worker', ['start', '--allow-local-pc', '--preview']],
+      ['worker', ['start', '--share', 'token', '--allow-local-pc', '--preview']],
       ['delegate', ['--relay', first]],
     ] as const)
       await expect(
@@ -709,13 +719,24 @@ describe('multiple local candidates, one active route', () => {
       log.mockClear();
       await networkCommand(
         'worker',
-        ['start', '--allow-local-pc', '--preview', '--contacts', join(home, 'contacts.json')],
+        [
+          'start',
+          '--share',
+          'token',
+          '--allow-local-pc',
+          '--preview',
+          '--contacts',
+          join(home, 'contacts.json'),
+        ],
         { identityOptions, fetch: fetcher },
       );
       const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);
-      await networkCommand('invite', ['create'], { identityOptions, fetch: fetcher });
+      await networkCommand('invite', ['create', '--share', 'token'], {
+        identityOptions,
+        fetch: fetcher,
+      });
       const token = log.mock.calls.at(-1)![0] as string;
-      const minted = await call(server, 'acp_create_invite');
+      const minted = await call(server, 'acp_create_invite', { share: 'token' });
       return { preview, token, minted };
     };
     const single = await capture();

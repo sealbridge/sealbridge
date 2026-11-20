@@ -72,7 +72,7 @@ it.each([undefined, 1, 3])(
     const result = await call(
       server,
       'acp_create_invite',
-      maxUses === undefined ? {} : { maxUses },
+      maxUses === undefined ? { share: 'token' } : { share: 'token', maxUses },
     );
     expect(result.error).toBe(true);
     expect(result.value).toMatchObject({
@@ -89,6 +89,7 @@ it('creates shared MCP invitations with persistent issuer policy and unchanged t
   const owner = generateKeyPair(),
     server = new AcpMcpServer({ owner, identityOptions });
   const created = await call(server, 'acp_create_invite', {
+    share: 'token',
     relayUrl: 'https://relay.example',
     maxUses: 2,
   });
@@ -115,7 +116,7 @@ it('creates shared MCP invitations with persistent issuer policy and unchanged t
 });
 it.each([0, 1.5, 1001, '2', 'no', null])('rejects invalid MCP maxUses %s', async (maxUses) => {
   const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
-  const result = await call(server, 'acp_create_invite', { maxUses });
+  const result = await call(server, 'acp_create_invite', { share: 'token', maxUses });
   expect(result.error).toBeTruthy();
 });
 function invitation(ttl = 60) {
@@ -446,7 +447,9 @@ it('locks CLI worker signing and role-free payload independently of the requeste
   const requester = resolveOrCreateIdentity('requester', identityOptions);
   const worker = resolveOrCreateIdentity('worker', identityOptions);
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-  await createInviteCommand(['--relay', 'https://relay.example'], { identityOptions });
+  await createInviteCommand(['--share', 'token', '--relay', 'https://relay.example'], {
+    identityOptions,
+  });
   const invite = parseAndVerifyInviteToken(log.mock.calls[0][0]);
   expect(invite.ownerDid).toBe(worker.did);
   expect(invite.agentDid).toBe(worker.did);
@@ -460,7 +463,10 @@ it('preserves explicitly configured unmigrated MCP owner-key worker routing; mig
   const defaultWorker = resolveOrCreateIdentity('worker', identityOptions);
   const relay = new InMemoryRelay();
   const creator = new AcpMcpServer({ owner: requester, identityOptions, relay });
-  const created = await call(creator, 'acp_create_invite', { relayUrl: 'https://relay.example' });
+  const created = await call(creator, 'acp_create_invite', {
+    share: 'token',
+    relayUrl: 'https://relay.example',
+  });
   expect(created.error).toBe(false);
   const invite = parseAndVerifyInviteToken(created.value.inviteToken);
   expect(invite.ownerDid).toBe(requester.did);
@@ -567,7 +573,7 @@ it('validates peerRef schemas and rejects conflicts before transport', async () 
 
 it('allows the MCP maxUses capacity boundary', async () => {
   const server = new AcpMcpServer({ owner: generateKeyPair(), identityOptions });
-  const result = await call(server, 'acp_create_invite', { maxUses: 1000 });
+  const result = await call(server, 'acp_create_invite', { share: 'token', maxUses: 1000 });
   expect(result.error).toBe(false);
 });
 

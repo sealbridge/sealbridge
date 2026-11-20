@@ -240,9 +240,9 @@ it('import alone does not connect; confirm-invite asks once and persists outgoin
 });
 it('rejects retired flags before creating identities and leaves public settings consent explicit', async () => {
   const f = fixture();
-  await expect(networkCommand('worker', ['start', '--open'], f)).rejects.toThrow(
-    'ACCESS_MODE_REMOVED',
-  );
+  await expect(
+    networkCommand('worker', ['start', '--share', 'token', '--open'], f),
+  ).rejects.toThrow('ACCESS_MODE_REMOVED');
   expect(existsSync(join(f.root, 'identities'))).toBe(false);
   const settings = {
     public: true,
@@ -293,7 +293,7 @@ it('documents invitation selection and worker names and validates the no-connect
   );
   expect(output.mock.calls.flat().join('\n')).toContain('--no-connect');
   output.mockClear();
-  await networkCommand('worker', ['start', '--help'], f);
+  await networkCommand('worker', ['start', '--share', 'token', '--help'], f);
   expect(output.mock.calls.flat().join('\n')).toContain('--name <text>');
   await expect(networkCommand('delegate', ['--no-connect', 'false'], f)).rejects.toThrow(
     'INVALID_NO_CONNECT',

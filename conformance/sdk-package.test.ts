@@ -136,6 +136,8 @@ describe.each(['sealbridge', 'sealbridge-local'])('%s standalone package', (pack
       cli,
       'worker',
       'start',
+      '--share',
+      'token',
       '--adapter',
       'sandbox',
       '--preview',

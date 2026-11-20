@@ -53,7 +53,7 @@ const EXPECTED_HINTS: Record<
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
-    openWorldHint: false,
+    openWorldHint: true,
   },
   acp_revoke_token: {
     readOnlyHint: false,
@@ -413,6 +413,7 @@ describe('MCP tool definition quality', () => {
     expect(JSON.parse(empty.result?.content?.[0].text ?? '')).toEqual({ count: 0, notices: [] });
 
     const created = await callTool(server, 'acp_create_invite', {
+      share: 'token',
       relayUrl: 'https://acp-relay.agent-collab.workers.dev',
       name: 'Quality Worker',
     });
@@ -420,7 +421,7 @@ describe('MCP tool definition quality', () => {
     expect(invite).not.toHaveProperty('warning');
     expect(
       ((await outputSchema(server, 'acp_create_invite')) as { properties: unknown }).properties,
-    ).not.toHaveProperty('warning');
+    ).toHaveProperty('warning');
     const targetId = inviteRevocationId(invite.inviteToken);
     const revoked = await callTool(server, 'acp_revoke_token', {
       targetType: 'invite',

@@ -320,6 +320,8 @@ async function cliWorker(f: ReturnType<typeof fixture>, interactive: boolean, an
     'worker',
     [
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       f.key,

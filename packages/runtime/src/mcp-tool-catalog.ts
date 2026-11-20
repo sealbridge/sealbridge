@@ -1017,16 +1017,20 @@ export const mcpTools: Json = [
   }),
   tool({
     name: 'acp_create_invite',
-    title: 'Create an invite token',
+    title: 'Create a short invitation link',
     description:
-      'Sign a distinct local acp-invite token for this server owner (requester by default), without relay traffic or starting a listener; use sealbridge accept to import, acp_revoke_token to revoke, or acp_discover_workers to discover peers. Default unmigrated MCP refuses normal/shared invites with INVITE_REQUESTER_LISTENER_REQUIRED before minting or recording limits: plain worker start cannot receive them. Use options.owner or mcp-server --key <file> for an explicit receiving identity, then serve requester invites with --also-requester (optionally --requester-auto-accept read-only or write); alternatively use sealbridge invite create for a worker-key invite or a migrated owner gateway. relayUrl defaults to the server relay or https://relay.sealbridge.dev, name to the server name or Sealbridge Worker, expiry to 3600 seconds, and agentDid to the migrated delegate or owner DID; another agentDid needs the matching server agent key. Signing is not idempotent; invalid arguments return JSON-RPC -32602, other failures isError true with { error: CODE }.',
+      'Create an encrypted single-use short invitation link for this receiving identity; give the returned link and verificationNumber to the owner in chat. Unsupported relays return a long link with a warning; share: token explicitly requests a local acp-invite token without relay traffic. Default unmigrated requester identities refuse with INVITE_REQUESTER_LISTENER_REQUIRED because they have no receiver; use a configured worker identity or migrated owner gateway. relayUrl defaults to the configured relay, expiry to 3600 seconds, and agentDid to the delegated agent or owner DID; another agentDid needs its matching agent key. Use acp_connect to import and connect, acp_revoke_token to revoke, or acp_discover_workers to discover peers. Creation is not idempotent, does not start a listener or approve work, and failures return isError true with an error code.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
-    openWorldHint: false,
+    openWorldHint: true,
     inputSchema: objectSchema(
       'Arguments for minting one acp-invite token.',
       {
+        share: described(
+          'Share a short link by default, or explicitly request a long local token.',
+          { type: 'string', enum: ['link', 'token'], default: 'link' },
+        ),
         maxUses: described(
           'Maximum distinct authenticated owner DIDs (1–1000) allowed to redeem this invite. Defaults to 1 (first-owner binding). Shared limits are signed local issuer metadata; disconnection or blocking does not free a place. Exhaustion fails with INVITE_USES_EXHAUSTED.',
           { type: 'integer', minimum: 1, maximum: INVITE_MAX_USES, default: 1 },
@@ -1053,12 +1057,28 @@ export const mcpTools: Json = [
     outputSchema: objectSchema(
       'Success payload in structuredContent. The token embeds the public card and relay URL, not a private key.',
       {
+        link: described('Invitation URL to give directly to the peer agent.', { type: 'string' }),
+        verificationNumber: described('Six-digit confirmation number to show the owner in chat.', {
+          type: 'string',
+        }),
+        expiresAt: described('Expiry timestamp for the shared invitation link.', {
+          type: 'string',
+        }),
+        relayOrigin: described('Relay origin hosting the encrypted short invitation.', {
+          type: 'string',
+        }),
+        linkRef: described('Opaque reference used for link status and cancellation.', {
+          type: 'string',
+        }),
+        warning: described('Reason for falling back to a long invitation link.', {
+          type: 'string',
+        }),
         inviteToken: described(
           'Signed acp-invite token to share with a requester for user-operated sealbridge accept import.',
           { type: 'string' },
         ),
       },
-      ['inviteToken'],
+      [],
     ),
   }),
   tool({

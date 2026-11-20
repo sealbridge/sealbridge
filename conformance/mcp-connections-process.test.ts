@@ -75,6 +75,8 @@ async function worker(root: string, url: string, audit: string, migrated: boolea
       resolve('cli/dist/index.js'),
       'worker',
       'start',
+      '--share',
+      'token',
       '--relay',
       url,
       '--allow-private-relay',
@@ -157,7 +159,7 @@ it.each([undefined, 1, 3])(
       const host = await mcp(root, relay.url);
       const response = await host.client.callTool({
         name: 'acp_create_invite',
-        arguments: maxUses === undefined ? {} : { maxUses },
+        arguments: maxUses === undefined ? { share: 'token' } : { share: 'token', maxUses },
       });
       const result = JSON.parse((response.content as Array<{ text: string }>)[0].text);
       expect(response.isError).toBe(true);
@@ -238,7 +240,11 @@ it.each([
     try {
       const am = await mcp(a, relay.url, !migrated),
         bm = await mcp(b, relay.url, !migrated);
-      const invite = await call(am.client, 'acp_create_invite', { name: 'Alpha', maxUses });
+      const invite = await call(am.client, 'acp_create_invite', {
+        share: 'token',
+        name: 'Alpha',
+        maxUses,
+      });
       expect(invite).not.toHaveProperty('warning');
       await cli(
         b,

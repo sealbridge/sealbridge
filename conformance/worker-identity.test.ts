@@ -89,14 +89,19 @@ async function mcpInvite(explicitOwner = false) {
     jsonrpc: '2.0',
     id: 1,
     method: 'tools/call',
-    params: { name: 'acp_create_invite', arguments: { relayUrl: 'https://relay.example' } },
+    params: {
+      name: 'acp_create_invite',
+      arguments: { share: 'token', relayUrl: 'https://relay.example' },
+    },
   })) as any;
   expect(response.result.isError).toBe(false);
   return JSON.parse(response.result.content[0].text).inviteToken as string;
 }
 async function cliInvite() {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-  await createInviteCommand(['--relay', 'https://relay.example'], { identityOptions });
+  await createInviteCommand(['--share', 'token', '--relay', 'https://relay.example'], {
+    identityOptions,
+  });
   const token = String(log.mock.calls[0][0]);
   log.mockRestore();
   return token;
@@ -264,6 +269,8 @@ for (const scenario of [
       // The retained legacy worker supplies a distinct issuer for this owner.
       await createInviteCommand(
         [
+          '--share',
+          'token',
           '--relay',
           'https://relay.example',
           '--key',
@@ -329,6 +336,8 @@ for (const scenario of [
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--relay',
         'https://relay.example',
         '--adapter',
