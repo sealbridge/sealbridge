@@ -724,6 +724,8 @@ it.each(['unreachable', 'DID mismatch'] as const)(
       expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
       if (failure === 'DID mismatch')
         receiver = await worker(a, relay.url, join(root, 'a.jsonl'), false);
+      // Identity rejection must get far enough to receive the tampered ACCEPT;
+      // cold Windows CI can exceed the deliberately short unreachable-peer wait.
       await expect(
         cli(b, [
           'delegate',
@@ -738,9 +740,9 @@ it.each(['unreachable', 'DID mismatch'] as const)(
           '--auto-approve',
           '--allow-private-relay',
           '--task-timeout-ms',
-          '3000',
+          failure === 'DID mismatch' ? '15000' : '3000',
           '--wait-timeout-ms',
-          '1500',
+          failure === 'DID mismatch' ? '10000' : '1500',
         ]),
       ).rejects.toThrow(
         failure === 'DID mismatch' ? 'INVALID_OR_REPLAYED_SESSION_ENVELOPE' : /TIMEOUT/,
@@ -752,7 +754,7 @@ it.each(['unreachable', 'DID mismatch'] as const)(
       await relay.close();
     }
   },
-  20000,
+  40000,
 );
 
 it.each([false, true])(
