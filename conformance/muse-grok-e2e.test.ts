@@ -309,6 +309,8 @@ it.each([
               await cli(a, [
                 'invite',
                 'create',
+                '--share',
+                'token',
                 '--relay',
                 relay.url,
                 '--name',
@@ -530,6 +532,8 @@ it.each([
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--key',
           join(
             a,
@@ -608,6 +612,8 @@ it.each([
               await cli(a, [
                 'invite',
                 'create',
+                '--share',
+                'token',
                 '--relay',
                 relay.url,
                 '--name',
@@ -703,6 +709,8 @@ it.each(['unreachable', 'DID mismatch'] as const)(
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -772,6 +780,8 @@ it.each([false, true])(
           await cli(a, [
             'invite',
             'create',
+            '--share',
+            'token',
             '--relay',
             relay.url,
             '--name',
@@ -928,6 +938,8 @@ it.each(['cli', 'mcp'] as const)(
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -1036,6 +1048,8 @@ it.each([
         await cli(a, [
           'invite',
           'create',
+          '--share',
+          'token',
           '--relay',
           relay.url,
           '--name',
@@ -1148,6 +1162,8 @@ async function legacyAliasProcessCase(kind: 'old-write' | 'held-lock' | 'read-on
       await cli(a, [
         'invite',
         'create',
+        '--share',
+        'token',
         '--relay',
         relay.url,
         '--name',
