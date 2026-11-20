@@ -734,3 +734,23 @@ it('renews consumed live MCP invitations and sends the host a fresh short link',
     server.stopDelivery();
   }
 });
+
+it('supports the advertised MCP logging level control for invitation renewal notices', async () => {
+  const server = new AcpMcpServer({ owner: generateKeyPair() });
+  expect(
+    await server.handle({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'logging/setLevel',
+      params: { level: 'warning' },
+    }),
+  ).toMatchObject({ result: {} });
+  expect(
+    await server.handle({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'logging/setLevel',
+      params: { level: 'unknown' },
+    }),
+  ).toMatchObject({ error: { code: -32602 } });
+});
