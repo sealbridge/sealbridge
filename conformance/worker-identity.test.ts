@@ -269,6 +269,8 @@ for (const scenario of [
       // The retained legacy worker supplies a distinct issuer for this owner.
       await createInviteCommand(
         [
+          '--share',
+          'token',
           '--relay',
           'https://relay.example',
           '--key',
