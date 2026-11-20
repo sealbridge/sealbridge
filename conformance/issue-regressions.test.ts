@@ -1361,7 +1361,7 @@ describe('issue 30: MCP invite expiry preserves an explicit zero', () => {
         method: 'tools/call',
         params: {
           name: 'acp_create_invite',
-          arguments: { relayUrl: 'http://127.0.0.1:9', expiresInSeconds },
+          arguments: { share: 'token', relayUrl: 'http://127.0.0.1:9', expiresInSeconds },
         },
       });
       const result = (

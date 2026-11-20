@@ -100,6 +100,8 @@ it.each(['worker', 'delegate'])(
       command === 'worker'
         ? networkCommand('worker', [
             'start',
+            '--share',
+            'token',
             '--once',
             '--allow-local-pc',
             ...flags,
@@ -225,6 +227,8 @@ it.each([true, false])(
         'cli/dist/index.js',
         'worker',
         'start',
+        '--share',
+        'token',
         ...(once ? ['--once'] : []),
         '--relay-auth-retries',
         once ? '1' : '0',

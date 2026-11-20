@@ -1,3 +1,4 @@
+import { shareInvite, sharedInviteConsumed } from '../packages/runtime/src/invite-links.js';
 import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
@@ -82,7 +83,7 @@ const createArgs = (key: string) => [
 
 it('creates an offline reusable token with a persistent issuer limit', async () => {
   const s = setup();
-  await createInviteCommand(['--key', s.key, '--max-uses', '3'], s.options);
+  await createInviteCommand(['--share', 'token', '--key', s.key, '--max-uses', '3'], s.options);
   const invite = parseAndVerifyInviteToken(s.logs[0]);
   expect(invite).not.toHaveProperty('maxUses');
   expect(s.sent).toHaveLength(0);
@@ -114,7 +115,7 @@ it.each(['0', '1.5', 'no', '1001', '9007199254740992', '1e3', '0x10', ' 5', '', 
   async (value) => {
     const s = setup();
     await expect(
-      createInviteCommand(['--key', s.key, '--max-uses', value], s.options),
+      createInviteCommand(['--share', 'token', '--key', s.key, '--max-uses', value], s.options),
     ).rejects.toThrow('INVALID_INVITE_MAX_USES');
     expect(s.logs).toHaveLength(0);
     expect(s.sent).toHaveLength(0);
@@ -180,7 +181,10 @@ it('creates and accepts a short link with matching verification number and immed
 it('keeps token as the offline default, supports output files and adds verification metadata', async () => {
   const s = setup(),
     file = join(s.root, 'invite.txt');
-  await createInviteCommand(['--key', s.key, '--output', 'file:' + file], s.options);
+  await createInviteCommand(
+    ['--share', 'token', '--key', s.key, '--output', 'file:' + file],
+    s.options,
+  );
   expect(s.logs).toHaveLength(0);
   expect(s.sent).toHaveLength(0);
   const token = fs.readFileSync(file, 'utf8').trim();
@@ -438,7 +442,7 @@ it('uses configured relay defaults when creating token and link invitations', as
     JSON.stringify({ version: 1, relays: ['https://configured.example'] }),
     { mode: 0o600 },
   );
-  await createInviteCommand(['--key', s.key], s.options);
+  await createInviteCommand(['--share', 'token', '--key', s.key], s.options);
   expect(parseAndVerifyInviteToken(s.logs[0]).relayUrl).toBe('https://configured.example');
   await createInviteCommand(['--key', s.key, '--share', 'link', '--qr', 'none'], s.options);
   expect(parseInviteLink(s.logs[1]).relayOrigin).toBe('https://configured.example');
@@ -478,7 +482,10 @@ it('does not create identities when listing absent link records, and never overw
 
 it('rejects an authenticated inner token for a different relay and a locally expired response', async () => {
   const s = setup();
-  await createInviteCommand(['--key', s.key, '--relay', 'https://different.example'], s.options);
+  await createInviteCommand(
+    ['--share', 'token', '--key', s.key, '--relay', 'https://different.example'],
+    s.options,
+  );
   const token = s.logs[0],
     k = randomBytes(32).toString('base64url'),
     link = 'sealbridge://join#v=1&k=' + k;
@@ -567,16 +574,16 @@ it.each(['2', '1000'])('allows reusable tokens with max-uses %s', async (value) 
 
 it('rejects a missing max-uses value with the dedicated error', async () => {
   const s = setup();
-  await expect(createInviteCommand(['--key', s.key, '--max-uses'], s.options)).rejects.toThrow(
-    'INVALID_INVITE_MAX_USES',
-  );
+  await expect(
+    createInviteCommand(['--share', 'token', '--key', s.key, '--max-uses'], s.options),
+  ).rejects.toThrow('INVALID_INVITE_MAX_USES');
   expect(fs.readdirSync(s.root)).toEqual(['worker.json']);
   expect(s.logs).toHaveLength(0);
   expect(s.sent).toHaveLength(0);
 });
 it.each(['1', '5', '005', '1000'])('accepts decimal integer max-uses %s', async (value) => {
   const s = setup();
-  await createInviteCommand(['--key', s.key, '--max-uses', value], s.options);
+  await createInviteCommand(['--share', 'token', '--key', s.key, '--max-uses', value], s.options);
   expect(parseAndVerifyInviteToken(s.logs[0])).toBeDefined();
   if (Number(value) > 1) {
     const stored = JSON.parse(
@@ -628,4 +635,66 @@ it('checks MCP relay restrictions before consuming a short link', async () => {
   })) as any;
   expect(response.result.isError).toBe(true);
   expect(s.sent).toHaveLength(before);
+});
+
+it('defaults to a short link and detects consumption before issuing a distinct replacement', async () => {
+  const s = setup();
+  await createInviteCommand(
+    ['--key', s.key, '--relay', 'https://relay.example', '--qr', 'none'],
+    s.options,
+  );
+  const first = s.logs[0];
+  expect(first).toContain('https://sealbridge.app/j#');
+  const token = await claimInviteLink(first, { fetch: s.options.fetch });
+  const meta = JSON.parse(s.errors[0]);
+  expect(
+    await sharedInviteConsumed(
+      {
+        link: first,
+        verificationNumber: meta.verificationNumber,
+        expiresAt: meta.expiresAt,
+        linkRef: meta.linkRef,
+        relayOrigin: 'https://relay.example',
+      },
+      s.owner,
+      s.options,
+    ),
+  ).toBe(true);
+  const replacement = await shareInvite(token, s.owner, {
+    ...s.options.identityOptions,
+    fetch: s.options.fetch,
+  });
+  expect(replacement.link).not.toBe(first);
+  expect(await sharedInviteConsumed(replacement, s.owner, s.options)).toBe(false);
+});
+it('falls back to a long link with a visible reason when short links are unsupported', async () => {
+  const s = setup();
+  const fetcher = vi.fn(async () => new Response('{}', { status: 404 })) as typeof fetch;
+  await createInviteCommand(['--key', s.key, '--relay', 'https://relay.example', '--qr', 'none'], {
+    ...s.options,
+    fetch: fetcher,
+  });
+  expect(s.logs[0]).toContain('https://sealbridge.app/i#acp-invite:');
+  expect(s.errors.join('')).toContain('INVITE_LINK_UNSUPPORTED_RELAY');
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+it('MCP creates short invitations by default using only the injected relay', async () => {
+  const s = setup();
+  const server = new AcpMcpServer({
+    owner: s.owner,
+    identityOptions: s.options.identityOptions,
+    fetch: s.options.fetch,
+    relay: 'https://relay.example',
+  });
+  const response = (await server.handle({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'acp_create_invite', arguments: {} },
+  })) as any;
+  expect(response.result.isError).not.toBe(true);
+  const result = JSON.parse(response.result.content[0].text);
+  expect(result.link).toContain('/j#');
+  expect(result).not.toHaveProperty('inviteToken');
+  expect(await claimInviteLink(result.link, { fetch: s.options.fetch })).toContain('acp-invite:');
 });

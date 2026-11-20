@@ -53,6 +53,8 @@ it('loads only explicitly allowed contacts at every worker startup and enforces 
     const start = () =>
       networkCommand('worker', [
         'start',
+        '--share',
+        'token',
         '--allow-local-pc',
         '--key',
         keyFile,

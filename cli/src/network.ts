@@ -1,4 +1,4 @@
-import { resolveInviteLink } from '@acp/runtime';
+import { resolveInviteLink, shareInvite, sharedInviteConsumed } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
@@ -234,6 +234,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--wake-timeout-ms',
     ],
     worker: [
+      '--share',
       '--also-requester',
       '--requester-auto-accept',
       '--allow-local-pc',
@@ -630,6 +631,8 @@ export async function networkCommand(
       ? createReceiveHook(text(f, 'on-receive'))
       : undefined;
     if (onInboxRecord && !f.has('--inbox')) throw new Error('--on-receive requires --inbox');
+    const shareMode = text(f, 'share', 'link');
+    if (!['link', 'token'].includes(shareMode)) throw new Error('INVALID_INVITE_SHARE');
     const adapterName = text(f, 'adapter', 'sandbox');
     const inviteTtl = optionalCount(f, 'invite-ttl') ?? 86400;
     if (inviteTtl > 2592000) throw new Error('INVALID_INVITE_TTL: expected 1–2592000 seconds');
@@ -903,7 +906,63 @@ export async function networkCommand(
     if (acceptance.publishToRegistry) await worker.register();
     const token = worker.invite(inviteTtl);
     const invite = parseAndVerifyInviteToken(token, Date.now(), { allowPrivateRelay });
-    deliverInvite(inviteOutput!, token);
+    let shared =
+      shareMode === 'link'
+        ? await shareInvite(token, key, {
+            ...application.identityOptions,
+            fetch: application.fetch,
+            fallback: true,
+            relayPolicy: { allowPrivateRelay },
+          })
+        : undefined;
+    deliverInvite(inviteOutput!, shared?.link ?? token, !!shared);
+    if (shared?.warning) console.error(shared.warning);
+    if (shared) console.error(JSON.stringify({ verificationNumber: shared.verificationNumber }));
+    let refreshing = false;
+    const rotation = shared?.linkRef
+      ? setInterval(() => {
+          if (refreshing) return;
+          refreshing = true;
+          void (async () => {
+            if (
+              !shared ||
+              !(await sharedInviteConsumed(shared, key, {
+                fetch: application.fetch,
+                allowPrivateRelay,
+              }))
+            )
+              return;
+            const next = await shareInvite(worker.invite(inviteTtl), key, {
+              ...application.identityOptions,
+              fetch: application.fetch,
+              fallback: true,
+              relayPolicy: { allowPrivateRelay },
+            });
+            const output =
+              inviteOutput!.kind === 'file'
+                ? {
+                    kind: 'file' as const,
+                    path: inviteOutput!.path + '.' + (next.linkRef ?? Date.now()),
+                  }
+                : inviteOutput!;
+            deliverInvite(output, next.link, true);
+            shared = next;
+            console.error(
+              JSON.stringify({
+                event: 'invite_refreshed',
+                verificationNumber: next.verificationNumber,
+                expiresAt: next.expiresAt,
+                ...(output.kind === 'file' ? { outputFile: output.path } : {}),
+              }),
+            );
+          })()
+            .catch(() => emitWorkerJson({ event: 'INVITE_REFRESH_FAILED' }))
+            .finally(() => {
+              refreshing = false;
+            });
+        }, 5000)
+      : undefined;
+    rotation?.unref();
     emitWorkerJson({
       event: 'invite_ready',
       inviteDigest: inviteDigest(token),
@@ -940,6 +999,7 @@ export async function networkCommand(
         });
       throw error;
     } finally {
+      if (rotation) clearInterval(rotation);
       if (listeners.length > 1) stop();
       for (const node of listeners) node.stopDelivery();
       process.removeListener('SIGINT', stopFromSignal);

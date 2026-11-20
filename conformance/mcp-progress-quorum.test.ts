@@ -283,7 +283,11 @@ describe('Sealbridge MCP server', () => {
       method: 'tools/call',
       params: {
         name: 'acp_create_invite',
-        arguments: { relayUrl: 'https://acp-relay.agent-collab.workers.dev', name: 'MCP Worker' },
+        arguments: {
+          share: 'token',
+          relayUrl: 'https://acp-relay.agent-collab.workers.dev',
+          name: 'MCP Worker',
+        },
       },
     });
     const invite = JSON.parse(

@@ -1,3 +1,4 @@
+import { shareInvite } from '@acp/runtime';
 import { requestInviteJson } from '@acp/runtime';
 export { claimInviteLink } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
@@ -9,18 +10,9 @@ import QRCode from 'qrcode';
 import {
   createInviteToken,
   createSignedAgentCard,
-  generateInviteLinkKey,
-  deriveInviteLinkKeys,
-  inviteLinkClaimTag,
-  inviteLinkExpiry,
-  encryptInviteLink,
-  packInviteLinkCiphertext,
-  parseInviteLink,
   parseAndVerifyInviteToken,
   digest,
-  normalizeRelayOrigin,
   inviteLinkVerificationNumber,
-  signPayload,
   verifySigned,
   createRevocationNotice,
   RevocationRegistry,
@@ -73,15 +65,6 @@ function directory(owner: KeyPair, options: IdentityStoreOptions): string {
     resolveDataRoot(options),
     'invite-links',
     createHash('sha256').update(owner.did).digest('hex'),
-  );
-}
-function saveRecord(owner: KeyPair, record: LinkRecord, options: IdentityStoreOptions): void {
-  const dir = directory(owner, options);
-  ensurePrivateDirectory(dir, fs);
-  writePrivateFile(
-    join(dir, record.id + '.json'),
-    Buffer.from(JSON.stringify(signPayload(record, owner))),
-    fs,
   );
 }
 function records(owner: KeyPair, options: IdentityStoreOptions): LinkRecord[] {
@@ -170,7 +153,7 @@ export async function createInviteCommand(
     return;
   }
   const f = flags(args),
-    share = f.get('--share') ?? 'token';
+    share = f.get('--share') ?? 'link';
   const maxUsesText = f.get('--max-uses') ?? '1';
   if (!/^[0-9]+$/.test(maxUsesText)) throw new Error('INVALID_INVITE_MAX_USES');
   const maxUses = Number(maxUsesText);
@@ -196,9 +179,9 @@ export async function createInviteCommand(
       ...options.identityOptions,
       allowPrivateRelay: f.has('--allow-private-relay'),
     }).relays[0];
-  const relayOrigin = normalizeRelayOrigin(relay);
   if (
     share === 'link' &&
+    f.has('--share') &&
     (new URL(relay).protocol !== 'https:' ||
       new URL(relay).pathname !== '/' ||
       new URL(relay).search ||
@@ -252,52 +235,24 @@ export async function createInviteCommand(
     console.error(JSON.stringify({ verificationNumber, expiresAt }));
     return;
   }
-  const deadline = inviteLinkExpiry(now, ttl * 1000).expiresAt,
-    k = generateInviteLinkKey(),
-    keys = deriveInviteLinkKeys(k);
-  const link =
-    'https://sealbridge.app/j#v=1&k=' +
-    k +
-    (relayOrigin === 'https://relay.sealbridge.dev'
-      ? ''
-      : '&r=' + encodeURIComponent(new URL(relayOrigin).host));
-  parseInviteLink(link, { allowPrivateRelay: f.has('--allow-private-relay') });
-  const encrypted = packInviteLinkCiphertext(
-    encryptInviteLink(token, k, { relayOrigin, expiresAt: deadline, now }),
-  );
-  const linkRef = encrypted.id;
-  const fetcher = transport(relayOrigin, options, f.has('--allow-private-relay'));
-  const capabilities = (await requestInviteJson(
-    fetcher,
-    relayOrigin,
-    '/v1/capabilities',
-    'GET',
-  )) as {
-    inviteLinks?: number;
-  };
-  if (capabilities?.inviteLinks !== 1) throw new Error(UNSUPPORTED);
-  // Persist only cancellation/status metadata before admission, including when
-  // the admission reply is interrupted and its outcome cannot be determined.
-  saveRecord(
-    owner,
-    {
-      type: 'CreatedInviteLink',
-      ownerDid: owner.did,
-      id: linkRef,
-      relayOrigin,
-      inviteDigest,
-      expiresAt: deadline,
-    },
-    options.identityOptions ?? {},
-  );
-  await requestInviteJson(fetcher, relayOrigin, '/v1/invites', 'POST', owner, {
-    ...encrypted,
-    tagHash: createHash('sha256')
-      .update(inviteLinkClaimTag(keys.accessKey, keys.id))
-      .digest('base64url'),
+  const shared = await shareInvite(token, owner, {
+    ...options.identityOptions,
+    fetch: options.fetch,
+    relayPolicy: { allowPrivateRelay: f.has('--allow-private-relay') },
+    fallback: !f.has('--share'),
+    expiresInSeconds: ttl,
+    now: () => now,
   });
+  const { link, linkRef, expiresAt: deadline } = shared;
   deliverInvite(output, link, true);
-  console.error(JSON.stringify({ verificationNumber, linkRef, expiresAt: deadline }));
+  console.error(
+    JSON.stringify({
+      verificationNumber,
+      linkRef,
+      expiresAt: deadline,
+      ...(shared.warning ? { warning: shared.warning } : {}),
+    }),
+  );
   if (qr === 'terminal' && process.stderr.isTTY)
     process.stderr.write(
       await QRCode.toString(link, { type: 'terminal', errorCorrectionLevel: 'L', margin: 4 }),

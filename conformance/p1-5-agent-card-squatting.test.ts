@@ -416,7 +416,7 @@ describe('P1-5 agent card squatting', () => {
       method: 'tools/call',
       params: {
         name: 'acp_create_invite',
-        arguments: { relayUrl: relayEndpoint, agentDid: agent.did },
+        arguments: { share: 'token', relayUrl: relayEndpoint, agentDid: agent.did },
       },
     });
     expect(JSON.stringify(denied)).toContain('AGENT_DELEGATION_REQUIRED');
@@ -426,7 +426,7 @@ describe('P1-5 agent card squatting', () => {
       method: 'tools/call',
       params: {
         name: 'acp_create_invite',
-        arguments: { relayUrl: relayEndpoint, agentDid: agent.did },
+        arguments: { share: 'token', relayUrl: relayEndpoint, agentDid: agent.did },
       },
     });
     expect(JSON.stringify(allowed)).not.toContain('AGENT_DELEGATION_REQUIRED');

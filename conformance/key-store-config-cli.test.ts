@@ -495,7 +495,7 @@ describe('CLI identity stores', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'acp_create_invite', arguments: {} },
+        params: { name: 'acp_create_invite', arguments: { share: 'token' } },
       })) as any;
       expect(openInvite(JSON.parse(response.result.content[0].text).inviteToken).ownerDid).toBe(
         key.did,
@@ -542,7 +542,7 @@ describe('CLI identity stores', () => {
             jsonrpc: '2.0',
             id: 1,
             method: 'tools/call',
-            params: { name: 'acp_create_invite', arguments: {} },
+            params: { name: 'acp_create_invite', arguments: { share: 'token' } },
           });
           expect(JSON.stringify(response)).toContain('KEY_STORE_UNAVAILABLE');
         });

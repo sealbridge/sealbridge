@@ -1,5 +1,5 @@
 import { connectInvite } from './invite-connect.js';
-import { resolveInviteLink, isShortInviteLink } from './invite-links.js';
+import { resolveInviteLink, isShortInviteLink, shareInvite } from './invite-links.js';
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import type { ConnectedEvent } from './connection-router.js';
@@ -1376,8 +1376,11 @@ export class AcpMcpServer {
     return report as unknown as Json;
   }
   private async createInvite(args: Record<string, unknown>): Promise<Json> {
+    const share = args.share ?? 'link';
+    if (share !== 'link' && share !== 'token') throw new Error('INVALID_INVITE_SHARE');
     const maxUses = args.maxUses === undefined ? 1 : args.maxUses;
     assertInviteMaxUses(maxUses);
+    if (share === 'link' && maxUses > 1) throw new Error('INVITE_LINK_MAX_USES_UNSUPPORTED');
     if (args.relayUrl !== undefined && typeof args.relayUrl !== 'string')
       throw new RpcError(-32602, 'Invalid params');
     const config = readApplicationConfig({
@@ -1430,7 +1433,16 @@ export class AcpMcpServer {
         parseAndVerifyInviteToken(inviteToken, Date.now(), { allowPrivateRelay: true }),
         maxUses,
       );
-    return { inviteToken };
+    if (share === 'token') return { inviteToken };
+    this.assertRelays([relayUrl], []);
+    return {
+      ...(await shareInvite(inviteToken, owner, {
+        ...this.options.identityOptions,
+        fetch: this.options.fetch,
+        fallback: true,
+        relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
+      })),
+    };
   }
   private async revokeToken(args: Record<string, unknown>): Promise<Json> {
     if (

@@ -79,7 +79,14 @@ it('doctor, CLI worker start and delegate use the default TLS hostname route wit
   let worker: Promise<void> | undefined;
   try {
     expect((await diagnose()).at(-1)).toMatchObject({ ok: true, message: 'Reachable' });
-    worker = networkCommand('worker', ['start', '--adapter', 'openai', '--once']);
+    worker = networkCommand('worker', [
+      'start',
+      '--share',
+      'token',
+      '--adapter',
+      'openai',
+      '--once',
+    ]);
     const workerResult = worker.then(
       () => undefined,
       (error) => error,

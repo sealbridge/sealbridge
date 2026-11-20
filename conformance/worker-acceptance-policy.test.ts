@@ -439,6 +439,8 @@ describe('acp worker CLI acceptance guard', () => {
       const pending = server
         .worker([
           'start',
+          '--share',
+          'token',
           '--allow-local-pc',
           '--key',
           bob.path,
@@ -483,6 +485,8 @@ describe('acp worker CLI acceptance guard', () => {
     const pending = server
       .worker([
         'start',
+        '--share',
+        'token',
         '--allow-local-pc',
         '--key',
         bob.path,
@@ -560,6 +564,8 @@ describe('acp worker CLI acceptance guard', () => {
     });
     const comma = server.worker([
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       commaBob.path,
@@ -618,6 +624,8 @@ describe('acp worker CLI acceptance guard', () => {
     const hidden = server
       .worker([
         'start',
+        '--share',
+        'token',
         '--allow-local-pc',
         '--key',
         bob.path,
@@ -650,6 +658,8 @@ describe('acp worker CLI acceptance guard', () => {
     const published = publishedServer
       .worker([
         'start',
+        '--share',
+        'token',
         '--allow-local-pc',
         '--key',
         bob.path,

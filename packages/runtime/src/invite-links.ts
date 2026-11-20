@@ -1,3 +1,15 @@
+import * as fs from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import {
+  generateInviteLinkKey,
+  encryptInviteLink,
+  packInviteLinkCiphertext,
+  digest,
+  signPayload,
+  inviteLinkVerificationNumber,
+} from '@acp/core';
+import { ensurePrivateDirectory, resolveDataRoot, writePrivateFile } from './local-identity.js';
 // SPDX-License-Identifier: Apache-2.0
 import { randomBytes } from 'node:crypto';
 import {
@@ -148,4 +160,128 @@ export async function claimInviteLink(
   if (normalizeRelayOrigin(invite.relayUrl) !== parsed.relayOrigin)
     throw new Error('INVITE_LINK_RELAY_MISMATCH');
   return token;
+}
+
+export interface SharedInvite {
+  link: string;
+  verificationNumber: string;
+  expiresAt: string;
+  linkRef?: string;
+  relayOrigin: string;
+  warning?: string;
+}
+/** Publish only encrypted invite bytes; unsupported relays may explicitly fall back. */
+export async function shareInvite(
+  token: string,
+  owner: KeyPair,
+  options: InviteStoreOptions & {
+    fetch?: typeof fetch;
+    fallback?: boolean;
+    expiresInSeconds?: number;
+  } = {},
+): Promise<SharedInvite> {
+  const now = options.now?.() ?? Date.now();
+  const invite = parseAndVerifyInviteToken(token, now, options.relayPolicy);
+  const relayOrigin = normalizeRelayOrigin(invite.relayUrl);
+  const inviteDigest = digest(invite);
+  const verificationNumber = inviteLinkVerificationNumber(inviteDigest);
+  const tokenExpiry = Math.min(
+    Date.parse(invite.expiresAt),
+    Date.parse(invite.agentCard.payload.expiresAt),
+  );
+  const longLink = {
+    link: 'https://sealbridge.app/i#' + token,
+    verificationNumber,
+    expiresAt: new Date(tokenExpiry).toISOString(),
+    relayOrigin,
+  };
+  const fallback = () => ({
+    ...longLink,
+    warning:
+      'INVITE_LINK_UNSUPPORTED_RELAY: relay does not support short links; sharing the long invitation link instead',
+  });
+  if (new URL(invite.relayUrl).protocol !== 'https:' || new URL(invite.relayUrl).pathname !== '/') {
+    if (options.fallback) return fallback();
+    throw new Error('INVALID_INVITE_LINK_RELAY');
+  }
+  const expiresAt = new Date(
+    Math.min(tokenExpiry, now + (options.expiresInSeconds ?? 86400) * 1000),
+  ).toISOString();
+  const k = generateInviteLinkKey(),
+    keys = deriveInviteLinkKeys(k);
+  const link =
+    'https://sealbridge.app/j#v=1&k=' +
+    k +
+    (relayOrigin === 'https://relay.sealbridge.dev'
+      ? ''
+      : '&r=' + encodeURIComponent(new URL(relayOrigin).host));
+  parseInviteLink(link, options.relayPolicy);
+  const fetcher = transport(relayOrigin, options, options.relayPolicy?.allowPrivateRelay);
+  try {
+    const capabilities = (await requestInviteJson(
+      fetcher,
+      relayOrigin,
+      '/v1/capabilities',
+      'GET',
+    )) as { inviteLinks?: number };
+    if (capabilities.inviteLinks !== 1) throw new Error(UNSUPPORTED);
+  } catch (error) {
+    if (
+      options.fallback &&
+      error instanceof Error &&
+      error.message.startsWith('INVITE_LINK_UNSUPPORTED_RELAY')
+    )
+      return fallback();
+    throw error;
+  }
+  const encrypted = packInviteLinkCiphertext(
+    encryptInviteLink(token, k, { relayOrigin, expiresAt, now }),
+  );
+  const dir = join(
+    resolveDataRoot(options),
+    'invite-links',
+    createHash('sha256').update(owner.did).digest('hex'),
+  );
+  ensurePrivateDirectory(dir, fs);
+  writePrivateFile(
+    join(dir, encrypted.id + '.json'),
+    Buffer.from(
+      JSON.stringify(
+        signPayload(
+          {
+            type: 'CreatedInviteLink',
+            ownerDid: owner.did,
+            id: encrypted.id,
+            relayOrigin,
+            inviteDigest,
+            expiresAt,
+          },
+          owner,
+        ),
+      ),
+    ),
+    fs,
+  );
+  await requestInviteJson(fetcher, relayOrigin, '/v1/invites', 'POST', owner, {
+    ...encrypted,
+    tagHash: createHash('sha256')
+      .update(inviteLinkClaimTag(keys.accessKey, keys.id))
+      .digest('base64url'),
+  });
+  return { link, verificationNumber, expiresAt, linkRef: encrypted.id, relayOrigin };
+}
+export async function sharedInviteConsumed(
+  invite: SharedInvite,
+  owner: KeyPair,
+  options: { fetch?: typeof fetch; allowPrivateRelay?: boolean } = {},
+): Promise<boolean> {
+  if (!invite.linkRef) return false;
+  const result = (await requestInviteJson(
+    transport(invite.relayOrigin, options, options.allowPrivateRelay),
+    invite.relayOrigin,
+    '/v1/invites/' + invite.linkRef + '/status',
+    'GET',
+    owner,
+  )) as { status?: string };
+  return result.status === 'claimed';
 }

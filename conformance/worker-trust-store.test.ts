@@ -267,6 +267,8 @@ it('starts CLI LLM workers with the owner policy independently of legacy grants'
       'worker',
       [
         'start',
+        '--share',
+        'token',
         '--adapter',
         'openai',
         '--auto-accept',

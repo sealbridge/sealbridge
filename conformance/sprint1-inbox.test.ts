@@ -243,6 +243,8 @@ describe('Sprint 1 accepted task inbox', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const pending = networkCommand('worker', [
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       key,

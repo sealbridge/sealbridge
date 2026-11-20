@@ -783,6 +783,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       await Promise.all([
         networkCommand('worker', [
           'start',
+          '--share',
+          'token',
           '--allow-local-pc',
           '--contacts',
           contacts,
@@ -840,6 +842,8 @@ it('WP-11 CLI: invite, discover, worker --once, delegate, audit-verify', async (
       [
         'worker',
         'start',
+        '--share',
+        'token',
         '--allow-local-pc',
         '--contacts',
         contacts,

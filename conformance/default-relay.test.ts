@@ -299,7 +299,7 @@ describe('application relay provenance', () => {
         const requester = resolveOrCreateIdentity('requester', identityOptions);
         expect(requester.did).not.toBe(owner.did);
         const restarted = new AcpMcpServer({ owner: requester, identityOptions });
-        const next = await call(restarted, 'acp_create_invite');
+        const next = await call(restarted, 'acp_create_invite', { share: 'token' });
         expect(parseAndVerifyInviteToken(next.value.inviteToken).ownerDid).toBe(requester.did);
         expect(parseAndVerifyInviteToken(next.value.inviteToken).relayUrl).toBe(
           DEFAULT_PUBLIC_RELAY,
@@ -715,7 +715,7 @@ describe('multiple local candidates, one active route', () => {
       const preview = JSON.parse(log.mock.calls.at(-1)![0] as string);
       await networkCommand('invite', ['create'], { identityOptions, fetch: fetcher });
       const token = log.mock.calls.at(-1)![0] as string;
-      const minted = await call(server, 'acp_create_invite');
+      const minted = await call(server, 'acp_create_invite', { share: 'token' });
       return { preview, token, minted };
     };
     const single = await capture();

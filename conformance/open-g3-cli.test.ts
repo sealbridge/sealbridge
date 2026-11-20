@@ -32,6 +32,8 @@ async function run(args: string[]) {
     await writeFile(key, JSON.stringify(generateKeyPair()), { mode: 0o600 });
     await networkCommand('worker', [
       'start',
+      '--share',
+      'token',
       '--allow-local-pc',
       '--key',
       key,

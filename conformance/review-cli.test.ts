@@ -92,6 +92,8 @@ const delegateArgs = () => [
 ];
 const workerArgs = () => [
   'start',
+  '--share',
+  'token',
   '--allow-local-pc',
   '--key',
   key,
@@ -110,7 +112,7 @@ it.each([{ args: [] }, { args: ['--audit-interruption-format', '1'] }])(
 );
 
 it('worker help documents default interruption format 1', async () => {
-  await networkCommand('worker', ['start', '--help']);
+  await networkCommand('worker', ['start', '--share', 'token', '--help']);
   expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain(
     'PROPOSE interruption terminals (default: 1)',
   );

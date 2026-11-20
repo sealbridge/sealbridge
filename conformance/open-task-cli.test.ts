@@ -15,7 +15,7 @@ it.each([
   '--open-rate-limit-per-did',
   '--allow-any-requester',
 ])('rejects retired CLI option %s before identity or transport work', async (flag) => {
-  await expect(networkCommand('worker', ['start', flag, 'open'])).rejects.toThrow(
-    'ACCESS_MODE_REMOVED',
-  );
+  await expect(
+    networkCommand('worker', ['start', '--share', 'token', flag, 'open']),
+  ).rejects.toThrow('ACCESS_MODE_REMOVED');
 });
