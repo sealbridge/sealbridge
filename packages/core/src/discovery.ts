@@ -561,6 +561,13 @@ export function inviteTokenFromUri(uri: string): string {
   } catch {
     throw new Error('INVALID_OR_EXPIRED_INVITE');
   }
+  if (
+    (url.protocol === 'https:' && url.hostname === 'sealbridge.app' && url.pathname === '/j') ||
+    (url.protocol === 'sealbridge:' && url.hostname === 'join')
+  )
+    throw new Error(
+      'INVITE_SHORT_LINK: this is a short link, it can be used as is with connect, delegate --to or MCP',
+    );
   if (url.protocol === 'https:') {
     if (!url.hash.startsWith('#acp-invite:') || url.hash === '#acp-invite:')
       throw new Error(
@@ -584,7 +591,7 @@ export function inviteTokenFromUri(uri: string): string {
   throw new Error('INVALID_OR_EXPIRED_INVITE');
 }
 export function isInviteTarget(value: string): boolean {
-  return value.startsWith('acp') || value.startsWith('https:');
+  return value.startsWith('acp') || value.startsWith('https:') || value.startsWith('sealbridge:');
 }
 export function parseAndVerifyInviteToken(
   uri: string,

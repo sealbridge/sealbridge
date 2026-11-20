@@ -1,3 +1,4 @@
+import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -121,7 +122,7 @@ it.each(['0', '1.5', 'no', '1001', '9007199254740992', '1e3', '0x10', ' 5', '', 
   },
 );
 
-it('creates and accepts a short link with matching verification number and unconfirmed storage', async () => {
+it('creates and accepts a short link with matching verification number and immediate connection request', async () => {
   const s = setup();
   await networkCommand('invite', ['create', ...createArgs(s.key)], s.options);
   const link = s.logs[0],
@@ -167,8 +168,8 @@ it('creates and accepts a short link with matching verification number and uncon
     .find((n) => n.startsWith('requester'))!;
   const requester = JSON.parse(fs.readFileSync(join(s.root, 'identities', privateFile), 'utf8'));
   const store = await InviteStore.open(requester, s.options.identityOptions);
-  expect(store.listUnconfirmed()).toHaveLength(1);
-  expect(() => store.resolve('short-link')).toThrow('INVITE_CONFIRMATION_REQUIRED');
+  expect(store.listUnconfirmed()).toHaveLength(0);
+  expect(store.resolve('short-link').inviteToken).toBeTruthy();
   await expect(claimInviteLink(link, { fetch: s.options.fetch })).rejects.toThrow(
     'INVITE_LINK_UNAVAILABLE',
   );
@@ -584,4 +585,47 @@ it.each(['1', '5', '005', '1000'])('accepts decimal integer max-uses %s', async 
     expect(stored.payload.inviteLimits[0].maxUses).toBe(Number(value));
   }
   expect(s.sent).toHaveLength(0);
+});
+
+it('connects a short link through MCP without a terminal and exposes only chat metadata', async () => {
+  const s = setup();
+  await createInviteCommand(createArgs(s.key), s.options);
+  const link = s.logs[0];
+  const server = new AcpMcpServer({
+    owner: generateKeyPair(),
+    identityOptions: s.options.identityOptions,
+    fetch: s.options.fetch,
+    relay: 'https://relay.example',
+  });
+  const response = (await server.handle({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'acp_connect', arguments: { to: link, alias: 'friend' } },
+  })) as any;
+  expect(response.result.isError).not.toBe(true);
+  const result = JSON.parse(response.result.content[0].text);
+  expect(result).toMatchObject({
+    peerName: 'Sealbridge Worker',
+    verificationNumber: expect.stringMatching(/^\d{6}$/),
+  });
+  expect(JSON.stringify(result)).not.toContain(parseInviteLink(link).k);
+});
+it('checks MCP relay restrictions before consuming a short link', async () => {
+  const s = setup();
+  await createInviteCommand(createArgs(s.key), s.options);
+  const before = s.sent.length;
+  const server = new AcpMcpServer({
+    owner: generateKeyPair(),
+    fetch: s.options.fetch,
+    allowedRelayUrls: ['https://other.example'],
+  });
+  const response = (await server.handle({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'acp_connect', arguments: { to: s.logs[0] } },
+  })) as any;
+  expect(response.result.isError).toBe(true);
+  expect(s.sent).toHaveLength(before);
 });

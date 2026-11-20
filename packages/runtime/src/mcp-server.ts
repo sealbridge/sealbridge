@@ -1,3 +1,5 @@
+import { connectInvite } from './invite-connect.js';
+import { resolveInviteLink, isShortInviteLink } from './invite-links.js';
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import type { ConnectedEvent } from './connection-router.js';
@@ -12,6 +14,7 @@ import { connectionAutoAccept } from './auto-accept.js';
 import { autoAcceptPolicy } from '@acp/core';
 import { delegatedWorkerIdentity } from './worker-identity.js';
 import {
+  parseInviteLink,
   createSignedAgentCard,
   isInviteTarget,
   createInviteToken,
@@ -70,6 +73,7 @@ export interface AcpMcpServerOptions extends RelayAuthRecoveryOptions, ProtocolR
   deliveryService?: GatewayDeliveryService;
   deliveryOptions?: GatewayDeliveryOptions;
   connectionReview?: ConnectionHumanReviewProvider;
+  fetch?: typeof fetch;
   owner?: KeyPair;
   /** Data-root and filesystem options shared by local application state. */
   identityOptions?: InviteStoreOptions;
@@ -822,6 +826,35 @@ export class AcpMcpServer {
     if (name === 'acp_delegate_task') return this.delegateTask(args, signal, undefined, operation);
     if (name === 'acp_delegate_multi') return this.delegateMulti(args, signal, operation);
     if (name === 'acp_verify_audit_bundle') return this.verifyBundle(args);
+    if (name === 'acp_connect') {
+      if (
+        typeof args.to !== 'string' ||
+        (args.alias !== undefined && typeof args.alias !== 'string')
+      )
+        throw new RpcError(-32602, 'Invalid params');
+      if (isShortInviteLink(args.to))
+        this.assertRelays(
+          [
+            parseInviteLink(args.to, { allowPrivateRelay: this.options.allowPrivateRelay })
+              .relayOrigin,
+          ],
+          [],
+        );
+      const token = await resolveInviteLink(args.to, {
+        fetch: this.options.fetch,
+        relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
+      });
+      const invite = this.parseInvite(token);
+      this.assertWorker(invite, undefined);
+      this.assertRelays([], [invite.relayUrl]);
+      return (await connectInvite(token, await this.owner(), {
+        ...this.options.identityOptions,
+        fetch: this.options.fetch,
+        alias: args.alias as string | undefined,
+        transportFactory: this.options.transportFactory,
+        relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
+      })) as unknown as Json;
+    }
     if (name === 'acp_create_invite') return this.createInvite(args);
     if (name === 'acp_revoke_token') return this.revokeToken(args);
     if (name === 'acp_discover_workers') return this.discoverWorkers(args);
@@ -1110,8 +1143,17 @@ export class AcpMcpServer {
       (args.description !== undefined && typeof args.description !== 'string')
     )
       throw new RpcError(-32602, 'Invalid params');
+    if (isShortInviteLink(to))
+      this.assertRelays(
+        [parseInviteLink(to, { allowPrivateRelay: this.options.allowPrivateRelay }).relayOrigin],
+        [],
+      );
+    const resolvedTarget = await resolveInviteLink(to, {
+      fetch: this.options.fetch,
+      relayPolicy: { allowPrivateRelay: this.options.allowPrivateRelay },
+    });
     const description = typeof args.description === 'string' ? args.description : args.title;
-    const invite = isInviteTarget(to) ? this.parseInvite(to) : undefined;
+    const invite = isInviteTarget(resolvedTarget) ? this.parseInvite(resolvedTarget) : undefined;
     if (
       invite &&
       args.workerDid !== undefined &&
@@ -1125,7 +1167,7 @@ export class AcpMcpServer {
         : connection && 'relayUrl' in connection.connection
           ? connection.connection.relayUrl
           : undefined;
-    this.assertWorker(invite, invite ? undefined : to);
+    this.assertWorker(invite, invite ? undefined : resolvedTarget);
     this.assertRelays(explicitRelay ? [explicitRelay] : [], invite ? [invite.relayUrl] : []);
     const relay = this.selectedRelay(explicitRelay, invite?.relayUrl);
     const request: DelegateOptions = {
@@ -1133,7 +1175,7 @@ export class AcpMcpServer {
       idempotencyOperation: operation,
       beforePropose: await this.beforePropose(1, !!operation),
       ...taskTimeouts(args),
-      to,
+      to: resolvedTarget,
       ...(typeof args.workerRef === 'string' ? { workerRef: args.workerRef } : {}),
       title: args.title,
       description,
@@ -1156,7 +1198,7 @@ export class AcpMcpServer {
         pendingRequest
           ? {
               ...pendingRequest,
-              to,
+              to: resolvedTarget,
               signal,
               beforePropose: request.beforePropose,
               idempotencyOperation: operation,

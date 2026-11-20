@@ -1,3 +1,4 @@
+import { resolveInviteLink } from '@acp/runtime';
 // SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
@@ -987,16 +988,18 @@ export async function networkCommand(
       (!connection && target && !isInviteTarget(target) && !target.startsWith('did:')
         ? target
         : undefined);
-    const to =
+    const to = await resolveInviteLink(
       connection?.connection.peerOwnerDid ??
-      (workerRef
-        ? (
-            await InviteStore.open(key, {
-              ...application.identityOptions,
-              relayPolicy: { allowPrivateRelay },
-            })
-          ).resolve(workerRef).inviteToken
-        : target);
+        (workerRef
+          ? (
+              await InviteStore.open(key, {
+                ...application.identityOptions,
+                relayPolicy: { allowPrivateRelay },
+              })
+            ).resolve(workerRef).inviteToken
+          : target),
+      { fetch: application.fetch, relayPolicy: { allowPrivateRelay } },
+    );
     const invite = isInviteTarget(to)
       ? parseAndVerifyInviteToken(to, Date.now(), { allowPrivateRelay })
       : undefined;

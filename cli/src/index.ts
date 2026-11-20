@@ -169,11 +169,12 @@ async function main(args: string[]) {
     case 'contacts':
       await contactsCommand(rest);
       break;
+    case 'connect':
     case 'accept':
     case 'invites':
       if (command === 'invites' && rest[0] === 'migrate')
         await invitesMigrateCommand(rest.slice(1));
-      else await acceptCommand(command, rest);
+      else await acceptCommand(command === 'connect' ? 'accept' : command, rest);
       break;
     case 'receipt':
       receiptCommand(rest);
