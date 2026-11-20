@@ -22,4 +22,8 @@ Use the owner's `config auto-accept invited read-only` policy for sandbox read-o
 work. Matching work runs without a terminal; writes, paid work and work outside the
 rule still need the existing owner review. A notification reply cannot approve work.
 Running workers issue a fresh short invitation after their current short link is used.
+Live MCP servers also renew consumed invitations and send the replacement link and
+confirmation number through MCP logging notifications (or the embedding host callback).
+One-shot CLI invite creation exits after returning its link; keep a worker or MCP host
+running for automatic renewal.
 Explicit `--share token` / MCP `share: "token"` preserves long offline invitations.
