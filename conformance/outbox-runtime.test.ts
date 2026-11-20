@@ -566,6 +566,7 @@ describe('gateway envelope retry', () => {
       expect(service.store.snapshot('outbox')).toMatchObject([{ state: 'admitted' }]);
       expect(f.posted).toHaveLength(1);
       refuseUnlink = false;
+      f.setNow(p.context.deliveryDeadline);
       service.store.maintain();
       expect(service.store.ids('outbox')).toEqual([]);
       expect(service.store.ids('batches')).toEqual([]);

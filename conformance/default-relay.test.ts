@@ -544,11 +544,8 @@ describe('multiple local candidates, one active route', () => {
           application,
         ),
       ]);
-      for (const attempt of attempts) expect(attempt).toMatchObject({ status: 'rejected' });
-      expect(attempts.map((a) => (a.status === 'rejected' ? String(a.reason) : ''))).toEqual([
-        expect.stringContaining('PENDING_OWNER_APPROVAL'),
-        expect.stringContaining('PENDING_OWNER_APPROVAL'),
-      ]);
+      // Invited sandbox work now matches the default connected read-only rule.
+      for (const attempt of attempts) expect(attempt).toMatchObject({ status: 'fulfilled' });
       expect(fetcher.mock.calls.every(([url]) => String(url).startsWith(loopback + '/'))).toBe(
         true,
       );

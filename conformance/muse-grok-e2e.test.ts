@@ -148,6 +148,7 @@ async function worker(
   audit: string,
   migrated: boolean,
   endpoint?: string,
+  write = false,
 ) {
   const child = spawn(
     process.execPath,
@@ -163,7 +164,10 @@ async function worker(
       url,
       '--allow-private-relay',
       '--adapter',
-      endpoint ? 'openai' : 'sandbox',
+      endpoint ? 'openai' : write ? 'command' : 'sandbox',
+      ...(write
+        ? ['--cmd', `"${process.execPath}" "${resolve('conformance/fixtures/json-echo.cjs')}"`]
+        : []),
       ...(endpoint ? ['--endpoint', endpoint] : []),
       '--allow-local-pc',
       '--auto-accept',
@@ -496,7 +500,14 @@ it.each([
       }
       // Restart with a write-capable adapter: read-only permission must not allow it.
       await stop(bw);
-      const writeWorker = await worker(b, relay.url, join(root, 'grok-write.jsonl'), migrated);
+      const writeWorker = await worker(
+        b,
+        relay.url,
+        join(root, 'grok-write.jsonl'),
+        migrated,
+        undefined,
+        true,
+      );
       await send('PENDING_OWNER_APPROVAL');
       await cli(b, ['connections', 'allow', 'muse-connected', 'write']);
       const writeResult = await send();
@@ -713,6 +724,8 @@ it.each(['unreachable', 'DID mismatch'] as const)(
       expect(JSON.parse(await cli(b, ['connections', 'list'])).connections).toEqual([]);
       if (failure === 'DID mismatch')
         receiver = await worker(a, relay.url, join(root, 'a.jsonl'), false);
+      // Identity rejection must get far enough to receive the tampered ACCEPT;
+      // cold Windows CI can exceed the deliberately short unreachable-peer wait.
       await expect(
         cli(b, [
           'delegate',
@@ -727,9 +740,9 @@ it.each(['unreachable', 'DID mismatch'] as const)(
           '--auto-approve',
           '--allow-private-relay',
           '--task-timeout-ms',
-          '3000',
+          failure === 'DID mismatch' ? '15000' : '3000',
           '--wait-timeout-ms',
-          '1500',
+          failure === 'DID mismatch' ? '10000' : '1500',
         ]),
       ).rejects.toThrow(
         failure === 'DID mismatch' ? 'INVALID_OR_REPLAYED_SESSION_ENVELOPE' : /TIMEOUT/,
@@ -741,7 +754,7 @@ it.each(['unreachable', 'DID mismatch'] as const)(
       await relay.close();
     }
   },
-  20000,
+  40000,
 );
 
 it.each([false, true])(

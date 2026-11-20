@@ -58,6 +58,94 @@ it('retries an atomic replacement between private-file stat and open without tre
   expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
 });
 
+it('retries a Windows record read sharing refusal without hiding stable corruption', () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  const path = f.service.store.path('outbox', id);
+  let refusals = 1;
+  const store = new DeliveryStore(f.owner, {
+    ...f.identityOptions,
+    fs: {
+      ...fs,
+      openSync: ((file, ...args) => {
+        if (String(file) === path && refusals-- > 0)
+          throw Object.assign(new Error('sharing violation'), { code: 'EPERM', syscall: 'open' });
+        return fs.openSync(file, ...args);
+      }) as typeof fs.openSync,
+    },
+  });
+  // Keep host-native paths; simulate only the Windows read-contention policy.
+  Object.defineProperty(store, 'platform', { value: 'win32' });
+  expect(store.path('outbox', id)).toBe(path);
+  expect(store.read('outbox', id)?.envelopeId).toBe(id);
+  fs.writeFileSync(path, '{}');
+  expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
+});
+
+it('bounds persistent Windows record read contention and leaves signed bytes untouched', () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  const path = f.service.store.path('outbox', id),
+    bytes = fs.readFileSync(path);
+  let calls = 0;
+  const store = new DeliveryStore(f.owner, {
+    ...f.identityOptions,
+    fs: {
+      ...fs,
+      openSync: ((file, ...args) => {
+        if (String(file) === path) {
+          calls++;
+          throw Object.assign(new Error('sharing violation'), { code: 'EACCES', syscall: 'open' });
+        }
+        return fs.openSync(file, ...args);
+      }) as typeof fs.openSync,
+    },
+  });
+  Object.defineProperty(store, 'platform', { value: 'win32' });
+  expect(store.path('outbox', id)).toBe(path);
+  expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_BUSY');
+  expect(calls).toBeGreaterThan(1);
+  expect(calls).toBeLessThanOrEqual(10);
+  expect(fs.readFileSync(path)).toEqual(bytes);
+});
+
+it('keeps admitted live task batches available while another gateway runs maintenance', async () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  await f.service.drainDue();
+  const other = new DeliveryStore(f.owner, { ...f.identityOptions, now: f.now });
+  const read = f.service.store.read.bind(f.service.store);
+  let maintained = false;
+  vi.spyOn(f.service.store, 'read').mockImplementation(((kind, envelopeId) => {
+    const record = read(kind, envelopeId);
+    if (kind === 'outbox' && !maintained) {
+      maintained = true;
+      other.maintain();
+    }
+    return record;
+  }) as typeof f.service.store.read);
+  await expect(f.service.sendPrepared(id)).resolves.toBeUndefined();
+  expect(maintained).toBe(true);
+  const record = other.read('outbox', id)!;
+  expect(record.state).toBe('admitted');
+  f.service.finishBatch(record.batchId);
+  expect(other.read('outbox', id)).toBeUndefined();
+});
+
+it('removes unconsumed admitted task batches at their original delivery deadline', async () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  await f.service.drainDue();
+  f.setNow(p.context.deliveryDeadline);
+  f.service.store.maintain();
+  expect(f.service.store.read('outbox', id)).toBeUndefined();
+  expect(f.service.store.ids('batches')).toEqual([]);
+});
+
 it('treats batch marker removal during an unlocked snapshot as completed cleanup', () => {
   const f = fixture(),
     p = f.prepare(true),

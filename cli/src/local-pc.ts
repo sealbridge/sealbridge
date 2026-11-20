@@ -22,7 +22,7 @@ export const LOCAL_PC_DISABLED_JA =
 export const LOCAL_PC_MIGRATION_JA =
   '乗り換え: `npm i -g sealbridge-local` のあと、`sealbridge worker start …` を `sealbridge-local worker start …` に置き換えてください（鍵とデータディレクトリはそのまま使えます）。';
 export const LOCAL_PC_WARNING =
-  'Warning: running on this PC (isolation: host_adapter). Owner approval and content inspection stay on. An attestation is attached, but its level is host_adapter (no isolation).';
+  'Warning: running on this PC (isolation: host_adapter). Work outside the automatic acceptance rule requires owner approval and content inspection. An attestation is attached, but its level is host_adapter (no isolation).';
 
 /** CLI flag only: environment and application settings cannot grant this permission. */
 export function requireLocalPcOptIn(value: string | true | undefined): void {
@@ -88,7 +88,7 @@ export function auditLocalPcOptIn(
 }
 
 export function localPcWarning(isolation: string): string {
-  const prefix = `Warning: running on this PC (isolation: ${isolation}). Owner approval and content inspection stay on. `;
+  const prefix = `Warning: running on this PC (isolation: ${isolation}). Work outside the automatic acceptance rule requires owner approval and content inspection. `;
   return (
     prefix +
     (isolation.startsWith('task_policy_dependent') || isolation === 'subprocess_restricted'

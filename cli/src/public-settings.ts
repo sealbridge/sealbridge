@@ -68,10 +68,11 @@ export function publicProfileSummary(
     access: 'Connection-based intake; unconnected requests held',
     jobs: card.payload.skills.flatMap((s) => s.taskTypes ?? []),
     hostLimits: { perPersonPerMinute: rate ?? null, perDay: daily ?? null, dayReset: '00:00 UTC' },
-    approval: 'Inspection and owner opening required for limited peers',
+    approval:
+      'Matching read-only work follows the signed automatic rule; other work needs inspection and owner approval',
     inspection: 'CLI display with interactive stdin/stderr; otherwise unavailable',
     perJob: budgets,
-    automaticPolicy: automatic,
+    automaticPolicy: card.payload.autoAccept ?? automatic,
     signedCard: card,
   };
 }

@@ -1,3 +1,4 @@
+import { autoAcceptReason } from './auto-accept.js';
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import { nameInviteConnection } from './connection-aliases.js';
@@ -921,6 +922,9 @@ export class WorkerNode {
             ? options.relay
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
+        description: this.autoAccept.enabled
+          ? `Automatic ${this.autoAccept.work} work from ${this.autoAccept.from} peers. Adapter access: ${options.adapter.taskAccess ?? 'write/unspecified'}. Work outside this rule needs owner approval.`
+          : 'Automatic acceptance is off. Tasks need owner approval.',
         autoAccept: this.autoAccept,
         ...(options.inviteTtlSeconds !== undefined
           ? {
@@ -2325,6 +2329,13 @@ export class WorkerNode {
           matchesAutoAccept(admission.policy, admission.context, this.options.autoAcceptStateGuard),
           attemptSignal,
         ));
+      if (!automatic)
+        this.options.onEvent?.('AUTO_ACCEPT_NOT_MATCHED', m.taskId, {
+          code: 'OWNER_APPROVAL_REQUIRED',
+          reason:
+            autoAcceptReason(admission.policy, admission.context) ??
+            'automatic acceptance state or prior review requires owner approval',
+        } as ErrorDiagnostic);
       // Host-owned preflight precedes counters, owner approval, and provider calls.
       const sizeLimits: PreCallSizeLimits = {};
       for (const key of ['maxDiffLines', 'maxDiffBytes', 'maxDiffFiles'] as const)

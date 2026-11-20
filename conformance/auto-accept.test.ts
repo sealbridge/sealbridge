@@ -1,3 +1,6 @@
+import { workerJson } from '../cli/src/worker-json.js';
+import { autoAcceptReason } from '../packages/runtime/src/auto-accept.js';
+import { SandboxAgentAdapter } from '../packages/runtime-local/src/sandbox.js';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -299,4 +302,52 @@ it('persists explicit owner settings atomically, preserves other fields and reje
     ),
   ).toThrow('AUTO_ACCEPT_POLICY_INVALID');
   expect(readApplicationConfig(f.identityOptions).relays).toEqual(['https://relay.sealbridge.dev']);
+});
+
+it('automatically accepts invited sandbox work in a background worker without any owner approval channel', async () => {
+  const adapter = new SandboxAgentAdapter();
+  const f = admissionFixture({
+    adapter,
+    autoAccept: policy({ from: 'invited' }),
+    ownerApprovalProvider: undefined,
+  });
+  fixtures.push(f);
+  const execute = vi.spyOn(adapter, 'executeTask').mockImplementation(async (c) => c.input);
+  expect(adapter.taskAccess).toBe('read-only');
+  const result = await f.attempt(f.worker.invite());
+  expect(result[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+  expect(execute).toHaveBeenCalledOnce();
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.worker.agentCard.payload.description).toContain('Adapter access: read-only');
+});
+it.each(['bilateral_quota', 'external_settlement_plugin'] as const)(
+  'keeps %s work behind owner approval',
+  async (costBearer) => {
+    const f = fixture(policy({ from: 'anyone' }));
+    const manifest = f.manifest();
+    manifest.budget.costBearer = costBearer;
+    expect(
+      await matchesAutoAccept(f.worker.autoAccept, {
+        manifest,
+        connected: true,
+        invited: true,
+        adapter: f.worker.options.adapter,
+        tools: {},
+      }),
+    ).toBe(false);
+  },
+);
+
+it('shows a content-free decline reason instead of redacting the automatic policy diagnostic', () => {
+  const f = fixture(policy({ enabled: false }));
+  const reason = autoAcceptReason(f.worker.autoAccept, {
+    manifest: f.manifest(),
+    connected: true,
+    invited: true,
+    adapter: f.worker.options.adapter,
+    tools: {},
+  });
+  const event = JSON.parse(workerJson({ event: 'AUTO_ACCEPT_NOT_MATCHED', reason }));
+  expect(event.reason).toBe('automatic acceptance is off');
+  expect(workerJson({ reason: 'untrusted task text or invite material' })).toContain('[redacted]');
 });

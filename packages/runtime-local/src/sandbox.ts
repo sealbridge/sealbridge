@@ -37,6 +37,7 @@ import type { Json } from '@acp/core';
  */
 export class SandboxAgentAdapter implements AgentAdapter {
   readonly id = 'sandbox';
+  readonly taskAccess = 'read-only' as const;
   readonly name = 'Restricted JavaScript Worker';
   readonly skills = [{ id: 'json-task', name: 'JSON task' }];
   constructor(readonly code = 'return input;') {}
