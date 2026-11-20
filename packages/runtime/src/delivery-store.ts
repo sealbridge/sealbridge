@@ -1355,7 +1355,11 @@ class DeliveryStoreImplementation {
                   updatedAt: now,
                 });
             }
-          this.finishBatch(id);
+          // Another process may still be consuming an admitted task's result
+          // and relay identity pin. Its live wire owns immediate cleanup. After
+          // a crash, maintenance can safely reclaim those bytes at the deadline.
+          if (records.every((r) => r.kind !== 'task' || r.deliveryDeadline <= now))
+            this.finishBatch(id);
         });
     for (const kind of kinds)
       for (const id of this.ids(kind, onError))
