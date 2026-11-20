@@ -144,7 +144,9 @@ const workerArgs = (url: string, audit: string) => [
   url,
   '--allow-private-relay',
   '--adapter',
-  'sandbox',
+  'command',
+  '--cmd',
+  `"${process.execPath}" "${resolve('conformance/fixtures/json-echo.cjs')}"`,
   '--allow-local-pc',
   '--auto-accept',
   '--audit',
@@ -251,7 +253,7 @@ it.each([false, true])(
       const readOnly = actor(a, delegateArgs(connection.alias, join(root, 'a-readonly.jsonl')));
       await readOnly.waitFor(() => readOnly.exited);
       expect(await readOnly.closed).not.toBe(0);
-      expect(readOnly.stderr).toContain('PENDING_OWNER_APPROVAL'); // sandbox adapter declares write access
+      expect(readOnly.stderr).toContain('PENDING_OWNER_APPROVAL'); // command adapter does not declare read-only access
       await actor(b, ['connections', 'allow', 'alpha-connected', 'write']).success();
       const allowed = actor(
         a,
