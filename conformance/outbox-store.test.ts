@@ -371,6 +371,7 @@ describe('persistent envelope store', () => {
       },
     } as typeof fs;
     const other = f.restart(f.owner, { identityOptions: { ...f.identityOptions, fs: io } });
+    f.setNow(p.context.deliveryDeadline);
     other.store.maintain();
     expect(interrupted).toBe(true);
     const restarted = f.restart();

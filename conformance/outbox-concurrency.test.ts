@@ -111,6 +111,41 @@ it('bounds persistent Windows record read contention and leaves signed bytes unt
   expect(fs.readFileSync(path)).toEqual(bytes);
 });
 
+it('keeps admitted live task batches available while another gateway runs maintenance', async () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  await f.service.drainDue();
+  const other = new DeliveryStore(f.owner, { ...f.identityOptions, now: f.now });
+  const read = f.service.store.read.bind(f.service.store);
+  let maintained = false;
+  vi.spyOn(f.service.store, 'read').mockImplementation(((kind, envelopeId) => {
+    const record = read(kind, envelopeId);
+    if (kind === 'outbox' && !maintained) {
+      maintained = true;
+      other.maintain();
+    }
+    return record;
+  }) as typeof f.service.store.read);
+  await expect(f.service.sendPrepared(id)).resolves.toBeUndefined();
+  expect(maintained).toBe(true);
+  const record = other.read('outbox', id)!;
+  expect(record.state).toBe('admitted');
+  f.service.finishBatch(record.batchId);
+  expect(other.read('outbox', id)).toBeUndefined();
+});
+
+it('removes unconsumed admitted task batches at their original delivery deadline', async () => {
+  const f = fixture(),
+    p = f.prepare(),
+    [id] = f.service.enqueue(p.frames, p.context);
+  await f.service.drainDue();
+  f.setNow(p.context.deliveryDeadline);
+  f.service.store.maintain();
+  expect(f.service.store.read('outbox', id)).toBeUndefined();
+  expect(f.service.store.ids('batches')).toEqual([]);
+});
+
 it('treats batch marker removal during an unlocked snapshot as completed cleanup', () => {
   const f = fixture(),
     p = f.prepare(true),
