@@ -66,7 +66,6 @@ it('retries a Windows record read sharing refusal without hiding stable corrupti
   let refusals = 1;
   const store = new DeliveryStore(f.owner, {
     ...f.identityOptions,
-    platform: 'win32',
     fs: {
       ...fs,
       openSync: ((file, ...args) => {
@@ -76,6 +75,9 @@ it('retries a Windows record read sharing refusal without hiding stable corrupti
       }) as typeof fs.openSync,
     },
   });
+  // Keep host-native paths; simulate only the Windows read-contention policy.
+  Object.defineProperty(store, 'platform', { value: 'win32' });
+  expect(store.path('outbox', id)).toBe(path);
   expect(store.read('outbox', id)?.envelopeId).toBe(id);
   fs.writeFileSync(path, '{}');
   expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_INVALID');
@@ -90,7 +92,6 @@ it('bounds persistent Windows record read contention and leaves signed bytes unt
   let calls = 0;
   const store = new DeliveryStore(f.owner, {
     ...f.identityOptions,
-    platform: 'win32',
     fs: {
       ...fs,
       openSync: ((file, ...args) => {
@@ -102,6 +103,8 @@ it('bounds persistent Windows record read contention and leaves signed bytes unt
       }) as typeof fs.openSync,
     },
   });
+  Object.defineProperty(store, 'platform', { value: 'win32' });
+  expect(store.path('outbox', id)).toBe(path);
   expect(() => store.read('outbox', id)).toThrow('OUTBOX_STORE_BUSY');
   expect(calls).toBeGreaterThan(1);
   expect(calls).toBeLessThanOrEqual(10);
