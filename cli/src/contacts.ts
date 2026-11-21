@@ -132,6 +132,13 @@ export function contactsApproval(
   interactive: ApprovalProvider,
 ): ApprovalProvider {
   return {
+    ...(automatic
+      ? { kind: 'policy' as const }
+      : {
+          ...(interactive.kind ? { kind: interactive.kind } : {}),
+          ...(interactive.ownerDecision ? { ownerDecision: true as const } : {}),
+          ...(interactive.remoteTaskReview ? { remoteTaskReview: true as const } : {}),
+        }),
     async approve(request) {
       const contacts = loadContacts(path, key.did);
       {
@@ -152,9 +159,18 @@ export function contactsApproval(
           ]),
         ],
       };
-      return (
+      const receipt = await (
         automatic ? new PolicyAutoApprovalProvider(key, undefined, { acceptance }) : interactive
       ).approve(request);
+      const details = request.details as
+        { manifest?: { requester?: { ownerDid?: string } } } | undefined;
+      if (
+        loadContacts(path, key.did).find(
+          (c) => c.ownerDid === details?.manifest?.requester?.ownerDid,
+        )?.revoked
+      )
+        throw new Error('CONTACT_REVOKED');
+      return receipt;
     },
   };
 }

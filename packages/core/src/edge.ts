@@ -6,3 +6,5 @@ export * from './invite-link.js';
 export * from './invite-sas.js';
 export * from './relay-auth.js';
 export * from './delivery-status.js';
+
+export * from './owner-approval.js';

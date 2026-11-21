@@ -43,3 +43,12 @@ class_name = "InviteDurableObject"
 [[migrations]]
 tag = "v2-invite-links"
 new_sqlite_classes = ["InviteDurableObject"]
+
+# Passkey approval ciphertext mailboxes (deploy only with owner approval).
+[[durable_objects.bindings]]
+name = "APPROVALS"
+class_name = "ApprovalDurableObject"
+
+[[migrations]]
+tag = "v3-owner-approvals"
+new_sqlite_classes = ["ApprovalDurableObject"]

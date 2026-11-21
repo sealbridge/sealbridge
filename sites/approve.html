@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Sealbridge owner approval</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/approve.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Owner approval</h1>
+      <p>Review this request before using your passkey. No account or social login is needed.</p>
+      <p id="status" role="status">Open the request to decrypt it on this device.</p>
+      <button id="open">Open private request</button>
+      <section id="review" hidden>
+        <h2 id="title"></h2>
+        <p id="reason"></p>
+        <p id="peer"></p>
+        <p id="expiry"></p>
+        <details open>
+          <summary>What this task will do</summary>
+          <pre id="content"></pre>
+        </details>
+        <p>
+          The relay carries encrypted bytes. Approval applies only to this task and gate. Face ID,
+          fingerprint, Windows Hello, or your authenticator PIN confirms your decision.
+        </p>
+        <button id="approve">Approve with passkey</button
+        ><button id="reject">Reject with passkey</button>
+      </section>
+    </main>
+  </body>
+</html>

@@ -224,6 +224,15 @@ export async function buildSites() {
     await cp(path.join(directory, 'style.css'), path.join(directory, 'dist', target, 'style.css'));
     await cp(path.join(directory, '_headers'), path.join(directory, 'dist', target, '_headers'));
   }
+  await put(
+    path.join(directory, 'dist/invite/approve/index.html'),
+    await readFile(path.join(directory, 'approve.html')),
+  );
+  await build({
+    ...browserOptions,
+    entryPoints: ['browser/approve.mjs'],
+    outfile: 'dist/invite/approve.js',
+  });
   const joinPage = await readFile(path.join(directory, 'join.html'));
   for (const target of ['site', 'invite']) {
     await put(path.join(directory, 'dist', target, 'j/index.html'), joinPage);

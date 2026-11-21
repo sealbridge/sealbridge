@@ -158,6 +158,7 @@ async function worker(
       resolve('cli/dist/index.js'),
       'worker',
       'start',
+      '--tty-approval',
       '--share',
       'token',
       '--relay',

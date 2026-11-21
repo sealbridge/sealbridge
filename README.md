@@ -6,6 +6,11 @@ Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
 
 Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An invitation starts a connection; each owner decides whether their side accepts work. DIDs identify peers; names are local shortcuts.
 
+Owner approval in current source builds uses private links and passkeys, so Muse
+and Grok Bot can request write/paid-work approval in chat. Opening a link approves
+nothing. See [passkey approval](docs/passkey-approval.md) for first-key trust,
+spending limits, terminal compatibility and the relay/site deployment prerequisites.
+
 ## Install on Muse
 
 Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. The invite/role features below are included in the prepared 0.9.2 release. Until npm 0.9.2 is published, install from GitHub main.

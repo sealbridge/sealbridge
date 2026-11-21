@@ -7,6 +7,7 @@ import {
   generateKeyPair,
   createSignedAgentCard,
   createInviteToken,
+  signApproval,
 } from '../packages/core/src/index.js';
 import type { WorkerNodeOptions } from '../packages/runtime/src/session.js';
 
@@ -27,8 +28,63 @@ vi.mock('../packages/runtime/dist/index.js', async (original) => {
   };
 });
 import { networkCommand } from '../cli/src/network.js';
-import { addContact, updateContacts } from '../cli/src/contacts.js';
+import { addContact, updateContacts, contactsApproval } from '../cli/src/contacts.js';
 afterEach(() => vi.restoreAllMocks());
+
+it('retains passkey-provider authority markers and rechecks revocation after the owner decision', async () => {
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), 'acp-passkey-contact-'));
+  try {
+    const owner = generateKeyPair(),
+      peer = generateKeyPair(),
+      path = join(dir, 'contacts.json');
+    addContact(
+      path,
+      owner,
+      createInviteToken(
+        {
+          agentCard: createSignedAgentCard(
+            {
+              name: 'Peer',
+              agentDid: peer.did,
+              relayEndpoint: 'https://relay.example',
+              skills: [],
+            },
+            peer,
+          ),
+        },
+        peer,
+      ),
+    );
+    const provider = contactsApproval(
+      path,
+      owner,
+      false,
+      {},
+      {
+        kind: 'human',
+        ownerDecision: true,
+        remoteTaskReview: true,
+        approve: async (request) => {
+          updateContacts(path, owner, (items) => {
+            items[0].revoked = true;
+          });
+          return signApproval(request.taskId, request.gate, request.target, owner);
+        },
+      },
+    );
+    expect(provider).toMatchObject({ kind: 'human', ownerDecision: true, remoteTaskReview: true });
+    await expect(
+      provider.approve({
+        taskId: 'revoked-while-waiting',
+        gate: 'contract_acceptance',
+        target: {},
+        details: { manifest: { requester: { ownerDid: peer.did } } },
+      }),
+    ).rejects.toThrow('CONTACT_REVOKED');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 it('loads only explicitly allowed contacts at every worker startup and enforces live revoke', async () => {
   const dir = mkdtempSync(join(realpathSync(tmpdir()), 'acp-ux1-worker-'));

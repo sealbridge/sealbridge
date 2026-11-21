@@ -1,5 +1,12 @@
 # Grok Bot and Muse without a terminal
 
+For work requiring approval, call `acp_owner_approval {"action":"list"}` and show
+the pending link in chat. The owner reviews it and uses their passkey; opening a
+link alone approves nothing. Use `{"action":"register"}` to enroll a passkey.
+The first passkey is trusted; adding another requires an existing one.
+See [passkey owner approval](passkey-approval.md) for limits, compatibility and
+deployment prerequisites. Workers keep waiting while the owner uses the link.
+
 With Sealbridge connected to your agent host, ask it to create an invitation with
 `acp_create_invite {}` and give the returned short link to the other person in chat.
 The receiving agent can call `acp_connect {"to":"<short link>"}` directly. Show the

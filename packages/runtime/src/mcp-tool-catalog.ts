@@ -1016,6 +1016,52 @@ export const mcpTools: Json = [
     ),
   }),
   tool({
+    name: 'acp_owner_approval',
+    title: 'Owner passkeys and approval links',
+    description:
+      'Return owner approval links for chat with action list; register creates a first or additional passkey registration link, and poll verifies encrypted results for one id. Opening a link never approves work: the owner must use a registered passkey. The first passkey is trusted; adding others requires an existing passkey. Uses the local worker owner, or this server explicit owner. Pass a relayUrl only when needed; relay allowlists apply. Return links to the owner in chat; never claim approval from link possession.',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+    inputSchema: objectSchema(
+      'Manage local owner passkeys and pending approvals.',
+      {
+        action: described('list pending links, register a passkey, or poll a result.', {
+          type: 'string',
+          enum: ['list', 'register', 'poll'],
+        }),
+        id: described('Approval id returned with a link; required for poll.', { type: 'string' }),
+        relayUrl: described('Relay carrying only encrypted ceremony bytes.', { type: 'string' }),
+      },
+      ['action'],
+    ),
+    outputSchema: objectSchema(
+      'Pending links, registered credential identifiers, or verification status.',
+      {
+        credentials: described('Locally trusted public credential identifiers.', {
+          type: 'array',
+          items: objectSchema(
+            'Public credential.',
+            { id: described('Credential identifier.', { type: 'string' }) },
+            ['id'],
+          ),
+        }),
+        pending: described('Private approval links to show to this owner only.', {
+          type: 'array',
+          items: jsonValue('One pending approval link with task binding and expiry.'),
+        }),
+        id: described('One-use approval mailbox identifier.', { type: 'string' }),
+        taskId: described('Task bound to this approval.', { type: 'string' }),
+        gate: described('Owner approval gate.', { type: 'string' }),
+        link: described('Private encrypted approval or registration URL.', { type: 'string' }),
+        kind: described('Task approval or registration ceremony.', { type: 'string' }),
+        expiresAt: described('Expiry in Unix milliseconds.', { type: 'number' }),
+        status: described('Waiting or locally verified outcome.', { type: 'string' }),
+      },
+    ),
+  }),
+  tool({
     name: 'acp_create_invite',
     title: 'Create a short invitation link',
     description:

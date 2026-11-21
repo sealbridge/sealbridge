@@ -11,3 +11,10 @@
   Content-Type: text/plain; charset=utf-8
 /connect-agent.txt
   Content-Type: text/plain; charset=utf-8
+
+/approve
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Cache-Control: no-store
+/approve.js
+  Cache-Control: no-store

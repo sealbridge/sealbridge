@@ -1,3 +1,5 @@
+import { routeApproval } from './approvals.js';
+export { ApprovalDurableObject } from './approvals.js';
 // SPDX-License-Identifier: Apache-2.0
 import { routeInvite, routeInviteClaim } from './invites.js';
 import type { InviteNamespace } from './invites.js';
@@ -313,6 +315,7 @@ interface RelayNamespace {
 export interface RelayEdgeEnv {
   RELAY?: RelayNamespace;
   INVITES?: InviteNamespace;
+  APPROVALS?: InviteNamespace;
   RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   [key: string]: unknown;
 }
@@ -474,6 +477,13 @@ export async function handleRelayEdge(request: Request, env?: RelayEdgeEnv): Pro
     return Response.json(env?.RELAY && !env.INVITES ? {} : { inviteLinks: 1 }, {
       headers: relayHttpHeaders('json'),
     });
+  if (url.pathname.startsWith('/v1/approvals')) {
+    const limited = await applyRateLimit(request, env, 'approval');
+    if (limited) return limited;
+    if (env?.APPROVALS) return routeApproval(request, env.APPROVALS);
+    if (env?.RELAY) return Response.json({ error: 'APPROVAL_UNSUPPORTED_RELAY' }, { status: 503 });
+    return localHandler(request);
+  }
   if (url.pathname.startsWith('/v1/invites')) {
     const claim = request.method === 'POST' && url.pathname === '/v1/invites/claim';
     if (claim && env?.RATE_LIMITER) {

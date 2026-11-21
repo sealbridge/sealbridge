@@ -4,6 +4,12 @@
 
 [日本語](auto-accept.ja.md)
 
+Source workers now default to [passkey approval links](passkey-approval.md).
+Writes always require owner approval in that mode; OpenAI paid-only work can use
+the configured monthly automatic allowance, and inputs over 1 MiB need review.
+`--tty-approval` explicitly retains the legacy terminal rule behavior described
+in older examples. Relay/site deployment is required before links can be used.
+
 All workers support the same rule. A new installation automatically accepts only
 read-only work from connected peers. Unknown peers remain held until the owner
 explicitly selects another audience. Publication and `--allow-local-pc` grant no

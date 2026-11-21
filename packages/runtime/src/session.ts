@@ -1,4 +1,4 @@
-import { autoAcceptReason } from './auto-accept.js';
+import { autoAcceptReason, passkeyTaskReasons } from './auto-accept.js';
 // SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import { nameInviteConnection } from './connection-aliases.js';
@@ -791,6 +791,7 @@ export class WorkerNode {
       options.autoAccept ??
         readApplicationConfig({ ...options.identityOptions, allowPrivateRelay: true }).autoAccept,
     );
+    if (options.ownerApprovalProvider?.remoteTaskReview) this.autoAccept.work = 'read-only';
     validateRelayAuthRecoveryOptions(options);
     validateSessionTimeouts(options);
     if (options.auditInterruptionFormat !== undefined && options.auditInterruptionFormat !== 1)
@@ -922,9 +923,11 @@ export class WorkerNode {
             ? options.relay
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
-        description: this.autoAccept.enabled
-          ? `Automatic ${this.autoAccept.work} work from ${this.autoAccept.from} peers. Adapter access: ${options.adapter.taskAccess ?? 'write/unspecified'}. Work outside this rule needs owner approval.`
-          : 'Automatic acceptance is off. Tasks need owner approval.',
+        description: options.ownerApprovalProvider?.remoteTaskReview
+          ? `Passkey approval links for writes and owner decisions. Automatic read-only input limit: 1048576 bytes. ${options.adapter.id === 'openai' ? 'Paid-only work uses the configured monthly automatic allowance; no allowance means approval every time.' : 'Read-only work follows the configured audience rule.'}`
+          : this.autoAccept.enabled
+            ? `Automatic ${this.autoAccept.work} work from ${this.autoAccept.from} peers. Adapter access: ${options.adapter.taskAccess ?? 'write/unspecified'}. Work outside this rule needs owner approval.`
+            : 'Automatic acceptance is off. Tasks need owner approval.',
         autoAccept: this.autoAccept,
         ...(options.inviteTtlSeconds !== undefined
           ? {
@@ -984,6 +987,11 @@ export class WorkerNode {
     );
   }
   private refreshMonthlyCard(): void {
+    if (
+      this.options.ownerApprovalProvider?.remoteTaskReview &&
+      this.options.adapter.id === 'openai'
+    )
+      return;
     const limit = this.autoAccept.limits.maxMonthlyUsd;
     if (limit === undefined) return;
     let description = 'Sealbridge worker';
@@ -2322,7 +2330,10 @@ export class WorkerNode {
             ? 'limited'
             : 'unknown'
           : this.trust(m.requester.ownerDid, m.protocolVersion);
+      const remoteReview = this.options.ownerApprovalProvider?.remoteTaskReview === true;
+      const approvalReasons = passkeyTaskReasons(admission.context, data.input);
       const automatic =
+        !(remoteReview && approvalReasons.length) &&
         automaticAuditEnabled &&
         !previouslyPending &&
         !inviteIneligible &&
@@ -2403,7 +2414,10 @@ export class WorkerNode {
           this.autoAccept.limits.monthlyLimitMessage ?? 'standard',
         );
       }
-      if (this.autoAccept.limits.maxMonthlyUsd !== undefined) {
+      if (
+        this.autoAccept.limits.maxMonthlyUsd !== undefined &&
+        !(remoteReview && this.options.adapter.id === 'openai')
+      ) {
         try {
           const counter = this.monthlyCounter();
           counter.begin(
@@ -2485,7 +2499,7 @@ export class WorkerNode {
           previouslyPending ||
           peerTrust === 'unknown' ||
           this.intakeStore.pendingTask(m.requester.ownerDid, m.taskId, proposalDigest) ||
-          inspection.inspectionStatus !== 'complete'
+          (inspection.inspectionStatus !== 'complete' && !remoteReview)
         ) {
           this.intakeStore.enqueue(m, data.input);
           if (this.connectionStore.connectionState(m.requester.ownerDid) === 'none') {
@@ -2542,7 +2556,7 @@ export class WorkerNode {
       const contract = createContract(m, data.proposal, this.options.owner);
       const openingStarted =
         m.contextGrant?.deliveryMode === 'approval_redelegation' ? Date.now() : 0;
-      if (!automatic)
+      if (!automatic && !remoteReview)
         this.options.onEvent?.('APPROVAL_NEEDED', m.taskId, { code: 'OWNER_APPROVAL_REQUIRED' });
       const approval = await abortable(
         contractProvider.approve({
@@ -2559,7 +2573,10 @@ export class WorkerNode {
             capabilities: data.capabilityChains,
             ...(inspection ? { inspection } : {}),
             from: first.payload.senderDid,
+            ...(peerDisplayName !== undefined ? { peerDisplayName } : {}),
+            approvalReasons,
           },
+          deadline: m.deadline,
           signal: attemptSignal,
         }),
         attemptSignal,
@@ -3751,6 +3768,12 @@ function safeError(e: unknown, contextGrant = false): string {
     [
       'ISOLATION_LEVEL_UNSUPPORTED',
       'ISOLATION_LEVEL_MISMATCH',
+      'APPROVAL_RELAY_UNAVAILABLE',
+      'APPROVAL_EXPIRED',
+      'APPROVAL_CAPACITY',
+      'OWNER_APPROVAL_REJECTED',
+      'PASSKEY_STATE_INVALID',
+      'PAID_TASK_REPLAY',
       'MONTHLY_STATE_UNAVAILABLE',
       'INPUT_SIZE_LIMIT_REACHED',
       'INPUT_SIZE_UNAVAILABLE',
