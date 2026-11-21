@@ -25,6 +25,9 @@ import { DEFAULT_PASSKEY_INPUT_BYTES } from './auto-accept.js';
 import { workerIntakePath } from './worker-trust-store.js';
 import { tokenCost, MonthlyCostCounter } from './monthly-limit.js';
 import type { ApprovalProvider, ApprovalRequest } from './approval-providers.js';
+export const NO_PASSKEY_MESSAGE =
+  'No passkey is registered yet. Write tasks cannot be approved. Register within 10 minutes of worker startup; restart the worker if that window has closed.';
+export const ENROLLMENT_WINDOW_MS = 10 * 60 * 1000;
 export const APPROVAL_SITE = 'https://sealbridge.app';
 export const DEFAULT_APPROVAL_SIZE = DEFAULT_PASSKEY_INPUT_BYTES;
 const hash = (s: string | Buffer) => createHash('sha256').update(s).digest('base64url');
@@ -68,6 +71,8 @@ interface Pending extends ApprovalLink {
   targetDigest: string;
   challenge: string;
   binding: string;
+  enrollmentId?: string;
+  resultsAccess: string;
 }
 export interface PasskeyOptions extends LocalIdentityOptions {
   paid?: { model: string; maxMonthlyUsd?: number };
@@ -76,6 +81,8 @@ export interface PasskeyOptions extends LocalIdentityOptions {
   allowPrivateRelay?: boolean;
   site?: string;
   onLink?: (link: ApprovalLink) => void;
+  onEnrollment?: (state: ReturnType<PasskeyApprovalBroker['enrollmentStatus']>) => void;
+  onRegistered?: (credentialId: string) => void;
 }
 /** Local owner-signed trust store. Link possession and relay data never grant authority. */
 export class PasskeyApprovalBroker {
@@ -83,6 +90,9 @@ export class PasskeyApprovalBroker {
   readonly site: string;
   readonly rpID: string;
   private fetcher: typeof fetch;
+  private enrollmentId?: string;
+  private registrationWatch?: ReturnType<typeof setInterval>;
+  private observedCredentials = new Set<string>();
   constructor(
     readonly owner: KeyPair,
     readonly options: PasskeyOptions,
@@ -140,7 +150,103 @@ export class PasskeyApprovalBroker {
       !Array.isArray(r.consumed)
     )
       throw new Error('PASSKEY_STATE_INVALID');
+    if (!r.credentials.length && this.load('enrolled.json'))
+      throw new Error('PASSKEY_STATE_INVALID');
     return r;
+  }
+  /** Called by the worker startup path only, never by MCP/CLI link creation. */
+  startWorkerEnrollment(): void {
+    if (this.registrationWatch) clearInterval(this.registrationWatch);
+    const release = acquireDailyLock(join(this.directory, 'registry.lock'));
+    try {
+      const credentials = this.listCredentials();
+      this.observedCredentials = new Set(credentials.map((c) => c.id));
+      if (credentials.length && !this.load('enrolled.json'))
+        this.save('enrolled.json', { registered: true });
+      if (!credentials.length) {
+        this.enrollmentId = randomBytes(32).toString('hex');
+        const startedAt = Date.now();
+        this.save('enrollment.json', {
+          id: this.enrollmentId,
+          startedAt,
+          expiresAt: startedAt + ENROLLMENT_WINDOW_MS,
+          pid: process.pid,
+        });
+      }
+    } finally {
+      release();
+    }
+    this.registrationWatch = setInterval(() => {
+      try {
+        this.checkRegistrationNotices();
+      } catch {
+        /* Local store failure never grants authority. */
+      }
+    }, 1000);
+    this.registrationWatch.unref();
+    this.options.onEnrollment?.(this.enrollmentStatus());
+  }
+  stopWorkerEnrollment(): void {
+    if (this.registrationWatch) {
+      this.checkRegistrationNotices();
+      clearInterval(this.registrationWatch);
+      this.registrationWatch = undefined;
+    }
+    const window = this.load<{ id: string; expiresAt: number }>('enrollment.json');
+    if (this.enrollmentId && window?.id === this.enrollmentId)
+      this.save('enrollment.json', { ...window, expiresAt: 0 });
+    this.enrollmentId = undefined;
+  }
+  checkRegistrationNotices(): void {
+    if (!this.registrationWatch) return;
+    for (const { id } of this.listCredentials())
+      if (!this.observedCredentials.has(id)) {
+        this.observedCredentials.add(id);
+        try {
+          this.options.onRegistered?.(id);
+        } catch {
+          /* A notice is not an approval channel. */
+        }
+      }
+  }
+  enrollmentStatus(): {
+    registered: boolean;
+    open: boolean;
+    expiresAt?: number;
+    message?: string;
+    id?: string;
+  } {
+    if (this.listCredentials().length) return { registered: true, open: false };
+    const window = this.load<{ id: string; startedAt: number; expiresAt: number; pid: number }>(
+      'enrollment.json',
+    );
+    let alive = false;
+    if (window && Number.isSafeInteger(window.pid) && window.pid > 0) {
+      try {
+        process.kill(window.pid, 0);
+        alive = true;
+      } catch {
+        /* A stopped worker cannot enroll a first key. */
+      }
+    }
+    const open =
+      !!window &&
+      alive &&
+      Number.isSafeInteger(window.startedAt) &&
+      window.startedAt <= Date.now() &&
+      window.expiresAt === window.startedAt + ENROLLMENT_WINDOW_MS &&
+      window.expiresAt > Date.now();
+    return {
+      registered: false,
+      open,
+      message: NO_PASSKEY_MESSAGE,
+      ...(open ? { id: window!.id, expiresAt: window!.expiresAt } : {}),
+    };
+  }
+  private assertEnrollment(id?: string): void {
+    const state = this.enrollmentStatus();
+    if (!state.open || (id !== undefined && state.id !== id))
+      throw new Error('PASSKEY_ENROLLMENT_CLOSED: ' + NO_PASSKEY_MESSAGE);
   }
   listCredentials(): { id: string }[] {
     return this.registry().credentials.map(({ id }) => ({ id }));
@@ -165,6 +271,10 @@ export class PasskeyApprovalBroker {
             }
           }
           return [];
+        }
+        if (p?.kind === 'registration' && p.enrollmentId) {
+          const state = this.enrollmentStatus();
+          if (state.registered || !state.open || state.id !== p.enrollmentId) return [];
         }
         return p &&
           p.expiresAt > Date.now() &&
@@ -230,12 +340,59 @@ export class PasskeyApprovalBroker {
     details: unknown,
     deadline: number,
   ): Promise<ApprovalLink> {
-    const expiresAt = Math.min(deadline, Date.now() + 600000);
+    const until = Math.min(deadline, Date.now() + 15000);
+    let release: (() => void) | undefined;
+    while (!release) {
+      try {
+        release = acquireDailyLock(join(this.directory, 'pending.lock'));
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !error.message.startsWith('DAILY_LIMIT_BUSY') ||
+          Date.now() >= until
+        )
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    try {
+      return await this.createLocked(kind, taskId, gate, target, details, deadline);
+    } finally {
+      release();
+    }
+  }
+  private async createLocked(
+    kind: Pending['kind'],
+    taskId: string,
+    gate: string,
+    target: unknown,
+    details: unknown,
+    deadline: number,
+  ): Promise<ApprovalLink> {
+    const enrollment =
+      kind === 'registration' && !this.listCredentials().length
+        ? this.enrollmentStatus()
+        : undefined;
+    if (enrollment) this.assertEnrollment();
+    const expiresAt = Math.min(deadline, Date.now() + 600000, enrollment?.expiresAt ?? Infinity);
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error('APPROVAL_EXPIRED');
-    if (this.listPending().length >= 128) throw new Error('APPROVAL_CAPACITY');
+    const pendingLinks = this.listPending();
+    const existing = pendingLinks.find((link) => {
+      const p = this.load<Pending>(link.id + '.json');
+      return (
+        p?.kind === kind &&
+        p.taskId === taskId &&
+        p.gate === gate &&
+        p.targetDigest === digest(target) &&
+        (kind !== 'registration' || p.enrollmentId === enrollment?.id)
+      );
+    });
+    if (existing) return existing;
+    if (pendingLinks.length >= 128) throw new Error('APPROVAL_CAPACITY');
     const key = randomBytes(32),
       id = randomBytes(32).toString('hex'),
-      access = hash(Buffer.concat([key, Buffer.from('access')]));
+      access = hash(Buffer.concat([key, Buffer.from('access')])),
+      resultsAccess = randomBytes(32).toString('base64url');
     const credentials = this.listCredentials();
     const content = {
       version: 1,
@@ -250,6 +407,12 @@ export class PasskeyApprovalBroker {
       ownerDid: this.owner.did,
       rpID: this.rpID,
       credentials,
+      ...(!credentials.length
+        ? {
+            enrollmentExpiresAt: enrollment?.expiresAt ?? null,
+            noPasskeyMessage: NO_PASSKEY_MESSAGE,
+          }
+        : {}),
     };
     const binding = ownerApprovalBinding(content),
       challenge = approvalChallenge(id, 'approve', binding);
@@ -281,6 +444,7 @@ export class PasskeyApprovalBroker {
           ownerDid: this.owner.did,
           expiresAt,
           accessHash: hash(access),
+          resultsAccessHash: hash(resultsAccess),
           request: encryptApproval(key, id, request),
         },
         this.owner,
@@ -302,6 +466,8 @@ export class PasskeyApprovalBroker {
       expiresAt,
       key: key.toString('base64url'),
       access,
+      resultsAccess,
+      ...(enrollment ? { enrollmentId: enrollment.id } : {}),
       link: this.site + '/approve#' + fragment.toString(),
     };
     this.save(id + '.json', pending);
@@ -317,7 +483,7 @@ export class PasskeyApprovalBroker {
       {
         reason: this.listCredentials().length
           ? 'An existing passkey must approve this additional passkey.'
-          : 'The first passkey is trusted. Only continue if you installed this Sealbridge.',
+          : NO_PASSKEY_MESSAGE + ' An agent acting within this window can still register first.',
       },
       Date.now() + 600000,
     );
@@ -410,6 +576,10 @@ export class PasskeyApprovalBroker {
       if (value.id !== id || !['approve', 'reject'].includes(value.decision))
         throw new Error('APPROVAL_BINDING_MISMATCH');
       if (p.kind === 'registration') {
+        if (!registry.credentials.length) {
+          if (!p.enrollmentId) throw new Error('PASSKEY_ENROLLMENT_CLOSED');
+          this.assertEnrollment(p.enrollmentId);
+        }
         if (value.decision !== 'approve' || !value.registration) throw new Error('PASSKEY_INVALID');
         this.sameOrigin(value.registration.response.clientDataJSON);
         const registered = await (
@@ -436,6 +606,10 @@ export class PasskeyApprovalBroker {
             registry,
           );
         }
+        if (!registry.credentials.length) {
+          if (!p.enrollmentId) throw new Error('PASSKEY_ENROLLMENT_CLOSED');
+          this.assertEnrollment(p.enrollmentId);
+        }
         const c = registered.registrationInfo.credential;
         if (registry.credentials.some((k) => k.id === c.id))
           throw new Error('PASSKEY_ALREADY_REGISTERED');
@@ -455,7 +629,13 @@ export class PasskeyApprovalBroker {
       if (p.expiresAt <= Date.now()) throw new Error('APPROVAL_EXPIRED');
       registry.consumed = registry.consumed.filter((c) => c.expiresAt > Date.now());
       registry.consumed.push({ id, expiresAt: p.expiresAt });
+      if (p.kind === 'registration') {
+        this.save('enrolled.json', { registered: true });
+        const window = this.load<{ id: string }>('enrollment.json');
+        if (window) this.save('enrollment.json', { ...window, expiresAt: 0 });
+      }
       this.save('registry.json', registry);
+      if (p.kind === 'registration') this.checkRegistrationNotices();
       this.save(id + '.decision.json', {
         id,
         taskId: p.taskId,
@@ -488,13 +668,24 @@ export class PasskeyApprovalBroker {
           : 'rejected';
     const result = await this.http(id, '/results', 'GET', p.access, undefined, signal);
     if (!Array.isArray(result.results)) throw new Error('INVALID_APPROVAL_RESPONSE');
+    const invalid: string[] = [];
     for (const ciphertext of result.results.slice(0, 16)) {
       try {
         return await this.acceptResult(id, ciphertext);
       } catch {
+        invalid.push(hash(String(ciphertext)));
         /* Invalid results never unblock work. */
       }
     }
+    if (invalid.length)
+      await this.http(
+        id,
+        '/results',
+        'DELETE',
+        p.resultsAccess,
+        { digests: invalid },
+        signal,
+      ).catch(() => {});
     return undefined;
   }
   async wait(id: string, signal?: AbortSignal): Promise<'approved' | 'rejected' | 'registered'> {
@@ -642,6 +833,12 @@ export class PasskeyApprovalProvider implements ApprovalProvider {
   readonly ownerDecision = true as const;
   readonly remoteTaskReview = true as const;
   constructor(readonly broker: PasskeyApprovalBroker) {}
+  workerStarted() {
+    this.broker.startWorkerEnrollment();
+  }
+  workerStopped() {
+    this.broker.stopWorkerEnrollment();
+  }
   approve(request: ApprovalRequest) {
     return this.broker.approve(request);
   }

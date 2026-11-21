@@ -130,6 +130,8 @@ export interface ApprovalRequest {
 export interface ApprovalProvider {
   /** Host-owned exact task review through an encrypted passkey ceremony. */
   readonly remoteTaskReview?: true;
+  workerStarted?(): void;
+  workerStopped?(): void;
   readonly ownerDecision?: true;
   readonly kind?: 'human' | 'policy';
   approve(request: ApprovalRequest): Promise<ApprovalReceipt>;

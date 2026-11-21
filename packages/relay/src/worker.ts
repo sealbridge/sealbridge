@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
 import { routeApproval } from './approvals.js';
 export { ApprovalDurableObject } from './approvals.js';
-// SPDX-License-Identifier: Apache-2.0
 import { routeInvite, routeInviteClaim } from './invites.js';
 import type { InviteNamespace } from './invites.js';
 export { InviteDurableObject } from './invites.js';
@@ -478,6 +478,11 @@ export async function handleRelayEdge(request: Request, env?: RelayEdgeEnv): Pro
       headers: relayHttpHeaders('json'),
     });
   if (url.pathname.startsWith('/v1/approvals')) {
+    if (env?.APPROVALS && !env.RATE_LIMITER)
+      return Response.json(
+        { error: 'RATE_LIMITER_UNAVAILABLE' },
+        { status: 503, headers: relayHttpHeaders('json') },
+      );
     const limited = await applyRateLimit(request, env, 'approval');
     if (limited) return limited;
     if (env?.APPROVALS) return routeApproval(request, env.APPROVALS);

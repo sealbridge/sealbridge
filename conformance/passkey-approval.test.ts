@@ -28,8 +28,10 @@ import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 const sha = (s: string | Buffer) => createHash('sha256').update(s).digest();
 const b64 = (s: Uint8Array) => Buffer.from(s).toString('base64url');
 const dirs: string[] = [];
+const enrollmentBrokers: PasskeyApprovalBroker[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
+  for (const broker of enrollmentBrokers.splice(0)) broker.stopWorkerEnrollment();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function authenticator() {
@@ -112,6 +114,8 @@ function fixture(extra: Partial<ConstructorParameters<typeof PasskeyApprovalBrok
     fetch: fetcher,
     ...extra,
   });
+  broker.startWorkerEnrollment();
+  enrollmentBrokers.push(broker);
   async function open(link: ApprovalLink) {
     const params = new URL(link.link).hash.slice(1),
       q = new URLSearchParams(params),
@@ -125,7 +129,7 @@ function fixture(extra: Partial<ConstructorParameters<typeof PasskeyApprovalBrok
       link.id,
       ((await response.json()) as { request: string }).request,
     ) as { challenge: string; details: unknown };
-    return { request, key, seal: (value: unknown) => encryptApproval(key, link.id, value) };
+    return { request, key, access, seal: (value: unknown) => encryptApproval(key, link.id, value) };
   }
   async function register(auth = authenticator()) {
     const link = await broker.requestRegistration(),
@@ -155,6 +159,169 @@ function fixture(extra: Partial<ConstructorParameters<typeof PasskeyApprovalBrok
   return { broker, owner, open, register, approval, fetcher };
 }
 describe('encrypted owner passkey approval', () => {
+  it('accepts a first key inside the worker window and emits a registration notice once', async () => {
+    const notice = vi.fn(),
+      f = fixture({ onRegistered: notice });
+    const state = f.broker.enrollmentStatus();
+    expect(state).toMatchObject({ registered: false, open: true });
+    vi.spyOn(Date, 'now').mockReturnValue(state.expiresAt! - 1);
+    await f.register();
+    f.broker.checkRegistrationNotices();
+    expect(notice).toHaveBeenCalledTimes(1);
+    expect(f.broker.enrollmentStatus()).toEqual({ registered: true, open: false });
+  });
+  it('rejects first registration outside the worker window, including MCP attempts to reopen it', async () => {
+    const f = fixture(),
+      state = f.broker.enrollmentStatus(),
+      link = await f.broker.requestRegistration(),
+      o = await f.open(link),
+      auth = authenticator();
+    expect(link.expiresAt).toBe(state.expiresAt);
+    const response = o.seal({
+      id: link.id,
+      decision: 'approve',
+      registration: auth.register(o.request.challenge),
+    });
+    vi.spyOn(Date, 'now').mockReturnValue(state.expiresAt! + 1);
+    await expect(f.broker.acceptResult(link.id, response)).rejects.toThrow('APPROVAL_EXPIRED');
+    await expect(f.broker.requestRegistration()).rejects.toThrow('PASSKEY_ENROLLMENT_CLOSED');
+    const server = new AcpMcpServer({
+      owner: f.owner,
+      identityOptions: f.broker.options,
+      relay: 'https://relay.example',
+      fetch: f.fetcher,
+      allowAnyRelay: true,
+    });
+    try {
+      const before = f.fetcher.mock.calls.length;
+      const result = (await server.handle({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'acp_owner_approval', arguments: { action: 'register' } },
+      })) as { result: { content: { text: string }[] } };
+      expect(JSON.parse(result.result.content[0].text)).toMatchObject({
+        status: 'registration_window_closed',
+        enrollment: {
+          open: false,
+          message: expect.stringContaining('No passkey is registered yet'),
+        },
+      });
+      expect(f.fetcher.mock.calls).toHaveLength(before);
+      expect(f.broker.listCredentials()).toHaveLength(0);
+    } finally {
+      server.stopDelivery();
+    }
+  });
+  it('only a worker restart reopens bootstrap with zero keys; it never opens after enrollment', async () => {
+    const f = fixture(),
+      first = f.broker.enrollmentStatus();
+    vi.spyOn(Date, 'now').mockReturnValue(first.expiresAt! + 1);
+    const standalone = new PasskeyApprovalBroker(f.owner, f.broker.options);
+    expect(standalone.enrollmentStatus().open).toBe(false);
+    f.broker.stopWorkerEnrollment();
+    f.broker.startWorkerEnrollment();
+    const next = f.broker.enrollmentStatus();
+    expect(next.open).toBe(true);
+    expect(next.id).not.toBe(first.id);
+    await f.register();
+    f.broker.stopWorkerEnrollment();
+    f.broker.startWorkerEnrollment();
+    expect(f.broker.enrollmentStatus()).toEqual({ registered: true, open: false });
+    const saved = readFileSync(join(f.broker.directory, 'registry.json'));
+    try {
+      rmSync(join(f.broker.directory, 'registry.json'));
+      expect(() => f.broker.startWorkerEnrollment()).toThrow('PASSKEY_STATE_INVALID');
+    } finally {
+      writeFileSync(join(f.broker.directory, 'registry.json'), saved);
+    }
+  });
+  it('deduplicates concurrent registration requests instead of filling the pending cap', async () => {
+    const f = fixture(),
+      links = await Promise.all(Array.from({ length: 140 }, () => f.broker.requestRegistration()));
+    expect(new Set(links.map((l) => l.id)).size).toBe(1);
+    expect(f.broker.listPending()).toHaveLength(1);
+  });
+
+  it('drains junk candidates with a private worker capability and accepts a later valid decision', async () => {
+    const f = fixture(),
+      auth = await f.register(),
+      link = await f.approval(),
+      o = await f.open(link);
+    const url = 'https://relay.example/v1/approvals/' + link.id + '/results',
+      headers = { authorization: 'Bearer ' + o.access, 'content-type': 'application/json' };
+    for (let i = 0; i < 40; i++)
+      expect(
+        (
+          await f.fetcher(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ result: 'junk-' + i }),
+          })
+        ).status,
+      ).toBe(200);
+    expect(await f.broker.poll(link.id)).toBeUndefined();
+    expect(await (await f.fetcher(url, { headers })).json()).toEqual({ results: [] });
+    const result = o.seal({
+      id: link.id,
+      decision: 'approve',
+      assertion: auth.assert(o.request.challenge),
+    });
+    expect(
+      (await f.fetcher(url, { method: 'POST', headers, body: JSON.stringify({ result }) })).status,
+    ).toBe(200);
+    expect(await f.broker.poll(link.id)).toBe('approved');
+  });
+  it('continues automatic read-only work with no key after the enrollment window closes', async () => {
+    const f = fixture(),
+      relay = new InMemoryRelay(),
+      provider = new PasskeyApprovalProvider(f.broker);
+    f.broker.stopWorkerEnrollment();
+    const worker = new WorkerNode({
+      owner: f.owner,
+      relay,
+      relayUrl: 'https://relay.example',
+      identityOptions: f.broker.options,
+      approvalProvider: provider,
+      ownerApprovalProvider: provider,
+      adapter: {
+        id: 'sandbox',
+        name: 'read-only',
+        skills: [],
+        taskAccess: 'read-only',
+        executeTask: async (ctx) => ctx.input,
+      },
+    });
+    const running = worker.start();
+    try {
+      await vi.waitFor(() => expect(f.broker.enrollmentStatus().open).toBe(true));
+      f.broker.stopWorkerEnrollment();
+      expect(f.broker.enrollmentStatus().open).toBe(false);
+      const owner = generateKeyPair(),
+        client = new RequesterClient({
+          owner,
+          relay,
+          identityOptions: f.broker.options,
+          approvalProvider: new PolicyAutoApprovalProvider(owner),
+          waitTimeoutMs: 10000,
+        });
+      expect(
+        (
+          await client.delegate({
+            to: worker.invite(),
+            title: 'Read',
+            description: 'Read only with bootstrap closed',
+            input: { ok: true },
+          })
+        ).state,
+      ).toBe('SETTLED');
+      expect(f.broker.listCredentials()).toHaveLength(0);
+      expect(f.broker.enrollmentStatus().open).toBe(false);
+    } finally {
+      worker.stop();
+      await running;
+    }
+  });
   it('MCP returns a registration link immediately, lists private pending links, and verifies results', async () => {
     const f = fixture(),
       server = new AcpMcpServer({
@@ -264,8 +431,13 @@ describe('encrypted owner passkey approval', () => {
   });
   it('compiled non-TTY worker waits for the encrypted relay result, then executes once', async () => {
     const f = fixture(),
-      auth = await f.register(),
       local = await startLocalRelay();
+    const notifications = join(f.broker.directory, 'notifications.jsonl'),
+      script = join(f.broker.directory, 'notify.cjs');
+    writeFileSync(
+      script,
+      `require('node:fs').appendFileSync(${JSON.stringify(notifications)},require('node:fs').readFileSync(0));`,
+    );
     const key = join(f.broker.directory, 'worker.private.json');
     writeFileSync(key, JSON.stringify(f.owner), { mode: 0o600 });
     const child = spawn(
@@ -286,6 +458,8 @@ describe('encrypted owner passkey approval', () => {
         'command',
         '--cmd',
         `"${process.execPath}" "${resolve('conformance/fixtures/json-echo.cjs')}"`,
+        '--notify',
+        `"${process.execPath}" "${script}"`,
         '--once',
       ],
       { env: { ...process.env, ...f.broker.options.env }, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -306,6 +480,15 @@ describe('encrypted owner passkey approval', () => {
     let task: ReturnType<RequesterClient['delegate']> | undefined;
     try {
       await vi.waitFor(() => expect(stdout).toContain('acp-invite:'), { timeout: 10000 });
+      await vi.waitFor(() => expect(stderr).toContain('No passkey is registered yet'), {
+        timeout: 10000,
+      });
+      const auth = await f.register();
+      await vi.waitFor(() => expect(stderr).toContain('passkey_registered'), { timeout: 10000 });
+      await vi.waitFor(
+        () => expect(readFileSync(notifications, 'utf8')).toContain('passkey_registered'),
+        { timeout: 10000 },
+      );
       const requester = generateKeyPair(),
         client = new RequesterClient({
           owner: requester,

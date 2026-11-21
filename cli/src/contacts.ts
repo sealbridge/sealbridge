@@ -138,6 +138,12 @@ export function contactsApproval(
           ...(interactive.kind ? { kind: interactive.kind } : {}),
           ...(interactive.ownerDecision ? { ownerDecision: true as const } : {}),
           ...(interactive.remoteTaskReview ? { remoteTaskReview: true as const } : {}),
+          ...(interactive.workerStarted
+            ? { workerStarted: () => interactive.workerStarted!() }
+            : {}),
+          ...(interactive.workerStopped
+            ? { workerStopped: () => interactive.workerStopped!() }
+            : {}),
         }),
     async approve(request) {
       const contacts = loadContacts(path, key.did);

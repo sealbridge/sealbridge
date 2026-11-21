@@ -12,6 +12,11 @@
     <main>
       <h1>Owner approval</h1>
       <p>Review this request before using your passkey. No account or social login is needed.</p>
+      <p id="enrollment" role="status">
+        First-key setup requires a running worker and registration within 10 minutes of startup. If
+        no passkey is registered, write tasks cannot be approved. Restart the worker if that window
+        has closed.
+      </p>
       <p id="status" role="status">Open the request to decrypt it on this device.</p>
       <button id="open">Open private request</button>
       <section id="review" hidden>

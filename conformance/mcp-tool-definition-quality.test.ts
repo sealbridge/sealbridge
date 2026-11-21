@@ -1,5 +1,5 @@
-import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
+import type { RelayTransport } from '../packages/relay/src/index.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, it, vi } from 'vitest';
 import {

@@ -20,6 +20,7 @@ test('private browser approval registers and authenticates a passkey without any
     fetch: fetcher,
   });
   const rules = headerRules(await readFile(new URL('../_headers', import.meta.url), 'utf8'));
+  broker.startWorkerEnrollment();
   const unexpected = [],
     requests = [];
   await context.route('**/*', async (route) => {
@@ -76,7 +77,8 @@ test('private browser approval registers and authenticates a passkey without any
     expect(requests.some((url) => url.includes('relay.example'))).toBe(false);
     expect(new URL(page.url()).hash).toBe('');
     await page.getByRole('button', { name: 'Open private request' }).click();
-    await expect(page.locator('#reason')).toContainText('first passkey');
+    await expect(page.locator('#enrollment')).toContainText('No passkey is registered yet');
+    await expect(page.locator('#reason')).toContainText('register first');
     await page.getByRole('button', { name: 'Register passkey', exact: true }).click();
     await expect(page.locator('#status')).toContainText('Decision sent encrypted');
     const saved = JSON.parse(
@@ -112,6 +114,7 @@ test('private browser approval registers and authenticates a passkey without any
     expect(await broker.poll(approval.id)).toBe('approved');
     expect(unexpected).toEqual([]);
   } finally {
+    broker.stopWorkerEnrollment();
     await rm(directory, { recursive: true, force: true });
   }
 });

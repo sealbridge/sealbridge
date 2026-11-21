@@ -3,7 +3,7 @@
 For work requiring approval, call `acp_owner_approval {"action":"list"}` and show
 the pending link in chat. The owner reviews it and uses their passkey; opening a
 link alone approves nothing. Use `{"action":"register"}` to enroll a passkey.
-The first passkey is trusted; adding another requires an existing one.
+First-key enrollment is open for ten minutes after worker startup; an agent in that window can still register first; adding another requires an existing one.
 See [passkey owner approval](passkey-approval.md) for limits, compatibility and
 deployment prerequisites. Workers keep waiting while the owner uses the link.
 
@@ -19,7 +19,7 @@ For an operator configuring a background worker, `worker start --notify <command
 sends one JSON object per event to command stdin or via HTTP POST. It works without
 `--inbox`; notification targets default to off. Events are `task_received`,
 `approval_needed` (`held` identifies a held attempt), `completed` (settled), and
-`new_connection`. Payloads contain timestamps and identifiers, never task bodies,
+`new_connection`; `passkey_registered` alerts the owner to a newly enrolled key. Payloads contain timestamps and identifiers, never task bodies,
 invite tokens or private keys. Commands run on the worker host. Failed notifications
 are reported as `notification_failed`, do not change approval decisions and are not
 retried automatically; delivery is best effort and the in-memory queue is bounded.

@@ -24,11 +24,26 @@ after process exit. Interrupted tasks require explicit fresh submission.
 
 ## First-passkey trust and verification
 
-**The first registered passkey is trusted without another approval.** Someone
-who completes that first registration before the owner can enroll their own key.
-Installation does not establish a human identity. Register promptly from an
-owner-controlled installation and inspect the `https://sealbridge.app` origin.
-An agent must not complete the first ceremony on the owner's behalf.
+**First-key trust is limited to the first ten minutes after worker startup.**
+Only a running worker can open that local enrollment window, and only while no
+passkey exists. The worker verifies its own signed window record and local clock;
+relay and page timestamps cannot extend it. Restarting a still-unenrolled worker
+opens a fresh ten-minute window and invalidates prior-window registration links.
+Once a passkey is registered, restarting never opens another bootstrap window;
+additional keys require an existing passkey. Missing previously initialized
+registry state fails closed rather than resetting first-key trust.
+
+**Remaining risk: an agent that acts within the ten-minute window can still
+register a software authenticator first and approve work.** The window reduces
+exposure; it does not prove that the first enrollee is the human owner.
+Register promptly from an owner-controlled installation and inspect the
+`https://sealbridge.app` origin. An agent must not complete the first ceremony on
+the owner's behalf. With no key, worker output, MCP results and the approval page
+explain that writes cannot be approved and how to restart/register. Read-only
+work continues when enrollment closes. Newly registered credentials generate a
+`passkey_registered` worker log and the existing `--notify` target when configured,
+including registration completed by a separate MCP process.
+
 Recommend `sealbridge config key-store keychain` (JSON: `keyStore: "keychain"`).
 This does not automatically migrate existing keys; see the key-store guide.
 
@@ -54,8 +69,10 @@ without a passkey inside an owner-configured `max-monthly-usd` and known pricing
 Without a cap, it requires approval every time. Set a cap using
 `sealbridge config auto-accept max-monthly-usd 5`.
 
-The default automatic input limit is **1 MiB of UTF-8 JSON**. Larger inputs need
-approval; existing transport/body caps and configured diff limits still apply.
+The default automatic input limit is **128 KiB of UTF-8 JSON**. Larger inputs need
+approval. The complete signed/encrypted relay envelope is capped at 256 KiB;
+protocol metadata, capability chains and encryption overhead can further reduce
+the input that fits. Existing configured diff limits still apply.
 Capabilities, redelegation and verification commands cannot use the paid-only
 exception. Custom provider endpoints and unknown model prices require approval.
 
@@ -92,10 +109,20 @@ wire formats remain compatible; worker approval-channel defaults change.
    `packages/relay/wrangler.toml.example`. Existing bindings remain.
 2. Routes: `POST /v1/approvals/:id` for owner-signed encrypted requests;
    `GET /v1/approvals/:id` for encrypted request retrieval;
-   `GET|POST /v1/approvals/:id/results` for encrypted result candidates;
-   CORS `OPTIONS`. IDs are 64 lowercase hex characters. Routes use bounded bodies,
+   `GET|POST|DELETE /v1/approvals/:id/results` for encrypted result candidates;
+   CORS `OPTIONS`. Result DELETE is worker-management-only and drops exact invalid
+   candidate hashes; its random capability is never included in approval links.
+   The bounded rolling result queue retains at most 16 candidates and always
+   accepts a later candidate instead of locking a full mailbox. The worker verifies
+   candidates and drains junk. Local pending creation is serialized and deduplicated
+   (128 distinct active ceremonies per owner); repeated registration calls reuse
+   one link. Continuous flooding or an untrusted relay can still deny availability,
+   but cannot authorize work. IDs are 64 lowercase hex characters. Routes use bounded bodies,
    capability authentication, rate limiting, no-store headers and ten-minute
-   expiry alarms. No new database/KV, account provider or secret binding is needed.
+   expiry alarms. Production approval routes require the existing `RATE_LIMITER` binding and fail
+   closed if it is missing or unavailable; reuse the operator's namespace or add it
+   as shown in the example. No new database/KV, account provider or secret binding
+   is needed. Expiry uses `storage.deleteAll()` to remove the complete mailbox.
 3. Deploy invite-site `/approve/index.html`, `/approve.js`, stylesheet and updated
    `_headers` at **`https://sealbridge.app`**. Only the approval page permits HTTPS
    relay connections; existing `/i` and `/j` policies stay unchanged. The RP ID and

@@ -18,7 +18,7 @@ class_name = "RelayDurableObject"
 tag = "v1"
 new_sqlite_classes = ["RelayDurableObject"]
 
-# Optional. The worker also enforces an in-isolate sliding window via
+# Required for approval routes when APPROVALS is configured. The worker also enforces an in-isolate sliding window via
 # ACP_RATE_LIMIT_MAX (default 300) and ACP_RATE_LIMIT_WINDOW_MS (default 60000).
 # Inbox caps and TTLs can be overridden with ACP_MAX_ENVELOPE_BYTES,
 # ACP_MAX_QUEUE_SIZE, ACP_MAX_QUEUE_BYTES, ACP_ENVELOPE_TTL_MS,
@@ -30,10 +30,10 @@ new_sqlite_classes = ["RelayDurableObject"]
 # 既定: 保持24時間、宛先256件・4194304バイト、1件262144バイト。
 # 送信者の件数は宛先の件数と同じ。保存済み期限は維持します。
 # 容量の一時拒否は HTTP 429 RELAY_RETRY_LATER（待機60000ミリ秒）。
-# [[ratelimits]]
-# name = "RATE_LIMITER"
-# namespace_id = "1001"
-# simple = { limit = 300, period = 60 }
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 300, period = 60 }
 
 # Short invite links: id objects, owner admissions and claimant IP coordinators.
 [[durable_objects.bindings]]

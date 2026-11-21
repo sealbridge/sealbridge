@@ -1019,7 +1019,7 @@ export const mcpTools: Json = [
     name: 'acp_owner_approval',
     title: 'Owner passkeys and approval links',
     description:
-      'Return owner approval links for chat with action list; register creates a first or additional passkey registration link, and poll verifies encrypted results for one id. Opening a link never approves work: the owner must use a registered passkey. The first passkey is trusted; adding others requires an existing passkey. Uses the local worker owner, or this server explicit owner. Pass a relayUrl only when needed; relay allowlists apply. Return links to the owner in chat; never claim approval from link possession.',
+      'Return owner approval links for chat with action list; register creates a first or additional passkey registration link, and poll verifies encrypted results for one id. Opening a link never approves work: the owner must use a registered passkey. The first passkey is trusted only in the worker startup ten-minute window; an agent can still register first during it; adding others requires an existing passkey. Uses the local worker owner, or this server explicit owner. Pass a relayUrl only when needed; relay allowlists apply. Return links to the owner in chat; never claim approval from link possession.',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
@@ -1057,6 +1057,9 @@ export const mcpTools: Json = [
         link: described('Private encrypted approval or registration URL.', { type: 'string' }),
         kind: described('Task approval or registration ceremony.', { type: 'string' }),
         expiresAt: described('Expiry in Unix milliseconds.', { type: 'number' }),
+        enrollment: jsonValue(
+          'Worker-side enrollment window and no-passkey guidance when no key is registered.',
+        ),
         status: described('Waiting or locally verified outcome.', { type: 'string' }),
       },
     ),

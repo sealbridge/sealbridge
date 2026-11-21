@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 import { PasskeyApprovalBroker, PasskeyApprovalProvider } from '@acp/runtime';
 import { createEventNotifier } from './notify.js';
 import { resolveInviteLink, shareInvite, sharedInviteConsumed } from '@acp/runtime';
-// SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
 import {
@@ -773,6 +773,24 @@ export async function networkCommand(
                   },
                 }
               : {}),
+            onEnrollment: (state) => {
+              if (!state.registered)
+                console.error(JSON.stringify({ event: 'passkey_required', ...state }));
+            },
+            onRegistered: (credentialId) => {
+              console.error(
+                JSON.stringify({
+                  event: 'passkey_registered',
+                  credentialId,
+                  workerDid: agentKey?.did ?? key.did,
+                }),
+              );
+              notifier.emit({
+                event: 'passkey_registered',
+                timestamp: new Date().toISOString(),
+                workerDid: agentKey?.did ?? key.did,
+              });
+            },
             onLink: (link) => {
               console.error(
                 JSON.stringify({

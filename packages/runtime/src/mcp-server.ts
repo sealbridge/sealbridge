@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { PasskeyApprovalBroker } from './passkey-approval.js';
 import type { SharedInvite } from './invite-links.js';
 import { connectInvite } from './invite-connect.js';
@@ -7,7 +8,6 @@ import {
   shareInvite,
   sharedInviteConsumed,
 } from './invite-links.js';
-// SPDX-License-Identifier: Apache-2.0
 import { assertInviteMaxUses } from './connection-records.js';
 import type { ConnectedEvent } from './connection-router.js';
 import {
@@ -966,9 +966,22 @@ export class AcpMcpServer {
         return {
           credentials: broker.listCredentials(),
           pending: broker.listPending(),
+          ...(!broker.enrollmentStatus().registered
+            ? { enrollment: broker.enrollmentStatus() }
+            : {}),
         } as unknown as Json;
       if (args.action === 'poll')
-        return { status: (await broker.poll(args.id as string)) ?? 'waiting' };
+        return {
+          status: (await broker.poll(args.id as string)) ?? 'waiting',
+          ...(!broker.enrollmentStatus().registered
+            ? { enrollment: broker.enrollmentStatus() }
+            : {}),
+        };
+      if (!broker.enrollmentStatus().registered && !broker.enrollmentStatus().open)
+        return {
+          status: 'registration_window_closed',
+          enrollment: broker.enrollmentStatus(),
+        } as unknown as Json;
       const link = await broker.requestRegistration();
       const controller = new AbortController();
       this.passkeyControllers.add(controller);

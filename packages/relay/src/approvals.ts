@@ -6,7 +6,7 @@ import type { InviteNamespace, InviteStorage } from './invites.js';
 const headers = {
   'cache-control': 'no-store',
   'access-control-allow-origin': 'https://sealbridge.app',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
   'access-control-allow-headers': 'content-type, authorization',
   'referrer-policy': 'no-referrer',
 };
@@ -17,6 +17,7 @@ interface Mailbox {
   ownerDid: string;
   expiresAt: number;
   accessHash: string;
+  resultsAccessHash: string;
   request: string;
   results: string[];
 }
@@ -46,14 +47,14 @@ async function body(request: Request): Promise<unknown> {
 /** Opaque, bounded ten-minute mailbox. The relay never receives a decrypting key. */
 export class ApprovalDurableObject {
   private turn: Promise<unknown> = Promise.resolve();
-  constructor(private state: { storage: InviteStorage }) {}
+  constructor(private state: { storage: InviteStorage & { deleteAll(): Promise<void> } }) {}
   fetch(request: Request): Promise<Response> {
     const next = this.turn.then(() => this.handle(request));
     this.turn = next.catch(() => undefined);
     return next;
   }
   alarm(): Promise<void> {
-    const next = this.turn.then(() => this.state.storage.put('mailbox', null));
+    const next = this.turn.then(() => this.state.storage.deleteAll());
     this.turn = next.catch(() => undefined);
     return next;
   }
@@ -77,6 +78,7 @@ export class ApprovalDurableObject {
           p.expiresAt <= Date.now() ||
           p.expiresAt > Date.now() + 600_000 ||
           !/^[\w-]{43}$/.test(p.accessHash) ||
+          !/^[\w-]{43}$/.test(p.resultsAccessHash) ||
           typeof p.request !== 'string' ||
           p.request.length > 1_500_000
         )
@@ -88,6 +90,22 @@ export class ApprovalDurableObject {
       }
       if (!box || box.expiresAt <= Date.now()) return json({ error: 'APPROVAL_EXPIRED' }, 410);
       const access = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
+      if (request.method === 'DELETE' && match[2]) {
+        if (hash(access) !== box.resultsAccessHash)
+          return json({ error: 'APPROVAL_UNAVAILABLE' }, 404);
+        const value = (await body(request)) as { digests?: unknown };
+        if (
+          !Array.isArray(value.digests) ||
+          value.digests.length > 16 ||
+          value.digests.some((d) => typeof d !== 'string')
+        )
+          throw new Error();
+        const digests = value.digests;
+        box.results = box.results.filter((ciphertext) => !digests.includes(hash(ciphertext)));
+        if (box.expiresAt <= Date.now()) return json({ error: 'APPROVAL_EXPIRED' }, 410);
+        await this.state.storage.put('mailbox', box);
+        return json({ removed: true });
+      }
       if (hash(access) !== box.accessHash) return json({ error: 'APPROVAL_UNAVAILABLE' }, 404);
       if (request.method === 'GET')
         return json(match[2] ? { results: box.results } : { request: box.request });
@@ -96,8 +114,9 @@ export class ApprovalDurableObject {
         if (box.expiresAt <= Date.now()) return json({ error: 'APPROVAL_EXPIRED' }, 410);
         if (typeof result.result !== 'string' || result.result.length > 24000) throw new Error();
         if (!box.results.includes(result.result)) {
-          if (box.results.length >= 16) return json({ error: 'APPROVAL_MAILBOX_FULL' }, 429);
+          // A bounded rolling queue never locks out a later valid decision.
           box.results.push(result.result);
+          box.results = box.results.slice(-16);
           await this.state.storage.put('mailbox', box);
         }
         return json({ delivered: true });
@@ -133,6 +152,9 @@ export function createMemoryApprovalHandler() {
             object: new ApprovalDurableObject({
               storage: {
                 get: async <T>() => saved as T,
+                deleteAll: async () => {
+                  saved = undefined;
+                },
                 put: async (_key, value) => {
                   saved = structuredClone(value);
                 },

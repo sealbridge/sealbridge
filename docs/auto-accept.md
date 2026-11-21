@@ -6,7 +6,7 @@
 
 Source workers now default to [passkey approval links](passkey-approval.md).
 Writes always require owner approval in that mode; OpenAI paid-only work can use
-the configured monthly automatic allowance, and inputs over 1 MiB need review.
+the configured monthly automatic allowance, and inputs over 128 KiB need review.
 `--tty-approval` explicitly retains the legacy terminal rule behavior described
 in older examples. Relay/site deployment is required before links can be used.
 

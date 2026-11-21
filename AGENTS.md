@@ -10,7 +10,7 @@ Cursor, and other agents. The portable skill entry point is [SKILL.md](SKILL.md)
 Current source workers use encrypted owner approval links and passkeys by default.
 Use MCP `acp_owner_approval` with `action: "list"` to show pending links in chat,
 or `action: "register"` to enroll a passkey. Opening a link grants no approval;
-the owner must review and use their authenticator. The first passkey is trusted;
+the owner must review and use their authenticator. First-key enrollment is open for ten minutes after worker startup; an agent in that window can still register first;
 subsequent keys require an existing passkey. Keep the worker running.
 Legacy terminal approval/inspection requires explicit `worker start --tty-approval`.
 This default supersedes terminal-only approval instructions in older examples below.

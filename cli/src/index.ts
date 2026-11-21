@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { passkeysCommand } from './passkeys.js';
 // SPDX-License-Identifier: Apache-2.0
+import { passkeysCommand } from './passkeys.js';
 import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { generateKeyPair, validateSchema, signApproval } from '@acp/core';

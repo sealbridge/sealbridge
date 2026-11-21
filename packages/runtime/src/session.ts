@@ -1,5 +1,5 @@
-import { autoAcceptReason, passkeyTaskReasons } from './auto-accept.js';
 // SPDX-License-Identifier: Apache-2.0
+import { autoAcceptReason, passkeyTaskReasons } from './auto-accept.js';
 import { assertInviteMaxUses } from './connection-records.js';
 import { nameInviteConnection } from './connection-aliases.js';
 import {
@@ -924,7 +924,7 @@ export class WorkerNode {
             : (options.relayUrl ?? 'http://in-memory.invalid'),
         skills: options.adapter.skills,
         description: options.ownerApprovalProvider?.remoteTaskReview
-          ? `Passkey approval links for writes and owner decisions. Automatic read-only input limit: 1048576 bytes. ${options.adapter.id === 'openai' ? 'Paid-only work uses the configured monthly automatic allowance; no allowance means approval every time.' : 'Read-only work follows the configured audience rule.'}`
+          ? `Passkey approval links for writes and owner decisions. Automatic read-only input limit: 131072 bytes. ${options.adapter.id === 'openai' ? 'Paid-only work uses the configured monthly automatic allowance; no allowance means approval every time.' : 'Read-only work follows the configured audience rule.'}`
           : this.autoAccept.enabled
             ? `Automatic ${this.autoAccept.work} work from ${this.autoAccept.from} peers. Adapter access: ${options.adapter.taskAccess ?? 'write/unspecified'}. Work outside this rule needs owner approval.`
             : 'Automatic acceptance is off. Tasks need owner approval.',
@@ -1226,6 +1226,7 @@ export class WorkerNode {
     this.continuous = !options.once;
     let initialize = true;
     try {
+      this.options.ownerApprovalProvider?.workerStarted?.();
       while (initialize || !idleSignal.aborted) {
         initialize = false;
         try {
@@ -1300,6 +1301,7 @@ export class WorkerNode {
         throw error;
       }
     } finally {
+      this.options.ownerApprovalProvider?.workerStopped?.();
       this.continuous = false;
       if (this.status !== 'unavailable') this.listenerStatus('stopped');
       unregister();
@@ -3773,6 +3775,7 @@ function safeError(e: unknown, contextGrant = false): string {
       'APPROVAL_CAPACITY',
       'OWNER_APPROVAL_REJECTED',
       'PASSKEY_STATE_INVALID',
+      'PASSKEY_ENROLLMENT_CLOSED',
       'PAID_TASK_REPLAY',
       'MONTHLY_STATE_UNAVAILABLE',
       'INPUT_SIZE_LIMIT_REACHED',

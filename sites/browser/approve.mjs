@@ -108,6 +108,11 @@ $('open').addEventListener('click', async () => {
     binding = ownerApprovalBinding(request);
     if (request.challenge !== ownerApprovalChallenge(id, 'approve', binding))
       throw new Error('Approval binding is invalid.');
+    if (request.credentials.length) $('enrollment').textContent = '';
+    if (!request.credentials.length)
+      $('enrollment').textContent =
+        request.noPasskeyMessage ??
+        'No passkey is registered yet. Write tasks cannot be approved. Restart the worker and register within 10 minutes.';
     fresh();
     $('title').textContent =
       request.kind === 'registration'
@@ -180,6 +185,9 @@ async function decide(decision) {
     );
     const packed = new Uint8Array([...iv, ...cipher.slice(-16), ...cipher.slice(0, -16)]);
     await json('/results', { result: encode(packed) });
+    if (request.kind === 'registration')
+      $('enrollment').textContent =
+        'Registration submitted. Check the worker passkey registered notice.';
     $('status').textContent =
       'Decision sent encrypted. Local Sealbridge must verify your passkey before taking action.';
   } catch (e) {
