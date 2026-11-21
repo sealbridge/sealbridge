@@ -233,7 +233,7 @@ describe('encrypted owner passkey approval', () => {
       rmSync(join(f.broker.directory, 'registry.json'));
       expect(() => f.broker.startWorkerEnrollment()).toThrow('PASSKEY_STATE_INVALID');
     } finally {
-      writeFileSync(join(f.broker.directory, 'registry.json'), saved);
+      writeFileSync(join(f.broker.directory, 'registry.json'), saved, { mode: 0o600 });
     }
   });
   it('deduplicates concurrent registration requests instead of filling the pending cap', async () => {
