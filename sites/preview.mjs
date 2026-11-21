@@ -1,3 +1,4 @@
+import { headerRules, headersFor } from './header-rules.mjs';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -7,24 +8,8 @@ import path from 'node:path';
 import { parseByteRange } from './media-range.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const rules = [];
-for (const line of (await readFile(path.join(directory, '_headers'), 'utf8')).split('\n')) {
-  if (!line.trim() || line.trim().startsWith('#')) continue;
-  if (line.startsWith('/')) rules.push({ route: line.trim(), headers: {} });
-  else {
-    const colon = line.indexOf(':');
-    if (colon > 0 && rules.length)
-      rules.at(-1).headers[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
-  }
-}
-function policyFor(pathname) {
-  return Object.assign(
-    {},
-    ...rules
-      .filter((rule) => rule.route === '/*' || rule.route === pathname)
-      .map((rule) => rule.headers),
-  );
-}
+const rules = headerRules(await readFile(path.join(directory, '_headers'), 'utf8'));
+const policyFor = (pathname) => headersFor(rules, pathname);
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

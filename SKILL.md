@@ -10,6 +10,18 @@ This skill is portable across Claude Code, Codex, Grok Bot, Cursor, and other
 agents. [AGENTS.md](AGENTS.md) is the repository playbook;
 [README.md](README.md) has architecture and adapter details.
 
+## Worker approval without a terminal
+
+Current source workers use encrypted owner approval links and passkeys by default.
+Use MCP `acp_owner_approval` with `action: "list"` to show pending links in chat,
+or `action: "register"` to enroll a passkey. Opening a link grants no approval;
+the owner must review and use their authenticator. First-key enrollment is open for ten minutes after worker startup; an agent in that window can still register first;
+subsequent keys require an existing passkey. Keep the worker running.
+Legacy terminal approval/inspection requires explicit `worker start --tty-approval`.
+This default supersedes terminal-only approval instructions in older examples below.
+See [passkey approval](docs/passkey-approval.md) for budget/size limits and required
+relay/site deployment. Do not deploy without the owner's separate approval.
+
 Cross-machine collaboration uses the hosted Cloudflare Blind Relay at
 `https://relay.sealbridge.dev`. Pass
 `--relay https://relay.sealbridge.dev` and connect immediately.

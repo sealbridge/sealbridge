@@ -320,6 +320,7 @@ async function cliWorker(f: ReturnType<typeof fixture>, interactive: boolean, an
     'worker',
     [
       'start',
+      '--tty-approval',
       '--share',
       'token',
       '--allow-local-pc',

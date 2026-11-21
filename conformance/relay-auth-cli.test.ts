@@ -100,6 +100,7 @@ it.each(['worker', 'delegate'])(
       command === 'worker'
         ? networkCommand('worker', [
             'start',
+            '--tty-approval',
             '--share',
             'token',
             '--once',

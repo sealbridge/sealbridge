@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+import { PasskeyApprovalBroker, PasskeyApprovalProvider } from '@acp/runtime';
 import { createEventNotifier } from './notify.js';
 import { resolveInviteLink, shareInvite, sharedInviteConsumed } from '@acp/runtime';
-// SPDX-License-Identifier: Apache-2.0
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
 import {
@@ -194,6 +195,7 @@ const DISCOVER_USAGE =
 // Validate option names and required values before identities or stores are opened.
 function checkNetworkOptions(command: string, parsed: Map<string, string | true>): void {
   const boolean = new Set([
+    '--tty-approval',
     '--require-isolated-execution',
     '--no-connect',
     '--quiet-approval-warning',
@@ -237,6 +239,7 @@ function checkNetworkOptions(command: string, parsed: Map<string, string | true>
       '--wake-timeout-ms',
     ],
     worker: [
+      '--tty-approval',
       '--notify',
       '--share',
       '--also-requester',
@@ -366,12 +369,13 @@ const REVIEW_HELP = `
                                  FD: inherited pipe/socket or private file; remains open. No stdout copy.
                                  Stderr invite_ready JSON contains metadata only in every mode.
   --audit-interruption-format 1  Worker-only PROPOSE interruption terminals (default: 1); requires updated audit readers.
+  --tty-approval              Explicitly use legacy terminal approval instead of passkey links.
   --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
   --allow-local-pc              Required for local adapters (including sandbox) and --on-receive.
                                  Explicit opt-in only; never auto-approves tasks.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
-With interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
+With --tty-approval and interactive stdin/stderr, workers display the full validated task as literal JSON before the live owner approval prompt.
 Use tasks list/show/approve/reject for individual terminal held attempts; connection consent stays on connections.
 Use config auto-accept [off | invited|connected|anyone read-only|write] for automatic admission.
 Default: read-only from connected peers. Other limited tasks need inspection and live owner approval.
@@ -431,6 +435,7 @@ export async function networkCommand(
         ? RELAY_USAGE +
             '\n\n' +
             `Relay notification options:
+  --tty-approval              Explicitly use legacy terminal approval instead of passkey links.
   --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
   --allow-local-pc              Required for --wake-command; does not approve tasks.
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
@@ -753,6 +758,67 @@ export async function networkCommand(
         ...authRecovery,
         requestTimeoutMs: optionalCount(f, 'connect-timeout-ms'),
       });
+      const approvalBroker = f.has('--tty-approval')
+        ? undefined
+        : new PasskeyApprovalBroker(key, {
+            ...application.identityOptions,
+            relay: relayUrl,
+            fetch: application.fetch,
+            allowPrivateRelay,
+            ...(adapterName === 'openai'
+              ? {
+                  paid: {
+                    model: f.has('--endpoint') ? '' : (adapter.billingModel ?? ''),
+                    maxMonthlyUsd: autoAccept.limits.maxMonthlyUsd,
+                  },
+                }
+              : {}),
+            onEnrollment: (state) => {
+              if (!state.registered)
+                console.error(JSON.stringify({ event: 'passkey_required', ...state }));
+            },
+            onRegistered: (credentialId) => {
+              console.error(
+                JSON.stringify({
+                  event: 'passkey_registered',
+                  credentialId,
+                  workerDid: agentKey?.did ?? key.did,
+                }),
+              );
+              notifier.emit({
+                event: 'passkey_registered',
+                timestamp: new Date().toISOString(),
+                workerDid: agentKey?.did ?? key.did,
+              });
+            },
+            onLink: (link) => {
+              console.error(
+                JSON.stringify({
+                  event: 'approval_needed',
+                  approvalId: link.id,
+                  taskId: link.taskId,
+                  expiresAt: link.expiresAt,
+                  kind: link.kind,
+                }),
+              );
+              notifier.emit({
+                event: 'approval_needed',
+                timestamp: new Date().toISOString(),
+                workerDid: agentKey?.did ?? key.did,
+                taskId: link.taskId,
+                held: true,
+              });
+            },
+          });
+      const remoteApproval = approvalBroker
+        ? contactsApproval(
+            contactFile,
+            key,
+            false,
+            explicitAcceptance,
+            new PasskeyApprovalProvider(approvalBroker),
+          )
+        : undefined;
       const worker = new WorkerNode({
         revocation: linkRevocations(key, application.identityOptions),
         ...authRecovery,
@@ -777,7 +843,8 @@ export async function networkCommand(
         automaticApproval: listenerAutomatic,
         autoAccept,
         ownerApprovalProvider:
-          process.stdin.isTTY && process.stderr.isTTY
+          remoteApproval ??
+          (process.stdin.isTTY && process.stderr.isTTY
             ? contactsApproval(
                 contactFile,
                 key,
@@ -785,7 +852,7 @@ export async function networkCommand(
                 explicitAcceptance,
                 approval(key, false, undefined, f.has('--verbose')),
               )
-            : undefined,
+            : undefined),
         checkPeer: (did) => {
           if (agentKey) delegated!.assertActive();
           const contact = loadContacts(contactFile, key.did).find((c) => c.ownerDid === did);
@@ -806,7 +873,7 @@ export async function networkCommand(
         heldReview: new HeldRequestReview(key, {
           ...application.identityOptions,
           provider: cliWorkerInspection(
-            process.stdin.isTTY && process.stderr.isTTY
+            f.has('--tty-approval') && process.stdin.isTTY && process.stderr.isTTY
               ? (text) =>
                   new Promise<void>((resolve, reject) => {
                     process.stderr.write(text + '\n', (error) =>
@@ -836,13 +903,15 @@ export async function networkCommand(
         relayUrl,
         adapter,
         name: text(f, 'name', adapter.name),
-        approvalProvider: contactsApproval(
-          contactFile,
-          key,
-          false,
-          explicitAcceptance,
-          approval(key, false, undefined, f.has('--verbose')),
-        ),
+        approvalProvider:
+          remoteApproval ??
+          contactsApproval(
+            contactFile,
+            key,
+            false,
+            explicitAcceptance,
+            approval(key, false, undefined, f.has('--verbose')),
+          ),
         auditPath: f.has('--audit')
           ? suffix
             ? text(f, 'audit').replace(/(?:\.jsonl)?$/, '.' + suffix + '.jsonl')

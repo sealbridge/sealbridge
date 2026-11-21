@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createMemoryApprovalHandler } from './approvals.js';
 import { createMemoryInviteHandler } from './invites.js';
 import {
   verifySigned,
@@ -1530,7 +1531,9 @@ export function createRelayFetchHandler(
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   }
   const inviteHandler = createMemoryInviteHandler();
+  const approvalHandler = createMemoryApprovalHandler();
   return async (request) => {
+    if (new URL(request.url).pathname.startsWith('/v1/approvals')) return approvalHandler(request);
     if (
       new URL(request.url).pathname.startsWith('/v1/invites') ||
       new URL(request.url).pathname === '/v1/capabilities'

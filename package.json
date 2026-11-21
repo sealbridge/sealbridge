@@ -41,6 +41,7 @@
   "dependencies": {
     "@a2a-js/sdk": "^1.3.0",
     "@modelcontextprotocol/sdk": "^1.20.0",
+    "@simplewebauthn/server": "13.3.2",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "canonicalize": "^5.1.0",
@@ -71,6 +72,8 @@
     "NOTICE",
     "README.md",
     "README.ja.md",
+    "docs/passkey-approval.md",
+    "docs/grok-bot.md",
     "docs/auto-accept.md",
     "docs/auto-accept.ja.md",
     "docs/sdk.md",

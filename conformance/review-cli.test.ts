@@ -92,6 +92,7 @@ const delegateArgs = () => [
 ];
 const workerArgs = () => [
   'start',
+  '--tty-approval',
   '--share',
   'token',
   '--allow-local-pc',

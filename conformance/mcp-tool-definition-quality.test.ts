@@ -1,5 +1,5 @@
-import type { RelayTransport } from '../packages/relay/src/index.js';
 // SPDX-License-Identifier: Apache-2.0
+import type { RelayTransport } from '../packages/relay/src/index.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -44,6 +44,12 @@ const EXPECTED_HINTS: Record<
     openWorldHint: false,
   },
   acp_connect: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+  acp_owner_approval: {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
