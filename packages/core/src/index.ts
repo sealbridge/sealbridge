@@ -19,3 +19,5 @@ export * from './content-inspection-rules.js';
 
 export * from './auto-accept.js';
 export * from './pre-call-size.js';
+
+export * from './owner-approval.js';

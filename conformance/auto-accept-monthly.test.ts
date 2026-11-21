@@ -561,3 +561,42 @@ it('keeps only the approved price and writes the module without a BOM', () => {
   for (const model of ['gpt-6.1-terra', 'gpt-6.1-sol', 'claude-haiku-5-5', 'claude-sonnet-5-5'])
     expect(() => tokenCost(model, 1, 1)).toThrow('MONTHLY_MODEL_UNSUPPORTED');
 });
+
+it('passkey maximum reservations share prior spend and live legacy budgets, persist across brokers, and reset at UTC rollover', () => {
+  const f = fixture(0.001),
+    costBudget = { maxInputTokens: 1000, maxOutputTokens: 1000 };
+  const counter = new MonthlyCostCounter(path(f), f.owner);
+  counter.begin(0.001, 'legacy-live', 'gpt-6-luna', costBudget);
+  expect(counter.reserveMaximum(0.001, 'new', 'gpt-6-luna', costBudget)).toBe(false);
+  counter.usage('legacy-live', 'gpt-6-luna', 1000, 1000);
+  counter.finish('legacy-live');
+  const restarted = new MonthlyCostCounter(path(f), f.owner);
+  expect(restarted.reserveMaximum(0.001, 'new', 'gpt-6-luna', costBudget)).toBe(false);
+  expect(
+    restarted.reserveMaximum(0.001, 'small', 'gpt-6-luna', {
+      maxInputTokens: 0,
+      maxOutputTokens: 500,
+    }),
+  ).toBe(true);
+  expect(() =>
+    new MonthlyCostCounter(path(f), f.owner).reserveMaximum(
+      0.001,
+      'small',
+      'gpt-6-luna',
+      costBudget,
+    ),
+  ).toThrow('MONTHLY_TASK_REPLAY');
+  expect(restarted.reserveMaximum(undefined, 'explicit-money', 'gpt-6-luna', costBudget)).toBe(
+    true,
+  );
+  expect(restarted.reserveMaximum(0.001, 'later', 'gpt-6-luna', costBudget)).toBe(false);
+  const nextMonth = () => Date.now() + 32 * 86400000;
+  expect(
+    new MonthlyCostCounter(path(f), f.owner, nextMonth).reserveMaximum(
+      0.001,
+      'next-month',
+      'gpt-6-luna',
+      costBudget,
+    ),
+  ).toBe(true);
+});

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { spawn } from 'node:child_process';
 export interface WorkerNotification {
-  event: 'task_received' | 'approval_needed' | 'completed' | 'new_connection';
+  event:
+    'task_received' | 'approval_needed' | 'completed' | 'new_connection' | 'passkey_registered';
   timestamp: string;
   workerDid: string;
   taskId?: string;

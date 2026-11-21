@@ -412,7 +412,8 @@ describe('acp worker CLI acceptance guard', () => {
         }
       })());
     function worker(args: string[]) {
-      const run = networkCommand('worker', args);
+      // These assertions cover the retained terminal-policy compatibility path.
+      const run = networkCommand('worker', [...args, '--tty-approval']);
       runs.push(run);
       void run.catch(() => undefined);
       return run;

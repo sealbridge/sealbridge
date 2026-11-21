@@ -138,6 +138,7 @@ async function folder(root: string) {
 const workerArgs = (url: string, audit: string) => [
   'worker',
   'start',
+  '--tty-approval',
   '--share',
   'token',
   '--relay',

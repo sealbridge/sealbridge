@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
+import { passkeysCommand } from './passkeys.js';
 import { cliName } from './distribution.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { generateKeyPair, validateSchema, signApproval } from '@acp/core';
@@ -34,7 +35,7 @@ function parseAuditJson(text: string): unknown {
 const USAGE =
   'Usage: ' +
   cliName +
-  ' <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
+  ' <setup|config|doctor|keygen|validate|approve|audit-verify|receipt|contacts|connections|requests|tasks|passkeys|pending|board|demo|relay|worker|delegate|discover|invite|accept|invites|mcp-server>';
 const AUDIT_VERIFY_USAGE =
   'Usage: ' +
   cliName +
@@ -162,6 +163,9 @@ async function main(args: string[]) {
       break;
     case 'requests':
       await requestsCommand(rest);
+      break;
+    case 'passkeys':
+      await passkeysCommand(rest);
       break;
     case 'tasks':
       await tasksCommand(rest);

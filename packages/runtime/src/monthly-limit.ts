@@ -21,6 +21,10 @@ import { acquireDailyLock } from './daily-limit.js';
 /** Owner-supplied 2026-11-11 price snapshot: integer nano-dollars per token. */
 export const MODEL_PRICES: Readonly<Record<string, { input: number; output: number }>> =
   Object.freeze({
+    // OpenAI standard text rates checked 2026-11-21: $0.15/$0.60 per million.
+    // https://developers.openai.com/api/docs/models/gpt-4o-mini
+    'gpt-4o-mini': Object.freeze({ input: 150, output: 600 }),
+    'gpt-4o-mini-2024-07-18': Object.freeze({ input: 150, output: 600 }),
     'gpt-6-luna': Object.freeze({ input: 100, output: 500 }),
   });
 export function tokenCost(model: string, input: number, output: number): number {
@@ -426,7 +430,9 @@ export class MonthlyCostCounter {
       verified.delete(this.owner.did + ':' + this.path);
       if (
         error instanceof Error &&
-        ['MONTHLY_LIMIT_REACHED', 'MONTHLY_MODEL_UNSUPPORTED'].includes(error.message)
+        ['MONTHLY_LIMIT_REACHED', 'MONTHLY_MODEL_UNSUPPORTED', 'MONTHLY_TASK_REPLAY'].includes(
+          error.message,
+        )
       )
         throw error;
       throw new Error('MONTHLY_STATE_UNAVAILABLE');
@@ -447,6 +453,44 @@ export class MonthlyCostCounter {
     this.transaction((state, pending) => {
       this.recover(state, pending);
       if (state.spent >= maximum) throw new Error('MONTHLY_LIMIT_REACHED');
+    });
+  }
+  /** Charge a maximum budget atomically, including prior spend and live legacy
+   * reservations. Undefined limit is an explicit human-approved expense. */
+  reserveMaximum(
+    limit: number | undefined,
+    taskId: string,
+    model: string,
+    budget: MonthlyTokenBudget,
+  ): boolean {
+    this.validateBudget(model, budget);
+    const cost = tokenCost(model, budget.maxInputTokens, budget.maxOutputTokens);
+    return this.transaction((state, pending) => {
+      this.recover(state, pending);
+      if (state.seen.includes(taskId)) throw new Error('MONTHLY_TASK_REPLAY');
+      let committed = state.spent;
+      for (const active of Object.values(state.active)) {
+        if (!active.budget) throw new Error('MONTHLY_STATE_UNAVAILABLE');
+        const maximum = tokenCost(
+          active.model,
+          active.budget.maxInputTokens,
+          active.budget.maxOutputTokens,
+        );
+        const reported = tokenCost(active.model, active.input, active.output);
+        committed = add(committed, Math.max(0, maximum - reported));
+      }
+      if (limit !== undefined && add(committed, cost) > usdNanoDollars(limit)) return false;
+      this.append(state, pending, 'begin', taskId, model, 0, 0, budget);
+      this.append(
+        state,
+        pending,
+        'estimate',
+        taskId,
+        model,
+        budget.maxInputTokens,
+        budget.maxOutputTokens,
+      );
+      return true;
     });
   }
   begin(limit: number, taskId: string, model: string, budget: MonthlyTokenBudget): void {

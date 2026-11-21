@@ -60,3 +60,5 @@ export * from './connection-target.js';
 
 export * from './invite-links.js';
 export * from './invite-connect.js';
+
+export * from './passkey-approval.js';

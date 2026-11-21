@@ -4,6 +4,18 @@ import type { AutoAcceptPolicy, KeyPair, TaskManifest } from '@acp/core';
 import type { AgentAdapter } from './adapter.js';
 import type { ToolDefinition } from './mcp.js';
 import type { ApprovalProvider, ApprovalRequest } from './approval-providers.js';
+// Leave room for the signed/encrypted wire overhead under the 256 KiB relay envelope cap.
+export const DEFAULT_PASSKEY_INPUT_BYTES = 128 * 1024;
+/** Host declarations and exact input bytes determine the passkey review reasons. */
+export function passkeyTaskReasons(context: AutoAcceptContext, input: unknown): string[] {
+  return [
+    ...(!readOnlyTask(context) ? ['write'] : []),
+    ...(context.adapter.id === 'openai' || context.manifest.budget.costBearer !== 'worker_byok'
+      ? ['money']
+      : []),
+    ...(Buffer.byteLength(JSON.stringify(input)) > DEFAULT_PASSKEY_INPUT_BYTES ? ['size'] : []),
+  ];
+}
 
 export interface AutoAcceptContext {
   signal?: AbortSignal;
