@@ -24,6 +24,45 @@ const card = createSignedAgentCard(
 );
 
 describe('relay resilience (#83)', () => {
+  it.each([
+    ['DELETE', JSON.stringify({ text: '\u627f\u8a8d' })],
+    ['DELETE', new Uint8Array([0, 128, 255])],
+    ['PATCH', new URLSearchParams({ text: '\u627f\u8a8d' })],
+    ['POST', ''],
+  ])('frames a %s body with its exact byte length', async (method, body) => {
+    const expected = Buffer.from(body instanceof URLSearchParams ? body.toString() : body);
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            method: req.method,
+            length: req.headers['content-length'],
+            body: Buffer.concat(chunks).toString('base64'),
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    try {
+      const response = await createPinnedRelayFetch(url, { allowPrivateRelay: true })(url, {
+        method,
+        body,
+      });
+      expect(await response.json()).toEqual({
+        method,
+        length: String(expected.length),
+        body: expected.toString('base64'),
+      });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it.each(['headers', 'body', 'idle'] as const)(
     'bounds a hung %s connection and closes it',
     async (mode) => {
