@@ -216,6 +216,23 @@ async function pinnedRequest(
   const hostname = target.hostname.replace(/^\[|\]$/g, '');
   const lib = secure ? https : http;
   const signal = init?.signal ?? undefined;
+  const body = init?.body ?? null;
+  const payload =
+    body == null
+      ? undefined
+      : typeof body === 'string' || body instanceof Uint8Array
+        ? body
+        : body instanceof URLSearchParams
+          ? body.toString()
+          : undefined;
+  if (body != null && payload === undefined) throw new Error('UNSUPPORTED_BODY');
+  const headers = headerRecord(init?.headers);
+  if (payload !== undefined) {
+    // Node does not automatically frame bodies for methods such as DELETE.
+    // Use the actual UTF-8 byte length for every supported buffered body.
+    delete headers['transfer-encoding'];
+    headers['content-length'] = String(Buffer.byteLength(payload));
+  }
   const started = performance.now();
   const tunnel = pin.proxy
     ? await connectRelayProxy(pin.proxy, target, options.requestTimeoutMs ?? 45_000, signal)
@@ -236,7 +253,7 @@ async function pinnedRequest(
         port: target.port === '' ? undefined : Number(target.port),
         method: init?.method ?? (input instanceof Request ? input.method : 'GET'),
         path: target.pathname + target.search,
-        headers: headerRecord(init?.headers),
+        headers,
         lookup: pin.lookup,
         agent: agent ?? false,
         ...(secure ? { servername: hostname } : {}),
@@ -341,11 +358,7 @@ async function pinnedRequest(
       signal.addEventListener('abort', onAbort, { once: true });
       req.on('close', () => signal.removeEventListener('abort', onAbort));
     }
-    const body = init?.body ?? null;
-    if (body == null) req.end();
-    else if (typeof body === 'string' || body instanceof Uint8Array) req.end(body);
-    else if (body instanceof URLSearchParams) req.end(body.toString());
-    else req.destroy(new Error('UNSUPPORTED_BODY'));
+    req.end(payload);
   }).catch((error) => {
     // Also cover synchronous request-construction failures (e.g. invalid headers).
     agent?.destroy();

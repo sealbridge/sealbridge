@@ -23,7 +23,11 @@ import {
 } from '../packages/runtime/src/auto-accept.js';
 import { PasskeyApprovalProvider } from '../packages/runtime/src/passkey-approval.js';
 import { PolicyAutoApprovalProvider } from '../packages/runtime/src/approval-providers.js';
-import { InMemoryRelay, startLocalRelay } from '../packages/relay/src/index.js';
+import {
+  createPinnedRelayFetch,
+  InMemoryRelay,
+  startLocalRelay,
+} from '../packages/relay/src/index.js';
 import { AcpMcpServer } from '../packages/runtime/src/mcp-server.js';
 const sha = (s: string | Buffer) => createHash('sha256').update(s).digest();
 const b64 = (s: Uint8Array) => Buffer.from(s).toString('base64url');
@@ -107,7 +111,8 @@ function fixture(extra: Partial<ConstructorParameters<typeof PasskeyApprovalBrok
   dirs.push(home);
   const owner = generateKeyPair(),
     handler = createRelayFetchHandler();
-  const fetcher = vi.fn((async (input, init) => handler(new Request(input, init))) as typeof fetch);
+  const fetcher = vi.fn((async (input, init) =>
+    extra.fetch ? extra.fetch(input, init) : handler(new Request(input, init))) as typeof fetch);
   const broker = new PasskeyApprovalBroker(owner, {
     env: { SEALBRIDGE_DATA_DIR: home },
     relay: 'https://relay.example',
@@ -121,7 +126,7 @@ function fixture(extra: Partial<ConstructorParameters<typeof PasskeyApprovalBrok
       q = new URLSearchParams(params),
       key = Buffer.from(q.get('key')!, 'base64url');
     const access = b64(sha(Buffer.concat([key, Buffer.from('access')])));
-    const response = await fetcher('https://relay.example/v1/approvals/' + link.id, {
+    const response = await fetcher(broker.options.relay + '/v1/approvals/' + link.id, {
       headers: { authorization: 'Bearer ' + access },
     });
     const request = decryptApproval(
@@ -271,6 +276,44 @@ describe('encrypted owner passkey approval', () => {
       (await f.fetcher(url, { method: 'POST', headers, body: JSON.stringify({ result }) })).status,
     ).toBe(200);
     expect(await f.broker.poll(link.id)).toBe('approved');
+  });
+  it('cleans junk results over pinned HTTP against the in-process relay', async () => {
+    const local = await startLocalRelay();
+    try {
+      const f = fixture({
+        relay: local.url,
+        fetch: createPinnedRelayFetch(local.url, { allowPrivateRelay: true }),
+        allowPrivateRelay: true,
+      });
+      const auth = await f.register(),
+        link = await f.approval(),
+        o = await f.open(link);
+      const url = local.url + '/v1/approvals/' + link.id + '/results';
+      const headers = { authorization: 'Bearer ' + o.access, 'content-type': 'application/json' };
+      expect(
+        (
+          await f.fetcher(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ result: 'junk' }),
+          })
+        ).status,
+      ).toBe(200);
+      expect(await f.broker.poll(link.id)).toBeUndefined();
+      expect(await (await f.fetcher(url, { headers })).json()).toEqual({ results: [] });
+      const result = o.seal({
+        id: link.id,
+        decision: 'approve',
+        assertion: auth.assert(o.request.challenge),
+      });
+      expect(
+        (await f.fetcher(url, { method: 'POST', headers, body: JSON.stringify({ result }) }))
+          .status,
+      ).toBe(200);
+      expect(await f.broker.poll(link.id)).toBe('approved');
+    } finally {
+      await local.close();
+    }
   });
   it('continues automatic read-only work with no key after the enrollment window closes', async () => {
     const f = fixture(),
