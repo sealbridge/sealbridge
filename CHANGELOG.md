@@ -4,9 +4,33 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-22
+
+Terminal-free invitations, read-only work, notifications and owner passkey approval improve Muse and Grok Bot workflows. Node >=22 and protocol 0.2.0 remain unchanged.
+
 ### Added
 
-- Optional requester isolation enforcement: set `requireIsolatedExecution: true` on SDK or MCP delegation, or pass `--require-isolated-execution` to CLI `delegate`, to reject missing/host runner levels and enforce the contract minimum. Isolation remains opt-in: default Codex, Claude, command, OpenAI, and MCP host-worker delegation works without new configuration. Existing signed-attestation verification and legacy isolation policy are unchanged. Final CLI approval displays the attested isolation level, and local PC warnings accurately describe the attached attestation.
+- Optional requester isolation enforcement: set `requireIsolatedExecution: true` on SDK or MCP delegation, or pass `--require-isolated-execution` to CLI `delegate`, to reject missing/host runner levels and enforce the contract minimum. Isolation remains opt-in: default Codex, Claude, command, OpenAI, and MCP host-worker delegation works without new configuration. Existing signed-attestation verification and legacy isolation policy are unchanged. Final CLI approval displays the attested isolation level, and local PC warnings accurately describe the attached attestation. (#308)
+- Short `/j` invitations work directly in CLI connect/delegate and MCP delegation. Import connects immediately and returns the peer name and six-digit confirmation number; no separate confirm-invite step is required for this path. Used, expired and truncated links report actionable errors. (#309)
+- Worker startup, invite creation and MCP `acp_create_invite` default to short links, automatically replacing consumed single-use links. Use `--share token` for the long token; older relays fall back to a long link with a notice. (#310)
+- Worker `--notify <command or webhook URL>` emits JSON for task received, approval pending, settled/completed and new connection events without requiring `--inbox`; notifications default to off. Passkey registration also emits a notice. (#312, #313)
+- Encrypted owner approval links and WebAuthn passkeys replace default TTY approval. The new `sealbridge passkeys` command and `acp_owner_approval` MCP tool request approval links and manage passkey enrollment. Agents can request links but opening one grants no approval. The worker verifies task binding, expiry and signatures locally. First-passkey enrollment is limited to ten minutes after worker startup while no key exists; restarting reopens that window only with zero keys. Additional keys require an existing passkey. An agent acting within the first window can still register first; use `keyStore: keychain` and check registration notices. (#313)
+
+### Fixed
+
+- Treat the sandbox adapter as read-only so invited read-only auto-accept matches and works in background/non-TTY workers. Warn on contradictory settings, correct intro/agent-card displays and show decline reasons. Write and paid work still require the applicable owner approval. (#311)
+- Frame supported buffered HTTP request bodies with their actual byte length, including DELETE, so worker junk-result cleanup reaches the relay intact. Regression coverage uses a local HTTP server and in-process relay. (#314)
+
+### Upgrade notes / breaking changes
+
+- Workers default to passkey approval. Existing terminal integrations must explicitly pass `--tty-approval`; there is no silent terminal fallback.
+- Workers need a relay supporting `/v1/approvals` for approval links; otherwise they fail closed with `APPROVAL_RELAY_UNAVAILABLE`. `https://relay.sealbridge.dev` already has approvals deployed. This version-bump PR performs no deployment.
+- Automatic write acceptance (`sealbridge config auto-accept <invited|connected|anyone> write`) is downgraded to read-only automatic acceptance; writes need owner approval. Real isolation remains opt-in through `requireIsolatedExecution` / `--require-isolated-execution`; default host adapters remain usable.
+- OpenAI-compatible paid workers without `sealbridge config auto-accept max-monthly-usd <USD>`, or over that cap, need approval for every task. Within the cap, automatic paid admission charges the maximum input/output token cost up front, shared across workers and restarts. Reservations are conservative and not refunded for unused or failed work; unknown prices/custom endpoints need approval. The cap is an automatic authorization ceiling, not a provider billing guarantee.
+- The default automatic read-only input limit is 128 KiB of UTF-8 JSON; larger work needs approval. The complete relay envelope still has a 256 KiB cap, so metadata and encryption can reduce usable input further. Task deadlines bound approval waits.
+- Self-hosted relays must add the `APPROVALS` Durable Object binding, SQLite migration `v3-owner-approvals`, and the `RATE_LIMITER` binding, and deploy the approval routes. Approval routes fail closed without the limiter. The approval site also needs `/approve/index.html`, `/approve.js`, stylesheet and updated `_headers`; see `docs/passkey-approval.md` for separate deployment instructions.
+- Short-link defaults change CLI/MCP invitation output. Request `--share token` when scripts need the previous token format; short links are single-use and refresh after consumption.
+- Back up the data directory before upgrading. The existing 0.9.0 downgrade warning for shared invitations remains; passkey approval needs the new runtime and relay support.
 
 ## [0.9.2] - 2026-11-19
 

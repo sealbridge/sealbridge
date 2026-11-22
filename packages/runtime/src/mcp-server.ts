@@ -532,7 +532,7 @@ export class AcpMcpServer {
       return {
         protocolVersion: version,
         capabilities: { tools: { listChanged: false }, logging: {} },
-        serverInfo: { name: 'sealbridge-mcp-server', version: '0.9.2' },
+        serverInfo: { name: 'sealbridge-mcp-server', version: '0.10.0' },
         instructions: SERVER_INSTRUCTIONS,
       };
     }
