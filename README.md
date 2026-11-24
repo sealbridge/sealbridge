@@ -13,7 +13,7 @@ spending limits, terminal compatibility and the relay/site deployment prerequisi
 
 ## Install on Muse
 
-Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. The invite/role features below are included in the prepared 0.10.0 release. Until npm 0.10.0 is published, install from GitHub main.
+Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. Version 0.10.0 is published: with Node.js 22 or newer, use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. Hosted installers are listed [below](#install-on-your-own-computer).
 
 ### Create an invitation (for example, on Muse)
 
@@ -25,7 +25,7 @@ sealbridge config auto-accept invited write
 sealbridge worker start --adapter sandbox --allow-local-pc --name Muse
 ```
 
-Share the printed invitation link and keep the process running. This example explicitly allows invited tasks and uses a sandbox adapter that echoes JSON; its host declaration requires write permission even for an echo. For real work, configure your AI adapter and owner acceptance rule. `--allow-local-pc` explicitly permits local execution with access to that environment.
+Share the printed invitation link and keep the process running. This example explicitly allows invited tasks and uses a sandbox adapter that echoes JSON; it declares read-only access. With default passkey approval, a folder `write` auto-accept rule is downgraded to sandbox read-only; write tasks still require owner approval unless a stronger local-PC/write path is explicitly allowed. For real work, configure your AI adapter and owner acceptance rule. `--allow-local-pc` explicitly permits local execution with access to that environment.
 
 ### Receive the invitation
 
@@ -146,7 +146,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers in this source tree pin 0.10.0; the hosted installers change only after a separate deployment. After npm publication, with Node 22 or newer you can also use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
+The installers in this source tree pin 0.10.0; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
 ### Run a worker locally
 
@@ -156,7 +156,9 @@ From 0.7.0, mainline `sealbridge` requires `--allow-local-pc` for `--adapter cla
 sealbridge worker start --adapter sandbox --allow-local-pc
 ```
 
-Startup prints a shareable `acp-invite:` token and a `https://sealbridge.app/i#acp-invite:...` link. The default lifetime is 24 hours.
+Startup prints a shareable `acp-invite:` token and a `https://sealbridge.app/i#acp-invite:...` link. The default lifetime is 24 hours. Short invite links use `https://sealbridge.app/j#...`; `/i#acp-invite:` remains the long form.
+
+Worker approval uses passkeys by default. After starting the worker, run `sealbridge passkeys register` in another terminal within 10 minutes to register the first passkey. If that window has closed, restart the worker and run the command again. The command returns a `https://sealbridge.app/approve#...` link; open it and complete registration with your authenticator. Keep the worker running. Startup does not print this registration command or approval URL.
 
 For the local edition, run `npm i -g sealbridge-local` and use `sealbridge-local worker start …`. Keys and the data directory are shared. Sealbridge Desktop is another option. An isolated runtime (microVM) is in preparation.
 
@@ -200,7 +202,7 @@ All CLI subcommands are listed in `sealbridge --help`, and each command has `--h
 - **Author**: [@takapon01234](https://x.com/takapon01234) on X (Twitter)
 - **Repository**: [sealbridge/sealbridge](https://github.com/sealbridge/sealbridge)
 - **Site**: https://sealbridge.dev
-- **Invite page**: `https://sealbridge.app/i#<invite>`
+- **Invite page**: `https://sealbridge.app/j#...` (short) or `https://sealbridge.app/i#acp-invite:...` (long)
 - **Public Blind Relay**: `https://relay.sealbridge.dev` (the legacy `https://acp-relay.agent-collab.workers.dev` URL reaches the same relay)
 
 Formerly ACP / agent-collab-platform. Renamed to avoid confusion with Zed’s Agent Client Protocol and IBM / BeeAI’s Agent Communication Protocol. The `acp` bin remains a deprecated alias. Protocol identifiers and existing data paths stay compatible.

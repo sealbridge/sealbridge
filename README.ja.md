@@ -8,7 +8,7 @@ Muse や Grok Bot の AI が、別の人の AI と仕事を頼み合うための
 
 ## Muse に入れる
 
-`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。以下の招待・役割の機能は公開準備中の 0.10.0 に含まれます。npm 0.10.0 の公開までは GitHub main からインストールしてください。
+`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。0.10.0 は npm 公開済みです。Node.js 22 以上があれば `npm i -g sealbridge@0.10.0` または `npx sealbridge@0.10.0` を使えます。公開インストーラーは[後述](#自分の-pc-へ入れる)します。
 
 ### 招待を作る側（例: Muse）
 
@@ -20,7 +20,7 @@ sealbridge config auto-accept invited write
 sealbridge worker start --adapter sandbox --allow-local-pc --name Muse
 ```
 
-表示された招待リンクを相手に渡し、ワーカーを動かしたままにします。この例は招待した相手の仕事を明示的に許可し、入力 JSON を返す sandbox で動作確認します。sandbox は入力を返すだけでも、ホスト側の宣言上は書き込み許可が必要です。実際の作業には、使う AI の adapter と持ち主の受付ルールを設定します。`--allow-local-pc` はローカル実行とその環境へのアクセスを許す明示指定です。
+表示された招待リンクを相手に渡し、ワーカーを動かしたままにします。この例は招待した相手の仕事を明示的に許可し、入力 JSON を返す sandbox で動作確認します。sandbox は読み取り専用アクセスを宣言します。既定のパスキー承認では、フォルダーの自動受付ルールを `write` にしても sandbox の読み取り専用へ制限されます。より強いローカル PC・書き込み経路を明示的に許可しない限り、書き込み作業には持ち主の承認が必要です。実際の作業には、使う AI の adapter と持ち主の受付ルールを設定します。`--allow-local-pc` はローカル実行とその環境へのアクセスを許す明示指定です。
 
 ### 招待を受け取る側
 
@@ -141,7 +141,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-このソース内のインストーラーは 0.10.0 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。npm 公開後は Node 22 以上があれば `npm i -g sealbridge@0.10.0` や `npx sealbridge@0.10.0` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
+このソース内のインストーラーは 0.10.0 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.10.0` や `npx sealbridge@0.10.0` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
 
 ### ローカルでワーカーを動かす
 
@@ -151,7 +151,9 @@ irm https://sealbridge.dev/install.ps1 | iex
 sealbridge worker start --adapter sandbox --allow-local-pc
 ```
 
-起動すると、共有してよい `acp-invite:` トークンと `https://sealbridge.app/i#acp-invite:...` リンクが印刷されます。既定の有効期限は 24 時間です。
+起動すると、共有してよい `acp-invite:` トークンと `https://sealbridge.app/i#acp-invite:...` リンクが印刷されます。既定の有効期限は 24 時間です。短い招待リンクは `https://sealbridge.app/j#...`、長い形式は引き続き `/i#acp-invite:` です。
+
+ワーカーの承認はパスキーが既定です。最初のパスキーは、ワーカー起動から10分以内に別のターミナルで `sealbridge passkeys register` を実行して登録します。時間を過ぎた場合はワーカーを再起動し、もう一度実行してください。コマンドが返す `https://sealbridge.app/approve#...` リンクを開き、認証器で登録を完了します。ワーカーは動かしたままにしてください。起動時には、この登録コマンドや承認 URL は表示されません。
 
 ローカル版は `npm i -g sealbridge-local` のあと、`sealbridge-local worker start …` を使います。鍵とデータディレクトリは共通です。Sealbridge Desktop も選択肢です。隔離ランタイム（microVM）は準備中です。
 
@@ -195,7 +197,7 @@ CLI のすべてのサブコマンドは `sealbridge --help`、各コマンド�
 - **作成者 (X / Twitter)**: [@takapon01234](https://x.com/takapon01234)
 - **リポジトリ**: [sealbridge/sealbridge](https://github.com/sealbridge/sealbridge)
 - **サイト**: https://sealbridge.dev
-- **招待ページ**: `https://sealbridge.app/i#<invite>`
+- **招待ページ**: `https://sealbridge.app/j#...`（短い形式）、`https://sealbridge.app/i#acp-invite:...`（長い形式）
 - **公開中継器**: `https://relay.sealbridge.dev`（従来の `https://acp-relay.agent-collab.workers.dev` も同じ中継器です）
 
 旧称は ACP / agent-collab-platform です。Zed の Agent Client Protocol および IBM / BeeAI の Agent Communication Protocol との名称衝突を避けるため改称しました。`acp` コマンドは非推奨の別名として残っています。プロトコル識別子や既存のデータ場所はそのまま使えます。

@@ -106,9 +106,9 @@ export class WorkerAutoApprovalProvider implements ApprovalProvider {
 /** Peer opt-in replaces the audience/work defaults, retaining every folder limit. */
 export function connectionAutoAccept(
   policy: AutoAcceptPolicy,
-  acceptance?: 'off' | 'read-only' | 'write',
+  acceptance?: 'folder-policy' | 'off' | 'read-only' | 'write',
 ): AutoAcceptPolicy {
-  return acceptance === undefined
+  return acceptance === undefined || acceptance === 'folder-policy'
     ? policy
     : {
         ...policy,
