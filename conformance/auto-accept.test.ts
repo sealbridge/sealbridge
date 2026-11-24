@@ -1,5 +1,5 @@
 import { workerJson } from '../cli/src/worker-json.js';
-import { autoAcceptReason } from '../packages/runtime/src/auto-accept.js';
+import { autoAcceptReason, connectionAutoAccept } from '../packages/runtime/src/auto-accept.js';
 import { SandboxAgentAdapter } from '../packages/runtime-local/src/sandbox.js';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ import {
 } from '../packages/core/src/index.js';
 import type { ApprovalReceipt, AutoAcceptPolicy } from '../packages/core/src/index.js';
 import { matchesAutoAccept, readOnlyTask } from '../packages/runtime/src/auto-accept.js';
+import { localConnections } from '../packages/runtime/src/connection-target.js';
 import { workerIntakePath } from '../packages/runtime/src/index.js';
 import {
   readApplicationConfig,
@@ -350,4 +351,62 @@ it('shows a content-free decline reason instead of redacting the automatic polic
   const event = JSON.parse(workerJson({ event: 'AUTO_ACCEPT_NOT_MATCHED', reason }));
   expect(event.reason).toBe('automatic acceptance is off');
   expect(workerJson({ reason: 'untrusted task text or invite material' })).toContain('[redacted]');
+});
+
+it('defers invite folder-policy acceptance to the unchanged folder policy', () => {
+  const folder = policy({ from: 'invited', work: 'write', limits: { maxTasksPerDayPerDid: 3 } });
+  expect(connectionAutoAccept(folder, 'folder-policy')).toBe(folder);
+  expect(connectionAutoAccept(folder)).toBe(folder);
+  expect(() => autoAcceptPolicy(connectionAutoAccept(folder, 'folder-policy'))).not.toThrow();
+});
+it.each(['off', 'read-only', 'write'] as const)(
+  'preserves the explicit %s peer override',
+  (acceptance) => {
+    const folder = policy({ enabled: false, from: 'invited', limits: { maxTasksPerDayPerDid: 3 } });
+    expect(connectionAutoAccept(folder, acceptance)).toEqual({
+      ...folder,
+      enabled: acceptance !== 'off',
+      from: 'connected',
+      work: acceptance === 'off' ? 'read-only' : acceptance,
+    });
+  },
+);
+it('settles invited folder-policy work with the default sandbox downgrade from a write folder rule', async () => {
+  const adapter = new SandboxAgentAdapter();
+  const ownerApprove = vi.fn(async () => {
+    throw new Error('unexpected owner approval');
+  });
+  const f = admissionFixture({
+    adapter,
+    autoAccept: policy({ from: 'invited', work: 'write' }),
+    ownerApprovalProvider: { remoteTaskReview: true, approve: ownerApprove },
+  });
+  fixtures.push(f);
+  f.worker.options.identityOptions = f.identityOptions;
+  const token = f.worker.invite();
+  f.store.redeemTaskInvite(
+    parseAndVerifyInviteToken(token),
+    {
+      peerOwnerDid: f.requester.did,
+      peerAgentDid: f.requester.did,
+      relayUrl: 'https://relay.example',
+    },
+    'folder-policy-regression',
+  );
+  // The public connection view spells an absent peer override as folder-policy.
+  // Feed that runtime representation into admission without changing store validation.
+  const connections = localConnections(f.owner, f.identityOptions);
+  vi.spyOn(f.store, 'listConnections').mockReturnValue(connections as never);
+  expect(f.store.listConnections()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ source: 'invite', acceptance: 'folder-policy' }),
+    ]),
+  );
+  expect(f.worker.autoAccept).toMatchObject({ from: 'invited', work: 'read-only' });
+  const execute = vi.spyOn(adapter, 'executeTask').mockImplementation(async (c) => c.input);
+  const results = await f.attempt(token);
+  expect(results[0]).toMatchObject({ status: 'fulfilled', value: { state: 'SETTLED' } });
+  expect(execute).toHaveBeenCalledOnce();
+  expect(ownerApprove).not.toHaveBeenCalled();
+  expect(f.approve).not.toHaveBeenCalled();
 });
