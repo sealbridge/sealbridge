@@ -30,9 +30,9 @@ Bob starts the worker / Bob がワーカーを起動:
 sealbridge worker start --adapter codex --allow-local-pc --name "Bob (Codex)" --audit bob-review.jsonl
 ```
 
-`--allow-local-pc` permits local execution; it does not approve incoming work or provide OS isolation. Prepare Bob's passkey using the [owner approval guide](../passkey-approval.md), and ensure the approval service is available before a future take. Codex is a write-capable adapter, so the default passkey flow requires owner approval even when the prompt only asks for review. Do not replace that scene with automatic acceptance. Connection consent is separate; resolve any connection/held-request gates under each owner's control before the take. A terminally held request needs an explicit fresh submission.
+`--allow-local-pc` permits local execution; it does not approve incoming work or provide OS isolation. Prepare Bob's passkey using the [owner approval guide](../docs/passkey-approval.md), and ensure the approval service is available before a future take. Codex is a write-capable adapter, so the default passkey flow requires owner approval even when the prompt only asks for review. Do not replace that scene with automatic acceptance. Connection consent is separate; resolve any connection/held-request gates under each owner's control before the take. A terminally held request needs an explicit fresh submission.
 
-`--allow-local-pc` はローカル実行の許可であり、受信依頼の承認や OS による隔離ではありません。[持ち主承認ガイド](../passkey-approval.md) に沿って Bob のパスキーを準備し、撮影前に承認サービスを利用できる状態にします。Codex は書き込み可能なアダプターなので、レビューだけの依頼でも既定のパスキーフローでは本人の承認が必要です。この場面を自動受付に置き換えません。接続への同意は別です。接続・保留の処理は双方の持ち主が撮影前に確認し、終了済みの保留依頼は明示的に新しく送り直します。
+`--allow-local-pc` はローカル実行の許可であり、受信依頼の承認や OS による隔離ではありません。[持ち主承認ガイド](../docs/passkey-approval.md) に沿って Bob のパスキーを準備し、撮影前に承認サービスを利用できる状態にします。Codex は書き込み可能なアダプターなので、レビューだけの依頼でも既定のパスキーフローでは本人の承認が必要です。この場面を自動受付に置き換えません。接続への同意は別です。接続・保留の処理は双方の持ち主が撮影前に確認し、終了済みの保留依頼は明示的に新しく送り直します。
 
 Alice imports the invitation at a human terminal; paste privately at the prompt / Alice が人間の端末で招待を取り込み、プロンプトに非公開で貼り付け:
 
@@ -69,9 +69,9 @@ sealbridge audit-verify alice-review.jsonl
 sealbridge audit-verify bob-review.jsonl
 ```
 
-The CLI emits JSON, not a standalone `VALID` banner. Keep the actual verification status visible. Subsequent worker attempts use task-suffixed audit paths: use the path for the completed task. Without independent expected-head/closure evidence, verification does not prove completeness; it also does not prove that the findings are correct. See the [audit guarantees](../../AGENTS.md#requester-flow--発注側).
+The CLI emits JSON, not a standalone `VALID` banner. Keep the actual verification status visible. Subsequent worker attempts use task-suffixed audit paths: use the path for the completed task. Without independent expected-head/closure evidence, verification does not prove completeness; it also does not prove that the findings are correct. See the [audit guarantees](../AGENTS.md#requester-flow--発注側).
 
-CLI の出力は JSON であり、単独の `VALID` 表示ではありません。実際の検証状態を見せます。ワーカーの2回目以降の試行ではタスク接尾辞付きのログ名になるため、完了した依頼のパスを使います。独立した期待ヘッド・終了状態の証拠なしでは完全性を証明できず、指摘の正しさも保証しません。[監査の説明](../../AGENTS.md#requester-flow--発注側)を参照してください。
+CLI の出力は JSON であり、単独の `VALID` 表示ではありません。実際の検証状態を見せます。ワーカーの2回目以降の試行ではタスク接尾辞付きのログ名になるため、完了した依頼のパスを使います。独立した期待ヘッド・終了状態の証拠なしでは完全性を証明できず、指摘の正しさも保証しません。[監査の説明](../AGENTS.md#requester-flow--発注側)を参照してください。
 
 ## Privacy and factual references / プライバシーと根拠
 
@@ -81,11 +81,11 @@ Never expose real invitation or approval links, private keys, credentials, priva
 
 Command and claim references / コマンド・説明の確認先:
 
-- [CLI parsing, delegation and audit paths / CLI 引数・依頼・ログのパス](../../cli/src/network.ts)
-- [Audit verification output / 監査検証の出力](../../cli/src/index.ts)
-- [Privacy / プライバシー](../../README.md#privacy)
-- [Acceptance rules / 受付ルール](../auto-accept.md) and [日本語](../auto-accept.ja.md)
-- [Passkey approval / パスキー承認](../passkey-approval.md)
+- [CLI parsing, delegation and audit paths / CLI 引数・依頼・ログのパス](../cli/src/network.ts)
+- [Audit verification output / 監査検証の出力](../cli/src/index.ts)
+- [Privacy / プライバシー](../README.md#privacy)
+- [Acceptance rules / 受付ルール](../docs/auto-accept.md) and [日本語](../docs/auto-accept.ja.md)
+- [Passkey approval / パスキー承認](../docs/passkey-approval.md)
 
 The existing `sealbridge demo` exercises a CVE-summary fixture; it is not this code-review scenario. This script does not change that fixture or any video, website, or deployment.
 
