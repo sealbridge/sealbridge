@@ -13,7 +13,7 @@ spending limits, terminal compatibility and the relay/site deployment prerequisi
 
 ## Install on Muse
 
-Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. Version 0.10.0 is published: with Node.js 22 or newer, use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. Hosted installers are listed [below](#install-on-your-own-computer).
+Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. Version 0.10.1 is prepared for publication: once published, with Node.js 22 or newer, use `npm i -g sealbridge@0.10.1` or `npx sealbridge@0.10.1`. Hosted installers are listed [below](#install-on-your-own-computer).
 
 ### Create an invitation (for example, on Muse)
 
@@ -146,7 +146,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers in this source tree pin 0.10.0; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
+The installers in this source tree pin 0.10.1; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.10.1` or `npx sealbridge@0.10.1`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
 ### Run a worker locally
 
