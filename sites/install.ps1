@@ -1,6 +1,7 @@
-param([switch]$Uninstall, [switch]$NoProfile, [ValidateSet('sealbridge', 'sealbridge-local')][string]$PackageName = $(if ($env:SEALBRIDGE_INSTALL_PACKAGE) { $env:SEALBRIDGE_INSTALL_PACKAGE } else { 'sealbridge' }))
+param([switch]$Uninstall, [switch]$NoProfile, [switch]$NoAccept, [ValidateSet('sealbridge', 'sealbridge-local')][string]$PackageName = $(if ($env:SEALBRIDGE_INSTALL_PACKAGE) { $env:SEALBRIDGE_INSTALL_PACKAGE } else { 'sealbridge' }))
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$acceptFromFile = ![string]::IsNullOrEmpty($PSCommandPath) -and !$MyInvocation.ExpectingInput
 $root = Join-Path $env:LOCALAPPDATA 'Sealbridge'
 $nodeVersion = '22.22.0'
 if ($PackageName -notin @('sealbridge', 'sealbridge-local')) { throw 'Choose sealbridge or sealbridge-local.' }
@@ -27,6 +28,104 @@ function Get-SealbridgeNode {
         if ($LASTEXITCODE -ne 0 -or !$resolvedPath) { return $null }
         return [PSCustomObject]@{ Path = "$resolvedPath".Trim(); Version = $version; Supported = $major -ge 22 }
     } catch { return $null }
+}
+
+# Keep optional import outside the installation error handler. No exception or
+# child output from this step may change installation success or print a link.
+function Test-SealbridgeAcceptTerminal {
+    if ($NoAccept -or !$acceptFromFile) { return $false }
+    foreach ($name in @('CI', 'CONTINUOUS_INTEGRATION', 'GITHUB_ACTIONS', 'TF_BUILD', 'BUILD_ID', 'JENKINS_URL')) {
+        if ([Environment]::GetEnvironmentVariable($name)) { return $false }
+    }
+    if ($Host.Name -ne 'ConsoleHost' -or ![Environment]::UserInteractive) { return $false }
+    if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected -or [Console]::IsErrorRedirected) { return $false }
+    # -NonInteractive can still have console handles.
+    if (@([Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^-noni' }).Count) { return $false }
+    return $true
+}
+
+function Invoke-SealbridgeOptionalAccept {
+    $previousExitCode = $global:LASTEXITCODE
+    $secret = $null
+    $confirmation = $null
+    try {
+        if (!(Test-SealbridgeAcceptTerminal)) { return }
+        # Only SecureString crosses PowerShell statements, including when a host
+        # enables tracing or transcription. Plaintext conversion and pipe writes
+        # stay inside .NET; no helper process receives the invitation in argv.
+        if (!('SealbridgeInstallerInvitePipe' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Text;
+public static class SealbridgeInstallerInvitePipe {
+    public static bool Confirmed(SecureString answer) {
+        if (answer.Length != 1) return false;
+        IntPtr value = Marshal.SecureStringToBSTR(answer);
+        try { return Marshal.ReadInt16(value) == (short)'y'; }
+        finally { Marshal.ZeroFreeBSTR(value); }
+    }
+    public static bool Import(string node, string entry, SecureString secret) {
+        if (secret.Length > 68 * 1024) return false;
+        var start = new ProcessStartInfo(node, "\"" + entry + "\" accept --stdin");
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardInput = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        using (var process = new Process()) {
+            process.StartInfo = start;
+            process.Start();
+            // Drain without retaining or displaying peer-controlled output.
+            var output = process.StandardOutput.BaseStream.CopyToAsync(System.IO.Stream.Null);
+            var error = process.StandardError.BaseStream.CopyToAsync(System.IO.Stream.Null);
+            IntPtr value = IntPtr.Zero;
+            try {
+                value = Marshal.SecureStringToBSTR(secret);
+                using (var input = new System.IO.StreamWriter(process.StandardInput.BaseStream, new UTF8Encoding(false))) {
+                    for (int i = 0; i < secret.Length; i++)
+                        input.Write((char)Marshal.ReadInt16(value, i * 2));
+                    input.Write('\n');
+                }
+                if (!process.WaitForExit(60000)) { process.Kill(); return false; }
+                output.GetAwaiter().GetResult();
+                error.GetAwaiter().GetResult();
+                return process.ExitCode == 0;
+            } finally {
+                if (value != IntPtr.Zero) Marshal.ZeroFreeBSTR(value);
+                if (!process.HasExited) process.Kill();
+            }
+        }
+    }
+}
+'@
+        }
+        Write-Host 'Optional invitation import.'
+        $secret = Read-Host 'Paste an invitation (hidden), or press Enter to skip' -AsSecureString
+        if ($secret.Length -eq 0) { return }
+        # All input forms share this gate. Never infer token-only behavior from
+        # a partial URL match or pass unknown strings around the confirmation.
+        Write-Host 'A normal invitation token imports only and creates no connection.'
+        Write-Host 'A short link contacts the relay, consumes the link, connects immediately'
+        Write-Host 'to the inviter and sends a connection request. It signs connection consent;'
+        Write-Host 'it does not approve work.'
+        $confirmation = Read-Host 'Continue? Type y to accept [y/N]' -AsSecureString
+        if (![SealbridgeInstallerInvitePipe]::Confirmed($confirmation)) { return }
+        $entry = Join-Path $npmDir "node_modules/$PackageName/dist/cli/dist/index.js"
+        if ([SealbridgeInstallerInvitePipe]::Import($runtime.Path, $entry, $secret)) {
+            Write-Host "Invitation imported. Run $PackageName invites list to see saved names."
+        } else {
+            Write-Host "To import later, run: $PackageName accept --paste"
+        }
+    } catch {
+        Write-Host "To import later, run: $PackageName accept --paste"
+    } finally {
+        if ($secret) { $secret.Dispose() }
+        if ($confirmation) { $confirmation.Dispose() }
+        $global:LASTEXITCODE = $previousExitCode
+    }
 }
 
 function Get-SealbridgeRuntime {
@@ -175,3 +274,4 @@ try {
     [Console]::Error.WriteLine("and write access to $root.")
     throw 'Sealbridge installation failed. See runtime details and remediation above.'
 }
+Invoke-SealbridgeOptionalAccept
