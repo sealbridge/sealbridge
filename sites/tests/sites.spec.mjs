@@ -94,6 +94,12 @@ test('valid invitation shows verified identity, local QR and supported CLI comma
     'curl -fsSL https://sealbridge.dev/install.sh | sh',
   );
   await expect(page.locator('[data-text=acceptText]')).toContainText('sealbridge accept --paste');
+  await expect(page.locator('[data-text=acceptText]')).toContainText(
+    'long-link import stays local',
+  );
+  await expect(page.locator('[data-text=privacy]')).toContainText(
+    'its model provider can read your code',
+  );
   await expect(page.locator('[data-text=nextText]')).toContainText('acp_list_invites');
   await expect(page.locator('#command')).toHaveText(command);
   await expect(page.locator('main')).not.toContainText('keygen');
@@ -107,6 +113,8 @@ test('valid invitation shows verified identity, local QR and supported CLI comma
   await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   await expect(page.locator('#status')).toContainText('署名を検証済み');
   await expect(page.locator('[data-text=acceptTitle]')).toHaveText('02 / 招待をローカルに保存');
+  await expect(page.locator('[data-text=acceptText]')).toContainText('取り込みはローカルで完結');
+  await expect(page.locator('[data-text=privacy]')).toContainText('モデル提供者はコードを読めます');
   await expect(page.locator('#command')).toHaveText(command);
 });
 
