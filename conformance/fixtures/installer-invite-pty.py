@@ -3,6 +3,7 @@ import errno
 import json
 import os
 import pty
+import re
 import select
 import signal
 import subprocess
@@ -44,7 +45,9 @@ try:
             except OSError as error:
                 if error.errno != errno.EIO:
                     raise
-        if not sent and b'or press Enter to skip: ' in output:
+        # Verbose shells print the function's source, including the prompt's
+        # string literal. Only an actual terminal prompt may receive input.
+        if not sent and re.search(rb'(?:^|[\r\n])Paste an invitation \(hidden\), or press Enter to skip: $', output):
             # The terminal must already have echo disabled before input arrives.
             assert not termios.tcgetattr(slave)[3] & termios.ECHO
             sent = True
