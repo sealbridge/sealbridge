@@ -24,10 +24,11 @@ function ownProcess(child: ChildProcess) {
     resolveClosed = resolve;
   });
   const streams = [child.stdin, child.stdout, child.stderr].filter((s) => s != null);
+  const alreadyReleased =
+    (child.exitCode !== null || child.signalCode != null) &&
+    streams.every((stream) => stream.closed);
   const released = () =>
-    closed ||
-    ((spawnFailed || child.exitCode !== null || child.signalCode != null) &&
-      streams.every((stream) => stream.closed));
+    closed || alreadyReleased || (spawnFailed && streams.every((stream) => stream.closed));
   const check = () => {
     if (released()) resolveClosed();
   };

@@ -199,6 +199,51 @@ it('cleans known partial writes before launch without requiring a container comm
   expect(rmdir).toHaveBeenCalledTimes(1);
 });
 
+it('waits for the observed child close event when stream closure arrives first', async () => {
+  const child = processFixture();
+  let closed = false;
+  let directory = '';
+  const completion = once(child, 'close');
+  child.kill.mockImplementation(() => {
+    child.exitCode = 0;
+    child.emit('exit', 0);
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    setImmediate(() => {
+      closed = true;
+      child.emit('close', 0);
+    });
+    return true;
+  });
+  vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+    (args.at(-1) as (error: Error) => void)(new Error('DAEMON_UNAVAILABLE'));
+    return Object.assign(new EventEmitter(), {
+      exitCode: 0,
+      unref: vi.fn(),
+    }) as unknown as ReturnType<typeof execFile>;
+  });
+  const result = await runContainerOrSubprocessSandbox({
+    isolationLevel: 'oci_container',
+    runtime: 'docker',
+    timeoutMs: 2000,
+    code: 'return 7;',
+    onTool: async () => null,
+    containerSpawn: (_runtime, _args, options) => {
+      directory = options.cwd;
+      setImmediate(() => child.stdout.write('{"type":"done","value":7}\n'));
+      return child as unknown as ChildProcessWithoutNullStreams;
+    },
+  });
+  try {
+    expect(result.output).toBe(7);
+    expect(closed).toBe(true);
+  } finally {
+    await completion;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it.each(['absent', 'present', 'query error', 'malformed query'])(
   'requires reliable absence evidence after removal callback error: %s',
   async (scenario) => {
