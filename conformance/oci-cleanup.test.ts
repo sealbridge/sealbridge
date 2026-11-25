@@ -3,7 +3,7 @@ import { spawn, execFile } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter, getEventListeners, once } from 'node:events';
 import { existsSync, rmdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -29,9 +29,10 @@ vi.mock('node:child_process', async (original) => ({
 }));
 vi.mock('node:fs/promises', async (original) => ({
   ...(await original<typeof import('node:fs/promises')>()),
-  rm: vi.fn((await original<typeof import('node:fs/promises')>()).rm),
+  rmdir: vi.fn((await original<typeof import('node:fs/promises')>()).rmdir),
 }));
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   vi.useRealTimers();
 });
@@ -94,9 +95,9 @@ it.each([
     return remover as unknown as ReturnType<typeof execFile>;
   });
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-  vi.mocked(rm).mockImplementationOnce(async (path, options) => {
+  vi.mocked(rmdir).mockImplementationOnce(async (path, options) => {
     events.push('remove directory');
-    await actual.rm(path, options);
+    await actual.rmdir(path, options);
   });
   const result = await runContainerOrSubprocessSandbox({
     isolationLevel: 'oci_container',
@@ -248,13 +249,13 @@ it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs'])(
       return value;
     });
     await started;
-    await vi.advanceTimersByTimeAsync(2999);
+    await vi.advanceTimersByTimeAsync(1999);
     expect(settled).toBe(false);
-    expect(rm).not.toHaveBeenCalled();
+    expect(rmdir).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect((await result).output).toBe(7);
     expect(existsSync(directory)).toBe(true);
-    expect(rm).not.toHaveBeenCalled();
+    expect(rmdir).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
     for (const process of [child, remover]) {
       expect(process.listenerCount('close')).toBe(0);
@@ -271,6 +272,8 @@ it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs'])(
 it.each(['spawn throws', 'setup throws', 'removal throws', 'rm rejects', 'already closed'])(
   'preserves outcome and releases owned resources on %s',
   async (scenario) => {
+    const local = vi.fn();
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const child = processFixture();
     let directory = '';
     if (scenario === 'setup throws')
@@ -301,11 +304,12 @@ it.each(['spawn throws', 'setup throws', 'removal throws', 'rm rejects', 'alread
         unref: vi.fn(),
       }) as unknown as ReturnType<typeof execFile>;
     });
-    if (scenario === 'rm rejects') vi.mocked(rm).mockRejectedValueOnce(new Error('EBUSY'));
+    if (scenario === 'rm rejects') vi.mocked(rmdir).mockRejectedValueOnce(new Error('EBUSY'));
     const result = await runContainerOrSubprocessSandbox({
       isolationLevel: 'oci_container',
       runtime: 'docker',
       timeoutMs: 2000,
+      onCleanupWarning: local,
       code: 'return 7;',
       onTool: async () => null,
       containerSpawn: (_runtime, _args, options) => {
@@ -330,8 +334,71 @@ it.each(['spawn throws', 'setup throws', 'removal throws', 'rm rejects', 'alread
     const retained = ['removal throws', 'rm rejects'].includes(scenario);
     expect(existsSync(directory)).toBe(retained);
     if (retained) {
+      expect(local).toHaveBeenCalledWith({ code: 'OCI_WORKSPACE_REMAINS', directory });
+      expect(String(stderr.mock.calls[0][0])).toContain(JSON.stringify(directory));
+      expect(JSON.stringify(result)).not.toContain(directory);
+    } else {
+      expect(local).not.toHaveBeenCalled();
+      expect(stderr).not.toHaveBeenCalled();
+    }
+    if (retained) {
       const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
       await actual.rm(directory, { recursive: true, force: true });
     }
   },
 );
+
+it('bounds caller wait and warns on unfinished filesystem I/O without pretending to cancel it', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const child = processFixture();
+  const local = vi.fn();
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  let directory = '';
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const issued = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  vi.mocked(rmdir).mockImplementationOnce(async () => {
+    started();
+    await pending;
+  });
+  child.kill.mockImplementation(() => {
+    child.exitCode = 0;
+    child.emit('close', 0);
+    return true;
+  });
+  vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+    (args.at(-1) as () => void)();
+    return Object.assign(new EventEmitter(), {
+      exitCode: 0,
+      unref: vi.fn(),
+    }) as unknown as ReturnType<typeof execFile>;
+  });
+  const result = runContainerOrSubprocessSandbox({
+    isolationLevel: 'oci_container',
+    runtime: 'docker',
+    timeoutMs: 2000,
+    code: 'return 7;',
+    onTool: async () => null,
+    onCleanupWarning: local,
+    containerSpawn: (_runtime, _args, options) => {
+      directory = options.cwd;
+      setImmediate(() => child.stdout.write('{"type":"done","value":7}\n'));
+      return child as unknown as ChildProcessWithoutNullStreams;
+    },
+  });
+  await issued;
+  await vi.advanceTimersByTimeAsync(3000);
+  expect((await result).output).toBe(7);
+  expect(local).toHaveBeenCalledWith({ code: 'OCI_WORKSPACE_REMAINS', directory });
+  expect(existsSync(directory)).toBe(true);
+  expect(rmdir).toHaveBeenCalledTimes(1);
+  release();
+  await pending;
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  await actual.rm(directory, { recursive: true, force: true });
+});
