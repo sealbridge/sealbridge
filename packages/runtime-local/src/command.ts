@@ -30,7 +30,12 @@ export interface CommandResult {
 export type CommandRunner = (request: CommandRequest) => Promise<CommandResult>;
 export async function resolveCommand(command: string): Promise<string> {
   const windows = process.platform === 'win32';
-  if (isAbsolute(command) && (!windows || /\.[^\\/]+$/.test(command))) return command;
+  if (isAbsolute(command)) {
+    if (!windows) return command;
+    const name = command.slice(Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\')) + 1);
+    const dot = name.indexOf('.');
+    if (dot !== -1 && dot < name.length - 1) return command;
+  }
   if (!isAbsolute(command) && /[\\/]/.test(command))
     throw new Error('COMMAND_MUST_BE_ABSOLUTE_OR_ON_PATH');
   const candidates = windows ? windowsCommandCandidates(command, process.env.PATHEXT) : [command];

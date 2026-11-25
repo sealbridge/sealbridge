@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@acp/core": "workspace:*",
-    "ws": "^8.18.3"
+    "ws": "^8.23.0"
   },
   "engines": {
     "node": ">=22"

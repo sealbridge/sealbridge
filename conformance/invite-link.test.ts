@@ -235,6 +235,11 @@ describe('SC1 strict fragment parsing', () => {
   });
 
   it('applies endpoint restrictions and the optional relay allow-list', () => {
+    expect(() =>
+      parseInviteLink(WEB + FRAGMENT + '&r=relay.sealbridge.dev.evil.com', {
+        allowedRelayUrls: ['https://relay.sealbridge.dev'],
+      }),
+    ).toThrow('INVITE_LINK_RELAY_NOT_ALLOWED');
     for (const host of [
       '127.0.0.1',
       'localhost',

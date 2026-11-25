@@ -56,7 +56,7 @@ it('delivers JSON to command stdin without an inbox or exposed stdout', async ()
       output = join(root, 'event.json');
     writeFileSync(
       script,
-      "let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>require('node:fs').writeFileSync(process.argv[2],input));",
+      "let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>require('node:fs').writeFileSync(process.argv[2],JSON.stringify({input,args:process.argv.slice(2)})));",
     );
     const onError = vi.fn();
     const notifier = createEventNotifier(`"${process.execPath}" "${script}" "${output}"`, {
@@ -65,7 +65,10 @@ it('delivers JSON to command stdin without an inbox or exposed stdout', async ()
     notifier.emit(event);
     await notifier.drain();
     expect(onError).not.toHaveBeenCalled();
-    expect(JSON.parse(readFileSync(output, 'utf8'))).toEqual(event);
+    expect(JSON.parse(readFileSync(output, 'utf8'))).toEqual({
+      input: JSON.stringify(event) + '\n',
+      args: [output],
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

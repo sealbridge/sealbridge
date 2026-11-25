@@ -61,6 +61,8 @@ export function createEventNotifier(
       if (!response.ok) throw new Error('NOTIFY_FAILED');
     } else
       await new Promise<void>((resolve, reject) => {
+        // The owner selects this shell command via --notify. Event JSON is sent only
+        // to stdin below, never interpolated into the command or its arguments.
         const child = spawn(target!, {
           shell: true,
           windowsHide: true,
