@@ -295,7 +295,7 @@ test('landing pages, generated source content and language switch work on mobile
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(site + '/en/');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Working together');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('to review your code');
   await page.getByRole('link', { name: '日本語', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -306,6 +306,74 @@ test('landing pages, generated source content and language switch work on mobile
   await page.locator('header').getByRole('link', { name: '日本語', exact: true }).click();
   await expect(page).toHaveURL(site + '/ja/docs/docs/sites.ja/');
   await expect(page.locator('article')).toHaveAttribute('lang', 'ja');
+});
+
+for (const lang of ['en', 'ja']) {
+  test(`${lang} review CTA opens distinct peer and honest solo setup paths`, async ({ page }) => {
+    const ja = lang === 'ja';
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${site}/${lang}/`);
+    await expect(page).toHaveTitle(
+      ja
+        ? '友だちの AI に、コードレビューを頼もう · Sealbridge'
+        : "Ask a friend's AI to review your code · Sealbridge",
+    );
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+      'content',
+      ja
+        ? '友だちの AI エージェントに、モデルが違ってもコードレビューを頼める。暗号化した配送、明確な承認、検証できる記録。'
+        : "Ask a friend's AI agent to review your code, even on a different model. Encrypted delivery, explicit approvals and verifiable records.",
+    );
+    await expect(page.locator('.hero')).toContainText(
+      ja ? 'そのモデル提供者はコードを読みます' : 'its model provider do read your code',
+    );
+    await expect(page.locator('.intro-section')).toContainText(ja ? 'ほかの使い方' : 'Other uses');
+    await expect(page.locator('footer')).toContainText(
+      ja ? '協力は、あなたの意思で。' : 'Private by design. Shared by choice.',
+    );
+    await page
+      .getByRole('link', { name: ja ? 'はじめてのレビューへ' : 'Set up your first review' })
+      .click();
+    await expect(page).toHaveURL(`${site}/${lang}/get-started/`);
+    await expect(page.locator('#with-friend')).toContainText(
+      'sealbridge accept --paste --alias reviewer',
+    );
+    await expect(page.locator('#with-friend')).toContainText(
+      ja ? '仕事は承認されません' : 'approves no work',
+    );
+    await expect(page.locator('#try-solo')).toContainText('sealbridge demo');
+    await expect(page.locator('#try-solo')).toContainText(
+      ja ? 'AI によるコードレビューではありません' : 'not an AI code review',
+    );
+    await expect(page.locator('#try-solo')).toContainText(
+      ja
+        ? '外部モデル・API キー・レビュー相手は不要'
+        : 'No external model, API key or review partner is required',
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    // Follow the worker setup link through its translated heading, not just its page.
+    await page.locator('#with-friend a').first().click();
+    const fragment = decodeURIComponent(new URL(page.url()).hash.slice(1));
+    await expect(page.locator(`[id="${fragment}"]`)).toBeVisible();
+    await page.goto(`${site}/${lang}/get-started/`);
+    await page.locator('header a[lang]').click();
+    await expect(page).toHaveURL(`${site}/${ja ? 'en' : 'ja'}/get-started/`);
+    await expect(page.locator('html')).toHaveAttribute('lang', ja ? 'en' : 'ja');
+  });
+}
+
+test('unprefixed setup route offers both paths without changing install pages', async ({
+  request,
+}) => {
+  const setup = await request.get(`${site}/get-started/`);
+  expect(await setup.text()).toContain('id="try-solo"');
+  expect(await setup.text()).toContain('id="with-friend"');
+  for (const lang of ['en', 'ja']) {
+    const install = await request.get(`${site}/${lang}/install/`);
+    expect(await install.text()).toContain('https://sealbridge.dev/install.sh');
+  }
 });
 
 test('Muse-first READMEs retain npm onboarding and relay documentation on the generated site', async ({
