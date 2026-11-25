@@ -123,6 +123,7 @@ export async function runContainerOrSubprocessSandbox(
     };
   const directory = await mkdtemp(join(tmpdir(), 'acp-oci-')),
     name = 'acp-' + randomUUID();
+  let closed = Promise.resolve();
   try {
     if (process.getuid?.() === 0) await chown(directory, 65534, 65534);
     const bridge = `const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');process.disconnect=()=>{process.stdin.destroy();};require('node:readline').createInterface({input:process.stdin}).on('line',l=>process.emit('message',JSON.parse(l)));\n`;
@@ -155,6 +156,9 @@ export async function runContainerOrSubprocessSandbox(
             env: environment,
             stdio: ['pipe', 'pipe', 'pipe'],
           });
+      // A result or a kill request does not release the process/stdio handles.
+      // Register before any completion path (including an already-aborted signal).
+      closed = new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
       child.stderr.resume();
       let done = false,
         buffer = '',
@@ -232,6 +236,9 @@ export async function runContainerOrSubprocessSandbox(
         () => resolve(),
       ),
     );
+    // Remove the container first: its CLI may be waiting for container teardown.
+    // Then wait for the run process and all its streams before deleting their files.
+    await closed;
     await rm(directory, { recursive: true, force: true });
   }
 }
