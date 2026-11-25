@@ -157,6 +157,7 @@ it.each([
     else expect(result).toHaveProperty('error.name', 'SyntaxError');
   }
   if (scenario === 'spawn error') {
+    expect(execFile).not.toHaveBeenCalled();
     expect(events).not.toContain('close');
     expect(child.kill).not.toHaveBeenCalled();
     expect(child.stdout.closed).toBe(true);
@@ -172,6 +173,91 @@ it.each([
   expect(child.stdout.listenerCount('data')).toBe(0);
   expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
 });
+
+it('cleans known partial writes before launch without requiring a container command', async () => {
+  const local = vi.fn();
+  const launch = vi.fn();
+  await expect(
+    runContainerOrSubprocessSandbox({
+      isolationLevel: 'oci_container',
+      runtime: 'docker',
+      timeoutMs: 2000,
+      code: 'return 7;',
+      input: {
+        toJSON() {
+          throw new Error('SERIALIZE_FAILED');
+        },
+      } as never,
+      onTool: async () => null,
+      onCleanupWarning: local,
+      containerSpawn: launch,
+    }),
+  ).rejects.toThrow('SERIALIZE_FAILED');
+  expect(launch).not.toHaveBeenCalled();
+  expect(execFile).not.toHaveBeenCalled();
+  expect(local).not.toHaveBeenCalled();
+  expect(rmdir).toHaveBeenCalledTimes(1);
+});
+
+it.each(['absent', 'present', 'query error', 'malformed query'])(
+  'requires reliable absence evidence after removal callback error: %s',
+  async (scenario) => {
+    const child = processFixture();
+    const local = vi.fn();
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let directory = '',
+      containerName = '';
+    child.kill.mockImplementation(() => {
+      child.exitCode = 0;
+      child.emit('close', 0);
+      return true;
+    });
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const argv = args[1] as string[];
+      const callback = args.at(-1) as (error: Error | null, stdout: string) => void;
+      if (argv[0] === 'rm') callback(new Error('REMOVAL_FAILED'), '');
+      else {
+        expect(argv).toEqual(['container', 'ls', '--all', '--format', '{{json .Names}}']);
+        callback(
+          scenario === 'query error' ? new Error('DAEMON_UNAVAILABLE') : null,
+          scenario === 'present'
+            ? JSON.stringify(containerName)
+            : scenario === 'malformed query'
+              ? 'invalid'
+              : '',
+        );
+      }
+      return Object.assign(new EventEmitter(), {
+        exitCode: 0,
+        unref: vi.fn(),
+      }) as unknown as ReturnType<typeof execFile>;
+    });
+    const result = await runContainerOrSubprocessSandbox({
+      isolationLevel: 'oci_container',
+      runtime: 'docker',
+      timeoutMs: 2000,
+      code: 'return 7;',
+      onTool: async () => null,
+      onCleanupWarning: local,
+      containerSpawn: (_runtime, args, options) => {
+        directory = options.cwd;
+        containerName = args[args.indexOf('--name') + 1];
+        expect(args).toContain('--rm');
+        setImmediate(() => child.stdout.write('{"type":"done","value":7}\n'));
+        return child as unknown as ChildProcessWithoutNullStreams;
+      },
+    });
+    expect(result.output).toBe(7);
+    expect(execFile).toHaveBeenCalledTimes(2);
+    expect(existsSync(directory)).toBe(scenario !== 'absent');
+    if (scenario === 'absent') expect(local).not.toHaveBeenCalled();
+    else {
+      expect(local).toHaveBeenCalledWith({ code: 'OCI_WORKSPACE_REMAINS', directory });
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      await actual.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it.runIf(process.platform === 'win32')(
   'a live child cwd is an EBUSY holder until close',
@@ -198,7 +284,7 @@ it.runIf(process.platform === 'win32')(
   },
 );
 
-it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs'])(
+it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs', 'removal close pending'])(
   'retains uncertain workspace and disposes resources within existing cleanup budget: %s',
   async (scenario) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -215,7 +301,12 @@ it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs'])(
       removalStarted = resolve;
     });
     vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
-      if (scenario !== 'remover hangs') {
+      if (scenario === 'removal close pending') {
+        child.exitCode = 0;
+        child.emit('close', 0);
+        (args.at(-1) as (error: Error) => void)(new Error('REMOVAL_FAILED'));
+        removalStarted();
+      } else if (scenario !== 'remover hangs') {
         remover.exitCode = 0;
         remover.stdin.destroy();
         remover.stdout.destroy();
@@ -257,6 +348,7 @@ it.each(['kill false', 'kill throws', 'inherited pipes', 'remover hangs'])(
     expect(existsSync(directory)).toBe(true);
     expect(rmdir).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+    expect(execFile).toHaveBeenCalledTimes(1);
     for (const process of [child, remover]) {
       expect(process.listenerCount('close')).toBe(0);
       expect(process.listenerCount('error')).toBe(0);
