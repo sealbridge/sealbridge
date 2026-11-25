@@ -107,6 +107,11 @@ async function session(
   options: Partial<DelegateOptions> = {},
   requesterApproval?: ApprovalProvider,
   workerApproval?: ApprovalProvider,
+  onWorkspaceCleanupError?: (failure: {
+    taskId: string;
+    workspaceDir: string;
+    code: string;
+  }) => void,
 ) {
   const alice = generateKeyPair(),
     bob = generateKeyPair(),
@@ -123,6 +128,7 @@ async function session(
     approvalProvider: workerApproval ?? auto(bob),
     auditPath: join(dir, 'bob.jsonl'),
     timeoutMs: 10000,
+    onWorkspaceCleanupError,
   });
   const engine = new VerificationEngine();
   engine.registerIsolatedCheck(
@@ -177,6 +183,31 @@ function settled(results: Awaited<ReturnType<typeof session>>['results']) {
     (r) => (r as PromiseFulfilledResult<Awaited<ReturnType<RequesterClient['delegate']>>>).value,
   );
 }
+it('routes OCI residue paths only to the local worker sink, not signed audit or peer results', async () => {
+  const local = vi.fn();
+  const path = 'synthetic-local-only-workspace';
+  const { results } = await session(
+    {
+      id: 'cleanup-warning',
+      name: 'Cleanup warning fixture',
+      skills: [],
+      executeTask: async (context) => {
+        context.reportOciCleanupWarning?.({ code: 'OCI_WORKSPACE_REMAINS', directory: path });
+        return { value: 7 };
+      },
+    },
+    {},
+    undefined,
+    undefined,
+    local,
+  );
+  const [requester, worker] = settled(results);
+  expect(local).toHaveBeenCalledWith(
+    expect.objectContaining({ workspaceDir: path, code: 'OCI_WORKSPACE_REMAINS' }),
+  );
+  expect(JSON.stringify([requester, worker])).not.toContain(path);
+  expect(JSON.stringify([requester.bundle, worker.bundle])).not.toContain('OCI_WORKSPACE_REMAINS');
+});
 describe('WP-7/10/11 real adapter sessions across owner boundaries', () => {
   it('runs a real command with stdin, workspace file and a secret-free environment', async () => {
     const script = `let s='';process.stdin.on('data',b=>s+=b);process.stdin.on('end',()=>{if(process.env.OPENAI_API_KEY||process.env.ACP_TEST_SECRET||process.env.NODE_OPTIONS)process.exit(9);const fs=require('node:fs');if(fs.readFileSync(process.env.TASK_INPUT_FILE,'utf8')!==s)process.exit(8);console.log(JSON.stringify({value:JSON.parse(s).value}));});`;
@@ -1076,6 +1107,7 @@ it('keeps the real CLI provider key in the host broker and forwards only the tas
 it('exercises the OCI JSON tool/usage bridge with a simulated container process', async () => {
   let usage = 0,
     toolCalls = 0;
+  let closed = false;
   const result = await runContainerOrSubprocessSandbox({
     isolationLevel: 'oci_container',
     runtime: 'docker',
@@ -1085,11 +1117,18 @@ it('exercises the OCI JSON tool/usage bridge with a simulated container process'
     containerSpawn: (_runtime, args, options) => {
       expect(args).toContain('--read-only');
       expect(options.env).not.toHaveProperty('OPENAI_API_KEY');
-      return spawn(process.execPath, ['runner.cjs'], {
+      // This injected process has no real container; unavailable Docker cleanup
+      // conservatively warns/retains its fixture, which this test owns.
+      cleanup.push(() => rm(options.cwd, { recursive: true, force: true }));
+      const child = spawn(process.execPath, ['runner.cjs'], {
         cwd: options.cwd,
         env: options.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      child.once('close', () => {
+        closed = true;
+      });
+      return child;
     },
     onTool: async (name, args) => {
       toolCalls++;
@@ -1107,4 +1146,5 @@ it('exercises the OCI JSON tool/usage bridge with a simulated container process'
   });
   expect(toolCalls).toBe(1);
   expect(usage).toBe(5);
+  expect(closed).toBe(true);
 });

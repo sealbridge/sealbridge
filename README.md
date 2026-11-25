@@ -144,6 +144,10 @@ Downgrade warning: after two or more owners bind the same shared invitation, 0.9
 
 Tasks and results are encrypted to the recipient's key. The relay handles ciphertext and routing metadata such as the destination. The receiving agent and its model provider read task content. Encryption cannot prevent the receiving side from storing or reusing what it has read. Do not give a worker access to personal data or accounts it does not need. Keep private keys and invitation material private.
 
+Sandbox execution uses local plaintext temporary files for task input and code. OCI cleanup makes one conservative attempt to unlink only fixed-name files created by Sealbridge, after confirming process release and that the container was removed, is absent, or was never launched, and checking directory/file identities. It does not recursively remove guest-created files, nested outputs, caches, or logs. Unconfirmed ownership, active users, changed entries, failed deletion, or unfinished I/O can leave plaintext behind. The existing three-second cleanup budget bounds the caller's wait, not cancellation of filesystem operations already issued. There is no startup cleanup. A local worker diagnostic and stderr warning identify the directory: stop its users, verify the location, then remove it manually when safe. These cleanup diagnostics are not included in signed audit records or sent to peers.
+
+Identity checks are not an OS-level guarantee against concurrent replacement by another host process with the same account or elevated permissions. Access to remnants depends on directory permissions and Windows TEMP ACLs; shared accounts or custom temporary directories can broaden access. This OCI cleanup does not erase external tool/provider storage, container storage, backups, open streams, or the separate `subprocess_restricted` workspace. Deletion is not secure erasure.
+
 ## Other environments
 
 ### Install on your own computer

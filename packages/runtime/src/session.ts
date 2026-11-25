@@ -2925,6 +2925,20 @@ export class WorkerNode {
         manifest: structuredClone(m),
         input: structuredClone(data.input),
         workspaceDir: workspace,
+        reportOciCleanupWarning: (warning) => {
+          // Separate local sink: no wire, signed audit, progress, or peer error.
+          try {
+            const record = {
+              taskId: m.taskId,
+              workspaceDir: warning.directory,
+              code: warning.code,
+            };
+            if (this.options.onWorkspaceCleanupError)
+              void Promise.resolve(this.options.onWorkspaceCleanupError(record)).catch(() => {});
+            else
+              console.warn(JSON.stringify({ event: 'local_workspace_cleanup_warning', ...record }));
+          } catch {}
+        },
         signal: executionSignal,
         reportUsage: (delta) => gateway!.quota.recordMetrics(delta),
         reportProgress: (progress) => {

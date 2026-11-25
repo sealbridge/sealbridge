@@ -53,6 +53,7 @@ export class SandboxAgentAdapter implements AgentAdapter {
       signal: context.signal,
       onTool: (name, args) => context.callTool(name, args as Json),
       onUsage: (inputTokens, outputTokens) => context.reportUsage({ inputTokens, outputTokens }),
+      onCleanupWarning: context.reportOciCleanupWarning,
     });
     context.reportIsolation?.(result.effectiveIsolationLevel, result.sandboxBoundary);
     return result.output;
