@@ -53,6 +53,7 @@ function ownProcess(child: ChildProcess) {
   return {
     completion,
     released,
+    neverStarted: () => spawnFailed && child.pid === undefined,
     stop() {
       if (
         !released() &&
@@ -199,6 +200,7 @@ export async function runContainerOrSubprocessSandbox(
   const directory = workspace.directory,
     name = 'acp-' + randomUUID();
   let owned: ReturnType<typeof ownProcess> | undefined;
+  let launchAttempted = false;
   let disposeExecution = () => {};
   try {
     if (process.getuid?.() === 0) await chown(directory, 65534, 65534);
@@ -223,6 +225,9 @@ export async function runContainerOrSubprocessSandbox(
         PATH: '/usr/local/bin:/usr/bin:/bin',
         DOCKER_CONFIG: directory,
       };
+      // An injected launcher may have side effects before throwing. Only native
+      // synchronous spawn failure, prelaunch setup, or a no-PID error prove no run.
+      if (options.containerSpawn) launchAttempted = true;
       const child = options.containerSpawn
         ? options.containerSpawn(runtime, containerArguments(directory, options.image, name), {
             cwd: directory,
@@ -232,6 +237,7 @@ export async function runContainerOrSubprocessSandbox(
             env: environment,
             stdio: ['pipe', 'pipe', 'pipe'],
           });
+      launchAttempted = true;
       // A result or a kill request does not release the process/stdio handles.
       // Register before any completion path (including an already-aborted signal).
       owned = ownProcess(child);
@@ -316,36 +322,63 @@ export async function runContainerOrSubprocessSandbox(
     // task result/error. Unreleased workspaces are deliberately retained.
     disposeExecution();
     owned?.stop();
-    let removal: ReturnType<typeof ownProcess> | undefined;
+    const cleanupProcesses: ReturnType<typeof ownProcess>[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closureTimer: ReturnType<typeof setTimeout> | undefined;
     let cleaned = false;
+    let cleanupStopped = false;
     const deadline = Date.now() + 3000;
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), 3000);
     });
     try {
-      const removed = new Promise<boolean>((resolve) => {
-        const process = execFile(
-          runtime,
-          ['rm', '-f', name],
-          {
-            timeout: 3000,
-            env: {
-              ...sanitizedEnvironment(directory),
-              PATH: '/usr/local/bin:/usr/bin:/bin',
-              DOCKER_CONFIG: directory,
+      const command = async (args: string[]) => {
+        let processOwner: ReturnType<typeof ownProcess> | undefined;
+        const result = await new Promise<{ ok: boolean; stdout: string }>((resolve) => {
+          const process = execFile(
+            runtime,
+            args,
+            {
+              timeout: Math.max(1, deadline - Date.now()),
+              maxBuffer: 1048576,
+              env: {
+                ...sanitizedEnvironment(directory),
+                PATH: '/usr/local/bin:/usr/bin:/bin',
+                DOCKER_CONFIG: directory,
+              },
             },
-          },
-          (error) => resolve(!error),
-        );
-        removal = ownProcess(process);
-      });
+            (error, stdout) => resolve({ ok: !error, stdout: String(stdout ?? '') }),
+          );
+          processOwner = ownProcess(process);
+          cleanupProcesses.push(processOwner);
+        });
+        await processOwner?.completion;
+        return result;
+      };
+      const confirmAbsence = async () => {
+        if (!launchAttempted || owned?.neverStarted()) {
+          await owned?.completion;
+          return true;
+        }
+        const removed = await command(['rm', '-f', name]);
+        await owned?.completion;
+        if (removed.ok) return true;
+        // --rm may already have removed the container. Only a successful daemon
+        // listing after both processes release their handles establishes absence;
+        // an error message, failed query, or pending removal is never evidence.
+        if (cleanupStopped || Date.now() >= deadline - 1000) return false;
+        const listed = await command(['container', 'ls', '--all', '--format', '{{json .Names}}']);
+        if (!listed.ok) return false;
+        for (const line of listed.stdout.split(/\r?\n/).filter((line) => line.trim())) {
+          const value: unknown = JSON.parse(line);
+          const names = typeof value === 'string' ? value.split(',') : value;
+          if (!Array.isArray(names) || names.some((item) => typeof item !== 'string')) return false;
+          if (names.some((item) => item.replace(/^\//, '') === name)) return false;
+        }
+        return true;
+      };
       const released = await Promise.race([
-        removed.then(async (containerRemoved) => {
-          await Promise.all([owned?.completion, removal?.completion]);
-          return containerRemoved;
-        }),
+        confirmAbsence(),
         new Promise<boolean>((resolve) => {
           closureTimer = setTimeout(() => resolve(false), 2000);
         }),
@@ -355,10 +388,13 @@ export async function runContainerOrSubprocessSandbox(
     } catch {
       // Includes synchronous spawn/setup/removal errors and filesystem failures.
     } finally {
+      cleanupStopped = true;
       clearTimeout(timer);
       clearTimeout(closureTimer);
-      removal?.stop();
-      removal?.dispose();
+      for (const process of cleanupProcesses) {
+        process.stop();
+        process.dispose();
+      }
       owned?.dispose();
       if (!cleaned) warnOciWorkspace(directory, options.onCleanupWarning);
     }
