@@ -325,26 +325,76 @@ describe('UX-2 persistent daily limit', () => {
   });
   it('rejects replay, corrupt state and stale lock without resetting count', () => {
     const path = join(dir(), 'daily.json');
-    consumeDailyTask(path, 2, 'one');
-    expect(() => consumeDailyTask(path, 2, 'one')).toThrow('DAILY_TASK_REPLAY');
+    const now = Date.parse('2026-10-29T23:59:59.999Z');
+    consumeDailyTask(path, 2, 'one', now);
+    expect(() => consumeDailyTask(path, 2, 'one', now)).toThrow('DAILY_TASK_REPLAY');
     writeFileSync(path, '{}');
-    expect(() => consumeDailyTask(path, 2, 'two')).toThrow('DAILY_LIMIT_INVALID');
+    expect(() => consumeDailyTask(path, 2, 'two', now)).toThrow('DAILY_LIMIT_INVALID');
     const legacyPath = join(dir(), 'legacy.json');
     writeFileSync(legacyPath + '.lock', '');
-    expect(() => consumeDailyTask(legacyPath, 2, 'two')).toThrow('DAILY_LIMIT_BUSY');
+    expect(() => consumeDailyTask(legacyPath, 2, 'two', now)).toThrow('DAILY_LIMIT_BUSY');
   });
-  it('never exceeds the host cap with simultaneous processes', async () => {
+  it.each(['before-midnight-first', 'after-midnight-first'])(
+    'accounts for sampled UTC days in lock order: %s',
+    (order) => {
+      const path = join(dir(), 'daily.json');
+      const before = Date.parse('2026-10-29T23:59:59.999Z');
+      const after = Date.parse('2026-10-30T00:00:00.000Z');
+      // Model the serialized critical sections of contenders that sampled time
+      // on opposite sides of midnight. Lock acquisition need not follow sampling.
+      const days = order === 'before-midnight-first' ? [before, after] : [after, before];
+      let successes = 0;
+      for (const now of days) {
+        const day = new Date(now).toISOString().slice(0, 10);
+        const tasks = Array.from({ length: 3 }, (_, i) => `${day}-task-${i}`);
+        const rollback = order === 'after-midnight-first' && now === before;
+        const persisted = rollback ? readFileSync(path, 'utf8') : undefined;
+        for (const task of tasks) {
+          if (rollback) {
+            expect(() => consumeDailyTask(path, 3, task, now)).toThrow(
+              'DAILY_LIMIT_CLOCK_ROLLBACK',
+            );
+            expect(readFileSync(path, 'utf8')).toBe(persisted);
+          } else {
+            consumeDailyTask(path, 3, task, now);
+            successes++;
+            expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+              version: 1,
+              day,
+              tasks: tasks.slice(0, tasks.indexOf(task) + 1),
+            });
+            // Three admissions before midnight plus one after it are valid.
+            if (now === after && task === tasks[0] && order === 'before-midnight-first')
+              expect(successes).toBe(4);
+          }
+        }
+        expect(() => consumeDailyTask(path, 3, `${day}-overflow`, now)).toThrow(
+          rollback ? 'DAILY_LIMIT_CLOCK_ROLLBACK' : 'DAILY_LIMIT_REACHED',
+        );
+      }
+      expect(successes).toBe(order === 'before-midnight-first' ? 6 : 3);
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+        version: 1,
+        day: '2026-10-30',
+        tasks: Array.from({ length: 3 }, (_, i) => `2026-10-30-task-${i}`),
+      });
+    },
+  );
+  it('never exceeds the single-day host cap with simultaneous processes', async () => {
     const path = join(dir(), 'daily.json');
+    // Every child observes the same UTC day even when its launch crosses midnight.
+    const now = Date.parse('2026-10-29T23:59:59.999Z');
     const url = pathToFileURL(resolve('packages/runtime/dist/daily-limit.js')).href;
     const outcomes = await Promise.all(
       Array.from({ length: 12 }, (_, i) =>
         child(
-          `import {consumeDailyTask} from ${JSON.stringify(url)}; try { consumeDailyTask(${JSON.stringify(path)}, 3, 'task-${i}'); } catch { process.exitCode = 2; }`,
+          `import {consumeDailyTask} from ${JSON.stringify(url)}; try { consumeDailyTask(${JSON.stringify(path)}, 3, 'task-${i}', ${now}); } catch { process.exitCode = 2; }`,
         ),
       ),
     );
     expect(outcomes.filter((n) => n === 0).length).toBeGreaterThan(0);
     expect(outcomes.filter((n) => n === 0).length).toBeLessThanOrEqual(3);
+    expect(JSON.parse(readFileSync(path, 'utf8')).day).toBe('2026-10-29');
     expect(JSON.parse(readFileSync(path, 'utf8')).tasks).toHaveLength(
       outcomes.filter((n) => n === 0).length,
     );
