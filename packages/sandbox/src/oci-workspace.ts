@@ -40,7 +40,8 @@ export async function createOciWorkspace() {
   return {
     directory,
     async write(name: 'runner.cjs' | 'task.json' | 'config.json', content: string) {
-      const file = await open(join(directory, name), 'wx', 0o600);
+      const mode = process.getuid?.() === 0 && name !== 'config.json' ? 0o666 : 0o600;
+      const file = await open(join(directory, name), 'wx', mode);
       try {
         files.set(name, await file.stat({ bigint: true }));
         await file.writeFile(content);
