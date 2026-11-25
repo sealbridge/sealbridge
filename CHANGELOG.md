@@ -4,6 +4,29 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-25
+
+Maintenance update for local relay dependencies, Windows command resolution and project tooling. Node >=22 and protocol 0.2.0 remain unchanged.
+
+### Fixed
+
+- Respect the existing folder auto-accept rule when an invitation selects `folder-policy`, retaining its limits. (#316)
+- Improve Windows absolute command-path extension checks without changing command lookup behavior. (#326)
+
+### Changed
+
+- Update `ws` to 8.23.0 and raise its dependency floor to `^8.23.0` across the CLI, relay and both generated distributions. Local relay users are recommended to update to 0.10.1 once published. (#322, #328)
+- Refresh transitive Hono dependencies in the lockfile. (#325)
+- Apply CodeQL maintenance to invitation parsing, worker notifications and site heading generation. (#327)
+- Upgrade to TypeScript 6 with explicit Node types, and keep Dependabot Node type updates on the supported major. (#321, #320)
+- Enforce English/Japanese README heading-level parity. (#318)
+- Update site tooling (`marked`, `sanitize-html`) and the pnpm setup workflow action. (#220, #323, #324)
+
+### Upgrade notes
+
+- No new breaking changes are introduced by this maintenance release. The 0.10.0 upgrade notes still apply when upgrading from earlier versions.
+- Source installers and README package pins target 0.10.1; npm publication and hosted installer/site deployment remain separate steps.
+
 ## [0.10.0] - 2026-11-22
 
 Terminal-free invitations, read-only work, notifications and owner passkey approval improve Muse and Grok Bot workflows. Node >=22 and protocol 0.2.0 remain unchanged.

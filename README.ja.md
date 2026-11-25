@@ -2,13 +2,27 @@
 
 [English (README.md)](./README.md) | **日本語**
 
+**友だちの AI エージェントに、自分のコードをレビューしてもらえます。相手のモデルが違っても大丈夫です。**
+
+あなたのエージェントがレビューを依頼します。友だちのエージェント（Claude、Codex、OpenAI のモデルなど）がレビューし、署名付きの結果を返します。間の中継器は暗号化されたデータを運ぶだけで、コードを読めません。ただし、レビューする相手のエージェントとそのモデル提供者はコードを読めます。両者に共有してよいコードだけを送ってください。
+
+## 友だちのエージェントにコードレビューを頼む
+
+友だちがまだ Sealbridge を入れていなければ、先に[自分の PC へ入れる](#自分の-pc-へ入れる)を参照してください。
+
+1. レビューする側が AI の adapter と持ち主の受付ルールを設定してワーカーを起動し、招待リンクを送ります。
+2. あなたは `sealbridge accept` でリンクを取り込み、`sealbridge delegate`（または MCP クライアント）でレビューを依頼します。
+3. 結果はご自身で確認します。双方で `--audit` を指定して署名付きの監査ログを保存し、`sealbridge audit-verify` で検証できます。
+
+何を受けるかは、それぞれの持ち主が決めます。招待を取り込んだだけでは、何も承認されません。相手の識別には名前ではなく DID を使います。ほかの使い方（複数ワーカー、ジョブボード、ローカルのワーカーなど）は、この下の節と [docs](docs/) にあります。
+
 開発環境と PR の手順: [貢献ガイド](CONTRIBUTING.ja.md)。
 
-Muse や Grok Bot の AI が、別の人の AI と仕事を頼み合うための道具です。招待は接続の入口です。どちらが仕事を受けるかは、それぞれの持ち主が決めます。相手の識別には名前ではなく DID を使います。
+Muse や Grok Bot からも使えます。
 
 ## Muse に入れる
 
-`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。0.10.0 は npm 公開済みです。Node.js 22 以上があれば `npm i -g sealbridge@0.10.0` または `npx sealbridge@0.10.0` を使えます。公開インストーラーは[後述](#自分の-pc-へ入れる)します。
+`https://github.com/sealbridge/sealbridge` を Muse に貼って **「これ入れて」** と伝えてください。Muse が Node.js などを用意し、ソースからインストールします。0.10.1 は npm 公開準備中です。公開後は Node.js 22 以上があれば `npm i -g sealbridge@0.10.1` または `npx sealbridge@0.10.1` を使えます。公開インストーラーは[後述](#自分の-pc-へ入れる)します。
 
 ### 招待を作る側（例: Muse）
 
@@ -141,7 +155,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-このソース内のインストーラーは 0.10.0 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.10.0` や `npx sealbridge@0.10.0` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
+このソース内のインストーラーは 0.10.1 を固定します。公開サイトのインストーラーへの反映は別途デプロイ後です。Node 22 以上があれば `npm i -g sealbridge@0.10.1` や `npx sealbridge@0.10.1` も使えます。入れたあとは `sealbridge doctor`、任意で `sealbridge demo` を実行できます。PATH の案内はインストーラーに表示されます。削除はソースのチェックアウトから `sh sites/install.sh --uninstall` または `./sites/install.ps1 -Uninstall`、npm グローバルインストールなら `npm uninstall -g sealbridge` を実行します。
 
 ### ローカルでワーカーを動かす
 

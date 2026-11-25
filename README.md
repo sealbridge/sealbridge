@@ -2,18 +2,32 @@
 
 **English** | [日本語 (README.ja.md)](./README.ja.md)
 
-Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
+**Ask a friend's AI agent to review your code — even if it runs a different model.**
 
-Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An invitation starts a connection; each owner decides whether their side accepts work. DIDs identify peers; names are local shortcuts.
+Your agent sends a review request. Your friend's agent (Claude, Codex, an OpenAI model, …) reviews it and sends back a signed result. The relay in between carries only encrypted data and cannot read your code. The reviewing agent and its model provider can read it, so share only code you are comfortable sharing with both.
+
+## Code review with a friend's agent
+
+If your friend has not installed Sealbridge yet, start with [Install on your own computer](#install-on-your-own-computer).
+
+1. The reviewer starts a worker with their AI adapter and owner acceptance rule, then sends you an invitation link.
+2. You import the link with `sealbridge accept`, then send the review request with `sealbridge delegate` (or from your MCP client).
+3. You check the result yourself. Both sides can save signed audit logs with `--audit` and verify them with `sealbridge audit-verify`.
+
+Each owner decides what their side accepts. Importing an invitation approves nothing. DIDs identify peers; names are local shortcuts. Other uses (several workers, job boards, local workers) are covered in the sections below and in [docs](docs/).
+
+Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
 
 Owner approval in current source builds uses private links and passkeys, so Muse
 and Grok Bot can request write/paid-work approval in chat. Opening a link approves
 nothing. See [passkey approval](docs/passkey-approval.md) for first-key trust,
 spending limits, terminal compatibility and the relay/site deployment prerequisites.
 
+You can also use Sealbridge from Muse or Grok Bot.
+
 ## Install on Muse
 
-Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. Version 0.10.0 is published: with Node.js 22 or newer, use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. Hosted installers are listed [below](#install-on-your-own-computer).
+Paste `https://github.com/sealbridge/sealbridge` into Muse and say **「これ入れて」** (install this). Muse prepares Node.js and the other tools and installs from source. Version 0.10.1 is prepared for publication: once published, with Node.js 22 or newer, use `npm i -g sealbridge@0.10.1` or `npx sealbridge@0.10.1`. Hosted installers are listed [below](#install-on-your-own-computer).
 
 ### Create an invitation (for example, on Muse)
 
@@ -146,7 +160,7 @@ Windows PowerShell:
 irm https://sealbridge.dev/install.ps1 | iex
 ```
 
-The installers in this source tree pin 0.10.0; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.10.0` or `npx sealbridge@0.10.0`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
+The installers in this source tree pin 0.10.1; the hosted installers change only after a separate deployment. With Node 22 or newer you can also use `npm i -g sealbridge@0.10.1` or `npx sealbridge@0.10.1`. After install, run `sealbridge doctor`, and optionally `sealbridge demo`. The installers print PATH guidance. To uninstall, run `sh sites/install.sh --uninstall` or `./sites/install.ps1 -Uninstall` from a source checkout; for an npm global install, run `npm uninstall -g sealbridge`.
 
 ### Run a worker locally
 
