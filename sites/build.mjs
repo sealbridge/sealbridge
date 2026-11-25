@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, readdir, cp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { Marked } from 'marked';
+import { Marked, TextRenderer } from 'marked';
 import sanitize from 'sanitize-html';
 import GithubSlugger from 'github-slugger';
 
@@ -15,6 +15,17 @@ const esc = (s) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
 const read = (file) => readFile(path.join(root, file), 'utf8');
+export function headingRenderer(slugger = new GithubSlugger()) {
+  const textRenderer = new TextRenderer();
+  // Marked's default text renderer retains HTML tokens; tags are not heading text.
+  textRenderer.html = () => '';
+  return function ({ tokens, depth }) {
+    textRenderer.parser = this.parser;
+    const text = this.parser.parseInline(tokens);
+    const plain = this.parser.parseInline(tokens, textRenderer);
+    return `<h${depth} id="${esc(slugger.slug(plain))}">${text}</h${depth}>`;
+  };
+}
 const route = (file, lang) => `/${lang}/docs/${file.replace(/\.md$/, '')}/`;
 async function put(file, data) {
   await mkdir(path.dirname(file), { recursive: true });
@@ -126,10 +137,7 @@ export async function buildSites() {
       }
       const parser = new Marked({
         renderer: {
-          heading({ tokens, depth }) {
-            const text = this.parser.parseInline(tokens);
-            return `<h${depth} id="${esc(slugger.slug(text.replace(/<[^>]*>/g, '')))}">${text}</h${depth}>`;
-          },
+          heading: headingRenderer(slugger),
           link({ href, tokens }) {
             return `<a href="${esc(link(href))}">${this.parser.parseInline(tokens)}</a>`;
           },

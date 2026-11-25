@@ -333,7 +333,7 @@ export function parseInviteLink(uri: string, policy: InviteLinkRelayPolicy = {})
     policy.allowedRelayUrls !== undefined &&
     !policy.allowedRelayUrls
       .map((value) => normalizeAllowlistUrl(value, policy))
-      .includes(relayOrigin)
+      .some((allowedOrigin) => allowedOrigin === relayOrigin)
   )
     throw new Error('INVITE_LINK_RELAY_NOT_ALLOWED');
   return { v: 1, k, relayOrigin };
