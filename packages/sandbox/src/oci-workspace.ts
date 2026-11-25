@@ -44,7 +44,6 @@ export async function createOciWorkspace() {
       try {
         files.set(name, await file.stat({ bigint: true }));
         await file.writeFile(content);
-        if (process.getuid?.() === 0) await file.chown(65534, 65534);
       } finally {
         await file.close();
       }
