@@ -350,9 +350,12 @@ for (const lang of ['en', 'ja']) {
         ? '外部モデル・API キー・レビュー相手は不要'
         : 'No external model, API key or review partner is required',
     );
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
+    for (const width of [320, 390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
     // Follow the worker setup link through its translated heading, not just its page.
     await page.locator('#with-friend a').first().click();
     const fragment = decodeURIComponent(new URL(page.url()).hash.slice(1));
