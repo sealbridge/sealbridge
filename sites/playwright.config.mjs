@@ -6,6 +6,7 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   reporter: [['list'], ['./tests/preview-diagnostic-reporter.mjs']],
+  globalTeardown: './tests/preview-diagnostic-teardown.mjs',
   use: { browserName: 'chromium', locale: 'en-US' },
   // Traces and screenshots could capture invitation material; do not record them.
   webServer: {

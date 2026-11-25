@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { trackObservation } from './preview-diagnostic-teardown.mjs';
 import {
   observeOrigin,
   previewPorts,
@@ -44,6 +45,7 @@ export default class PreviewDiagnosticReporter {
     ])
       .then(([server, origins]) => sanitizeDiagnostic({ server, origins }))
       .catch(() => sanitizeDiagnostic({}));
+    trackObservation(this.observation);
   }
 
   async onEnd(result) {

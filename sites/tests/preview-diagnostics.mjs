@@ -1,5 +1,6 @@
 import { get } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { constants } from 'node:os';
 
 export const previewPorts = { site: 4173, invite: 4174 };
 const errors = new Set([
@@ -11,7 +12,7 @@ const errors = new Set([
   'EACCES',
   'EADDRINUSE',
 ]);
-const signals = new Set(['SIGTERM', 'SIGINT', 'SIGKILL', 'SIGABRT']);
+const signals = new Set(Object.keys(constants.signals));
 const integer = (value, min, max) =>
   Number.isInteger(value) && value >= min && value <= max ? value : null;
 
@@ -25,7 +26,8 @@ export function sanitizeDiagnostic(input) {
       liveness: ['alive', 'exited'].includes(input.server?.liveness)
         ? input.server.liveness
         : 'unknown',
-      exitCode: integer(input.server?.exitCode, 0, 255),
+      // Node can expose Windows NTSTATUS as signed or unsigned 32-bit values.
+      exitCode: integer(input.server?.exitCode, -2147483648, 4294967295),
       signal: signals.has(input.server?.signal) ? input.server.signal : null,
     },
     origins: ['site', 'invite'].map((target) => {

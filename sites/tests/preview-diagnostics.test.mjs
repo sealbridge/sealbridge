@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, rm, access } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   observeOrigin,
@@ -15,6 +16,40 @@ import Reporter from './preview-diagnostic-reporter.mjs';
 
 const secret = 'acp-invite:SYNTHETIC_TOKEN#fragment-SECRET?key=PRIVATE_KEY';
 const serialize = (input) => JSON.stringify(sanitizeDiagnostic(input));
+
+test('exit diagnostics retain 32-bit Windows status and only platform-recognized signals', () => {
+  for (const exitCode of [0, 23, 255, 0xc0000005, -1073741819, -2147483648, 4294967295]) {
+    assert.equal(sanitizeDiagnostic({ server: { exitCode } }).server.exitCode, exitCode);
+  }
+  for (const exitCode of [-2147483649, 4294967296, 1.5, Infinity, secret]) {
+    assert.equal(sanitizeDiagnostic({ server: { exitCode } }).server.exitCode, null);
+  }
+  for (const signal of [
+    'SIGSEGV',
+    'SIGBUS',
+    'SIGILL',
+    'SIGFPE',
+    'SIGABRT',
+    'SIGQUIT',
+    'SIGKILL',
+    'SIGTERM',
+    secret,
+  ]) {
+    assert.equal(
+      sanitizeDiagnostic({ server: { signal } }).server.signal,
+      Object.hasOwn(constants.signals, signal) ? signal : null,
+    );
+  }
+});
+
+test('real child exit status keeps Windows NTSTATUS or the POSIX low byte', async () => {
+  const child = spawn(process.execPath, ['-e', 'process.exit(0xc0000005)'], { windowsHide: true });
+  const [exitCode, signal] = await once(child, 'close');
+  assert.equal(signal, null);
+  if (process.platform === 'win32') assert.equal(exitCode >>> 0, 0xc0000005);
+  else assert.equal(exitCode, 5);
+  assert.equal(sanitizeDiagnostic({ server: { exitCode, signal } }).server.exitCode, exitCode);
+});
 
 test('pre-log allowlist rejects secrets in every diagnostic field and extra data', () => {
   const result = serialize({
