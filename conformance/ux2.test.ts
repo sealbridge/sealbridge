@@ -45,6 +45,7 @@ function dir() {
   return d;
 }
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -266,16 +267,21 @@ function child(code: string): Promise<number> {
 describe('UX-2 persistent daily limit', () => {
   it('enforces the cap on real workers after both owner and requester rotate', async () => {
     const path = join(dir(), 'daily.json');
+    const now = () => Date.parse('2026-11-10T23:59:59Z');
+    // Keep wall-clock consumers within clock skew, but on a different UTC day.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now() + 1000);
     for (let attempt = 0; attempt < 2; attempt++) {
       const owner = generateKeyPair(),
         requester = generateKeyPair(),
-        relay = new InMemoryRelay();
+        relay = new InMemoryRelay({ now });
       let calls = 0;
       const worker = new WorkerNode({
         autoAccept: { version: 1, enabled: true, from: 'anyone', work: 'write', limits: {} },
         checkPeer: () => 'trusted',
         owner,
         relay,
+        now,
         timeoutMs: 3000,
         dailyLimit: { path, maxTasks: 1 },
         approvalProvider: new PolicyAutoApprovalProvider(owner),
@@ -293,6 +299,7 @@ describe('UX-2 persistent daily limit', () => {
       const client = new RequesterClient({
         owner: requester,
         relay,
+        now,
         timeoutMs: 3000,
         approvalProvider: new PolicyAutoApprovalProvider(requester),
       });
@@ -308,6 +315,10 @@ describe('UX-2 persistent daily limit', () => {
         else await expect(task).rejects.toMatchObject({ code: 'DAILY_LIMIT_REACHED' });
         await done;
         expect(calls).toBe(attempt === 0 ? 1 : 0);
+        expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({
+          day: '2026-11-10',
+          tasks: [expect.any(String)],
+        });
       } finally {
         worker.stop();
       }

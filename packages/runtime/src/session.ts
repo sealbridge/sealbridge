@@ -2617,7 +2617,12 @@ export class WorkerNode {
           this.deliveryService!.recipientStatus.observe(first.payload.envelopeId, 'opened');
         }, activeSignal);
       if (this.options.dailyLimit)
-        consumeDailyTask(this.options.dailyLimit.path, this.options.dailyLimit.maxTasks, m.taskId);
+        consumeDailyTask(
+          this.options.dailyLimit.path,
+          this.options.dailyLimit.maxTasks,
+          m.taskId,
+          this.protocol.now(),
+        );
       if (this.options.inboxPath) {
         const record =
           JSON.stringify({
