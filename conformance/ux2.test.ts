@@ -325,13 +325,14 @@ describe('UX-2 persistent daily limit', () => {
   });
   it('rejects replay, corrupt state and stale lock without resetting count', () => {
     const path = join(dir(), 'daily.json');
-    consumeDailyTask(path, 2, 'one');
-    expect(() => consumeDailyTask(path, 2, 'one')).toThrow('DAILY_TASK_REPLAY');
+    const now = Date.parse('2026-10-29T23:59:59.999Z');
+    consumeDailyTask(path, 2, 'one', now);
+    expect(() => consumeDailyTask(path, 2, 'one', now)).toThrow('DAILY_TASK_REPLAY');
     writeFileSync(path, '{}');
-    expect(() => consumeDailyTask(path, 2, 'two')).toThrow('DAILY_LIMIT_INVALID');
+    expect(() => consumeDailyTask(path, 2, 'two', now)).toThrow('DAILY_LIMIT_INVALID');
     const legacyPath = join(dir(), 'legacy.json');
     writeFileSync(legacyPath + '.lock', '');
-    expect(() => consumeDailyTask(legacyPath, 2, 'two')).toThrow('DAILY_LIMIT_BUSY');
+    expect(() => consumeDailyTask(legacyPath, 2, 'two', now)).toThrow('DAILY_LIMIT_BUSY');
   });
   it.each(['before-midnight-first', 'after-midnight-first'])(
     'accounts for sampled UTC days in lock order: %s',
