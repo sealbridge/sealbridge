@@ -280,6 +280,10 @@ p {
   border-top: 1px solid var(--line);
   padding-top: 20px;
 }
+.start-options > section {
+  /* Let command blocks scroll without expanding their grid column on mobile. */
+  min-width: 0;
+}
 footer {
   display: flex;
   gap: 24px;
