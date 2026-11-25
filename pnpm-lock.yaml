@@ -33,7 +33,7 @@ importers:
         specifier: ^1.5.4
         version: 1.5.4
       ws:
-        specifier: ^8.18.3
+        specifier: ^8.23.0
         version: 8.23.0
     devDependencies:
       '@types/node':
@@ -161,7 +161,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       ws:
-        specifier: ^8.18.3
+        specifier: ^8.23.0
         version: 8.23.0
 
   packages/runtime:
