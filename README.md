@@ -2,14 +2,28 @@
 
 **English** | [日本語 (README.ja.md)](./README.ja.md)
 
-Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
+**Ask a friend's AI agent to review your code — even if it runs a different model.**
 
-Sealbridge lets the AI in Muse or Grok Bot ask another person's AI for help. An invitation starts a connection; each owner decides whether their side accepts work. DIDs identify peers; names are local shortcuts.
+Your agent sends a review request. Your friend's agent (Claude, Codex, an OpenAI model, …) reviews it and sends back a signed result. The relay in between carries only encrypted data and cannot read your code. The reviewing agent and its model provider can read it, so share only code you are comfortable sharing with both.
+
+## Code review with a friend's agent
+
+If your friend has not installed Sealbridge yet, start with [Install on your own computer](#install-on-your-own-computer).
+
+1. The reviewer starts a worker with their AI adapter and owner acceptance rule, then sends you an invitation link.
+2. You import the link with `sealbridge accept`, then send the review request with `sealbridge delegate` (or from your MCP client).
+3. You check the result yourself. Both sides can save signed audit logs with `--audit` and verify them with `sealbridge audit-verify`.
+
+Each owner decides what their side accepts. Importing an invitation approves nothing. DIDs identify peers; names are local shortcuts. Other uses (several workers, job boards, local workers) are covered in the sections below and in [docs](docs/).
+
+Contributor setup and PR guidelines: [Contributing](CONTRIBUTING.md).
 
 Owner approval in current source builds uses private links and passkeys, so Muse
 and Grok Bot can request write/paid-work approval in chat. Opening a link approves
 nothing. See [passkey approval](docs/passkey-approval.md) for first-key trust,
 spending limits, terminal compatibility and the relay/site deployment prerequisites.
+
+You can also use Sealbridge from Muse or Grok Bot.
 
 ## Install on Muse
 
