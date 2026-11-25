@@ -51,6 +51,8 @@ export interface AgentTaskContext {
   reportProgress?: (progress: ProgressPayload) => void | Promise<void>;
   signal: AbortSignal;
   workspaceDir: string;
+  /** Local diagnostic only, never a progress or protocol event. */
+  reportOciCleanupWarning?: (warning: import('@acp/sandbox').OciCleanupWarning) => void;
   /**
    * Host-reported isolation. `level` is the path that ran (`subprocess_restricted`
    * or `oci_container`), not a label chosen by task code. `boundary` is set by

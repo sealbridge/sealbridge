@@ -2,9 +2,10 @@
 import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, writeFile, rm, chown } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { chown } from 'node:fs/promises';
+import { createOciWorkspace, warnOciWorkspace } from './oci-workspace.js';
+import type { OciCleanupWarning } from './oci-workspace.js';
+export type { OciCleanupWarning } from './oci-workspace.js';
 import type { Json } from '@acp/core';
 import { runSandbox, sandboxWrapper, sanitizedEnvironment } from './index.js';
 import type { SandboxOptions } from './index.js';
@@ -103,6 +104,8 @@ export async function detectDockerRuntime(
   return undefined;
 }
 export interface HybridSandboxOptions extends SandboxOptions {
+  /** Host-local log sink only; never forward to progress, audit, or peer errors. */
+  onCleanupWarning?: (warning: OciCleanupWarning) => void | Promise<void>;
   isolationLevel?: string;
   runtime?: DockerRuntime | null;
   probe?: RuntimeProbe;
@@ -192,19 +195,20 @@ export async function runContainerOrSubprocessSandbox(
       // Same flag choice `runSandbox` passes. Network stays open at the kernel.
       sandboxBoundary: subprocessSandboxBoundary(),
     };
-  const directory = await mkdtemp(join(tmpdir(), 'acp-oci-')),
+  const workspace = await createOciWorkspace();
+  const directory = workspace.directory,
     name = 'acp-' + randomUUID();
   let owned: ReturnType<typeof ownProcess> | undefined;
   let disposeExecution = () => {};
   try {
     if (process.getuid?.() === 0) await chown(directory, 65534, 65534);
     const bridge = `const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');process.disconnect=()=>{process.stdin.destroy();};require('node:readline').createInterface({input:process.stdin}).on('line',l=>process.emit('message',JSON.parse(l)));\n`;
-    await writeFile(
-      join(directory, 'runner.cjs'),
+    await workspace.write(
+      'runner.cjs',
       bridge + sandboxWrapper.replaceAll('process.send(', 'send('),
     );
-    await writeFile(
-      join(directory, 'task.json'),
+    await workspace.write(
+      'task.json',
       JSON.stringify({
         code: options.code,
         input: options.input ?? null,
@@ -212,7 +216,7 @@ export async function runContainerOrSubprocessSandbox(
       }),
     );
     // An empty config avoids Docker CLI proxy defaults and registry credentials.
-    await writeFile(join(directory, 'config.json'), '{}');
+    await workspace.write('config.json', '{}');
     const output = await new Promise<Json>((resolve, reject) => {
       const environment = {
         ...sanitizedEnvironment(directory),
@@ -314,11 +318,14 @@ export async function runContainerOrSubprocessSandbox(
     owned?.stop();
     let removal: ReturnType<typeof ownProcess> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let closureTimer: ReturnType<typeof setTimeout> | undefined;
+    let cleaned = false;
+    const deadline = Date.now() + 3000;
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), 3000);
     });
     try {
-      const removed = new Promise<void>((resolve) => {
+      const removed = new Promise<boolean>((resolve) => {
         const process = execFile(
           runtime,
           ['rm', '-f', name],
@@ -330,25 +337,30 @@ export async function runContainerOrSubprocessSandbox(
               DOCKER_CONFIG: directory,
             },
           },
-          () => resolve(),
+          (error) => resolve(!error),
         );
         removal = ownProcess(process);
       });
       const released = await Promise.race([
-        removed.then(async () => {
+        removed.then(async (containerRemoved) => {
           await Promise.all([owned?.completion, removal?.completion]);
-          return true;
+          return containerRemoved;
         }),
-        expired,
+        new Promise<boolean>((resolve) => {
+          closureTimer = setTimeout(() => resolve(false), 2000);
+        }),
       ]);
-      if (released) await rm(directory, { recursive: true, force: true });
+      clearTimeout(closureTimer);
+      cleaned = await Promise.race([workspace.cleanup(released, deadline), expired]);
     } catch {
       // Includes synchronous spawn/setup/removal errors and filesystem failures.
     } finally {
       clearTimeout(timer);
+      clearTimeout(closureTimer);
       removal?.stop();
       removal?.dispose();
       owned?.dispose();
+      if (!cleaned) warnOciWorkspace(directory, options.onCleanupWarning);
     }
   }
 }
