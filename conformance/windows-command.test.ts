@@ -99,6 +99,24 @@ describe('Windows command candidates and batch arguments', () => {
 });
 
 describe.skipIf(process.platform !== 'win32')('Windows command spawning', () => {
+  it.each(['\\', '/'])('resolves absolute commands using %s separators', async (separator) => {
+    const dir = join(await workspace(), 'tools.dir');
+    await mkdir(dir);
+    await writeFile(join(dir, 'tool.exe'), '');
+    vi.stubEnv('PATHEXT', '.EXE');
+    const command = join(dir, 'tool').replaceAll('\\', separator);
+    expect(await resolveCommand(command + '.exe')).toBe(command + '.exe');
+    expect(await resolveCommand(command)).toBe(command + '.exe');
+    await expect(resolveCommand(command + '.')).rejects.toThrow('COMMAND_NOT_FOUND');
+  });
+
+  it('resolves an absolute command with a long basename promptly', async () => {
+    const command = join(await workspace(), '.'.repeat(50000));
+    const started = performance.now();
+    expect(await resolveCommand(command)).toBe(command);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('selects and spawns a real .exe before a .cmd or extensionless shim', async () => {
     const dir = await workspace();
     const script = join(dir, 'inspect.cjs');
