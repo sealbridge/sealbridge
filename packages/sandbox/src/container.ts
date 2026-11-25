@@ -1,17 +1,88 @@
 // SPDX-License-Identifier: Apache-2.0
 import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, writeFile, rm, chown } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Json } from '@acp/core';
-import { runSandbox, sandboxWrapper, sanitizedEnvironment, terminateSubprocess } from './index.js';
+import { runSandbox, sandboxWrapper, sanitizedEnvironment } from './index.js';
 import type { SandboxOptions } from './index.js';
 import { OCI_CONTAINER_BOUNDARY, subprocessSandboxBoundary } from './permission.js';
 import type { SandboxBoundaryMetadata } from './permission.js';
 export type DockerRuntime = 'docker' | 'podman';
 export type RuntimeProbe = (binary: string, args: string[]) => Promise<boolean>;
+
+// A process exit alone does not release inherited pipes. Keep the workspace until
+// close, or until a failed spawn (no PID) has released all of its local streams.
+function ownProcess(child: ChildProcess) {
+  let closed = false;
+  let spawnFailed = false;
+  let resolveClosed!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    resolveClosed = resolve;
+  });
+  const streams = [child.stdin, child.stdout, child.stderr].filter((s) => s != null);
+  const released = () =>
+    closed ||
+    ((spawnFailed || child.exitCode !== null || child.signalCode != null) &&
+      streams.every((stream) => stream.closed));
+  const check = () => {
+    if (released()) resolveClosed();
+  };
+  const onClose = () => {
+    closed = true;
+    resolveClosed();
+  };
+  const ignoreStreamError = () => {};
+  const onError = () => {
+    if (child.pid === undefined) {
+      spawnFailed = true;
+      for (const stream of streams) stream.destroy();
+      check();
+    }
+  };
+  child.on('close', onClose);
+  child.on('error', onError);
+  for (const stream of streams) {
+    stream.on('close', check);
+    stream.on('error', ignoreStreamError);
+  }
+  check();
+  return {
+    completion,
+    released,
+    stop() {
+      if (
+        !released() &&
+        child.pid !== undefined &&
+        child.exitCode === null &&
+        child.signalCode == null
+      ) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* Retain the workspace if termination fails. */
+        }
+      }
+    },
+    dispose() {
+      child.removeListener('close', onClose);
+      child.removeListener('error', onError);
+      for (const stream of streams) stream.removeListener('close', check);
+      // Inherited pipes must not keep the caller alive after the cleanup budget.
+      for (const stream of streams) {
+        // Pending writes can report errors after destroy; keep the error sink
+        // only until the stream's close event, including on budget expiry.
+        const detach = () => stream.removeListener('error', ignoreStreamError);
+        if (stream.closed) detach();
+        else stream.once('close', detach);
+        stream.destroy();
+      }
+      child.unref();
+    },
+  };
+}
 export async function detectDockerRuntime(
   probe: RuntimeProbe = (binary, args) =>
     new Promise((resolve) => {
@@ -123,7 +194,8 @@ export async function runContainerOrSubprocessSandbox(
     };
   const directory = await mkdtemp(join(tmpdir(), 'acp-oci-')),
     name = 'acp-' + randomUUID();
-  let closed = Promise.resolve();
+  let owned: ReturnType<typeof ownProcess> | undefined;
+  let disposeExecution = () => {};
   try {
     if (process.getuid?.() === 0) await chown(directory, 65534, 65534);
     const bridge = `const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');process.disconnect=()=>{process.stdin.destroy();};require('node:readline').createInterface({input:process.stdin}).on('line',l=>process.emit('message',JSON.parse(l)));\n`;
@@ -158,8 +230,7 @@ export async function runContainerOrSubprocessSandbox(
           });
       // A result or a kill request does not release the process/stdio handles.
       // Register before any completion path (including an already-aborted signal).
-      closed = new Promise<void>((resolveClose) => child.once('close', () => resolveClose()));
-      child.stderr.resume();
+      owned = ownProcess(child);
       let done = false,
         buffer = '',
         calls = 0;
@@ -169,14 +240,12 @@ export async function runContainerOrSubprocessSandbox(
         done = true;
         clearTimeout(timer);
         options.signal?.removeEventListener('abort', abort);
-        terminateSubprocess(child);
         error ? reject(error) : resolve(value ?? null);
       };
       const abort = () => finish(new Error('SANDBOX_HALTED'));
       const timer = setTimeout(() => finish(new Error('SANDBOX_TIMEOUT')), options.timeoutMs);
-      options.signal?.addEventListener('abort', abort, { once: true });
-      if (options.signal?.aborted) abort();
-      child.stdout.on('data', (chunk: Buffer) => {
+      const onData = (chunk: Buffer) => {
+        if (done) return;
         buffer += chunk.toString();
         if (buffer.length > 1048576) return finish(new Error('SANDBOX_MESSAGE_LIMIT'));
         let index;
@@ -206,14 +275,31 @@ export async function runContainerOrSubprocessSandbox(
             })
             .catch((e) => finish(e instanceof Error ? e : new Error(String(e))));
         }
-      });
-      child.on('error', (e) => finish(e));
-      child.stdin.on('error', () => {});
-      child.on('close', (code) => {
+      };
+      const onError = (e: Error) => finish(e);
+      const onStdinError = () => {};
+      const onClose = (code: number | null) => {
         void serial.then(() => {
           if (!done) finish(new Error('CONTAINER_EXIT: ' + code));
         });
-      });
+      };
+      disposeExecution = () => {
+        done = true;
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abort);
+        child.stdout.removeListener('data', onData);
+        child.removeListener('error', onError);
+        child.stdin.removeListener('error', onStdinError);
+        child.removeListener('close', onClose);
+      };
+      child.stdout.on('data', onData);
+      child.on('error', onError);
+      child.stdin.on('error', onStdinError);
+      child.on('close', onClose);
+      child.stderr.resume();
+      options.signal?.addEventListener('abort', abort, { once: true });
+      if (options.signal?.aborted) abort();
+      else if (owned.released()) onClose(child.exitCode);
     });
     return {
       output,
@@ -221,25 +307,49 @@ export async function runContainerOrSubprocessSandbox(
       sandboxBoundary: OCI_CONTAINER_BOUNDARY,
     };
   } finally {
-    await new Promise<void>((resolve) =>
-      execFile(
-        runtime,
-        ['rm', '-f', name],
-        {
-          timeout: 3000,
-          env: {
-            ...sanitizedEnvironment(directory),
-            PATH: '/usr/local/bin:/usr/bin:/bin',
-            DOCKER_CONFIG: directory,
+    // Share the existing 3-second container-removal budget with process closure.
+    // A missing close never permits deletion, and cleanup must not replace the
+    // task result/error. Unreleased workspaces are deliberately retained.
+    disposeExecution();
+    owned?.stop();
+    let removal: ReturnType<typeof ownProcess> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), 3000);
+    });
+    try {
+      const removed = new Promise<void>((resolve) => {
+        const process = execFile(
+          runtime,
+          ['rm', '-f', name],
+          {
+            timeout: 3000,
+            env: {
+              ...sanitizedEnvironment(directory),
+              PATH: '/usr/local/bin:/usr/bin:/bin',
+              DOCKER_CONFIG: directory,
+            },
           },
-        },
-        () => resolve(),
-      ),
-    );
-    // Remove the container first: its CLI may be waiting for container teardown.
-    // Then wait for the run process and all its streams before deleting their files.
-    await closed;
-    await rm(directory, { recursive: true, force: true });
+          () => resolve(),
+        );
+        removal = ownProcess(process);
+      });
+      const released = await Promise.race([
+        removed.then(async () => {
+          await Promise.all([owned?.completion, removal?.completion]);
+          return true;
+        }),
+        expired,
+      ]);
+      if (released) await rm(directory, { recursive: true, force: true });
+    } catch {
+      // Includes synchronous spawn/setup/removal errors and filesystem failures.
+    } finally {
+      clearTimeout(timer);
+      removal?.stop();
+      removal?.dispose();
+      owned?.dispose();
+    }
   }
 }
 export class SandboxRunner {
