@@ -1076,6 +1076,7 @@ it('keeps the real CLI provider key in the host broker and forwards only the tas
 it('exercises the OCI JSON tool/usage bridge with a simulated container process', async () => {
   let usage = 0,
     toolCalls = 0;
+  let closed = false;
   const result = await runContainerOrSubprocessSandbox({
     isolationLevel: 'oci_container',
     runtime: 'docker',
@@ -1085,11 +1086,15 @@ it('exercises the OCI JSON tool/usage bridge with a simulated container process'
     containerSpawn: (_runtime, args, options) => {
       expect(args).toContain('--read-only');
       expect(options.env).not.toHaveProperty('OPENAI_API_KEY');
-      return spawn(process.execPath, ['runner.cjs'], {
+      const child = spawn(process.execPath, ['runner.cjs'], {
         cwd: options.cwd,
         env: options.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      child.once('close', () => {
+        closed = true;
+      });
+      return child;
     },
     onTool: async (name, args) => {
       toolCalls++;
@@ -1107,4 +1112,5 @@ it('exercises the OCI JSON tool/usage bridge with a simulated container process'
   });
   expect(toolCalls).toBe(1);
   expect(usage).toBe(5);
+  expect(closed).toBe(true);
 });
