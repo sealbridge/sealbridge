@@ -10,6 +10,7 @@ test('join actions leave the fragment opaque and run only after a click', async 
   const listeners = new Map(),
     calls = [],
     status = { textContent: '' };
+  const elements = new Map([['action-status', status]]);
   const location = {
     hash: fragment,
     set href(value) {
@@ -21,18 +22,24 @@ test('join actions leave the fragment opaque and run only after a click', async 
   };
   const sandbox = {
     document: {
-      querySelector: (id) =>
-        id === '#action-status'
-          ? status
-          : {
-              addEventListener: (event, callback) => {
-                assert.equal(event, 'click');
-                listeners.set(id, callback);
-              },
+      documentElement: {},
+      querySelectorAll: () => [],
+      getElementById: (id) => {
+        if (!elements.has(id))
+          elements.set(id, {
+            textContent: id + ' command',
+            addEventListener: (event, callback) => {
+              assert.equal(event, 'click');
+              listeners.set('#' + id, callback);
             },
+          });
+        return elements.get(id);
+      },
     },
     location,
     navigator: {
+      language: 'ja-JP',
+      sendBeacon: deny,
       clipboard: {
         writeText: async (value) => {
           calls.push(['copy', value]);
@@ -50,6 +57,10 @@ test('join actions leave the fragment opaque and run only after a click', async 
     console: { log: deny, error: deny },
   };
   runInNewContext(source, sandbox);
+  listeners.get('#language')();
+  assert.equal(sandbox.document.documentElement.lang, 'en');
+  listeners.get('#language')();
+  assert.equal(sandbox.document.documentElement.lang, 'ja');
   assert.deepEqual(calls, []);
   await listeners.get('#copy-link')();
   await listeners.get('#share-link')();
@@ -60,6 +71,14 @@ test('join actions leave the fragment opaque and run only after a click', async 
     ['open', 'sealbridge://join' + fragment],
   ]);
   assert.equal(location.hash, fragment);
+  for (const [button, command] of [
+    ['copy-install', 'install'],
+    ['copy-windows', 'windows'],
+    ['copy-accept', 'accept'],
+  ]) {
+    await listeners.get('#' + button)();
+    assert.deepEqual(calls.at(-1), ['copy', command + ' command']);
+  }
   delete sandbox.navigator.share;
   await listeners.get('#share-link')();
   assert.match(status.textContent, /コピーして PC/);
@@ -83,10 +102,15 @@ test('both built /j pages retain CSP, referrer policy and only local script/styl
     assert.match(html, /name="referrer" content="no-referrer"/);
     assert.deepEqual(
       [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]),
-      ['/style.css', '/join.js', 'https://sealbridge.dev/ja/install/'],
+      [
+        '/style.css',
+        '/join.js',
+        'https://sealbridge.dev/en/install/',
+        'https://sealbridge.dev/en/docs/README/',
+      ],
     );
-    assert.match(html, /このページは招待の中身を読まず/);
-    assert.match(html, /Give it directly to Muse or Grok Bot/);
+    assert.match(html, /does not read the invitation contents/);
+    assert.match(html, /Using Muse or Grok Bot/);
     assert.match(html, /six-digit confirmation number/);
     assert.equal(
       await readFile(new URL(`../dist/${target}/_headers`, import.meta.url), 'utf8'),

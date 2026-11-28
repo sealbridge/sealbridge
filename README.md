@@ -8,9 +8,9 @@ Your agent sends a review request. Your friend's agent (Claude, Codex, an OpenAI
 
 ## Code review with a friend's agent
 
-If your friend has not installed Sealbridge yet, start with [Install on your own computer](#install-on-your-own-computer).
+If your friend has not installed Sealbridge yet, send them the [installation guide](https://sealbridge.dev/en/install/): it explains how to install Sealbridge on their computer.
 
-1. The reviewer starts a worker with their AI adapter and owner acceptance rule, then sends you an invitation link.
+1. The reviewer starts their agent in the reviewer role and sends you an invitation link.
 2. You import the link with `sealbridge accept`, then send the review request with `sealbridge delegate` (or from your MCP client).
 3. You check the result yourself. Both sides can save signed audit logs with `--audit` and verify them with `sealbridge audit-verify`.
 

@@ -1,44 +1,99 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>Sealbridge の招待リンクです</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Your invitation · Sealbridge</title>
     <link rel="stylesheet" href="/style.css" />
     <script src="/join.js" defer></script>
   </head>
   <body>
-    <main class="wrap">
-      <h1>Sealbridge の招待リンクです</h1>
-      <p>
-        この招待は、Sealbridge Desktop か CLI
-        で開きます。スマホでは開けません。このページは招待の中身を読まず、サーバーにも送りません。
+    <header>
+      <span class="brand">Sealbridge<span class="brand-dot" aria-hidden="true">●</span></span
+      ><button id="language" data-text="language" type="button">日本語</button>
+    </header>
+    <main class="invite">
+      <p class="eyebrow" data-text="eyebrow">A private invitation</p>
+      <h1 data-text="title">An invitation to get your code reviewed by another AI.</h1>
+      <p class="lead" data-text="intro">
+        Send your code to the reviewer’s agent and get a review back. Their agent and its model
+        provider can read your code; the relay cannot.
       </p>
-      <p lang="en">
-        Open this invitation in Sealbridge Desktop or CLI on your PC. Phones cannot open it. This
-        page does not read the invitation contents or send them to a server.
-      </p>
-      <p><button id="open-app" type="button">アプリで開く</button></p>
-      <p><button id="share-link" type="button">このリンクを自分の PC に送る</button></p>
-      <p><button id="copy-link" type="button">リンクをコピー</button></p>
-      <p id="action-status" role="status"></p>
-      <h2>Sealbridge を入れる</h2>
-      <pre>curl -fsSL https://sealbridge.dev/install.sh | sh</pre>
-      <p>
-        <a href="https://sealbridge.dev/ja/install/" rel="noreferrer"
-          >CLI・Desktop のインストール案内</a
-        >
-      </p>
-      <p>
-        PC の CLI では <code>sealbridge accept --paste</code> または
-        <code>sealbridge accept --stdin</code> でリンクを渡してください。
-      </p>
-      <p>このリンクは1回だけ使えます。知らない人から届いたリンクは開かないでください。</p>
-      <p lang="en">
-        This is a short invitation link. Give it directly to Muse or Grok Bot, then check the peer
-        name and six-digit confirmation number in chat.
-      </p>
+      <noscript
+        ><p>
+          Enable JavaScript for language switching and copy buttons, or copy commands and the
+          invitation URL manually. / 言語切り替えとコピーボタンには JavaScript
+          が必要です。コマンドと招待 URL は手動でもコピーできます。
+        </p></noscript
+      >
+      <section>
+        <h2 data-text="installTitle">01 / Install Sealbridge</h2>
+        <p data-text="installText">
+          Run the line for your system on your PC, then open a new terminal.
+        </p>
+        <p>macOS / Linux</p>
+        <pre><code id="install">curl -fsSL https://sealbridge.dev/install.sh | sh</code></pre>
+        <button id="copy-install" data-text="copy" type="button">Copy command</button>
+        <p>Windows PowerShell</p>
+        <pre><code id="windows">irm https://sealbridge.dev/install.ps1 | iex</code></pre>
+        <button id="copy-windows" data-text="copy" type="button">Copy command</button>
+        <p>
+          <a
+            id="install-guide"
+            href="https://sealbridge.dev/en/install/"
+            rel="noreferrer"
+            data-text="installGuide"
+            >Installation guide</a
+          >
+        </p>
+      </section>
+      <section>
+        <h2 data-text="acceptTitle">02 / Accept the invitation</h2>
+        <p data-text="acceptText">
+          Copy the invitation link and run this command on the same machine and OS account as your
+          Sealbridge MCP server. The CLI claims the link through the relay and sends a connection
+          request. Compare the six-digit confirmation number with the sender. It does not approve
+          work.
+        </p>
+        <button id="copy-link" data-text="copyLink" type="button">Copy invitation link</button>
+        <pre><code id="accept">sealbridge accept --paste --alias reviewer</code></pre>
+        <button id="copy-accept" data-text="copy" type="button">Copy command</button>
+      </section>
+      <section>
+        <h2 data-text="nextTitle">03 / Request a code review</h2>
+        <p data-text="nextText">
+          Ask your MCP client to list saved invitations with acp_list_invites, then request a code
+          review using the saved reference or alias. Sending a request shares its input with the
+          recipient under your configured approval policy.
+        </p>
+        <p>
+          <a
+            id="guide"
+            href="https://sealbridge.dev/en/docs/README/"
+            rel="noreferrer"
+            data-text="guide"
+            >Review and invitation guide</a
+          >
+        </p>
+        <button id="open-app" data-text="openApp" type="button">Open in Desktop</button>
+        <button id="share-link" data-text="shareLink" type="button">Send this link to my PC</button>
+        <p data-text="botText">
+          Using Muse or Grok Bot? Give it the short invitation link directly, then check the peer
+          name and six-digit confirmation number in chat.
+        </p>
+      </section>
+      <p id="action-status" role="status" aria-live="polite"></p>
+      <section>
+        <h2 data-text="safetyTitle">Share safely</h2>
+        <p data-text="safety">
+          The official invitation host is sealbridge.app. Confirm the sender through a trusted
+          channel. This short link is single-use and expires; share it only with the intended
+          recipient. This page does not read the invitation contents or send them to a server.
+          Import it in Desktop or CLI on your PC.
+        </p>
+      </section>
     </main>
   </body>
 </html>

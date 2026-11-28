@@ -11,7 +11,7 @@ const words = {
     eyebrow: 'A private introduction',
     intro: 'Verify the worker, import the invitation locally, then choose when to delegate.',
     privacy:
-      'Verified on this device. Your invitation stays in the URL fragment; it is never sent to this site’s server.',
+      'Verified on this device. Your invitation stays in the URL fragment; it is never sent to this site’s server. When you request a review, the recipient’s agent and its model provider can read your code; the relay cannot.',
     checking: 'Checking the invitation…',
     missing:
       'No invitation found. Ask the sender for the complete link, including the part after #.',
@@ -37,7 +37,7 @@ const words = {
       'Install Sealbridge with one line in your terminal. Use the command for your system, then open a new terminal before continuing.',
     acceptTitle: '02 / Import this invitation locally',
     acceptText:
-      'Run this command yourself in a terminal on the same machine and OS account as your Sealbridge MCP server. It verifies and saves the invitation locally without sending a task. To paste without including the link in command arguments or shell history, run sealbridge accept --paste instead. For an application or pipe, use sealbridge accept --stdin and close stdin after writing one link (68 KiB, 10 seconds; TTY input is rejected). Positional links can appear in shell history and process inspection; paste mode does not erase terminal history. Possession of this invitation can permit proposals until expiry or revocation.',
+      'On the same machine and OS account as your Sealbridge MCP server, copy the invitation link and run sealbridge accept --paste yourself. This long-link import stays local and grants no connection or work permission. The command below includes the link and may appear in shell history or process inspection. See the guide for other import methods.',
     copyLink: 'Copy invitation link',
     nextTitle: '03 / Select the saved worker',
     nextText:
@@ -61,7 +61,7 @@ const words = {
     eyebrow: 'プライベートな紹介',
     intro: '相手を確認して招待をローカルに保存し、準備ができたら仕事を依頼します。',
     privacy:
-      'この端末で検証します。招待は URL の # 以降だけに保持され、このサイトのサーバーには送信されません。',
+      'この端末で検証します。招待は URL の # 以降だけに保持され、このサイトのサーバーには送信されません。レビューを依頼すると、受信側のエージェントとそのモデル提供者はコードを読めます。中継器は読めません。',
     checking: '招待を検証しています…',
     missing: '招待が見つかりません。# 以降を含む完全なリンクを送信者に確認してください。',
     invalid:
@@ -79,7 +79,7 @@ const words = {
       'お使いの OS に合う 1 行をターミナルで実行し、Sealbridge をインストールします。完了後、新しいターミナルを開いて次へ進みます。',
     acceptTitle: '02 / 招待をローカルに保存',
     acceptText:
-      'Sealbridge MCP サーバーと同じ端末・OS アカウントのターミナルで、ご自身でこのコマンドを実行してください。招待を検証してローカルに保存し、仕事は送信しません。リンクをコマンド引数やシェル履歴に含めずに貼り付けるには sealbridge accept --paste を使います。アプリやパイプには sealbridge accept --stdin を使い、リンク 1 件を書き込んだ後に stdin を閉じます（68 KiB、10 秒、TTY 入力は拒否）。位置引数のリンクはシェル履歴やプロセス一覧に残る場合があります。貼り付けモードも端末履歴を消去しません。招待の所持者は、有効期限または失効まで提案を送れる場合があります。',
+      'Sealbridge MCP サーバーと同じ端末・OS アカウントで招待リンクをコピーし、ご自身で sealbridge accept --paste を実行してください。この長いリンクの取り込みはローカルで完結し、接続や仕事の許可を与えません。下のコマンドにはリンクが含まれ、シェル履歴やプロセス一覧に残る場合があります。ほかの取り込み方法はガイドを参照してください。',
     copyLink: '招待リンクをコピー',
     nextTitle: '03 / 保存したワーカーを選ぶ',
     nextText:
@@ -103,7 +103,7 @@ function render() {
   document.documentElement.lang = japanese ? 'ja' : 'en';
   for (const element of document.querySelectorAll('[data-text]'))
     element.textContent = w[element.dataset.text];
-  $('guide').href = `https://sealbridge.dev/${japanese ? 'ja' : 'en'}/docs/docs/ux2/`;
+  $('guide').href = `https://sealbridge.dev/${japanese ? 'ja/docs/README.ja' : 'en/docs/README'}/`;
   $('verified').hidden = true;
   $('qr').replaceChildren();
   $('command').textContent = '';
