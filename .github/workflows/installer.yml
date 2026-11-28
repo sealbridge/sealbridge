@@ -22,11 +22,11 @@ jobs:
       - run: pnpm exec vitest run conformance/doctor.test.ts
       - name: Check installer Node resolution (Unix)
         if: runner.os != 'Windows'
-        run: pnpm exec vitest run conformance/installer-node.test.ts
+        run: pnpm exec vitest run conformance/installer-node.test.ts conformance/installer-invite.test.ts
       - name: Check installer Node resolution (Windows PowerShell 5.1 and PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: pnpm exec vitest run conformance/installer-node.test.ts
+        run: pnpm exec vitest run conformance/installer-node.test.ts conformance/installer-invite.test.ts
       - run: npm pack
       - name: Install in a clean user directory (Unix)
         if: runner.os != 'Windows'

@@ -4,10 +4,16 @@ set -eu
 ROOT="$HOME/.local/share/sealbridge"
 NODE_VERSION=22.22.0
 CLI=${SEALBRIDGE_INSTALL_PACKAGE:-sealbridge}
-if [ "${1:-}" = --package ]; then
-  [ "$#" -ge 2 ] || { printf "Missing --package value\n" >&2; exit 1; }
-  CLI=$2; shift 2
-fi
+NO_ACCEPT=false
+UNINSTALL=false
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --package) [ "$#" -ge 2 ] || { printf 'Missing --package value\n' >&2; exit 1; }; CLI=$2; shift 2;;
+    --no-accept) NO_ACCEPT=true; shift;;
+    --uninstall) UNINSTALL=true; shift;;
+    *) printf 'Usage: sh install.sh [--package sealbridge|sealbridge-local] [--no-accept] [--uninstall]\n' >&2; exit 1;;
+  esac
+done
 case "$CLI" in sealbridge|sealbridge-local) ;; *) printf "Choose sealbridge or sealbridge-local\n" >&2; exit 1;; esac
 PACKAGE=$CLI@0.10.2
 # Both distributions pin the prepared 0.10.2 release (publish before deployment).
@@ -51,15 +57,13 @@ runtime_error() {
   printf 'Install Node 22 or newer with its bundled npm, put that installation first on PATH, and rerun. For automatic installation, check internet access to nodejs.org and write access to %s.\n' "$ROOT" >&2
 }
 
-case "${1:-}" in
-  --uninstall)
+case "$UNINSTALL" in
+  true)
     if [ -f "$ROOT/.installer-owned" ]; then
       rm -rf "$ROOT"
       printf 'Removed Sealbridge. Keys are preserved. Remove the # sealbridge installer lines from your shell profiles.\n'
     else fail 'No installer-owned installation found; nothing removed.'; fi
     exit 0;;
-  '') ;;
-  *) fail 'Usage: sh install.sh [--package sealbridge|sealbridge-local] [--uninstall]';;
 esac
 trap 'runtime_error' 0
 [ ! -d "$ROOT" ] || [ -f "$ROOT/.installer-owned" ] || fail "Installation directory already exists without an ownership marker: $ROOT"
@@ -115,3 +119,53 @@ done
 if ! "$CLI" doctor; then printf 'Installed, but doctor found an issue. Follow its fixes and rerun sealbridge doctor.\n'; fi
 trap - 0
 printf 'Installed. Open a new terminal, or run: . "$HOME/.profile"\nThen run: %s demo\nUninstall: sh install.sh --uninstall\n' "$CLI"
+
+# Isolate descriptors, signal handlers and secret variables from the installer.
+# Do not collect a secret under tracing, or if printf might be an external process.
+accept_invite() (
+  [ "$NO_ACCEPT" = false ] || exit 0
+  [ -z "${CI:-}${CONTINUOUS_INTEGRATION:-}${GITHUB_ACTIONS:-}${TF_BUILD:-}${BUILD_ID:-}${JENKINS_URL:-}" ] || exit 0
+  case "$-" in *x*|*v*|*a*) exit 0;; esac
+  [ -t 0 ] && [ -t 1 ] && [ -t 2 ] || exit 0
+  case "$(LC_ALL=C command -V printf 2>/dev/null)" in *builtin*) ;; *) exit 0;; esac
+  # Open in a nested subshell first: a failed special-builtin redirection must
+  # not terminate the successful installation, or emit an unsafe diagnostic.
+  ( : <> /dev/tty ) 2>/dev/null || exit 0
+  exec 3<> /dev/tty
+  tty_state=$(stty -g <&3 2>/dev/null) || exit 0
+  restore_tty() { stty "$tty_state" <&3 2>/dev/null || :; }
+  trap 'restore_tty' 0
+  trap 'exit 0' 1 2 15
+  printf '\nOptional invitation import.\n' >&3
+  stty -echo <&3 2>/dev/null || exit 0
+  printf 'Paste an invitation (hidden), or press Enter to skip: ' >&3
+  unset invite
+  invite=
+  if ! IFS= read -r invite <&3; then
+    restore_tty
+    printf '\nTo import later, run: %s accept --paste\n' "$CLI" >&3
+    exit 0
+  fi
+  printf '\n' >&3
+  [ -n "$invite" ] || exit 0
+  # One conservative gate for every input form, including unknown strings:
+  # normalization or a future CLI recognition change cannot bypass consent.
+  printf 'A normal invitation token imports only and creates no connection.\nA short link contacts the relay, consumes the link, connects immediately\nto the inviter and sends a connection request. It signs connection consent;\nit does not approve work. Continue? Type y to accept [y/N]: ' >&3
+  unset answer
+  answer=
+  IFS= read -r answer <&3 || exit 0
+  restore_tty
+  printf '\n' >&3
+  [ "$answer" = y ] || exit 0
+  unset answer
+  # printf is a shell builtin (checked above); the secret never enters argv.
+  # Discard CLI output, including peer-controlled metadata and failure text.
+  if printf '%s\n' "$invite" | "$CLI" accept --stdin 3<&- >/dev/null 2>&1; then
+    printf 'Invitation imported. Run %s invites list to see saved names.\n' "$CLI" >&3
+  else
+    printf 'To import later, run: %s accept --paste\n' "$CLI" >&3
+  fi
+  unset invite
+  exit 0
+)
+accept_invite || :
