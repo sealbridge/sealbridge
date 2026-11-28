@@ -1,3 +1,4 @@
+import { removeTestFixture } from './test-fixture-cleanup.mjs';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -19,6 +20,7 @@ import type { AgentAdapter, WorkerNodeOptions } from '../packages/runtime/src/in
 import type { TaskCheckpoint } from '../packages/runtime/src/task-journal.js';
 
 const dirs: string[] = [];
+const workspaces: string[] = [];
 const workers: WorkerNode[] = [];
 const runs: Promise<unknown>[] = [];
 const requests: AbortController[] = [];
@@ -57,6 +59,7 @@ afterEach(async () => {
   workers.splice(0).forEach((worker) => worker.stop());
   requests.splice(0).forEach((controller) => controller.abort('TEST_CLEANUP'));
   await Promise.allSettled(runs.splice(0));
+  await Promise.all(workspaces.splice(0).map((path) => removeTestFixture(path, 'acp-adapter-')));
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -211,7 +214,7 @@ describe('worker task recovery', () => {
       let workspace = '';
       const first = f.worker(async (ctx) => {
         workspace = ctx.workspaceDir;
-        dirs.push(workspace);
+        workspaces.push(workspace);
         await writeFile(join(workspace, 'partial.txt'), 'partial work');
         await ctx.callTool('echo', {});
         toolCompleted.resolve();
@@ -352,7 +355,7 @@ describe('worker task recovery', () => {
     let workspace = '';
     const first = f.worker(async (ctx) => {
       workspace = ctx.workspaceDir;
-      dirs.push(workspace);
+      workspaces.push(workspace);
       return ctx.callTool('echo', {});
     });
     const firstRun = f.start(first, { once: true });
@@ -427,7 +430,7 @@ describe('worker task recovery', () => {
       await stopped;
       const record = (await f.checkpoints()).at(-1)!;
       expect(record.phase).toBe(event === 'ACCEPT' ? 'accepted' : 'delivered');
-      if (record.workspace) dirs.push(record.workspace);
+      if (record.workspace) workspaces.push(record.workspace);
       const restarted = f.worker();
       const run = f.start(restarted);
       try {
@@ -449,7 +452,7 @@ describe('worker task recovery', () => {
     let workspace = '';
     const first = f.worker(async (ctx) => {
       workspace = ctx.workspaceDir;
-      dirs.push(workspace);
+      workspaces.push(workspace);
       await ctx.callTool('echo', {});
       toolCompleted.resolve();
       return new Promise(() => undefined);

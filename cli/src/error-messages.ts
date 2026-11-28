@@ -4,6 +4,10 @@ import { LOCAL_DISTRIBUTION } from './distribution.js';
 import { LOCAL_PC_DISABLED_JA, LOCAL_PC_MIGRATION_JA } from './local-pc.js';
 const reasons: [RegExp, string][] = [
   [
+    /LOCAL_EXECUTION_ROOT_FORBIDDEN/,
+    'worker または gateway は専用の非 root ユーザーで起動してください。CI・コンテナ・WSL では非 root ユーザーを選び、そのユーザーがデータディレクトリへ書き込めるようにしてください。Claude/Codex の開発 worker を sudo で起動しないでください。公式イメージは USER node を使用します。運用者が起動環境で SEALBRIDGE_ALLOW_ROOT_LOCAL_EXECUTION=1 を明示した場合だけ root 実行を許可します。この設定は保存されず、タスクを承認するものではありません。',
+  ],
+  [
     /INVITE_REQUESTER_LISTENER_REQUIRED/,
     'この MCP 招待の発行を拒否しました。requester ID 宛てです。options.owner または mcp-server --key <file> で受信 ID を明示してから発行してください。通常の worker start では受信しません。同じデータルート・鍵ストアで --also-requester を追加してください。自動受付を選ぶ場合は --requester-auto-accept read-only または --requester-auto-accept write も指定します。代わりに sealbridge invite create で worker 鍵の招待を発行するか、移行済み所有者ゲートウェイを使ってください。',
   ],

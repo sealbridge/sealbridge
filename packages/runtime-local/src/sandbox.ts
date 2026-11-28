@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { requireNonRootLocalExecution } from './local-execution.js';
 import { runContainerOrSubprocessSandbox } from '@acp/sandbox';
 import type { AgentAdapter, AgentTaskContext } from './adapter-port.js';
 import type { Json } from '@acp/core';
@@ -36,6 +37,7 @@ import type { Json } from '@acp/core';
  * unless `sandboxPolicy.allowSubprocessFallback` is true.
  */
 export class SandboxAgentAdapter implements AgentAdapter {
+  readonly assertStartup = requireNonRootLocalExecution;
   readonly id = 'sandbox';
   readonly taskAccess = 'read-only' as const;
   readonly name = 'Restricted JavaScript Worker';

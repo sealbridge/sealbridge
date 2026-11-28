@@ -786,6 +786,7 @@ export class WorkerNode {
   /** Inbox registry composed with options.revocation when the caller passed one. */
   readonly revocation: RevocationList;
   constructor(readonly options: WorkerNodeOptions) {
+    options.adapter.assertStartup?.();
     assertConnectionsOptions(options);
     this.autoAccept = autoAcceptPolicy(
       options.autoAccept ??

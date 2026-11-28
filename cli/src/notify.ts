@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { spawn } from 'node:child_process';
+/** Same URL-versus-shell classification used by notification delivery. */
+export function isLocalNotificationTarget(target: string | undefined): boolean {
+  return target !== undefined && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target);
+}
 export interface WorkerNotification {
   event:
     'task_received' | 'approval_needed' | 'completed' | 'new_connection' | 'passkey_registered';
@@ -24,7 +28,7 @@ export function createEventNotifier(
   let webhook: URL | undefined;
   if (target !== undefined) {
     if (!target.trim()) throw new Error('INVALID_NOTIFY_TARGET');
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
+    if (!isLocalNotificationTarget(target)) {
       try {
         webhook = new URL(target);
       } catch {

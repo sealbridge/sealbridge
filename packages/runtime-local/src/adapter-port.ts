@@ -61,6 +61,8 @@ export interface AgentTaskContext {
   reportIsolation?: (level: string, boundary?: SandboxBoundaryMetadata) => void;
 }
 export interface AgentAdapter {
+  /** Local host startup validation, before worker registration or acceptance. */
+  assertStartup?: () => void;
   /** Host guarantee; omit for arbitrary code, command execution or unknown access. */
   readonly taskAccess?: 'read-only' | 'write';
   id: string;

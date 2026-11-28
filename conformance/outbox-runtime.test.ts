@@ -1,6 +1,7 @@
+import { removeTestFixtureSync } from './test-fixture-cleanup.mjs';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { PathLike } from 'node:fs';
 import { basename, dirname, join, sep } from 'node:path';
 import {
@@ -1529,7 +1530,7 @@ describe('durable session integration', () => {
       const record = JSON.parse(journal.at(-1)!).payload;
       expect(record.outcome.code).toBe('TASK_INTERRUPTED');
       if (record.workspace)
-        cleanups.push(() => rmSync(record.workspace, { recursive: true, force: true }));
+        cleanups.push(() => removeTestFixtureSync(record.workspace, 'acp-adapter-'));
     } finally {
       restarted.stop();
       await run;

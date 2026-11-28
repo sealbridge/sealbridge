@@ -20,6 +20,7 @@ import type {
   RevocationList,
 } from '@acp/core';
 import { runContainerOrSubprocessSandbox } from '@acp/sandbox';
+import { requireNonRootLocalExecution } from '@acp/runtime-local';
 import type { SandboxBoundaryMetadata } from '@acp/sandbox';
 import { ApprovalGate } from './policy.js';
 import type { OwnerPolicy } from './policy.js';
@@ -130,6 +131,7 @@ export class OwnerGateway {
     return createCapability(params, this.owner, chain.at(-1));
   }
   async execute(code: string, proxy: MCPProxy, input?: Json): Promise<Json> {
+    requireNonRootLocalExecution();
     if (this.machine.state !== 'IN_PROGRESS') throw new Error('CONTRACT_NOT_RUNNING');
     const policy = this.contract.manifest.sandboxPolicy;
     if (

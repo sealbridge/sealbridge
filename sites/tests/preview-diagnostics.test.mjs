@@ -1,3 +1,4 @@
+import { removeTestFixture } from '../../conformance/test-fixture-cleanup.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -222,6 +223,7 @@ test('multiple failures trigger exactly one sanitized observation per origin', a
     process.stderr.write = previousWrite;
     Object.assign(previewPorts, originalPorts);
     await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
-    if (reporter?.directory) await rm(reporter.directory, { recursive: true, force: true });
+    if (reporter?.directory)
+      await removeTestFixture(reporter.directory, 'sealbridge-preview-diagnostics-');
   }
 });

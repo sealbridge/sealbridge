@@ -19,7 +19,7 @@ export function agentCard(name: string, url: string): AgentCard {
     supportedInterfaces: [
       { url, protocolBinding: 'JSONRPC', protocolVersion: A2A_PROTOCOL_VERSION },
     ],
-    version: '0.10.1',
+    version: '0.10.2',
     capabilities: { streaming: false },
     defaultInputModes: ['application/json'],
     defaultOutputModes: ['application/json'],

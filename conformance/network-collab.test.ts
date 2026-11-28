@@ -57,7 +57,6 @@ import {
   runContainerOrSubprocessSandbox,
   containerArguments,
   subprocessSandboxBoundary,
-  OCI_CONTAINER_BOUNDARY,
 } from '../packages/sandbox/src/index.js';
 import { parseJsonl, verifyAudit } from '../packages/ledger/src/index.js';
 import { addContact, updateContacts } from '../cli/src/contacts.js';
@@ -1102,49 +1101,4 @@ it('keeps the real CLI provider key in the host broker and forwards only the tas
   const [result] = settled((await session(adapter)).results);
   expect(calls).toBe(1);
   expect(JSON.stringify(result)).not.toContain(key);
-});
-
-it('exercises the OCI JSON tool/usage bridge with a simulated container process', async () => {
-  let usage = 0,
-    toolCalls = 0;
-  let closed = false;
-  const result = await runContainerOrSubprocessSandbox({
-    isolationLevel: 'oci_container',
-    runtime: 'docker',
-    timeoutMs: 2000,
-    input: { value: 7 },
-    code: 'const v=await callTool("read",input);await reportUsage(2,3);return v;',
-    containerSpawn: (_runtime, args, options) => {
-      expect(args).toContain('--read-only');
-      expect(options.env).not.toHaveProperty('OPENAI_API_KEY');
-      // This injected process has no real container; unavailable Docker cleanup
-      // conservatively warns/retains its fixture, which this test owns.
-      cleanup.push(() => rm(options.cwd, { recursive: true, force: true }));
-      const child = spawn(process.execPath, ['runner.cjs'], {
-        cwd: options.cwd,
-        env: options.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      child.once('close', () => {
-        closed = true;
-      });
-      return child;
-    },
-    onTool: async (name, args) => {
-      toolCalls++;
-      expect(name).toBe('read');
-      return args;
-    },
-    onUsage: (i, o) => {
-      usage += i + o;
-    },
-  });
-  expect(result).toEqual({
-    output: { value: 7 },
-    effectiveIsolationLevel: 'oci_container',
-    sandboxBoundary: OCI_CONTAINER_BOUNDARY,
-  });
-  expect(toolCalls).toBe(1);
-  expect(usage).toBe(5);
-  expect(closed).toBe(true);
 });

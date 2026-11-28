@@ -37,12 +37,35 @@ export interface SandboxOptions {
 // child-process, worker, and addon access. They do not deny network syscalls
 // (`fetch`, `node:net`, `node:http`, `node:https`, `node:dns`, `node:dgram`).
 // Deleting the Web globals below only hides those names in the wrapper.
-export const sandboxWrapper = String.raw`
+export function createSandboxWrapper(transport: 'ipc' | 'jsonl' = 'ipc'): string {
+  const channel =
+    transport === 'jsonl'
+      ? String.raw`const send=m=>process.stdout.write(JSON.stringify(m)+'\n');process.disconnect=()=>process.stdin.destroy();require('node:readline').createInterface({input:process.stdin}).on('line',l=>process.emit('message',JSON.parse(l)));`
+      : 'const send = message => process.send(message);';
+  const taskPath =
+    transport === 'jsonl'
+      ? `const taskPath = process.argv[2]; if (taskPath !== require('node:path').join(__dirname, 'task.json')) throw new Error('OCI_INPUT_PATH_INVALID');`
+      : `const taskPath = require('node:path').join(__dirname, 'task.json');`;
+  const readTask =
+    transport === 'jsonl'
+      ? String.raw`const saved = fs.lstatSync(taskPath, {bigint:true});
+if (!saved.isFile() || saved.isSymbolicLink() || saved.ino === 0n) throw new Error('OCI_INPUT_FILE_INVALID');
+const fd = fs.openSync(taskPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+let config;
+try {
+  const opened = fs.fstatSync(fd, {bigint:true});
+  if (!opened.isFile() || opened.dev !== saved.dev || opened.ino !== saved.ino || opened.birthtimeNs !== saved.birthtimeNs) throw new Error('OCI_INPUT_FILE_INVALID');
+  config = JSON.parse(fs.readFileSync(fd, 'utf8'));
+} finally { fs.closeSync(fd); }`
+      : `const config = JSON.parse(fs.readFileSync(taskPath, 'utf8'));`;
+  return String.raw`
+${channel}
+${taskPath}
 const vm = require('node:vm');
 const fs = require('node:fs');
 try { delete globalThis.fetch; } catch { /* name may be non-configurable */ }
 try { delete globalThis.WebSocket; } catch { /* name may be non-configurable */ }
-const config = JSON.parse(fs.readFileSync('task.json', 'utf8'));
+${readTask}
 const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' });
 const bootstrap = 'globalThis.queue=[]; globalThis.waiters=new Map(); globalThis.serial=0; globalThis.finished=false; globalThis.callTool=(name,args)=>new Promise((resolve,reject)=>{const id=++serial;waiters.set(id,{resolve,reject});queue.push({id,name,args});}); globalThis.reportUsage=(inputTokens,outputTokens)=>callTool("$usage",{inputTokens,outputTokens}); globalThis.input=JSON.parse(' + JSON.stringify(JSON.stringify(config.input)) + ');';
 vm.runInContext(bootstrap, context, { timeout: 100 });
@@ -50,15 +73,17 @@ new vm.Script('(async()=>{'+config.code+'})().then(value=>{globalThis.result=JSO
 const timer = setInterval(()=>{
  try {
    const queued=JSON.parse(vm.runInContext('JSON.stringify(queue.splice(0))',context,{timeout:100}));
-   for(const req of queued)process.send({type:'tool',...req});
-   if(vm.runInContext('finished',context,{timeout:100})){clearInterval(timer);process.send({type:'done',...JSON.parse(vm.runInContext('result',context,{timeout:100}))});process.disconnect();}
- } catch(e){process.send({type:'done',error:String(e)});process.exit(1);}
+   for(const req of queued)send({type:'tool',...req});
+   if(vm.runInContext('finished',context,{timeout:100})){clearInterval(timer);send({type:'done',...JSON.parse(vm.runInContext('result',context,{timeout:100}))});process.disconnect();}
+ } catch(e){send({type:'done',error:String(e)});process.exit(1);}
 },5);
 process.on('message',msg=>{
  try { const data=JSON.stringify(msg); vm.runInContext('{const r=JSON.parse('+JSON.stringify(data)+');const w=waiters.get(r.id);if(w){waiters.delete(r.id);r.error?w.reject(new Error(r.error)):w.resolve(r.value);}}',context,{timeout:100}); }
- catch(e){process.send({type:'done',error:String(e)});process.exit(1);}
+ catch(e){send({type:'done',error:String(e)});process.exit(1);}
 });
 `;
+}
+export const sandboxWrapper = createSandboxWrapper();
 export function sanitizedEnvironment(directory: string): NodeJS.ProcessEnv {
   // Build an allowlist from scratch: NODE_OPTIONS, proxy auth, cloud credentials,
   // provider keys, SSH sockets and inherited PATH never enter the worker.

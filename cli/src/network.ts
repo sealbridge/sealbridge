@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { PasskeyApprovalBroker, PasskeyApprovalProvider } from '@acp/runtime';
-import { createEventNotifier } from './notify.js';
+import { requireNonRootLocalExecution } from '@acp/runtime-local';
+import { createEventNotifier, isLocalNotificationTarget } from './notify.js';
 import { resolveInviteLink, shareInvite, sharedInviteConsumed } from '@acp/runtime';
 import { workerIdentityCommand } from './worker-identity.js';
 import { cliName } from './distribution.js';
@@ -371,7 +372,7 @@ const REVIEW_HELP = `
   --audit-interruption-format 1  Worker-only PROPOSE interruption terminals (default: 1); requires updated audit readers.
   --tty-approval              Explicitly use legacy terminal approval instead of passkey links.
   --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
-  --allow-local-pc              Required for local adapters (including sandbox) and --on-receive.
+  --allow-local-pc              Required for local adapters (including sandbox), --on-receive and local command --notify.
                                  Explicit opt-in only; never auto-approves tasks.
   --verbose                     Full approval JSON instead of concise summaries (default: off).
 Claude/Codex workers require a host ANTHROPIC_API_KEY / OPENAI_API_KEY.
@@ -437,7 +438,7 @@ export async function networkCommand(
             `Relay notification options:
   --tty-approval              Explicitly use legacy terminal approval instead of passkey links.
   --notify <command|URL>       Send content-free JSON worker events to command stdin or a webhook; off by default.
-  --allow-local-pc              Required for --wake-command; does not approve tasks.
+  --allow-local-pc              Required for --wake-command; worker local command --notify also requires it. Does not approve tasks.
   --wake-command <command>       Opt-in wake hook, signed routing JSON on stdin (default: off).
   --wake-relay <url>             Advertised relay URL; required with --wake-command.
   --wake-max-attempts <n>        Maximum wake attempts (default: 5).
@@ -547,8 +548,13 @@ export async function networkCommand(
   const needsLocalPc =
     (command === 'worker' &&
       (['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')) ||
-        f.has('--on-receive'))) ||
+        f.has('--on-receive') ||
+        isLocalNotificationTarget(f.has('--notify') ? text(f, 'notify') : undefined))) ||
     (command === 'relay' && f.has('--wake-command'));
+  if (command === 'worker' && needsLocalPc)
+    requireNonRootLocalExecution(
+      !['sandbox', 'command', 'claude', 'codex'].includes(text(f, 'adapter', 'sandbox')),
+    );
   if (needsLocalPc)
     await ensureLocalPcOptIn(f.get('--allow-local-pc'), application.identityOptions);
   if (command === 'delegate' && f.has('--peer-ref')) {

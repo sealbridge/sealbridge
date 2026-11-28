@@ -41,7 +41,7 @@ describe('A2A 1.0 SDK helpers', () => {
     expect(AgentCard.toJSON(card)).toEqual({
       name: 'Alice',
       description: 'Sealbridge owner gateway',
-      version: '0.10.1',
+      version: '0.10.2',
       supportedInterfaces: [{ url: endpoint, protocolBinding: 'JSONRPC', protocolVersion: '1.0' }],
       capabilities: { streaming: false },
       defaultInputModes: ['application/json'],

@@ -1,3 +1,4 @@
+export * from './local-execution.js';
 export * from './command.js';
 export * from './codex-config.js';
 export * from './windows-command.js';

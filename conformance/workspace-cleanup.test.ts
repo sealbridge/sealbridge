@@ -1,5 +1,5 @@
+import { removeTestFixture } from './test-fixture-cleanup.mjs';
 // SPDX-License-Identifier: Apache-2.0
-import { rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair } from '../packages/core/src/index.js';
 import { verifyAudit } from '../packages/ledger/src/index.js';
@@ -30,7 +30,7 @@ vi.mock('node:fs/promises', async () => {
 
 afterEach(async () => {
   removal.code = '';
-  for (const path of removal.paths.splice(0)) await rm(path, { recursive: true, force: true });
+  for (const path of removal.paths.splice(0)) await removeTestFixture(path, 'acp-adapter-');
   removal.paths.length = 0;
   removal.options.length = 0;
 });

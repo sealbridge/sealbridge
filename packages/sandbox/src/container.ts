@@ -2,17 +2,47 @@
 import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
-import { chown } from 'node:fs/promises';
-import { createOciWorkspace, warnOciWorkspace } from './oci-workspace.js';
+import { dirname, isAbsolute, join } from 'node:path';
+import { access } from 'node:fs/promises';
+import { createOciWorkspace, warnOciWorkspace, warnRootOciLauncher } from './oci-workspace.js';
 import type { OciCleanupWarning } from './oci-workspace.js';
 export type { OciCleanupWarning } from './oci-workspace.js';
 import type { Json } from '@acp/core';
-import { runSandbox, sandboxWrapper, sanitizedEnvironment } from './index.js';
+import { runSandbox, createSandboxWrapper, sanitizedEnvironment } from './index.js';
 import type { SandboxOptions } from './index.js';
 import { OCI_CONTAINER_BOUNDARY, subprocessSandboxBoundary } from './permission.js';
 import type { SandboxBoundaryMetadata } from './permission.js';
 export type DockerRuntime = 'docker' | 'podman';
 export type RuntimeProbe = (binary: string, args: string[]) => Promise<boolean>;
+const containerInput = '/input';
+
+// Prove absence without executing an unprotected CLI. Ambiguous lookup or
+// filesystem errors use normal protected-state discovery, never assumed absence.
+async function windowsRuntimeMayExist(): Promise<boolean> {
+  const root = process.env.SystemRoot ?? 'C:\\Windows';
+  const paths = new Set([
+    dirname(process.execPath),
+    root,
+    join(root, 'System32'),
+    ...(process.env.PATH ?? '').split(';').map((path) => path.replace(/^"|"$/g, '')),
+  ]);
+  for (const directory of paths) {
+    if (!directory) continue;
+    // Relative entries may traverse outside the not-yet-created CLI cwd.
+    if (!isAbsolute(directory)) return true;
+    for (const binary of ['podman', 'docker'])
+      for (const suffix of ['', '.com', '.exe']) {
+        try {
+          await access(join(directory, binary + suffix));
+          return true;
+        } catch (error) {
+          if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+            return true;
+        }
+      }
+  }
+  return false;
+}
 
 // A process exit alone does not release inherited pipes. Keep the workspace until
 // close, or until a failed spawn (no PID) has released all of its local streams.
@@ -87,23 +117,59 @@ function ownProcess(child: ChildProcess) {
   };
 }
 export async function detectDockerRuntime(
-  probe: RuntimeProbe = (binary, args) =>
-    new Promise((resolve) => {
-      execFile(
-        binary,
-        args,
-        {
-          timeout: 3000,
-          maxBuffer: 65536,
-          env: { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8' },
-        },
-        (error) => resolve(!error),
-      );
-    }),
+  probe?: RuntimeProbe,
+  cliDirectory?: string,
 ): Promise<DockerRuntime | undefined> {
+  // Standalone detection uses the same protected host state as task launch.
+  if (!probe && !cliDirectory) {
+    if (process.platform === 'win32' && !(await windowsRuntimeMayExist())) return undefined;
+    const workspace = await createOciWorkspace();
+    try {
+      await workspace.write('config.json', '{}');
+      return await detectDockerRuntime(undefined, workspace.cliDirectory);
+    } finally {
+      if (!(await workspace.cleanup(true, Date.now() + 3000)))
+        warnOciWorkspace(workspace.directory);
+    }
+  }
+  const runProbe: RuntimeProbe =
+    probe ??
+    ((binary, args) =>
+      new Promise((resolve) => {
+        execFile(
+          binary,
+          args,
+          {
+            timeout: 3000,
+            maxBuffer: 65536,
+            cwd: cliDirectory,
+            env: hostCliEnvironment(cliDirectory!),
+          },
+          (error) => resolve(!error),
+        );
+      }));
   for (const binary of ['podman', 'docker'] as const)
-    if (await probe(binary, ['info'])) return binary;
+    if (await runProbe(binary, ['info'])) return binary;
   return undefined;
+}
+
+function hostCliEnvironment(directory: string): NodeJS.ProcessEnv {
+  return {
+    ...sanitizedEnvironment(directory),
+    // Preserve 0.10.1 executable discovery; inherited Windows PATH is not a new opt-in.
+    PATH: '/usr/local/bin:/usr/bin:/bin',
+    DOCKER_CONFIG: directory,
+    ...(process.platform === 'win32'
+      ? {
+          SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+          USERPROFILE: directory,
+          APPDATA: directory,
+          LOCALAPPDATA: directory,
+          TEMP: directory,
+          TMP: directory,
+        }
+      : {}),
+  };
 }
 export interface HybridSandboxOptions extends SandboxOptions {
   /** Host-local log sink only; never forward to progress, audit, or peer errors. */
@@ -157,7 +223,9 @@ export function containerArguments(
     '--tmpfs',
     '/tmp:rw,noexec,nosuid,size=16m',
     '--mount',
-    `type=bind,src=${directory},dst=/work`,
+    `type=bind,src=${join(directory, 'input')},dst=${containerInput},readonly`,
+    '--mount',
+    `type=bind,src=${join(directory, 'output')},dst=/work`,
     '--workdir',
     '/work',
     '-i',
@@ -166,7 +234,8 @@ export function containerArguments(
     '--no-addons',
     '--disable-proto=throw',
     '--max-old-space-size=64',
-    '/work/runner.cjs',
+    `${containerInput}/runner.cjs`,
+    `${containerInput}/task.json`,
   ];
 }
 export async function runContainerOrSubprocessSandbox(
@@ -184,32 +253,34 @@ export async function runContainerOrSubprocessSandbox(
     )
   )
     throw new Error('ISOLATION_LEVEL_UNSUPPORTED');
-  const runtime =
-    options.isolationLevel === 'oci_container'
-      ? options.runtime === undefined
-        ? await detectDockerRuntime(options.probe)
-        : options.runtime
-      : undefined;
-  if (!runtime)
-    return {
-      output: await runSandbox(options),
-      effectiveIsolationLevel: 'subprocess_restricted',
-      // Same flag choice `runSandbox` passes. Network stays open at the kernel.
-      sandboxBoundary: subprocessSandboxBoundary(),
-    };
+  const fallback = async (): Promise<SandboxResult> => ({
+    output: await runSandbox(options),
+    effectiveIsolationLevel: 'subprocess_restricted',
+    sandboxBoundary: subprocessSandboxBoundary(),
+  });
+  if (options.isolationLevel !== 'oci_container' || options.runtime === null) return fallback();
+  if (
+    process.platform === 'win32' &&
+    options.runtime === undefined &&
+    !options.probe &&
+    !(await windowsRuntimeMayExist())
+  )
+    return fallback();
   const workspace = await createOciWorkspace();
+  let runtime = options.runtime;
   const directory = workspace.directory,
     name = 'acp-' + randomUUID();
   let owned: ReturnType<typeof ownProcess> | undefined;
   let launchAttempted = false;
   let disposeExecution = () => {};
   try {
-    if (process.getuid?.() === 0) await chown(directory, 65534, 65534);
-    const bridge = `const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');process.disconnect=()=>{process.stdin.destroy();};require('node:readline').createInterface({input:process.stdin}).on('line',l=>process.emit('message',JSON.parse(l)));\n`;
-    await workspace.write(
-      'runner.cjs',
-      bridge + sandboxWrapper.replaceAll('process.send(', 'send('),
-    );
+    // This directory is never mounted or owned by the guest identity.
+    await workspace.write('config.json', '{}');
+    runtime ??= await detectDockerRuntime(options.probe, workspace.cliDirectory);
+    if (!runtime) return await fallback();
+    const selectedRuntime = runtime;
+    warnRootOciLauncher();
+    await workspace.write('runner.cjs', createSandboxWrapper('jsonl'));
     await workspace.write(
       'task.json',
       JSON.stringify({
@@ -218,23 +289,23 @@ export async function runContainerOrSubprocessSandbox(
         timeoutMs: options.timeoutMs,
       }),
     );
-    // An empty config avoids Docker CLI proxy defaults and registry credentials.
-    await workspace.write('config.json', '{}');
+    await workspace.seal();
     const output = await new Promise<Json>((resolve, reject) => {
-      const environment = {
-        ...sanitizedEnvironment(directory),
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        DOCKER_CONFIG: directory,
-      };
+      const environment = hostCliEnvironment(workspace.cliDirectory);
       // An injected launcher may have side effects before throwing. Only native
       // synchronous spawn failure, prelaunch setup, or a no-PID error prove no run.
       if (options.containerSpawn) launchAttempted = true;
       const child = options.containerSpawn
-        ? options.containerSpawn(runtime, containerArguments(directory, options.image, name), {
-            cwd: directory,
-            env: environment,
-          })
-        : spawn(runtime, containerArguments(directory, options.image, name), {
+        ? options.containerSpawn(
+            selectedRuntime,
+            containerArguments(directory, options.image, name),
+            {
+              cwd: workspace.cliDirectory,
+              env: environment,
+            },
+          )
+        : spawn(selectedRuntime, containerArguments(directory, options.image, name), {
+            cwd: workspace.cliDirectory,
             env: environment,
             stdio: ['pipe', 'pipe', 'pipe'],
           });
@@ -326,27 +397,30 @@ export async function runContainerOrSubprocessSandbox(
     const cleanupProcesses: ReturnType<typeof ownProcess>[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closureTimer: ReturnType<typeof setTimeout> | undefined;
+    let queryTimer: ReturnType<typeof setTimeout> | undefined;
+    let wakeQuery: (() => void) | undefined;
     let cleaned = false;
+    let released = false;
     let cleanupStopped = false;
     const deadline = Date.now() + 3000;
     const expired = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), 3000);
     });
     try {
-      const command = async (args: string[]) => {
+      const command = async (args: string[], commandDeadline = deadline) => {
+        if (cleanupStopped || Date.now() >= commandDeadline) throw new Error('OCI_CLEANUP_STOPPED');
+        if (!runtime) throw new Error('OCI_RUNTIME_UNAVAILABLE');
+        const selectedRuntime = runtime;
         let processOwner: ReturnType<typeof ownProcess> | undefined;
         const result = await new Promise<{ ok: boolean; stdout: string }>((resolve) => {
           const process = execFile(
-            runtime,
+            selectedRuntime,
             args,
             {
-              timeout: Math.max(1, deadline - Date.now()),
+              timeout: Math.max(1, commandDeadline - Date.now()),
               maxBuffer: 1048576,
-              env: {
-                ...sanitizedEnvironment(directory),
-                PATH: '/usr/local/bin:/usr/bin:/bin',
-                DOCKER_CONFIG: directory,
-              },
+              cwd: workspace.cliDirectory,
+              env: hostCliEnvironment(workspace.cliDirectory),
             },
             (error, stdout) => resolve({ ok: !error, stdout: String(stdout ?? '') }),
           );
@@ -367,29 +441,57 @@ export async function runContainerOrSubprocessSandbox(
         // --rm may already have removed the container. Only a successful daemon
         // listing after both processes release their handles establishes absence;
         // an error message, failed query, or pending removal is never evidence.
-        if (cleanupStopped || Date.now() >= deadline - 1000) return false;
-        const listed = await command(['container', 'ls', '--all', '--format', '{{json .Names}}']);
-        if (!listed.ok) return false;
-        for (const line of listed.stdout.split(/\r?\n/).filter((line) => line.trim())) {
-          const value: unknown = JSON.parse(line);
-          const names = typeof value === 'string' ? value.split(',') : value;
-          if (!Array.isArray(names) || names.some((item) => typeof item !== 'string')) return false;
-          if (names.some((item) => item.replace(/^\//, '') === name)) return false;
+        const closureDeadline = deadline - 1000;
+        for (let query = 0; query < 10; query++) {
+          if (query > 0) {
+            if (cleanupStopped || Date.now() + 250 >= closureDeadline) return false;
+            await new Promise<void>((resolve) => {
+              wakeQuery = resolve;
+              queryTimer = setTimeout(resolve, 250);
+            });
+            queryTimer = undefined;
+            wakeQuery = undefined;
+          }
+          if (cleanupStopped || Date.now() >= closureDeadline) return false;
+          const listed = await command(
+            ['container', 'ls', '--all', '--format', '{{json .Names}}'],
+            closureDeadline,
+          );
+          if (!listed.ok) return false;
+          let present = false;
+          for (const line of listed.stdout.split(/\r?\n/).filter((line) => line.trim())) {
+            const value: unknown = JSON.parse(line);
+            const names = typeof value === 'string' ? value.split(',') : value;
+            if (!Array.isArray(names) || names.some((item) => typeof item !== 'string'))
+              return false;
+            present ||= names.some((item) => item.replace(/^\//, '') === name);
+          }
+          if (!present) return true;
         }
-        return true;
+        return false;
       };
-      const released = await Promise.race([
+      released = await Promise.race([
         confirmAbsence(),
         new Promise<boolean>((resolve) => {
           closureTimer = setTimeout(() => resolve(false), 2000);
         }),
       ]);
       clearTimeout(closureTimer);
-      cleaned = await Promise.race([workspace.cleanup(released, deadline), expired]);
     } catch {
       // Includes synchronous spawn/setup/removal errors and filesystem failures.
     } finally {
       cleanupStopped = true;
+      clearTimeout(queryTimer);
+      wakeQuery?.();
+      // A failed daemon query does not prevent fixed input removal. CLI state
+      // remains until every owned host client has actually released its handles.
+      const cliReleased =
+        (!owned || owned.released()) && cleanupProcesses.every((p) => p.released());
+      try {
+        cleaned = await Promise.race([workspace.cleanup(released, deadline, cliReleased), expired]);
+      } catch {
+        // Preserve the original outcome and report residual state locally.
+      }
       clearTimeout(timer);
       clearTimeout(closureTimer);
       for (const process of cleanupProcesses) {

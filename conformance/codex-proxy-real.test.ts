@@ -1,3 +1,4 @@
+import { removeTestFixture } from './test-fixture-cleanup.mjs';
 // SPDX-License-Identifier: Apache-2.0
 import { afterEach, expect, it, vi } from 'vitest';
 import { createServer, Server, type IncomingMessage } from 'node:http';
@@ -228,7 +229,10 @@ it.skipIf(!binary)(
       await close(upstream);
       await close(externalProxy);
       await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-      if (home) await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      if (home)
+        await removeTestFixture(home, 'sealbridge-codex-', (path) =>
+          rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+        );
     }
   },
   45000,

@@ -4,6 +4,38 @@ Notable changes to Sealbridge are documented here, following Keep a Changelog co
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-28
+
+**Upgrade action for CI, root containers, WSL and Claude/Codex development users:** locally executing workers refuse startup with effective UID zero. Run them as a dedicated non-root user with a writable data directory; do not use sudo. Standalone local gateway execution is guarded separately; internal task gateways do not block remote OpenAI or board-claim completion. Stdio MCP and local notification commands require the local startup check; remote MCP and URL notifications do not. The official image already uses `USER node`. Requester and administration commands, and Windows, are unaffected. An operator may explicitly set `SEALBRIDGE_ALLOW_ROOT_LOCAL_EXECUTION=1` in the launch environment only; every overridden startup warns locally. This is never persisted or read from peer/task data, does not approve work, and does not disable root OCI ownership handling or its warning.
+
+Maintenance update for sandbox workspace handling and Windows OCI operators. Node >=22 and protocol 0.2.0 remain unchanged.
+
+### Fixed
+
+- Separate OCI host CLI state, read-only inputs and writable outputs, preserve launcher ownership of input files, and attempt fixed input removal at task termination, and retain CLI/output state when required process release or workspace identity cannot be confirmed, and attempt asynchronous recursive removal only of released recorded output.
+- Use the protocol clock consistently for worker daily limits. (#341)
+
+### Changed
+
+- Keep Windows OCI workspaces under LocalAppData using OS profile permissions. Windows ACL inspection and startup ancestor screening are not performed; identity-checked cleanup remains conservative. Default subprocess execution is unchanged.
+- Preserve 0.10.1-style Windows runtime discovery PATH and normal subprocess fallback instead of inheriting the operator PATH. Every OCI discovery, run, removal and query uses the unmounted `cli/` as cwd and isolated HOME/temp/config state. Explicit real-Docker tests use a separate trusted absolute-executable transport; that test transport is not a production runtime option.
+- Recommend a dedicated non-root launcher and verified rootless runtime mapping; root OCI launchers receive a local warning once per process.
+- Refresh code review onboarding and bilingual demo documentation, and improve failure-only site preview diagnostics. (#332, #333, #334, #339)
+
+### Upgrade notes
+
+- On Windows PCs with few CPU cores (for example, two), overlapping tasks can cause one task in the default sandbox to fail, as in previous versions.
+  コアの少ない（2 コアなどの）Windows の PC で、仕事が重なると、既定のサンドボックスの 1 つの仕事が失敗することがあります（前の版からある動き）。
+- OCI bind paths containing commas are not supported by the current mount argument syntax; use a profile/temp location without commas. After fixed inputs are removed, empty directories or CLI/output remnants may still remain. Input disappearance is not guaranteed after a hard kill, sharing denial, identity-check failure or unconfirmed I/O.
+- Windows operators should use an appropriately protected OS profile. On macOS and Windows, path-based operations do not establish an atomic boundary against concurrent replacement by the same account or a privileged host process.
+- Rootless HOME isolation remains consistent with 0.10.1; this update does not forward the host HOME or select a different runtime image store. Configure receive, notification and wake hooks with trusted absolute executable paths where required by their existing environment; hook execution/delivery mechanisms are unchanged, but worker startup consent now includes local command `--notify` under `--allow-local-pc`.
+- In the tested Ubuntu 24.04 WSL environment (Podman 4.9.3, UID 1001), ordinary rootless Podman used its cached image successfully, but both 0.10.1 and 0.10.2 launcher runs returned `image not known` with isolated per-run `HOME` and `--pull=never`. Compatibility with other rootless configurations remains unverified.
+- Temporary input and code are plaintext; conservative cleanup can leave files for manual review. There is no automatic legacy workspace sweep or secure-erasure guarantee.
+- On the tested Windows 10.0.26300 host with Node 22.23.5 and Docker Desktop, output containing a guest-created WSL link (tag `0xA000001D`) could not be removed (`EPERM`); the task result and external link target were preserved, and local cleanup warned that output remained. The same benign case completed removal with Node 24.22.3. This observation does not establish behavior for other Node versions or Windows environments.
+- If the daemon is unavailable, cleanup attempts to unlink the original fixed inputs. Active host clients can leave CLI state behind, and an unconfirmed container can leave output behind. Forcibly terminating the launcher before cleanup can leave the entire plaintext workspace.
+- For older workspaces on Windows, inspect the launcher's temporary directory (usually `%TEMP%`). On macOS and Linux, inspect the launcher's `TMPDIR` or the system temporary directory. Look for `acp-oci-*` and use a local warning or run record to identify the exact directory. Stop its processes and containers, verify the location and ownership, and remove only verified entries in that directory. Remove links themselves and remove empty directories last. Leave entries of uncertain origin for the operator to review.
+- Source installers and README package pins target 0.10.2; npm publication and hosted installer/site deployment require separate authorization.
+
 ## [0.10.1] - 2026-11-25
 
 Maintenance update for local relay dependencies, Windows command resolution and project tooling. Node >=22 and protocol 0.2.0 remain unchanged.

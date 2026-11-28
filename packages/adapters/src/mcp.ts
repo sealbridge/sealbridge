@@ -12,6 +12,7 @@ import type {
 } from '@acp/runtime';
 import type { Json } from '@acp/core';
 import { resolveCommand } from './command.js';
+import { requireNonRootLocalExecution } from '@acp/runtime-local';
 export interface McpAdapterOptions {
   client?: Client;
   transport?: Transport;
@@ -22,6 +23,9 @@ export interface McpAdapterOptions {
   proxy?: MCPProxy;
 }
 export class McpClientAdapter implements AgentAdapter {
+  assertStartup(): void {
+    if (this.options.stdio) requireNonRootLocalExecution();
+  }
   readonly id = 'mcp';
   readonly name = 'MCP Worker';
   readonly skills = [{ id: 'mcp-task', name: 'Capability guarded MCP task' }];

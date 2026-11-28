@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { requireNonRootLocalExecution } from './local-execution.js';
 import { spawn } from 'node:child_process';
 import { access, realpath, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -156,6 +157,7 @@ export interface CommandAdapterOptions {
   skills?: AgentSkill[];
 }
 export class CommandAgentAdapter implements AgentAdapter {
+  readonly assertStartup = requireNonRootLocalExecution;
   readonly id: string;
   readonly name: string;
   readonly skills: AgentSkill[];

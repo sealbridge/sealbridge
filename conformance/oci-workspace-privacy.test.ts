@@ -1,6 +1,7 @@
+import { removeTestFixture } from './test-fixture-cleanup.mjs';
 // SPDX-License-Identifier: Apache-2.0
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createOciWorkspace, warnOciWorkspace } from '../packages/sandbox/src/oci-workspace.js';
@@ -15,8 +16,7 @@ afterEach(async () => {
   vi.clearAllMocks();
   vi.useRealTimers();
   // Only synthetic fixtures registered by these tests, after all writes settled.
-  for (const directory of directories.splice(0))
-    await rm(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) await removeTestFixture(directory, 'acp-oci-');
 });
 async function fixture() {
   const workspace = await createOciWorkspace();
@@ -32,18 +32,18 @@ it('removes only original host-created files and the verified empty directory', 
   expect(await workspace.cleanup(true, Date.now() + 3000)).toBe(true);
   expect(existsSync(workspace.directory)).toBe(false);
   expect(unlink).toHaveBeenCalledTimes(3);
-  expect(rmdir).toHaveBeenCalledTimes(1);
+  expect(rmdir).toHaveBeenCalledTimes(3);
 });
 
-it('deletes individual payloads but retains arbitrary nested guest artifacts and warns without their names/content', async () => {
+it('retains unreleased output and warns without artifact names/content', async () => {
   const workspace = await fixture();
-  const nested = join(workspace.directory, 'synthetic-sensitive-name');
+  const nested = join(workspace.outputDirectory, 'synthetic-sensitive-name');
   await mkdir(nested);
   await writeFile(join(nested, 'private-log'), 'synthetic-private-output');
   const local = vi.fn();
   const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  expect(await workspace.cleanup(true, Date.now() + 3000)).toBe(false);
-  expect(existsSync(join(workspace.directory, 'task.json'))).toBe(false);
+  expect(await workspace.cleanup(false, Date.now() + 3000, true)).toBe(false);
+  expect(existsSync(join(workspace.inputDirectory, 'task.json'))).toBe(false);
   expect(await readFile(join(nested, 'private-log'), 'utf8')).toBe('synthetic-private-output');
   warnOciWorkspace(workspace.directory, local);
   expect(local).toHaveBeenCalledWith({
@@ -55,24 +55,39 @@ it('deletes individual payloads but retains arbitrary nested guest artifacts and
   expect(String(stderr.mock.calls[0][0])).toContain('manually remove when safe');
 });
 
-it('makes no deletion attempt without confirmed process release or after budget expiry', async () => {
+it('removes only fixed inputs while host CLI and container release are unconfirmed', async () => {
   const workspace = await fixture();
   expect(await workspace.cleanup(false, Date.now() + 3000)).toBe(false);
+  expect(existsSync(join(workspace.inputDirectory, 'task.json'))).toBe(false);
+  expect(existsSync(join(workspace.inputDirectory, 'runner.cjs'))).toBe(false);
+  expect(existsSync(join(workspace.cliDirectory, 'config.json'))).toBe(true);
+  expect(existsSync(workspace.outputDirectory)).toBe(true);
+  expect(unlink).toHaveBeenCalledTimes(2);
+});
+
+it('makes no deletion attempt after budget expiry', async () => {
+  const workspace = await fixture();
   expect(await workspace.cleanup(true, Date.now() - 1)).toBe(false);
   expect(unlink).not.toHaveBeenCalled();
   expect(rmdir).not.toHaveBeenCalled();
 });
 
-it('does not delete a guest replacement of a fixed-name host file', async () => {
-  const workspace = await fixture();
-  await rename(join(workspace.directory, 'task.json'), join(workspace.directory, 'original-held'));
-  await writeFile(join(workspace.directory, 'task.json'), 'synthetic-guest-replacement');
-  expect(await workspace.cleanup(true, Date.now() + 3000)).toBe(false);
-  expect(await readFile(join(workspace.directory, 'task.json'), 'utf8')).toBe(
-    'synthetic-guest-replacement',
-  );
-  expect(unlink).toHaveBeenCalledTimes(2);
-});
+it.each([true, false])(
+  'retains a fixed-name replacement with container release=%s',
+  async (released) => {
+    const workspace = await fixture();
+    await rename(
+      join(workspace.inputDirectory, 'task.json'),
+      join(workspace.inputDirectory, 'original-held'),
+    );
+    await writeFile(join(workspace.inputDirectory, 'task.json'), 'synthetic-guest-replacement');
+    expect(await workspace.cleanup(released, Date.now() + 3000, true)).toBe(false);
+    expect(await readFile(join(workspace.inputDirectory, 'task.json'), 'utf8')).toBe(
+      'synthetic-guest-replacement',
+    );
+    expect(unlink).toHaveBeenCalledTimes(2);
+  },
+);
 
 it('does not follow a junction replacing the workspace or delete its outside target', async () => {
   const workspace = await fixture();
@@ -86,7 +101,7 @@ it('does not follow a junction replacing the workspace or delete its outside tar
     process.platform === 'win32' ? 'junction' : 'dir',
   );
   expect(await workspace.cleanup(true, Date.now() + 3000)).toBe(false);
-  expect(await readFile(join(outside.directory, 'task.json'), 'utf8')).toContain(
+  expect(await readFile(join(outside.inputDirectory, 'task.json'), 'utf8')).toContain(
     'synthetic-private-input',
   );
   expect(unlink).not.toHaveBeenCalled();
@@ -95,13 +110,26 @@ it('does not follow a junction replacing the workspace or delete its outside tar
   await fs.unlink(workspace.directory);
 });
 
-it('attempts each owned entry once when unlink fails and reports remaining content', async () => {
+it.each([true, false])(
+  'attempts each entry once on unlink failure with container release=%s',
+  async (released) => {
+    const workspace = await fixture();
+    vi.mocked(unlink).mockRejectedValueOnce(new Error('synthetic EBUSY'));
+    expect(await workspace.cleanup(released, Date.now() + 3000, true)).toBe(false);
+    expect(unlink).toHaveBeenCalledTimes(3);
+    expect(existsSync(join(workspace.inputDirectory, 'task.json'))).toBe(true);
+    expect(existsSync(join(workspace.inputDirectory, 'runner.cjs'))).toBe(false);
+  },
+);
+
+it('retains unknown CLI storage after removing fixed config and inputs with closed clients', async () => {
   const workspace = await fixture();
-  vi.mocked(unlink).mockRejectedValueOnce(new Error('synthetic EBUSY'));
-  expect(await workspace.cleanup(true, Date.now() + 3000)).toBe(false);
-  expect(unlink).toHaveBeenCalledTimes(3);
-  expect(existsSync(join(workspace.directory, 'task.json'))).toBe(true);
-  expect(existsSync(join(workspace.directory, 'runner.cjs'))).toBe(false);
+  await mkdir(join(workspace.cliDirectory, 'synthetic-runtime-storage'));
+  expect(await workspace.cleanup(false, Date.now() + 3000, true)).toBe(false);
+  for (const path of ['input/task.json', 'input/runner.cjs', 'cli/config.json'])
+    expect(existsSync(join(workspace.directory, path))).toBe(false);
+  expect(existsSync(join(workspace.cliDirectory, 'synthetic-runtime-storage'))).toBe(true);
+  expect(existsSync(workspace.outputDirectory)).toBe(true);
 });
 
 it('stops scheduling deletion after unfinished I/O consumes the deadline; I/O itself is not cancelled', async () => {
