@@ -13,8 +13,10 @@ import {
 import { copyFile, link, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { runProcess, runningProcesses, type ProcessResult } from './installer-process.js';
+import { processDetails, shellMarker, withMarkerWitness } from './installer-process-diagnostics.js';
 import { windowsTestShell } from './windows-test-shell.js';
 
 const windows = process.platform === 'win32';
@@ -48,111 +50,6 @@ async function linkNode(destination: string) {
   // Unlike symlinks, hard links preserve each fixture's process.execPath and
   // adjacent version/npm lookup. They need no Windows symlink privilege.
   await link(stagedNode, destination);
-}
-
-const runningProcesses = new Set<Promise<ProcessResult>>();
-function runProcess(
-  command: string,
-  args: string[],
-  env: NodeJS.ProcessEnv,
-  timeoutMs: number,
-  signal?: AbortSignal,
-) {
-  const done = new Promise<ProcessResult>((resolve, reject) => {
-    const child = spawn(command, args, {
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: !windows,
-    });
-    let stdout = '';
-    let stderr = '';
-    let error: Error | undefined;
-    let timedOut = false;
-    let stopping = false;
-    let termination = Promise.resolve();
-    const stop = () => {
-      if (stopping) return;
-      stopping = true;
-      if (windows && child.pid) {
-        // Terminate Node queries as well as their PowerShell parent so their
-        // inherited pipes close before fixtures are removed.
-        termination = new Promise<void>((finish) => {
-          const killer = spawn(
-            join(process.env.SystemRoot!, 'System32/taskkill.exe'),
-            ['/PID', String(child.pid), '/T', '/F'],
-            {
-              stdio: 'ignore',
-              timeout: 1000,
-              killSignal: 'SIGKILL',
-            },
-          );
-          killer.on('error', () => child.kill('SIGKILL'));
-          killer.on('close', () => {
-            child.kill('SIGKILL');
-            finish();
-          });
-        });
-      } else if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          child.kill('SIGKILL');
-        }
-      }
-    };
-    const timer = setTimeout(() => {
-      // The exit event and pipe-close event can be separated on a busy Windows
-      // runner. A process that already exited has met its execution deadline.
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      timedOut = true;
-      stop();
-    }, timeoutMs);
-    child.once('exit', () => clearTimeout(timer));
-    signal?.addEventListener('abort', stop, { once: true });
-    if (signal?.aborted) stop();
-    child.stdout.setEncoding('utf8').on('data', (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.setEncoding('utf8').on('data', (chunk) => {
-      stderr += chunk;
-    });
-    child.on('error', (cause) => {
-      error = cause;
-    });
-    child.on('close', (status, exitSignal) => {
-      void (async () => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', stop);
-        await termination;
-        resolve({ status, signal: exitSignal, stdout, stderr, error, timedOut });
-      })().catch((error: unknown) => {
-        reject(error);
-      });
-    });
-  });
-  runningProcesses.add(done);
-  const forget = () => {
-    runningProcesses.delete(done);
-  };
-  void done.then(forget, forget);
-  return done;
-}
-
-type ProcessResult = {
-  status: number | null;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  error?: Error;
-  timedOut: boolean;
-};
-function processDetails(result: ProcessResult) {
-  const phases = [...result.stderr.matchAll(/^\[installer phase\] (.*)$/gm)];
-  return (
-    `Last phase: ${phases.at(-1)?.[1].trim() ?? 'process launch (no shell marker)'}\n` +
-    `timedOut=${result.timedOut}; exit=${result.status}; signal=${result.signal}; error=${result.error?.message ?? 'none'}\n` +
-    `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`
-  );
 }
 
 function expectSuccess(result: ProcessResult) {
@@ -208,7 +105,7 @@ if (fs.existsSync(file)) {
     await writeFile(
       driver,
       `
-[Console]::Error.WriteLine('[installer phase] shell started')
+${shellMarker}
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $tokens = $null
@@ -285,12 +182,14 @@ $runtime = Get-SealbridgeNode -Prefix $env:SEALBRIDGE_TEST_PREFIX
     env.SEALBRIDGE_TEST_PREFIX = usePrefix ? prefix : join(caseDir, 'empty prefix');
     delete env.NODE_OPTIONS;
     if (useFakeVersion) env.NODE_OPTIONS = `--require "${preload.replaceAll('\\', '/')}"`;
-    const result = await runProcess(
-      shells.get(shell)!,
-      ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver],
-      environmentForShell(shell, env),
-      timeoutMs,
-      signal,
+    const result = await withMarkerWitness((marker) =>
+      runProcess(
+        shells.get(shell)!,
+        ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver],
+        environmentForShell(shell, { ...env, SEALBRIDGE_TEST_MARKER: marker }),
+        timeoutMs,
+        signal,
+      ),
     );
     expectSuccess(result);
     expect(() => JSON.parse(result.stdout.trim()), processDetails(result)).not.toThrow();
